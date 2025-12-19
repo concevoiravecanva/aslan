@@ -1,0 +1,103 @@
+#include "lua_host.h"
+#include <stdio.h>
+#include <string.h>
+
+#ifdef NO_LUA
+// Stub implementation
+lua_State* scripting_init(Document* doc) {
+    (void)doc;
+    printf("[WARN] Lua support disabled (NO_LUA defined).\n");
+    return (lua_State*)1; // Return dummy non-NULL
+}
+
+void scripting_shutdown(lua_State* L) {
+    (void)L;
+}
+
+int scripting_run_file(lua_State* L, const char* filepath) {
+    (void)L;
+    printf("[WARN] Cannot run script '%s': Lua disabled.\n", filepath);
+    return 0;
+}
+
+#else
+
+// Pointeur global vers le document courant pour les callbacks Lua
+// Dans une architecture plus complexe, on passerait cela via un userdata ou upvalue
+static Document* g_current_doc = NULL;
+
+// --- Bindings C -> Lua ---
+
+// lua: create_rect(name, x, y, w, h) -> node_id
+static int l_create_rect(lua_State* L) {
+    const char* name = luaL_checkstring(L, 1);
+    float x = (float)luaL_checknumber(L, 2);
+    float y = (float)luaL_checknumber(L, 3);
+    float w = (float)luaL_checknumber(L, 4);
+    float h = (float)luaL_checknumber(L, 5);
+    
+    if (!g_current_doc) return 0;
+    
+    Node* node = doc_create_node(g_current_doc, NODE_TYPE_RECT, name);
+    node->x = x;
+    node->y = y;
+    node->width = w;
+    node->height = h;
+    
+    // Ajout à la racine par défaut pour ce prototype
+    doc_add_child(g_current_doc->root, node);
+    
+    lua_pushinteger(L, node->id);
+    return 1; // Retourne 1 valeur (l'ID)
+}
+
+// lua: log_info(message)
+static int l_log_info(lua_State* L) {
+    const char* msg = luaL_checkstring(L, 1);
+    printf("[LUA INFO] %s\n", msg);
+    return 0;
+}
+
+// Enregistrement des fonctions
+static const struct luaL_Reg aslan_lib[] = {
+    {"create_rect", l_create_rect},
+    {"log", l_log_info},
+    {NULL, NULL}
+};
+
+int luaopen_aslan(lua_State* L) {
+    luaL_newlib(L, aslan_lib);
+    return 1;
+}
+
+// --- Gestion du cycle de vie ---
+
+lua_State* scripting_init(Document* doc) {
+    g_current_doc = doc;
+    
+    lua_State* L = luaL_newstate();
+    luaL_openlibs(L); // Charge les libs standard (base, string, math...)
+    
+    // Enregistre notre module 'aslan' globalement pour simplifier les scripts
+    luaL_requiref(L, "aslan", luaopen_aslan, 1);
+    lua_pop(L, 1); // Retire la copie laissée par requiref
+    
+    return L;
+}
+
+void scripting_shutdown(lua_State* L) {
+    if (L) lua_close(L);
+    g_current_doc = NULL;
+}
+
+int scripting_run_file(lua_State* L, const char* filepath) {
+    if (luaL_dofile(L, filepath) != LUA_OK) {
+        const char* error = lua_tostring(L, -1);
+        fprintf(stderr, "[LUA ERROR] %s\n", error);
+        lua_pop(L, 1);
+        return 0;
+    }
+    return 1;
+}
+
+#endif
