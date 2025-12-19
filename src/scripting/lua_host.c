@@ -85,6 +85,22 @@ static int l_get_node_at(lua_State* L) {
     return 0;
 }
 
+// lua: get_node_rect(id) -> x, y, w, h
+static int l_get_node_rect(lua_State* L) {
+    uint32_t id = (uint32_t)luaL_checkinteger(L, 1);
+    if (!g_current_doc) return 0;
+    
+    Node* node = doc_find_node_by_id(g_current_doc, id);
+    if (node) {
+        lua_pushnumber(L, node->x);
+        lua_pushnumber(L, node->y);
+        lua_pushnumber(L, node->width);
+        lua_pushnumber(L, node->height);
+        return 4;
+    }
+    return 0;
+}
+
 // lua: set_node_pos(id, x, y)
 static int l_set_node_pos(lua_State* L) {
     uint32_t id = (uint32_t)luaL_checkinteger(L, 1);
@@ -115,6 +131,7 @@ static const struct luaL_Reg aslan_lib[] = {
     {"execute", l_execute},
     {"create_rect", l_create_rect},
     {"get_node_at", l_get_node_at},
+    {"get_node_rect", l_get_node_rect},
     {"get_selected_id", l_get_selected_id},
     {"log", l_log_info},
     {NULL, NULL}

@@ -35,6 +35,9 @@ void ui_handle_event(UIHost* ui, SDL_Event* evt) {
 }
 
 void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
+    // On synchronise la sélection de l'UI avec celle de l'engine si nécessaire
+    // (L'engine est la source de vérité pour les commandes 'select')
+    
     // Panneau Inspecteur à droite
     if (nk_begin(ui->ctx, "Inspector", nk_rect(win_w - 250, 0, 250, win_h),
         NK_WINDOW_BORDER|NK_WINDOW_TITLE)) {

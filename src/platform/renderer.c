@@ -79,6 +79,36 @@ void renderer_draw_document(Renderer* r, const Document* doc) {
     draw_node_recursive(r, doc->root);
 }
 
+void renderer_draw_selection(Renderer* r, Node* selected_node) {
+    if (!selected_node) return;
+
+    // On utilise une épaisseur de trait plus visible
+    SDL_Rect rect = { (int)selected_node->x, (int)selected_node->y, (int)selected_node->width, (int)selected_node->height };
+    
+    // 1. Bordure de sélection (Bleu vif)
+    SDL_SetRenderDrawColor(r->sdl_renderer, 0, 120, 215, 255);
+    SDL_RenderDrawRect(r->sdl_renderer, &rect);
+    
+    // On dessine une deuxième bordure intérieure pour plus de visibilité
+    SDL_Rect inner = { rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2 };
+    SDL_RenderDrawRect(r->sdl_renderer, &inner);
+    
+    // 2. Poignée de redimensionnement (petit carré en bas à droite)
+    int handle_size = 10;
+    SDL_Rect handle = { 
+        (int)(selected_node->x + selected_node->width - handle_size), 
+        (int)(selected_node->y + selected_node->height - handle_size), 
+        handle_size, handle_size 
+    };
+    
+    // Fond blanc pour la poignée
+    SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 255);
+    SDL_RenderFillRect(r->sdl_renderer, &handle);
+    // Bordure bleue pour la poignée
+    SDL_SetRenderDrawColor(r->sdl_renderer, 0, 120, 215, 255);
+    SDL_RenderDrawRect(r->sdl_renderer, &handle);
+}
+
 void renderer_end(Renderer* r) {
     SDL_RenderPresent(r->sdl_renderer);
 }

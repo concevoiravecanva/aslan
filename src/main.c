@@ -96,9 +96,15 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
 
         // 2. Rendu
         renderer_begin(renderer);
+        // 3. Rendu du document
         renderer_draw_document(renderer, engine->doc);
         
-        // Rendu de l'UI par dessus
+        // 4. Rendu de la sélection (Gizmos)
+        if (ui->selected_node) {
+            renderer_draw_selection(renderer, ui->selected_node);
+        }
+        
+        // 5. Rendu de l'UI par dessus
         int ww, wh;
         SDL_GetWindowSize(renderer->window, &ww, &wh);
         ui_render(ui, engine, ww, wh);

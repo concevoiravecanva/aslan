@@ -16,6 +16,7 @@ void renderer_destroy(Renderer* r);
 
 void renderer_begin(Renderer* r);
 void renderer_draw_document(Renderer* r, const Document* doc);
+void renderer_draw_selection(Renderer* r, Node* selected_node);
 void renderer_end(Renderer* r);
 
 #endif
