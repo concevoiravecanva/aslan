@@ -6,6 +6,7 @@
 #include "platform/platform.h"
 #include "core/engine.h"
 #include "platform/renderer.h"
+#include "platform/ui_host.h"
 
 // Boucle principale simplifiée
 void main_loop(Document* doc) {
@@ -61,61 +62,81 @@ void run_interactive_mode(Engine* engine) {
 }
 
 // Boucle principale visuelle
-void run_visual_mode(Engine* engine, Renderer* renderer) {
+void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
     SDL_Event e;
     Node* dragged_node = NULL;
     float offset_x = 0, offset_y = 0;
     
-    printf("\n=== Aslan Visual Mode ===\n");
-    printf("Interactions:\n");
-    printf("  - Drag & Drop blocks with the mouse\n");
-    printf("  - Close the window to exit\n");
-    
     while (engine->is_running) {
         // 1. Gestion des événements (Input)
+        nk_input_begin(ui->ctx);
         while (SDL_PollEvent(&e) != 0) {
             if (e.type == SDL_QUIT) {
                 engine->is_running = false;
             }
-            else if (e.type == SDL_MOUSEBUTTONDOWN) {
-                if (e.button.button == SDL_BUTTON_LEFT) {
-                    float mx = (float)e.button.x;
-                    float my = (float)e.button.y;
-                    dragged_node = doc_find_node_at(engine->doc, mx, my);
-                    if (dragged_node) {
-                        offset_x = mx - dragged_node->x;
-                        offset_y = my - dragged_node->y;
-                        printf("Selected: %s (ID: %d)\n", dragged_node->name, dragged_node->id);
+            
+            // On laisse Nuklear intercepter les événements en premier
+            ui_handle_event(ui, &e);
+            
+            // Si Nuklear n'a pas capturé la souris, on gère le canvas
+            if (!nk_item_is_any_active(ui->ctx)) {
+                if (e.type == SDL_MOUSEBUTTONDOWN) {
+                    if (e.button.button == SDL_BUTTON_LEFT) {
+                        int imx, imy;
+                        SDL_GetMouseState(&imx, &imy);
+                        float mx = (float)imx;
+                        float my = (float)imy;
+                        
+                        dragged_node = doc_find_node_at(engine->doc, mx, my);
+                        ui->selected_node = dragged_node; // Mise à jour de la sélection UI
+                        
+                        if (dragged_node) {
+                            offset_x = mx - dragged_node->x;
+                            offset_y = my - dragged_node->y;
+                        }
+                    }
+                }
+                else if (e.type == SDL_MOUSEBUTTONUP) {
+                    if (e.button.button == SDL_BUTTON_LEFT) {
+                        dragged_node = NULL;
                     }
                 }
             }
-            else if (e.type == SDL_MOUSEBUTTONUP) {
-                if (e.button.button == SDL_BUTTON_LEFT) {
-                    dragged_node = NULL;
-                }
-            }
-            else if (e.type == SDL_MOUSEMOTION) {
-                if (dragged_node) {
-                    dragged_node->x = (float)e.motion.x - offset_x;
-                    dragged_node->y = (float)e.motion.y - offset_y;
-                }
+        }
+        nk_input_end(ui->ctx);
+
+        // Gestion du déplacement
+        if (dragged_node && !nk_item_is_any_active(ui->ctx)) {
+            int imx, imy;
+            Uint32 buttons = SDL_GetMouseState(&imx, &imy);
+            if (buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) {
+                dragged_node->x = (float)imx - offset_x;
+                dragged_node->y = (float)imy - offset_y;
+            } else {
+                dragged_node = NULL;
             }
         }
         
-        // 2. Rendu (Se met à jour automatiquement à chaque frame)
+        // 2. Rendu
         renderer_begin(renderer);
         renderer_draw_document(renderer, engine->doc);
+        
+        // Rendu de l'UI par dessus
+        int ww, wh;
+        SDL_GetWindowSize(renderer->window, &ww, &wh);
+        ui_render(ui, engine, ww, wh);
+        
         renderer_end(renderer);
         
-        SDL_Delay(16); // ~60 FPS
+        SDL_Delay(16);
     }
 }
 
 int main(int argc, char** argv) {
-    (void)argc; (void)argv; // Unused
+    (void)argc; (void)argv;
     
     platform_init();
-    platform_log("Starting Aslan Engine (CMake Build)...");
+    platform_log("Starting Aslan Visual Engine...");
     
     // 1. Initialisation de l'Engine (Core)
     Engine* engine = engine_create();
@@ -124,31 +145,30 @@ int main(int argc, char** argv) {
     // 2. Initialisation du Renderer (SDL2)
     Renderer* renderer = renderer_create("Aslan Editor v0.1", 1024, 768);
     if (!renderer) {
-        platform_log("Failed to create renderer.");
         engine_destroy(engine);
         return 1;
     }
 
     // 3. Initialisation du Scripting (Logic)
     lua_State* L = scripting_init(engine->doc);
-    if (!L) {
-        platform_log("Failed to initialize Lua.");
-    } else {
-        platform_log("Lua scripting engine initialized.");
-    }
 
-    // 4. Chargement d'un script de démarrage
-    const char* script_path = "scripts/test_tool.lua";
-    if (L) {
-        platform_log("Running script: %s", script_path);
-        scripting_run_file(L, script_path);
-    }
+    // 4. Initialisation de l'UI (Nuklear)
+    UIHost* ui = ui_init(renderer->window, renderer->sdl_renderer, L);
+
+    // 5. Création de quelques objets par défaut
+    engine_execute_command(engine, "rect Header 10 10 750 60");
+    engine_execute_command(engine, "rect Sidebar 10 80 200 678");
+    engine_execute_command(engine, "rect Content 220 80 540 678");
     
-    // 5. Lancement du mode visuel
-    run_visual_mode(engine, renderer);
-    
-    // 6. Nettoyage
-    if (L) scripting_shutdown(L);
+    // 6. Chargement des scripts
+    scripting_run_file(L, "scripts/test_tool.lua");
+    scripting_run_file(L, "scripts/tools.lua");
+
+    // 7. Lancement du mode visuel
+    run_visual_mode(engine, renderer, ui);
+
+    // 8. Cleanup
+    ui_shutdown(ui);
     renderer_destroy(renderer);
     engine_destroy(engine);
     platform_shutdown();

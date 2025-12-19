@@ -14,6 +14,7 @@ SRC = src/main.c \
       src/scripting/lua_host.c \
       src/platform/platform.c \
       src/platform/renderer.c \
+      src/platform/ui_host.c \
       src/core/engine.c
 
 OBJ = $(SRC:.c=.o)

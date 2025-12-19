@@ -58,9 +58,40 @@ static int l_log_info(lua_State* L) {
     return 0;
 }
 
+// lua: get_node_at(x, y) -> node_id or nil
+static int l_get_node_at(lua_State* L) {
+    float x = (float)luaL_checknumber(L, 1);
+    float y = (float)luaL_checknumber(L, 2);
+    if (!g_current_doc) return 0;
+    
+    Node* node = doc_find_node_at(g_current_doc, x, y);
+    if (node) {
+        lua_pushinteger(L, node->id);
+        return 1;
+    }
+    return 0;
+}
+
+// lua: set_node_pos(id, x, y)
+static int l_set_node_pos(lua_State* L) {
+    uint32_t id = (uint32_t)luaL_checkinteger(L, 1);
+    float x = (float)luaL_checknumber(L, 2);
+    float y = (float)luaL_checknumber(L, 3);
+    
+    if (!g_current_doc) return 0;
+    Node* node = doc_find_node_by_id(g_current_doc, id);
+    if (node) {
+        node->x = x;
+        node->y = y;
+    }
+    return 0;
+}
+
 // Enregistrement des fonctions
 static const struct luaL_Reg aslan_lib[] = {
     {"create_rect", l_create_rect},
+    {"get_node_at", l_get_node_at},
+    {"set_node_pos", l_set_node_pos},
     {"log", l_log_info},
     {NULL, NULL}
 };
@@ -100,4 +131,19 @@ int scripting_run_file(lua_State* L, const char* filepath) {
     return 1;
 }
 
+void scripting_call_event(lua_State* L, const char* func_name, float x, float y) {
+    if (!L) return;
+    
+    lua_getglobal(L, func_name);
+    if (lua_isfunction(L, -1)) {
+        lua_pushnumber(L, x);
+        lua_pushnumber(L, y);
+        if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+            fprintf(stderr, "[LUA EVENT ERROR] %s\n", lua_tostring(L, -1));
+            lua_pop(L, 1);
+        }
+    } else {
+        lua_pop(L, 1);
+    }
+}
 #endif

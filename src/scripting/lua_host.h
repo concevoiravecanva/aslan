@@ -21,4 +21,7 @@ void scripting_shutdown(lua_State* L);
 // Exécute un fichier de script
 int scripting_run_file(lua_State* L, const char* filepath);
 
+// Appelle une fonction Lua spécifique (ex: pour les événements)
+void scripting_call_event(lua_State* L, const char* func_name, float x, float y);
+
 #endif
