@@ -25,4 +25,7 @@ void engine_destroy(Engine* engine);
 // Retourne true si la commande a été reconnue
 bool engine_execute_command(Engine* engine, const char* command_line);
 
+// Charge et rejoue le fichier history.log
+void engine_load_history(Engine* engine);
+
 #endif

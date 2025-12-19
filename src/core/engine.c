@@ -94,19 +94,95 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
         printf("  move <id> <x> <y>            : Move a node\n");
         printf("  resize <id> <w> <h>          : Resize a node\n");
         printf("  select <id>                  : Select a node\n");
+        printf("  undo                         : Undo last command\n");
         printf("  list                         : Show document tree\n");
         printf("  exit                         : Quit application\n");
         success = true;
     }
 
-    // Si la commande a réussi et qu'elle modifie l'état, on la logue
+    // Commande: undo
+    else if (strncmp(command_line, "undo", 4) == 0) {
+        // L'undo dans un AOF est simple : on ferme le fichier, on le tronque d'une ligne, et on recharge.
+        // Pour faire simple ici : on va lire tout le fichier sauf la dernière ligne, 
+        // le réécrire, et recharger l'état.
+        if (engine->history_file) {
+            fclose(engine->history_file);
+            engine->history_file = NULL;
+            
+            // Lecture de toutes les lignes
+            FILE* f = fopen("history.log", "r");
+            if (f) {
+                char** lines = malloc(1000 * sizeof(char*));
+                int count = 0;
+                char buffer[256];
+                while (fgets(buffer, sizeof(buffer), f) && count < 1000) {
+                    lines[count++] = strdup(buffer);
+                }
+                fclose(f);
+                
+                // Réécriture de toutes les lignes sauf la dernière (si elle n'est pas un commentaire)
+                f = fopen("history.log", "w");
+                if (f) {
+                    // On cherche la dernière ligne qui n'est pas un commentaire
+                    int last_valid = -1;
+                    for (int i = 0; i < count; i++) {
+                        if (lines[i][0] != '-' && lines[i][0] != '\n') last_valid = i;
+                    }
+                    
+                    for (int i = 0; i < count; i++) {
+                        if (i == last_valid) continue; 
+                        fprintf(f, "%s", lines[i]);
+                    }
+                    fclose(f);
+                }
+                
+                for (int i = 0; i < count; i++) free(lines[i]);
+                free(lines);
+            }
+            
+            // Réinitialiser le document et rejouer
+            doc_destroy(engine->doc);
+            engine->doc = doc_create();
+            engine_load_history(engine);
+            
+            // Réouvrir le log en append
+            engine->history_file = fopen("history.log", "a");
+        }
+        return true; // On ne log pas l'undo lui-même
+    }
+
+    // Si la commande a réussi et n'est pas une commande de lecture (list/help), on l'enregistre
     if (success && engine->history_file && 
-        (strncmp(command_line, "rect", 4) == 0 || 
-         strncmp(command_line, "move", 4) == 0 || 
-         strncmp(command_line, "resize", 4) == 0)) {
+        strncmp(command_line, "list", 4) != 0 && 
+        strncmp(command_line, "help", 4) != 0 &&
+        strncmp(command_line, "exit", 4) != 0) {
         fprintf(engine->history_file, "%s\n", command_line);
         fflush(engine->history_file);
     }
-
+    
     return success;
+}
+
+void engine_load_history(Engine* engine) {
+    FILE* f = fopen("history.log", "r");
+    if (!f) return;
+
+    printf(">> Replaying history...\n");
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        // Enlever le saut de ligne
+        line[strcspn(line, "\r\n")] = 0;
+        
+        // Ignorer les commentaires ou lignes vides
+        if (line[0] == '-' || line[0] == '\0') continue;
+        
+        // Exécuter sans ré-enregistrer (on passe NULL pour history_file temporairement ou on gère dans execute)
+        // Pour faire simple ici, on appelle engine_execute_command mais on désactive le log
+        FILE* temp = engine->history_file;
+        engine->history_file = NULL;
+        engine_execute_command(engine, line);
+        engine->history_file = temp;
+    }
+    fclose(f);
+    printf(">> History replayed.\n");
 }

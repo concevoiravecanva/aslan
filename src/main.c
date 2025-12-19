@@ -133,19 +133,24 @@ int main(int argc, char** argv) {
     UIHost* ui = ui_init(renderer->window, renderer->sdl_renderer, L);
     engine->ui_host = ui; // Lier l'UI à l'engine
 
-    // 5. Création de quelques objets par défaut
-    engine_execute_command(engine, "rect Header 10 10 750 60");
-    engine_execute_command(engine, "rect Sidebar 10 80 200 678");
-    engine_execute_command(engine, "rect Content 220 80 540 678");
+    // 5. Rejouer l'historique (AOF)
+    engine_load_history(engine);
     
-    // 6. Chargement des scripts
+    // 6. Création d'objets par défaut seulement si le document est vide
+    if (engine->doc->root->first_child == NULL) {
+        engine_execute_command(engine, "rect Header 10 10 750 60");
+        engine_execute_command(engine, "rect Sidebar 10 80 200 678");
+        engine_execute_command(engine, "rect Content 220 80 540 678");
+    }
+    
+    // 7. Chargement des scripts
     scripting_run_file(L, "scripts/test_tool.lua");
     scripting_run_file(L, "scripts/tools.lua");
 
-    // 7. Lancement du mode visuel
+    // 8. Lancement du mode visuel
     run_visual_mode(engine, renderer, ui);
 
-    // 8. Cleanup
+    // 9. Cleanup
     ui_shutdown(ui);
     renderer_destroy(renderer);
     engine_destroy(engine);
