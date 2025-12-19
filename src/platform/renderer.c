@@ -94,10 +94,10 @@ void renderer_draw_selection(Renderer* r, Node* selected_node) {
     SDL_RenderDrawRect(r->sdl_renderer, &inner);
     
     // 2. Poignée de redimensionnement (petit carré en bas à droite)
-    int handle_size = 10;
+    int handle_size = 20;
     SDL_Rect handle = { 
-        (int)(selected_node->x + selected_node->width - handle_size), 
-        (int)(selected_node->y + selected_node->height - handle_size), 
+        (int)(selected_node->x + selected_node->width - handle_size / 2), 
+        (int)(selected_node->y + selected_node->height - handle_size / 2), 
         handle_size, handle_size 
     };
     

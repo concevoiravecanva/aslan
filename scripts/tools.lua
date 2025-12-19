@@ -16,8 +16,8 @@ function on_mouse_down(x, y)
 
         local nx, ny, nw, nh = aslan.get_node_rect(dragged_node_id)
         
-        -- Détection si on clique sur le coin inférieur droit (zone de 15x15 pixels)
-        local threshold = 15
+        -- Détection si on clique sur le coin inférieur droit (zone de 20x20 pixels)
+        local threshold = 20
         if x > (nx + nw - threshold) and y > (ny + nh - threshold) then
             drag_mode = "resize"
             aslan.log("Lua resizing node: " .. dragged_node_id)
