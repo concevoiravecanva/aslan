@@ -3,12 +3,19 @@
 
 #include "../document/document.h"
 #include <stdbool.h>
+#include <stdio.h>
 
-typedef struct {
+// Forward declaration
+struct UIHost;
+
+struct Engine {
     Document* doc;
     bool is_running;
-    // Plus tard : Window* window, LuaState* L, etc.
-} Engine;
+    struct UIHost* ui_host; // Référence vers l'UI pour la sélection
+    FILE* history_file; // Fichier pour le journal des commandes (AOF)
+};
+
+typedef struct Engine Engine;
 
 // Singleton-like access ou passage de contexte
 Engine* engine_create(void);

@@ -12,3 +12,12 @@ local id3 = aslan.create_rect("Content", 210, 110, 580, 480)
 aslan.log("Created Content with ID: " .. id3)
 
 aslan.log("Tool execution finished.")
+
+-- Test du nouveau pont de commande
+aslan.log("Testing command bridge...")
+local success = aslan.execute("rect LuaRect 300 300 100 100")
+if success then
+    aslan.log("Command 'rect' executed successfully from Lua!")
+else
+    aslan.log("Command 'rect' failed from Lua.")
+end

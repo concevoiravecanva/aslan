@@ -64,8 +64,6 @@ void run_interactive_mode(Engine* engine) {
 // Boucle principale visuelle
 void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
     SDL_Event e;
-    Node* dragged_node = NULL;
-    float offset_x = 0, offset_y = 0;
     
     while (engine->is_running) {
         // 1. Gestion des événements (Input)
@@ -75,48 +73,27 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                 engine->is_running = false;
             }
             
-            // On laisse Nuklear intercepter les événements en premier
             ui_handle_event(ui, &e);
             
-            // Si Nuklear n'a pas capturé la souris, on gère le canvas
             if (!nk_item_is_any_active(ui->ctx)) {
+                int imx, imy;
+                SDL_GetMouseState(&imx, &imy);
+                float mx = (float)imx;
+                float my = (float)imy;
+
                 if (e.type == SDL_MOUSEBUTTONDOWN) {
-                    if (e.button.button == SDL_BUTTON_LEFT) {
-                        int imx, imy;
-                        SDL_GetMouseState(&imx, &imy);
-                        float mx = (float)imx;
-                        float my = (float)imy;
-                        
-                        dragged_node = doc_find_node_at(engine->doc, mx, my);
-                        ui->selected_node = dragged_node; // Mise à jour de la sélection UI
-                        
-                        if (dragged_node) {
-                            offset_x = mx - dragged_node->x;
-                            offset_y = my - dragged_node->y;
-                        }
-                    }
+                    scripting_call_event(ui->L, "on_mouse_down", mx, my);
                 }
                 else if (e.type == SDL_MOUSEBUTTONUP) {
-                    if (e.button.button == SDL_BUTTON_LEFT) {
-                        dragged_node = NULL;
-                    }
+                    scripting_call_event(ui->L, "on_mouse_up", mx, my);
+                }
+                else if (e.type == SDL_MOUSEMOTION) {
+                    scripting_call_event(ui->L, "on_mouse_move", mx, my);
                 }
             }
         }
         nk_input_end(ui->ctx);
 
-        // Gestion du déplacement
-        if (dragged_node && !nk_item_is_any_active(ui->ctx)) {
-            int imx, imy;
-            Uint32 buttons = SDL_GetMouseState(&imx, &imy);
-            if (buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) {
-                dragged_node->x = (float)imx - offset_x;
-                dragged_node->y = (float)imy - offset_y;
-            } else {
-                dragged_node = NULL;
-            }
-        }
-        
         // 2. Rendu
         renderer_begin(renderer);
         renderer_draw_document(renderer, engine->doc);
@@ -150,10 +127,11 @@ int main(int argc, char** argv) {
     }
 
     // 3. Initialisation du Scripting (Logic)
-    lua_State* L = scripting_init(engine->doc);
+    lua_State* L = scripting_init(engine);
 
     // 4. Initialisation de l'UI (Nuklear)
     UIHost* ui = ui_init(renderer->window, renderer->sdl_renderer, L);
+    engine->ui_host = ui; // Lier l'UI à l'engine
 
     // 5. Création de quelques objets par défaut
     engine_execute_command(engine, "rect Header 10 10 750 60");

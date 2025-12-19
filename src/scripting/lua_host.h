@@ -3,6 +3,10 @@
 
 #include "../document/document.h"
 
+// Forward declaration
+struct Engine;
+typedef struct Engine Engine;
+
 #ifdef NO_LUA
     // Stub types for compilation without Lua
     typedef struct lua_State lua_State;
@@ -13,7 +17,7 @@
 #endif
 
 // Initialise l'environnement Lua et charge les bindings
-lua_State* scripting_init(Document* doc);
+lua_State* scripting_init(Engine* engine);
 
 // Ferme l'environnement Lua
 void scripting_shutdown(lua_State* L);

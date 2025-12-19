@@ -1,4 +1,6 @@
 #include "lua_host.h"
+#include "../core/engine.h"
+#include "../platform/ui_host.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -25,8 +27,19 @@ int scripting_run_file(lua_State* L, const char* filepath) {
 // Pointeur global vers le document courant pour les callbacks Lua
 // Dans une architecture plus complexe, on passerait cela via un userdata ou upvalue
 static Document* g_current_doc = NULL;
+static Engine* g_current_engine = NULL;
 
 // --- Bindings C -> Lua ---
+
+// lua: execute(command_string) -> bool
+static int l_execute(lua_State* L) {
+    const char* cmd = luaL_checkstring(L, 1);
+    if (!g_current_engine) return 0;
+    
+    bool success = engine_execute_command(g_current_engine, cmd);
+    lua_pushboolean(L, success);
+    return 1;
+}
 
 // lua: create_rect(name, x, y, w, h) -> node_id
 static int l_create_rect(lua_State* L) {
@@ -87,11 +100,22 @@ static int l_set_node_pos(lua_State* L) {
     return 0;
 }
 
+// lua: get_selected_id() -> node_id or nil
+static int l_get_selected_id(lua_State* L) {
+    if (!g_current_engine || !g_current_engine->ui_host) return 0;
+    if (g_current_engine->ui_host->selected_node) {
+        lua_pushinteger(L, g_current_engine->ui_host->selected_node->id);
+        return 1;
+    }
+    return 0;
+}
+
 // Enregistrement des fonctions
 static const struct luaL_Reg aslan_lib[] = {
+    {"execute", l_execute},
     {"create_rect", l_create_rect},
     {"get_node_at", l_get_node_at},
-    {"set_node_pos", l_set_node_pos},
+    {"get_selected_id", l_get_selected_id},
     {"log", l_log_info},
     {NULL, NULL}
 };
@@ -103,8 +127,9 @@ int luaopen_aslan(lua_State* L) {
 
 // --- Gestion du cycle de vie ---
 
-lua_State* scripting_init(Document* doc) {
-    g_current_doc = doc;
+lua_State* scripting_init(Engine* engine) {
+    g_current_engine = engine;
+    g_current_doc = engine->doc;
     
     lua_State* L = luaL_newstate();
     luaL_openlibs(L); // Charge les libs standard (base, string, math...)
@@ -118,6 +143,7 @@ lua_State* scripting_init(Document* doc) {
 
 void scripting_shutdown(lua_State* L) {
     if (L) lua_close(L);
+    g_current_engine = NULL;
     g_current_doc = NULL;
 }
 

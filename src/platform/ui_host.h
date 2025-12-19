@@ -20,7 +20,7 @@
 #define NK_MEMCPY memcpy
 #include "../../include/nuklear.h"
 
-typedef struct {
+typedef struct UIHost {
     struct nk_context* ctx; // Utiliser un pointeur vers le contexte géré par nk_sdl
     struct nk_font_atlas atlas;
     Node* selected_node;
