@@ -93,20 +93,33 @@ void renderer_draw_selection(Renderer* r, Node* selected_node) {
     SDL_Rect inner = { rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2 };
     SDL_RenderDrawRect(r->sdl_renderer, &inner);
     
-    // 2. Poignée de redimensionnement (petit carré en bas à droite)
-    int handle_size = 20;
-    SDL_Rect handle = { 
-        (int)(selected_node->x + selected_node->width - handle_size / 2), 
-        (int)(selected_node->y + selected_node->height - handle_size / 2), 
-        handle_size, handle_size 
-    };
-    
-    // Fond blanc pour la poignée
+    // 2. Poignées de redimensionnement (carrés) dans chaque coin, *à l'intérieur* de la forme
+    const int handle_size = 18;
+
+    SDL_Rect handle_tl = { (int)selected_node->x,
+                           (int)selected_node->y,
+                           handle_size, handle_size };
+    SDL_Rect handle_tr = { (int)(selected_node->x + selected_node->width - handle_size),
+                           (int)selected_node->y,
+                           handle_size, handle_size };
+    SDL_Rect handle_bl = { (int)selected_node->x,
+                           (int)(selected_node->y + selected_node->height - handle_size),
+                           handle_size, handle_size };
+    SDL_Rect handle_br = { (int)(selected_node->x + selected_node->width - handle_size),
+                           (int)(selected_node->y + selected_node->height - handle_size),
+                           handle_size, handle_size };
+
     SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 255);
-    SDL_RenderFillRect(r->sdl_renderer, &handle);
-    // Bordure bleue pour la poignée
+    SDL_RenderFillRect(r->sdl_renderer, &handle_tl);
+    SDL_RenderFillRect(r->sdl_renderer, &handle_tr);
+    SDL_RenderFillRect(r->sdl_renderer, &handle_bl);
+    SDL_RenderFillRect(r->sdl_renderer, &handle_br);
+
     SDL_SetRenderDrawColor(r->sdl_renderer, 0, 120, 215, 255);
-    SDL_RenderDrawRect(r->sdl_renderer, &handle);
+    SDL_RenderDrawRect(r->sdl_renderer, &handle_tl);
+    SDL_RenderDrawRect(r->sdl_renderer, &handle_tr);
+    SDL_RenderDrawRect(r->sdl_renderer, &handle_bl);
+    SDL_RenderDrawRect(r->sdl_renderer, &handle_br);
 }
 
 void renderer_end(Renderer* r) {
