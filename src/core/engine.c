@@ -4,6 +4,27 @@
 #include <stdio.h>
 #include <string.h>
 
+static const char* k_history_path = "history.log";
+static const char* k_redo_path = "redo.log";
+
+static bool is_mutating_command_line(const char* line) {
+    if (!line) return false;
+    const char* l = line;
+    while (*l == ' ' || *l == '\t') l++;
+    if (*l == '\0' || *l == '\n' || *l == '\r' || *l == '-') return false;
+
+    return (strncmp(l, "rect ", 5) == 0 ||
+            strncmp(l, "create_rect ", 12) == 0 ||
+            strncmp(l, "set_rect ", 9) == 0 ||
+            strncmp(l, "move ", 5) == 0 ||
+            strncmp(l, "resize ", 7) == 0);
+}
+
+static void clear_redo_log(void) {
+    FILE* f = fopen(k_redo_path, "w");
+    if (f) fclose(f);
+}
+
 Engine* engine_create(void) {
     Engine* engine = (Engine*)calloc(1, sizeof(Engine));
     if (!engine) return NULL;
@@ -12,7 +33,7 @@ Engine* engine_create(void) {
     engine->is_running = true;
     
     // Ouverture du journal en mode "append"
-    engine->history_file = fopen("history.log", "a");
+    engine->history_file = fopen(k_history_path, "a");
     if (engine->history_file) {
         fprintf(engine->history_file, "-- Session started --\n");
         fflush(engine->history_file);
@@ -135,6 +156,65 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
         success = true;
     }
 
+    // Commande: redo
+    else if (strncmp(command_line, "redo", 4) == 0) {
+        // On prend la dernière commande mutante dans redo.log, on la remet dans history.log, puis on replay.
+        if (engine->history_file) {
+            fclose(engine->history_file);
+            engine->history_file = NULL;
+        }
+
+        FILE* rf = fopen(k_redo_path, "r");
+        if (!rf) return true;
+
+        char** lines = malloc(1000 * sizeof(char*));
+        int count = 0;
+        char buffer[256];
+        while (fgets(buffer, sizeof(buffer), rf) && count < 1000) {
+            lines[count++] = strdup(buffer);
+        }
+        fclose(rf);
+
+        int last_mutating = -1;
+        for (int i = 0; i < count; i++) {
+            if (is_mutating_command_line(lines[i])) last_mutating = i;
+        }
+
+        if (last_mutating >= 0) {
+            // Append to history
+            FILE* hf = fopen(k_history_path, "a");
+            if (hf) {
+                // ensure single newline
+                fprintf(hf, "%s", lines[last_mutating]);
+                if (lines[last_mutating][strlen(lines[last_mutating]) - 1] != '\n') {
+                    fprintf(hf, "\n");
+                }
+                fclose(hf);
+            }
+
+            // Rewrite redo without that line
+            rf = fopen(k_redo_path, "w");
+            if (rf) {
+                for (int i = 0; i < count; i++) {
+                    if (i == last_mutating) continue;
+                    fprintf(rf, "%s", lines[i]);
+                }
+                fclose(rf);
+            }
+
+            // Reload document from history
+            doc_destroy(engine->doc);
+            engine->doc = doc_create();
+            engine_load_history(engine);
+        }
+
+        for (int i = 0; i < count; i++) free(lines[i]);
+        free(lines);
+
+        engine->history_file = fopen(k_history_path, "a");
+        return true;
+    }
+
     // Commande: undo
     else if (strncmp(command_line, "undo", 4) == 0) {
         // L'undo dans un AOF est simple : on ferme le fichier, on le tronque d'une ligne, et on recharge.
@@ -143,8 +223,8 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
             fclose(engine->history_file);
             engine->history_file = NULL;
             
-            // Lecture de toutes les lignes
-            FILE* f = fopen("history.log", "r");
+            // Lecture de toutes les lignes (history)
+            FILE* f = fopen(k_history_path, "r");
             if (f) {
                 char** lines = malloc(1000 * sizeof(char*));
                 int count = 0;
@@ -154,28 +234,27 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
                 }
                 fclose(f);
                 
-                // Réécriture de toutes les lignes sauf la dernière commande mutante
-                f = fopen("history.log", "w");
-                if (f) {
-                    // On cherche la dernière commande mutante
-                    int last_mutating = -1;
-                    for (int i = 0; i < count; i++) {
-                        const char* l = lines[i];
-                        if (!l || l[0] == '-' || l[0] == '\n' || l[0] == '\r' || l[0] == '\0') continue;
+                // On cherche la dernière commande mutante
+                int last_mutating = -1;
+                for (int i = 0; i < count; i++) {
+                    if (is_mutating_command_line(lines[i])) last_mutating = i;
+                }
 
-                        // strip leading spaces
-                        while (*l == ' ' || *l == '\t') l++;
-
-                        // Mutantes
-                        if (strncmp(l, "rect ", 5) == 0 ||
-                            strncmp(l, "create_rect ", 12) == 0 ||
-                            strncmp(l, "set_rect ", 9) == 0 ||
-                            strncmp(l, "move ", 5) == 0 ||
-                            strncmp(l, "resize ", 7) == 0) {
-                            last_mutating = i;
+                // Si on a trouvé une ligne mutante, on la pousse dans redo.log
+                if (last_mutating >= 0) {
+                    FILE* redo = fopen(k_redo_path, "a");
+                    if (redo) {
+                        fprintf(redo, "%s", lines[last_mutating]);
+                        if (lines[last_mutating][strlen(lines[last_mutating]) - 1] != '\n') {
+                            fprintf(redo, "\n");
                         }
+                        fclose(redo);
                     }
-                    
+                }
+
+                // Réécriture de toutes les lignes sauf la dernière commande mutante
+                f = fopen(k_history_path, "w");
+                if (f) {
                     for (int i = 0; i < count; i++) {
                         if (i == last_mutating) continue;
                         fprintf(f, "%s", lines[i]);
@@ -193,9 +272,14 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
             engine_load_history(engine);
             
             // Réouvrir le log en append
-            engine->history_file = fopen("history.log", "a");
+            engine->history_file = fopen(k_history_path, "a");
         }
         return true; // On ne log pas l'undo lui-même
+    }
+
+    // Si c'est une commande mutante, toute nouvelle action invalide la pile redo
+    if (success && is_mutating_command_line(command_line)) {
+        clear_redo_log();
     }
 
     // Si la commande a réussi et n'est pas une commande de lecture (list/help), on l'enregistre
@@ -212,7 +296,7 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
 }
 
 void engine_load_history(Engine* engine) {
-    FILE* f = fopen("history.log", "r");
+    FILE* f = fopen(k_history_path, "r");
     if (!f) return;
 
     printf(">> Replaying history...\n");
