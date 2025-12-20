@@ -167,8 +167,17 @@ int main(int argc, char** argv) {
     // 5. Rejouer l'historique (AOF)
     engine_load_history(engine);
     
-    // 6. Création d'objets par défaut seulement si le document est vide
-    if (engine->doc->root->first_child == NULL) {
+    // 6. Création d'objets par défaut seulement au tout premier démarrage
+    // (si history.log n'existe pas ou est vide). Après un 'clear', on veut rester vide.
+    bool history_has_content = false;
+    FILE* hf = fopen("history.log", "r");
+    if (hf) {
+        int c = fgetc(hf);
+        if (c != EOF) history_has_content = true;
+        fclose(hf);
+    }
+
+    if (!history_has_content && engine->doc->root->first_child == NULL) {
         engine_execute_command(engine, "rect Header 10 10 750 60");
         engine_execute_command(engine, "rect Sidebar 10 80 200 678");
         engine_execute_command(engine, "rect Content 220 80 540 678");

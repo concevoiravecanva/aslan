@@ -70,7 +70,6 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             scripting_run_file(ui->L, "scripts/create_random.lua");
         }
         if (nk_button_label(ui->ctx, "Clear All")) {
-            // On pourrait appeler une commande engine ou un script
             engine_execute_command(engine, "clear");
         }
 

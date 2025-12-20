@@ -11,6 +11,11 @@ void scripting_set_document(Document* doc);
 static const char* k_history_path = "history.log";
 static const char* k_redo_path = "redo.log";
 
+static void clear_history_log(void) {
+    FILE* f = fopen(k_history_path, "w");
+    if (f) fclose(f);
+}
+
 static bool is_mutating_command_line(const char* line) {
     if (!line) return false;
     const char* l = line;
@@ -139,6 +144,39 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
         engine->is_running = false;
         success = true;
     }
+
+    // Commande: clear
+    // Reset document + logs (history/redo) to a pristine state.
+    else if (strncmp(command_line, "clear", 5) == 0) {
+        // Close AOF
+        if (engine->history_file) {
+            fclose(engine->history_file);
+            engine->history_file = NULL;
+        }
+
+        // Reset logs
+        clear_history_log();
+        clear_redo_log();
+
+        // Reset document
+        doc_destroy(engine->doc);
+        engine->doc = doc_create();
+
+        // Reset UI selection
+        if (engine->ui_host) engine->ui_host->selected_node = NULL;
+
+        // Sync Lua host with the new document
+        scripting_set_document(engine->doc);
+
+        // Reopen AOF for appends
+        engine->history_file = fopen(k_history_path, "a");
+        if (engine->history_file) {
+            fprintf(engine->history_file, "-- Session started --\n");
+            fflush(engine->history_file);
+        }
+    printf(">> Cleared document and history.\n");
+        success = true;
+    }
     
     // Commande: rect <name> <x> <y> <w> <h>
     else if (sscanf(command_line, "rect %63s %f %f %f %f", name, &x, &y, &w, &h) == 5) {
@@ -225,11 +263,12 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
         printf("  rect <name> <x> <y> <w> <h>  : Create a rectangle\n");
         printf("  set_rect <id> <x> <y> <w> <h>: Set full rect geometry\n");
         printf("  rewrite_aof                  : Compact history.log (snapshot)\n");
-        printf("  move <id> <x> <y>            : Move a node\n");
-        printf("  resize <id> <w> <h>          : Resize a node\n");
+    printf("  move <id> <x> <y>            : Move a node (interactive; not logged)\n");
+    printf("  resize <id> <w> <h>          : Resize a node (interactive; not logged)\n");
         printf("  select <id>                  : Select a node\n");
         printf("  undo                         : Undo last command\n");
         printf("  redo                         : Redo last undone command\n");
+    printf("  clear                        : New empty document (clears history/redo)\n");
         printf("  list                         : Show document tree\n");
         printf("  exit                         : Quit application\n");
         success = true;
