@@ -8,6 +8,9 @@
 #include "platform/renderer.h"
 #include "platform/ui_host.h"
 
+#include <libgen.h>
+#include <limits.h>
+
 // Boucle principale simplifiée
 void main_loop(Document* doc) {
     bool running = true;
@@ -72,6 +75,16 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
             if (e.type == SDL_QUIT) {
                 engine->is_running = false;
             }
+
+            // Raccourcis clavier (macOS): Cmd+Z (Undo), Cmd+Shift+Z (Redo)
+            if (e.type == SDL_KEYDOWN && !nk_item_is_any_active(ui->ctx)) {
+                SDL_Keymod mods = SDL_GetModState();
+                bool cmd = (mods & KMOD_GUI) != 0;
+                bool shift = (mods & KMOD_SHIFT) != 0;
+                if (cmd && e.key.keysym.sym == SDLK_z) {
+                    engine_execute_command(engine, shift ? "redo" : "undo");
+                }
+            }
             
             ui_handle_event(ui, &e);
             
@@ -134,6 +147,18 @@ int main(int argc, char** argv) {
 
     // 3. Initialisation du Scripting (Logic)
     lua_State* L = scripting_init(engine);
+
+    // Résoudre le dossier du binaire pour que les scripts se chargent même si on lance depuis ailleurs
+    if (argv && argv[0]) {
+        char exe_path[PATH_MAX];
+        strncpy(exe_path, argv[0], sizeof(exe_path) - 1);
+        exe_path[sizeof(exe_path) - 1] = 0;
+        char* dir = dirname(exe_path);
+        if (dir) {
+            // scripts/ est à côté du binaire dans ce projet
+            scripting_set_base_dir(dir);
+        }
+    }
 
     // 4. Initialisation de l'UI (Nuklear)
     UIHost* ui = ui_init(renderer->window, renderer->sdl_renderer, L);

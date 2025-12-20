@@ -41,6 +41,24 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
     // Panneau Inspecteur à droite
     if (nk_begin(ui->ctx, "Inspector", nk_rect(win_w - 250, 0, 250, win_h),
         NK_WINDOW_BORDER|NK_WINDOW_TITLE)) {
+
+        // Section Historique (Undo/Redo/AOF)
+        nk_layout_row_dynamic(ui->ctx, 25, 1);
+        nk_label(ui->ctx, "History", NK_TEXT_LEFT);
+
+        nk_layout_row_dynamic(ui->ctx, 30, 3);
+        if (nk_button_label(ui->ctx, "Undo")) {
+            engine_execute_command(engine, "undo");
+        }
+        if (nk_button_label(ui->ctx, "Redo")) {
+            engine_execute_command(engine, "redo");
+        }
+        if (nk_button_label(ui->ctx, "Compact")) {
+            engine_execute_command(engine, "rewrite_aof");
+        }
+
+        nk_layout_row_dynamic(ui->ctx, 10, 1); // Spacer
+        nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
         
         // Section Outils Lua
         nk_layout_row_dynamic(ui->ctx, 25, 1);

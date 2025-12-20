@@ -3,6 +3,7 @@
 #include "../platform/ui_host.h"
 #include <stdio.h>
 #include <string.h>
+#include <limits.h>
 
 #ifdef NO_LUA
 // Stub implementation
@@ -28,6 +29,36 @@ int scripting_run_file(lua_State* L, const char* filepath) {
 // Dans une architecture plus complexe, on passerait cela via un userdata ou upvalue
 static Document* g_current_doc = NULL;
 static Engine* g_current_engine = NULL;
+static char g_script_base_dir[PATH_MAX] = {0};
+
+void scripting_set_document(Document* doc) {
+    g_current_doc = doc;
+}
+
+void scripting_set_base_dir(const char* base_dir) {
+    if (!base_dir) return;
+    strncpy(g_script_base_dir, base_dir, sizeof(g_script_base_dir) - 1);
+}
+
+static int resolve_script_path(char out_path[PATH_MAX], const char* filepath) {
+    if (!out_path || !filepath) return 0;
+
+    // If absolute, use directly
+    if (filepath[0] == '/') {
+        strncpy(out_path, filepath, PATH_MAX - 1);
+        return 1;
+    }
+
+    // Prefer explicit base dir if set
+    if (g_script_base_dir[0] != '\0') {
+        snprintf(out_path, PATH_MAX, "%s/%s", g_script_base_dir, filepath);
+        return 1;
+    }
+
+    // Fallback: try relative as-is
+    strncpy(out_path, filepath, PATH_MAX - 1);
+    return 1;
+}
 
 // --- Bindings C -> Lua ---
 
@@ -90,7 +121,7 @@ static int l_log_info(lua_State* L) {
 static int l_get_node_at(lua_State* L) {
     float x = (float)luaL_checknumber(L, 1);
     float y = (float)luaL_checknumber(L, 2);
-    if (!g_current_doc) return 0;
+    if (!g_current_doc || !g_current_doc->root) return 0;
     
     Node* node = doc_find_node_at(g_current_doc, x, y);
     if (node) {
@@ -181,7 +212,9 @@ void scripting_shutdown(lua_State* L) {
 }
 
 int scripting_run_file(lua_State* L, const char* filepath) {
-    if (luaL_dofile(L, filepath) != LUA_OK) {
+    char resolved[PATH_MAX];
+    resolve_script_path(resolved, filepath);
+    if (luaL_dofile(L, resolved) != LUA_OK) {
         const char* error = lua_tostring(L, -1);
         fprintf(stderr, "[LUA ERROR] %s\n", error);
         lua_pop(L, 1);

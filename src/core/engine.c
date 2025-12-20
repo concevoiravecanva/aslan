@@ -4,6 +4,10 @@
 #include <stdio.h>
 #include <string.h>
 
+// Avoid pulling Lua headers into core; we only need to notify the script host
+// that the Engine swapped/rebuilt its Document (undo/redo/rewrite).
+void scripting_set_document(Document* doc);
+
 static const char* k_history_path = "history.log";
 static const char* k_redo_path = "redo.log";
 
@@ -13,11 +17,11 @@ static bool is_mutating_command_line(const char* line) {
     while (*l == ' ' || *l == '\t') l++;
     if (*l == '\0' || *l == '\n' || *l == '\r' || *l == '-') return false;
 
+    // Treat only "committed" geometry changes as AOF mutations.
+    // High-frequency interactive commands (move/resize) are executed but not logged.
     return (strncmp(l, "rect ", 5) == 0 ||
             strncmp(l, "create_rect ", 12) == 0 ||
-            strncmp(l, "set_rect ", 9) == 0 ||
-            strncmp(l, "move ", 5) == 0 ||
-            strncmp(l, "resize ", 7) == 0);
+            strncmp(l, "set_rect ", 9) == 0);
 }
 
 static void clear_redo_log(void) {
@@ -92,6 +96,8 @@ static bool engine_rewrite_aof(Engine* engine) {
     // redo invalid after rewrite
     clear_redo_log();
 
+    if (engine->ui_host) engine->ui_host->selected_node = NULL;
+    scripting_set_document(engine->doc);
     engine->history_file = fopen(k_history_path, "a");
     return engine->history_file != NULL;
 }
@@ -288,6 +294,9 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
             doc_destroy(engine->doc);
             engine->doc = doc_create();
             engine_load_history(engine);
+
+            if (engine->ui_host) engine->ui_host->selected_node = NULL;
+            scripting_set_document(engine->doc);
         }
 
         for (int i = 0; i < count; i++) free(lines[i]);
@@ -352,6 +361,9 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
             doc_destroy(engine->doc);
             engine->doc = doc_create();
             engine_load_history(engine);
+
+            if (engine->ui_host) engine->ui_host->selected_node = NULL;
+            scripting_set_document(engine->doc);
             
             // Réouvrir le log en append
             engine->history_file = fopen(k_history_path, "a");
@@ -369,6 +381,8 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
         strncmp(command_line, "list", 4) != 0 && 
         strncmp(command_line, "help", 4) != 0 &&
     strncmp(command_line, "select", 6) != 0 &&
+    strncmp(command_line, "move", 4) != 0 &&
+    strncmp(command_line, "resize", 6) != 0 &&
         strncmp(command_line, "exit", 4) != 0) {
         fprintf(engine->history_file, "%s\n", command_line);
         fflush(engine->history_file);
