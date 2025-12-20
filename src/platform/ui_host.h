@@ -25,6 +25,11 @@ typedef struct UIHost {
     struct nk_font_atlas atlas;
     Node* selected_node;
     lua_State* L; // Ajout du pointeur vers l'état Lua
+    // Small UX feedback for the user (last action/command)
+    char status[128];
+
+    // Tool mode: 0 = select/move/resize, 1 = create rect
+    int tool_mode;
 } UIHost;
 
 UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L);

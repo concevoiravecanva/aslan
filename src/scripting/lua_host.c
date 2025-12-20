@@ -172,6 +172,22 @@ static int l_get_selected_id(lua_State* L) {
     return 0;
 }
 
+// lua: set_tool_mode(mode_int)
+// 0 = select/move/resize, 1 = create-rect
+static int l_set_tool_mode(lua_State* L) {
+    int mode = (int)luaL_checkinteger(L, 1);
+    if (!g_current_engine || !g_current_engine->ui_host) return 0;
+    g_current_engine->ui_host->tool_mode = mode;
+    return 0;
+}
+
+// lua: get_tool_mode() -> mode_int
+static int l_get_tool_mode(lua_State* L) {
+    if (!g_current_engine || !g_current_engine->ui_host) return 0;
+    lua_pushinteger(L, g_current_engine->ui_host->tool_mode);
+    return 1;
+}
+
 // Enregistrement des fonctions
 static const struct luaL_Reg aslan_lib[] = {
     {"execute", l_execute},
@@ -180,6 +196,8 @@ static const struct luaL_Reg aslan_lib[] = {
     {"get_node_at", l_get_node_at},
     {"get_node_rect", l_get_node_rect},
     {"get_selected_id", l_get_selected_id},
+    {"set_tool_mode", l_set_tool_mode},
+    {"get_tool_mode", l_get_tool_mode},
     {"log", l_log_info},
     {NULL, NULL}
 };

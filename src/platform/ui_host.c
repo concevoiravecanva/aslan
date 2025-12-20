@@ -20,6 +20,9 @@ UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L) {
     struct nk_font_atlas *atlas;
     nk_sdl_font_stash_begin(&atlas);
     nk_sdl_font_stash_end();
+
+    snprintf(ui->status, sizeof(ui->status), "Ready");
+    ui->tool_mode = 0;
     
     return ui;
 }
@@ -49,24 +52,58 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
         nk_layout_row_dynamic(ui->ctx, 30, 3);
         if (nk_button_label(ui->ctx, "Undo")) {
             engine_execute_command(engine, "undo");
+            snprintf(ui->status, sizeof(ui->status), "Undo");
         }
         if (nk_button_label(ui->ctx, "Redo")) {
             engine_execute_command(engine, "redo");
+            snprintf(ui->status, sizeof(ui->status), "Redo");
         }
         if (nk_button_label(ui->ctx, "Compact")) {
             engine_execute_command(engine, "rewrite_aof");
+            snprintf(ui->status, sizeof(ui->status), "Compacted AOF");
         }
 
         nk_layout_row_dynamic(ui->ctx, 10, 1); // Spacer
         nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
+
+    // Status line (last action)
+    nk_layout_row_dynamic(ui->ctx, 22, 1);
+    nk_label(ui->ctx, ui->status[0] ? ui->status : "", NK_TEXT_LEFT);
+
+        // Tool mode toggle
+        nk_layout_row_dynamic(ui->ctx, 28, 1);
+        int create_mode = (ui->tool_mode == 1);
+        if (nk_checkbox_label(ui->ctx, "Create Rect (draw)", &create_mode)) {
+            ui->tool_mode = create_mode ? 1 : 0;
+            snprintf(ui->status, sizeof(ui->status), create_mode ? "Tool: Create Rect" : "Tool: Select");
+            // also inform Lua so script can react immediately
+            lua_getglobal(ui->L, "aslan");
+            if (lua_istable(ui->L, -1)) {
+                lua_getfield(ui->L, -1, "set_tool_mode");
+                if (lua_isfunction(ui->L, -1)) {
+                    lua_pushinteger(ui->L, ui->tool_mode);
+                    if (lua_pcall(ui->L, 1, 0, 0) != LUA_OK) {
+                        lua_pop(ui->L, 1);
+                    }
+                } else {
+                    lua_pop(ui->L, 1);
+                }
+                lua_pop(ui->L, 1);
+            } else {
+                lua_pop(ui->L, 1);
+            }
+        }
         
         // Section Outils Lua
+            snprintf(ui->status, sizeof(ui->status), "Random Rect");
         nk_layout_row_dynamic(ui->ctx, 25, 1);
         nk_label(ui->ctx, "Lua Tools", NK_TEXT_LEFT);
         
+                snprintf(ui->status, sizeof(ui->status), "New Rect");
         nk_layout_row_dynamic(ui->ctx, 30, 2);
         if (nk_button_label(ui->ctx, "Random Rect")) {
             // On appelle une fonction Lua qui crée un rect aléatoire
+            snprintf(ui->status, sizeof(ui->status), "Cleared");
             scripting_run_file(ui->L, "scripts/create_random.lua");
         }
             if (nk_button_label(ui->ctx, "New Rect")) {

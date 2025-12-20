@@ -15,7 +15,49 @@ local pending_y = nil
 local pending_w = nil
 local pending_h = nil
 
+-- Tool mode
+-- 0 = select/move/resize
+-- 1 = create rect (draw)
+local TOOL_SELECT = 0
+local TOOL_CREATE_RECT = 1
+
+-- Draw-rect state
+local draw_active = false
+local draw_start_x = 0
+local draw_start_y = 0
+local draw_preview_id = nil
+
+local function current_tool_mode()
+    local m = aslan.get_tool_mode()
+    if not m then return TOOL_SELECT end
+    return m
+end
+
+local function rect_from_points(x0, y0, x1, y1)
+    local rx = math.min(x0, x1)
+    local ry = math.min(y0, y1)
+    local rw = math.abs(x1 - x0)
+    local rh = math.abs(y1 - y0)
+    return rx, ry, rw, rh
+end
+
 function on_mouse_down(x, y)
+    -- Draw-rect tool
+    if current_tool_mode() == TOOL_CREATE_RECT then
+        draw_active = true
+        draw_start_x = x
+        draw_start_y = y
+
+        -- Create a preview node (volatile, not in AOF)
+        aslan.execute_volatile("new_rect " .. x .. " " .. y .. " 1 1")
+        draw_preview_id = aslan.get_selected_id()
+        if draw_preview_id then
+            aslan.execute_volatile(string.format("select %d", draw_preview_id))
+            aslan.log("Draw preview id=" .. draw_preview_id)
+        end
+        return
+    end
+
     dragged_node_id = aslan.get_node_at(x, y)
     if dragged_node_id then
         -- On informe le moteur C de la sélection pour l'affichage des gizmos
@@ -68,6 +110,17 @@ function on_mouse_down(x, y)
 end
 
 function on_mouse_move(x, y)
+    -- Draw-rect preview update
+    if draw_active and draw_preview_id then
+        local rx, ry, rw, rh = rect_from_points(draw_start_x, draw_start_y, x, y)
+        -- keep minimum size for visibility
+        local min_size = 3
+        rw = math.max(min_size, rw)
+        rh = math.max(min_size, rh)
+        aslan.execute_volatile(string.format("set_rect %d %f %f %f %f", draw_preview_id, rx, ry, rw, rh))
+        return
+    end
+
     if dragged_node_id then
         if drag_mode == "move" then
             local new_x = x - offset_x
@@ -118,6 +171,36 @@ function on_mouse_move(x, y)
 end
 
 function on_mouse_up(x, y)
+    -- Commit draw-rect
+    if draw_active then
+        draw_active = false
+        local rx, ry, rw, rh = rect_from_points(draw_start_x, draw_start_y, x, y)
+        local min_size = 10
+        if rw < min_size or rh < min_size then
+            -- Too small: just drop preview
+            if draw_preview_id then
+                aslan.execute_volatile(string.format("set_rect %d -10000 -10000 1 1", draw_preview_id))
+            end
+            draw_preview_id = nil
+            return
+        end
+
+        -- Remove preview (move offscreen) and create committed rect
+        if draw_preview_id then
+            aslan.execute_volatile(string.format("set_rect %d -10000 -10000 1 1", draw_preview_id))
+        end
+
+        -- Create committed rect (this logs a single create_rect line)
+        aslan.execute(string.format("new_rect %f %f %f %f", rx, ry, rw, rh))
+        local new_id = aslan.get_selected_id()
+        if new_id then
+            aslan.execute(string.format("select %d", new_id))
+        end
+
+        draw_preview_id = nil
+        return
+    end
+
     -- Commit final: une seule ligne dans l'AOF
     if dragged_node_id and pending_x and pending_y and pending_w and pending_h then
         aslan.execute(string.format("set_rect %d %f %f %f %f", dragged_node_id, pending_x, pending_y, pending_w, pending_h))
