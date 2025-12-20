@@ -22,6 +22,13 @@ typedef struct Node {
     float x, y;
     float width, height;
     
+    // Payload for certain node types
+    // - TEXT: string content
+    char text[256];
+    
+    // Visibility (for layers)
+    int visible;
+    
     // Hiérarchie
     struct Node* parent;
     struct Node* first_child;

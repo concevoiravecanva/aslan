@@ -52,6 +52,12 @@ void renderer_begin(Renderer* r) {
 static void draw_node_recursive(Renderer* r, Node* node) {
     if (!node) return;
 
+    if (node->visible == 0) {
+        draw_node_recursive(r, node->first_child);
+        draw_node_recursive(r, node->next_sibling);
+        return;
+    }
+
     if (node->type == NODE_TYPE_RECT) {
         SDL_Rect rect = { (int)node->x, (int)node->y, (int)node->width, (int)node->height };
         
@@ -68,6 +74,22 @@ static void draw_node_recursive(Renderer* r, Node* node) {
         // Bordure
         SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 255);
         SDL_RenderDrawRect(r->sdl_renderer, &rect);
+    }
+
+    if (node->type == NODE_TYPE_TEXT) {
+        SDL_Rect rect = { (int)node->x, (int)node->y, (int)node->width, (int)node->height };
+
+        // Background (dark)
+        SDL_SetRenderDrawColor(r->sdl_renderer, 20, 20, 20, 180);
+        SDL_RenderFillRect(r->sdl_renderer, &rect);
+
+        // Border (yellow)
+        SDL_SetRenderDrawColor(r->sdl_renderer, 240, 200, 0, 255);
+        SDL_RenderDrawRect(r->sdl_renderer, &rect);
+
+        // We don't have a text renderer yet; use a small inner marker
+        SDL_Rect marker = { rect.x + 6, rect.y + 6, 10, 10 };
+        SDL_RenderDrawRect(r->sdl_renderer, &marker);
     }
 
     draw_node_recursive(r, node->first_child);

@@ -94,23 +94,27 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             }
         }
         
-        // Section Outils Lua
-            snprintf(ui->status, sizeof(ui->status), "Random Rect");
+        // Section Outils
         nk_layout_row_dynamic(ui->ctx, 25, 1);
-        nk_label(ui->ctx, "Lua Tools", NK_TEXT_LEFT);
-        
-                snprintf(ui->status, sizeof(ui->status), "New Rect");
+        nk_label(ui->ctx, "Tools", NK_TEXT_LEFT);
+
+        // 2x2 grid of buttons
         nk_layout_row_dynamic(ui->ctx, 30, 2);
-        if (nk_button_label(ui->ctx, "Random Rect")) {
-            // On appelle une fonction Lua qui crée un rect aléatoire
-            snprintf(ui->status, sizeof(ui->status), "Cleared");
-            scripting_run_file(ui->L, "scripts/create_random.lua");
+        if (nk_button_label(ui->ctx, "New Rect")) {
+            engine_execute_command(engine, "new_rect");
+            snprintf(ui->status, sizeof(ui->status), "New Rect");
         }
-            if (nk_button_label(ui->ctx, "New Rect")) {
-                engine_execute_command(engine, "new_rect");
-            }
+        if (nk_button_label(ui->ctx, "New Text")) {
+            engine_execute_command(engine, "new_text");
+            snprintf(ui->status, sizeof(ui->status), "New Text");
+        }
+        if (nk_button_label(ui->ctx, "Random Rect")) {
+            scripting_run_file(ui->L, "scripts/create_random.lua");
+            snprintf(ui->status, sizeof(ui->status), "Random Rect");
+        }
         if (nk_button_label(ui->ctx, "Clear All")) {
             engine_execute_command(engine, "clear");
+            snprintf(ui->status, sizeof(ui->status), "Cleared");
         }
 
         nk_layout_row_dynamic(ui->ctx, 10, 1); // Spacer

@@ -38,7 +38,11 @@ Node* doc_create_node(Document* doc, NodeType type, const char* name) {
     
     node->id = doc->next_node_id++;
     node->type = type;
-    if (name) strncpy(node->name, name, 63);
+    node->visible = 1;
+    if (name) {
+        strncpy(node->name, name, 63);
+        node->name[63] = 0;
+    }
     
     return node;
 }

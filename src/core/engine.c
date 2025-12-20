@@ -85,7 +85,12 @@ static bool engine_rewrite_aof(Engine* engine) {
             fprintf(out, "create_rect %u %s %f %f %f %f\n",
                 (unsigned)n->id, n->name, n->x, n->y, n->width, n->height);
         }
-        // TODO: other node types (text/image) later
+        else if (n->type == NODE_TYPE_TEXT) {
+            // NOTE: text content is quoted; keep it simple for now (no escaping yet)
+            fprintf(out, "create_text %u %s %f %f %f %f \"%s\"\n",
+                (unsigned)n->id, n->name, n->x, n->y, n->width, n->height, n->text);
+        }
+        // TODO: image later
     }
 
     fclose(out);
@@ -221,6 +226,53 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
 
         return success;
     }
+
+    // Commande: new_text [x y w h "content"]
+    // Creates a TEXT node and logs a single create_text line.
+    else if (strncmp(command_line, "new_text", 8) == 0) {
+        float nx = 120.0f, ny = 120.0f, nw = 220.0f, nh = 60.0f;
+        char content[256];
+        content[0] = 0;
+
+        // Try to parse: new_text x y w h "..."
+        // If no content, default.
+        float ax, ay, aw, ah;
+        int matched = sscanf(command_line, "new_text %f %f %f %f \"%255[^\"]\"", &ax, &ay, &aw, &ah, content);
+        if (matched >= 4) {
+            nx = ax; ny = ay; nw = aw; nh = ah;
+        }
+        if (content[0] == 0) {
+            strncpy(content, "Text", sizeof(content) - 1);
+            content[sizeof(content) - 1] = 0;
+        }
+
+        uint32_t new_id = engine->doc ? engine->doc->next_node_id : 1;
+        snprintf(name, sizeof(name), "Text%u", (unsigned)new_id);
+
+        Node* node = doc_create_node(engine->doc, NODE_TYPE_TEXT, name);
+        if (node) {
+            node->x = nx;
+            node->y = ny;
+            node->width = nw;
+            node->height = nh;
+            strncpy(node->text, content, sizeof(node->text) - 1);
+            node->text[sizeof(node->text) - 1] = 0;
+            // Keep deterministic names in sync
+            snprintf(node->name, sizeof(node->name), "Text%u", (unsigned)node->id);
+            doc_add_child(engine->doc->root, node);
+
+            if (engine->ui_host) engine->ui_host->selected_node = node;
+            success = true;
+
+            if (engine->history_file) {
+                fprintf(engine->history_file, "create_text %u %s %f %f %f %f \"%s\"\n",
+                    (unsigned)node->id, node->name, node->x, node->y, node->width, node->height, node->text);
+                fflush(engine->history_file);
+            }
+            clear_redo_log();
+        }
+        return success;
+    }
     
     // Commande: rect <name> <x> <y> <w> <h>
     else if (sscanf(command_line, "rect %63s %f %f %f %f", name, &x, &y, &w, &h) == 5) {
@@ -250,6 +302,29 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
             node->height = h;
             doc_add_child(engine->doc->root, node);
             success = true;
+        }
+    }
+
+    // Commande: create_text <id> <name> <x> <y> <w> <h> "content"
+    else if (strncmp(command_line, "create_text", 11) == 0) {
+        char content[256];
+        content[0] = 0;
+        if (sscanf(command_line, "create_text %d %63s %f %f %f %f \"%255[^\"]\"", &id, name, &x, &y, &w, &h, content) >= 6) {
+            if (id > 0 && !doc_find_node_by_id(engine->doc, (uint32_t)id)) {
+                Node* node = doc_create_node(engine->doc, NODE_TYPE_TEXT, name);
+                node->id = (uint32_t)id;
+                if (engine->doc->next_node_id <= (uint32_t)id) {
+                    engine->doc->next_node_id = (uint32_t)id + 1;
+                }
+                node->x = x;
+                node->y = y;
+                node->width = w;
+                node->height = h;
+                strncpy(node->text, content, sizeof(node->text) - 1);
+                node->text[sizeof(node->text) - 1] = 0;
+                doc_add_child(engine->doc->root, node);
+                success = true;
+            }
         }
     }
 
@@ -306,6 +381,7 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
         printf("Available commands:\n");
         printf("  rect <name> <x> <y> <w> <h>  : Create a rectangle\n");
     printf("  new_rect [x y w h]           : Create a new rectangle (AOF: create_rect)\n");
+    printf("  new_text [x y w h \"txt\"]    : Create a new text box (AOF: create_text)\n");
         printf("  set_rect <id> <x> <y> <w> <h>: Set full rect geometry\n");
         printf("  rewrite_aof                  : Compact history.log (snapshot)\n");
     printf("  move <id> <x> <y>            : Move a node (interactive; not logged)\n");
