@@ -25,6 +25,77 @@ static void clear_redo_log(void) {
     if (f) fclose(f);
 }
 
+static void gather_nodes_recursive(Node* node, Node** out, int* count, int max) {
+    if (!node || !out || !count) return;
+    if (node->type != NODE_TYPE_ROOT) {
+        if (*count < max) out[(*count)++] = node;
+    }
+    gather_nodes_recursive(node->first_child, out, count, max);
+    gather_nodes_recursive(node->next_sibling, out, count, max);
+}
+
+static int cmp_node_id_ptr(const void* a, const void* b) {
+    const Node* na = *(const Node* const*)a;
+    const Node* nb = *(const Node* const*)b;
+    if (na->id < nb->id) return -1;
+    if (na->id > nb->id) return 1;
+    return 0;
+}
+
+static bool engine_rewrite_aof(Engine* engine) {
+    if (!engine || !engine->doc || !engine->doc->root) return false;
+
+    // fermer history en cours (sinon windows/mac garde un fd ouvert)
+    FILE* saved = engine->history_file;
+    if (saved) {
+        fclose(saved);
+        engine->history_file = NULL;
+    }
+
+    // snapshot -> fichier temporaire puis rename (safe)
+    const char* tmp_path = "history.tmp";
+    FILE* out = fopen(tmp_path, "w");
+    if (!out) {
+        engine->history_file = fopen(k_history_path, "a");
+        return false;
+    }
+
+    fprintf(out, "-- Aslan AOF rewrite --\n");
+
+    // collect nodes, sort by id for determinism
+    Node* nodes[4096];
+    int count = 0;
+    gather_nodes_recursive(engine->doc->root, nodes, &count, 4096);
+    qsort(nodes, (size_t)count, sizeof(Node*), cmp_node_id_ptr);
+
+    for (int i = 0; i < count; i++) {
+        Node* n = nodes[i];
+        if (!n) continue;
+        if (n->type == NODE_TYPE_RECT) {
+            // name is safe (no spaces) in current model
+            fprintf(out, "create_rect %u %s %f %f %f %f\n",
+                (unsigned)n->id, n->name, n->x, n->y, n->width, n->height);
+        }
+        // TODO: other node types (text/image) later
+    }
+
+    fclose(out);
+
+    // replace history
+    remove(k_history_path);
+    if (rename(tmp_path, k_history_path) != 0) {
+        // fallback: keep tmp for inspection
+        engine->history_file = fopen(k_history_path, "a");
+        return false;
+    }
+
+    // redo invalid after rewrite
+    clear_redo_log();
+
+    engine->history_file = fopen(k_history_path, "a");
+    return engine->history_file != NULL;
+}
+
 Engine* engine_create(void) {
     Engine* engine = (Engine*)calloc(1, sizeof(Engine));
     if (!engine) return NULL;
@@ -146,14 +217,25 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
     else if (strncmp(command_line, "help", 4) == 0) {
         printf("Available commands:\n");
         printf("  rect <name> <x> <y> <w> <h>  : Create a rectangle\n");
-    printf("  set_rect <id> <x> <y> <w> <h>: Set full rect geometry\n");
+        printf("  set_rect <id> <x> <y> <w> <h>: Set full rect geometry\n");
+        printf("  rewrite_aof                  : Compact history.log (snapshot)\n");
         printf("  move <id> <x> <y>            : Move a node\n");
         printf("  resize <id> <w> <h>          : Resize a node\n");
         printf("  select <id>                  : Select a node\n");
         printf("  undo                         : Undo last command\n");
+        printf("  redo                         : Redo last undone command\n");
         printf("  list                         : Show document tree\n");
         printf("  exit                         : Quit application\n");
         success = true;
+    }
+
+    // Commande: rewrite_aof
+    else if (strncmp(command_line, "rewrite_aof", 11) == 0) {
+        success = engine_rewrite_aof(engine);
+        if (success) {
+            printf(">> AOF rewritten to '%s'\n", k_history_path);
+        }
+        return true; // pas de log
     }
 
     // Commande: redo
