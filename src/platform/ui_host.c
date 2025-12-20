@@ -117,6 +117,102 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             snprintf(ui->status, sizeof(ui->status), "Cleared");
         }
 
+        // Layers panel (z-order + visibility)
+        nk_layout_row_dynamic(ui->ctx, 10, 1); // Spacer
+        nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
+
+        nk_layout_row_dynamic(ui->ctx, 25, 1);
+        nk_label(ui->ctx, "Layers", NK_TEXT_LEFT);
+
+        // Layers list (top-most first)
+        {
+            struct nk_style_button btn_style = ui->ctx->style.button;
+            Node* selected = ui->selected_node;
+
+            // List height: keep it compact
+            nk_layout_row_dynamic(ui->ctx, 160, 1);
+            if (nk_group_begin(ui->ctx, "layers_list", NK_WINDOW_BORDER)) {
+                Node* nodes[512];
+                int count = 0;
+                Node* cur = engine->doc && engine->doc->root ? engine->doc->root->first_child : NULL;
+                while (cur && count < (int)(sizeof(nodes)/sizeof(nodes[0]))) {
+                    nodes[count++] = cur;
+                    cur = cur->next_sibling;
+                }
+
+                // Draw from front->back (reverse linked list)
+                for (int i = count - 1; i >= 0; i--) {
+                    Node* n = nodes[i];
+                    if (!n) continue;
+
+                    // highlight selected
+                    if (selected && n->id == selected->id) {
+                        ui->ctx->style.button.normal = nk_style_item_color(nk_rgb(60, 100, 160));
+                        ui->ctx->style.button.hover = nk_style_item_color(nk_rgb(70, 110, 180));
+                        ui->ctx->style.button.active = nk_style_item_color(nk_rgb(50, 90, 150));
+                    } else {
+                        ui->ctx->style.button = btn_style;
+                    }
+
+                    nk_layout_row_dynamic(ui->ctx, 24, 1);
+                    char label[96];
+                    snprintf(label, sizeof(label), "%s  (#%u)%s", n->name, (unsigned)n->id, n->visible ? "" : "  [hidden]");
+                    if (nk_button_label(ui->ctx, label)) {
+                        char cmd[64];
+                        snprintf(cmd, sizeof(cmd), "select %u", (unsigned)n->id);
+                        engine_execute_command(engine, cmd);
+                        ui->selected_node = engine->ui_host ? engine->ui_host->selected_node : ui->selected_node;
+                        snprintf(ui->status, sizeof(ui->status), "Selected #%u", (unsigned)n->id);
+                    }
+                }
+
+                ui->ctx->style.button = btn_style;
+                nk_group_end(ui->ctx);
+            }
+        }
+
+        // Layer actions (require selection)
+        if (ui->selected_node) {
+            Node* n = ui->selected_node;
+
+            nk_layout_row_dynamic(ui->ctx, 26, 1);
+            int vis = n->visible ? 1 : 0;
+            if (nk_checkbox_label(ui->ctx, "Visible", &vis)) {
+                char cmd[64];
+                snprintf(cmd, sizeof(cmd), "set_visible %u %d", (unsigned)n->id, vis ? 1 : 0);
+                engine_execute_command(engine, cmd);
+                snprintf(ui->status, sizeof(ui->status), vis ? "Visible" : "Hidden");
+            }
+
+            nk_layout_row_dynamic(ui->ctx, 30, 2);
+            if (nk_button_label(ui->ctx, "Up")) {
+                char cmd[64];
+                snprintf(cmd, sizeof(cmd), "bring_forward %u", (unsigned)n->id);
+                engine_execute_command(engine, cmd);
+                snprintf(ui->status, sizeof(ui->status), "Layer Up");
+            }
+            if (nk_button_label(ui->ctx, "Down")) {
+                char cmd[64];
+                snprintf(cmd, sizeof(cmd), "send_backward %u", (unsigned)n->id);
+                engine_execute_command(engine, cmd);
+                snprintf(ui->status, sizeof(ui->status), "Layer Down");
+            }
+
+            nk_layout_row_dynamic(ui->ctx, 30, 2);
+            if (nk_button_label(ui->ctx, "To Front")) {
+                char cmd[64];
+                snprintf(cmd, sizeof(cmd), "bring_to_front %u", (unsigned)n->id);
+                engine_execute_command(engine, cmd);
+                snprintf(ui->status, sizeof(ui->status), "To Front");
+            }
+            if (nk_button_label(ui->ctx, "To Back")) {
+                char cmd[64];
+                snprintf(cmd, sizeof(cmd), "send_to_back %u", (unsigned)n->id);
+                engine_execute_command(engine, cmd);
+                snprintf(ui->status, sizeof(ui->status), "To Back");
+            }
+        }
+
         nk_layout_row_dynamic(ui->ctx, 10, 1); // Spacer
         nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
 

@@ -8,6 +8,13 @@
 // that the Engine swapped/rebuilt its Document (undo/redo/rewrite).
 void scripting_set_document(Document* doc);
 
+// Layers / z-order helpers (document-linked-list based)
+bool doc_set_visible(Document* doc, uint32_t id, int visible);
+bool doc_bring_to_front(Document* doc, uint32_t id);
+bool doc_send_to_back(Document* doc, uint32_t id);
+bool doc_bring_forward(Document* doc, uint32_t id);
+bool doc_send_backward(Document* doc, uint32_t id);
+
 static const char* k_history_path = "history.log";
 static const char* k_redo_path = "redo.log";
 
@@ -26,7 +33,13 @@ static bool is_mutating_command_line(const char* line) {
     // High-frequency interactive commands (move/resize) are executed but not logged.
     return (strncmp(l, "rect ", 5) == 0 ||
             strncmp(l, "create_rect ", 12) == 0 ||
-            strncmp(l, "set_rect ", 9) == 0);
+            strncmp(l, "set_rect ", 9) == 0 ||
+            strncmp(l, "create_text ", 12) == 0 ||
+            strncmp(l, "set_visible ", 12) == 0 ||
+            strncmp(l, "bring_to_front ", 15) == 0 ||
+            strncmp(l, "send_to_back ", 13) == 0 ||
+            strncmp(l, "bring_forward ", 14) == 0 ||
+            strncmp(l, "send_backward ", 14) == 0);
 }
 
 static void clear_redo_log(void) {
@@ -71,7 +84,7 @@ static bool engine_rewrite_aof(Engine* engine) {
 
     fprintf(out, "-- Aslan AOF rewrite --\n");
 
-    // collect nodes, sort by id for determinism
+    // 1) Snapshot objects deterministically by id
     Node* nodes[4096];
     int count = 0;
     gather_nodes_recursive(engine->doc->root, nodes, &count, 4096);
@@ -81,16 +94,37 @@ static bool engine_rewrite_aof(Engine* engine) {
         Node* n = nodes[i];
         if (!n) continue;
         if (n->type == NODE_TYPE_RECT) {
-            // name is safe (no spaces) in current model
             fprintf(out, "create_rect %u %s %f %f %f %f\n",
                 (unsigned)n->id, n->name, n->x, n->y, n->width, n->height);
-        }
-        else if (n->type == NODE_TYPE_TEXT) {
-            // NOTE: text content is quoted; keep it simple for now (no escaping yet)
+        } else if (n->type == NODE_TYPE_TEXT) {
             fprintf(out, "create_text %u %s %f %f %f %f \"%s\"\n",
                 (unsigned)n->id, n->name, n->x, n->y, n->width, n->height, n->text);
         }
-        // TODO: image later
+    }
+
+    // 2) Persist visibility state (only when hidden)
+    for (int i = 0; i < count; i++) {
+        Node* n = nodes[i];
+        if (!n) continue;
+        if (n->visible == 0) {
+            fprintf(out, "set_visible %u 0\n", (unsigned)n->id);
+        }
+    }
+
+    // 3) Persist z-order: last sibling is front.
+    // We encode it by iterating siblings from back->front and bringing each to front.
+    // This is deterministic and keeps the command log small.
+    Node* child = engine->doc->root ? engine->doc->root->first_child : NULL;
+    // collect in array for reverse traversal
+    Node* stack[4096];
+    int scount = 0;
+    while (child && scount < 4096) {
+        stack[scount++] = child;
+        child = child->next_sibling;
+    }
+    for (int i = 0; i < scount; i++) {
+        // bringing in existing order replays to same order
+        fprintf(out, "bring_to_front %u\n", (unsigned)stack[i]->id);
     }
 
     fclose(out);
@@ -142,6 +176,7 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
     char name[64];
     float x, y, w, h;
     int id;
+    int value;
     bool success = false;
     
     // Commande: exit
@@ -326,6 +361,33 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
                 success = true;
             }
         }
+    }
+
+    // Commande: set_visible <id> <0|1>
+    else if (sscanf(command_line, "set_visible %d %d", &id, &value) == 2) {
+        if (id > 0) {
+            success = doc_set_visible(engine->doc, (uint32_t)id, value);
+        }
+    }
+
+    // Commande: bring_to_front <id>
+    else if (sscanf(command_line, "bring_to_front %d", &id) == 1) {
+        if (id > 0) success = doc_bring_to_front(engine->doc, (uint32_t)id);
+    }
+
+    // Commande: send_to_back <id>
+    else if (sscanf(command_line, "send_to_back %d", &id) == 1) {
+        if (id > 0) success = doc_send_to_back(engine->doc, (uint32_t)id);
+    }
+
+    // Commande: bring_forward <id>
+    else if (sscanf(command_line, "bring_forward %d", &id) == 1) {
+        if (id > 0) success = doc_bring_forward(engine->doc, (uint32_t)id);
+    }
+
+    // Commande: send_backward <id>
+    else if (sscanf(command_line, "send_backward %d", &id) == 1) {
+        if (id > 0) success = doc_send_backward(engine->doc, (uint32_t)id);
     }
 
     // Commande: set_rect <id> <x> <y> <w> <h>
@@ -541,6 +603,8 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
         strncmp(command_line, "list", 4) != 0 && 
         strncmp(command_line, "help", 4) != 0 &&
     strncmp(command_line, "select", 6) != 0 &&
+    strncmp(command_line, "new_rect", 8) != 0 &&
+    strncmp(command_line, "new_text", 8) != 0 &&
     strncmp(command_line, "move", 4) != 0 &&
     strncmp(command_line, "resize", 6) != 0 &&
         strncmp(command_line, "exit", 4) != 0) {

@@ -2,6 +2,7 @@
 #define DOCUMENT_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 // Types de nœuds graphiques supportés
 typedef enum {
@@ -49,6 +50,15 @@ void doc_destroy(Document* doc);
 Node* doc_create_node(Document* doc, NodeType type, const char* name);
 void doc_add_child(Node* parent, Node* child);
 Node* doc_find_node_by_id(Document* doc, uint32_t id);
+
+// --- Layers / z-order helpers ---
+// Z-order is defined by sibling order under the same parent.
+// The last sibling is drawn last and is therefore on top.
+bool doc_set_visible(Document* doc, uint32_t id, int visible);
+bool doc_bring_to_front(Document* doc, uint32_t id);
+bool doc_send_to_back(Document* doc, uint32_t id);
+bool doc_bring_forward(Document* doc, uint32_t id);
+bool doc_send_backward(Document* doc, uint32_t id);
 
 // Trouve le nœud le plus profond à une position donnée (pour le clic souris)
 Node* doc_find_node_at(Document* doc, float x, float y);

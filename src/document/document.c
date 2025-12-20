@@ -3,6 +3,49 @@
 #include <string.h>
 #include <stdio.h>
 
+static Node* detach_child(Node* parent, Node* child) {
+    if (!parent || !child) return NULL;
+    Node* prev = NULL;
+    Node* cur = parent->first_child;
+    while (cur) {
+        if (cur == child) {
+            if (prev) prev->next_sibling = cur->next_sibling;
+            else parent->first_child = cur->next_sibling;
+            cur->next_sibling = NULL;
+            cur->parent = parent;
+            return cur;
+        }
+        prev = cur;
+        cur = cur->next_sibling;
+    }
+    return NULL;
+}
+
+static void append_child(Node* parent, Node* child) {
+    if (!parent || !child) return;
+    child->parent = parent;
+    child->next_sibling = NULL;
+    if (!parent->first_child) {
+        parent->first_child = child;
+        return;
+    }
+    Node* cur = parent->first_child;
+    while (cur->next_sibling) cur = cur->next_sibling;
+    cur->next_sibling = child;
+}
+
+static void insert_child_after(Node* parent, Node* child, Node* after) {
+    if (!parent || !child) return;
+    child->parent = parent;
+    if (!after) {
+        child->next_sibling = parent->first_child;
+        parent->first_child = child;
+        return;
+    }
+    child->next_sibling = after->next_sibling;
+    after->next_sibling = child;
+}
+
 Document* doc_create(void) {
     Document* doc = (Document*)malloc(sizeof(Document));
     if (!doc) return NULL;
@@ -78,6 +121,86 @@ static Node* find_node_recursive(Node* current, uint32_t id) {
 Node* doc_find_node_by_id(Document* doc, uint32_t id) {
     if (!doc || !doc->root) return NULL;
     return find_node_recursive(doc->root, id);
+}
+
+bool doc_set_visible(Document* doc, uint32_t id, int visible) {
+    Node* node = doc_find_node_by_id(doc, id);
+    if (!node || node->type == NODE_TYPE_ROOT) return false;
+    node->visible = visible ? 1 : 0;
+    return true;
+}
+
+bool doc_bring_to_front(Document* doc, uint32_t id) {
+    Node* node = doc_find_node_by_id(doc, id);
+    if (!node || !node->parent) return false;
+    Node* parent = node->parent;
+    // already last?
+    Node* cur = parent->first_child;
+    if (!cur) return false;
+    while (cur->next_sibling) cur = cur->next_sibling;
+    if (cur == node) return true;
+
+    Node* detached = detach_child(parent, node);
+    if (!detached) return false;
+    append_child(parent, detached);
+    return true;
+}
+
+bool doc_send_to_back(Document* doc, uint32_t id) {
+    Node* node = doc_find_node_by_id(doc, id);
+    if (!node || !node->parent) return false;
+    Node* parent = node->parent;
+    if (parent->first_child == node) return true;
+
+    Node* detached = detach_child(parent, node);
+    if (!detached) return false;
+    insert_child_after(parent, detached, NULL);
+    return true;
+}
+
+bool doc_bring_forward(Document* doc, uint32_t id) {
+    Node* node = doc_find_node_by_id(doc, id);
+    if (!node || !node->parent) return false;
+    Node* parent = node->parent;
+
+    Node* prev = NULL;
+    Node* cur = parent->first_child;
+    while (cur && cur != node) {
+        prev = cur;
+        cur = cur->next_sibling;
+    }
+    if (!cur) return false;
+    Node* next = cur->next_sibling;
+    if (!next) return true; // already at front
+
+    // swap cur and next
+    if (prev) prev->next_sibling = next;
+    else parent->first_child = next;
+    cur->next_sibling = next->next_sibling;
+    next->next_sibling = cur;
+    return true;
+}
+
+bool doc_send_backward(Document* doc, uint32_t id) {
+    Node* node = doc_find_node_by_id(doc, id);
+    if (!node || !node->parent) return false;
+    Node* parent = node->parent;
+    if (parent->first_child == node) return true; // already at back
+
+    Node* prevprev = NULL;
+    Node* prev = parent->first_child;
+    while (prev && prev->next_sibling != node) {
+        prevprev = prev;
+        prev = prev->next_sibling;
+    }
+    if (!prev) return false;
+
+    // swap prev and node
+    if (prevprev) prevprev->next_sibling = node;
+    else parent->first_child = node;
+    prev->next_sibling = node->next_sibling;
+    node->next_sibling = prev;
+    return true;
 }
 
 static Node* find_node_at_recursive(Node* node, float x, float y) {
