@@ -51,6 +51,28 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
         success = true;
     }
 
+    // Commande: create_rect <id> <name> <x> <y> <w> <h>
+    // Création déterministe avec ID explicite (AOF-friendly)
+    else if (sscanf(command_line, "create_rect %d %63s %f %f %f %f", &id, name, &x, &y, &w, &h) == 6) {
+        if (id > 0 && !doc_find_node_by_id(engine->doc, (uint32_t)id)) {
+            Node* node = doc_create_node(engine->doc, NODE_TYPE_RECT, name);
+            // Forcer l'ID
+            node->id = (uint32_t)id;
+
+            // Maintenir next_node_id pour éviter les collisions futures
+            if (engine->doc->next_node_id <= (uint32_t)id) {
+                engine->doc->next_node_id = (uint32_t)id + 1;
+            }
+
+            node->x = x;
+            node->y = y;
+            node->width = w;
+            node->height = h;
+            doc_add_child(engine->doc->root, node);
+            success = true;
+        }
+    }
+
     // Commande: set_rect <id> <x> <y> <w> <h>
     else if (sscanf(command_line, "set_rect %d %f %f %f %f", &id, &x, &y, &w, &h) == 5) {
         Node* node = doc_find_node_by_id(engine->doc, (uint32_t)id);
@@ -116,8 +138,7 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
     // Commande: undo
     else if (strncmp(command_line, "undo", 4) == 0) {
         // L'undo dans un AOF est simple : on ferme le fichier, on le tronque d'une ligne, et on recharge.
-        // Pour faire simple ici : on va lire tout le fichier sauf la dernière ligne, 
-        // le réécrire, et recharger l'état.
+        // Version améliorée: on retire la dernière commande *mutante* (ignore commentaires / select / help / list ...)
         if (engine->history_file) {
             fclose(engine->history_file);
             engine->history_file = NULL;
@@ -133,17 +154,30 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
                 }
                 fclose(f);
                 
-                // Réécriture de toutes les lignes sauf la dernière (si elle n'est pas un commentaire)
+                // Réécriture de toutes les lignes sauf la dernière commande mutante
                 f = fopen("history.log", "w");
                 if (f) {
-                    // On cherche la dernière ligne qui n'est pas un commentaire
-                    int last_valid = -1;
+                    // On cherche la dernière commande mutante
+                    int last_mutating = -1;
                     for (int i = 0; i < count; i++) {
-                        if (lines[i][0] != '-' && lines[i][0] != '\n') last_valid = i;
+                        const char* l = lines[i];
+                        if (!l || l[0] == '-' || l[0] == '\n' || l[0] == '\r' || l[0] == '\0') continue;
+
+                        // strip leading spaces
+                        while (*l == ' ' || *l == '\t') l++;
+
+                        // Mutantes
+                        if (strncmp(l, "rect ", 5) == 0 ||
+                            strncmp(l, "create_rect ", 12) == 0 ||
+                            strncmp(l, "set_rect ", 9) == 0 ||
+                            strncmp(l, "move ", 5) == 0 ||
+                            strncmp(l, "resize ", 7) == 0) {
+                            last_mutating = i;
+                        }
                     }
                     
                     for (int i = 0; i < count; i++) {
-                        if (i == last_valid) continue; 
+                        if (i == last_mutating) continue;
                         fprintf(f, "%s", lines[i]);
                     }
                     fclose(f);

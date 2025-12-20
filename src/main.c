@@ -150,7 +150,8 @@ int main(int argc, char** argv) {
     }
     
     // 7. Chargement des scripts
-    scripting_run_file(L, "scripts/test_tool.lua");
+    // NOTE: test_tool.lua est un script de test, ne doit pas tourner par défaut (sinon duplication)
+    // scripting_run_file(L, "scripts/test_tool.lua");
     scripting_run_file(L, "scripts/tools.lua");
 
     // 8. Lancement du mode visuel
