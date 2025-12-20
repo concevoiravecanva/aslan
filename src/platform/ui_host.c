@@ -69,6 +69,9 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             // On appelle une fonction Lua qui crée un rect aléatoire
             scripting_run_file(ui->L, "scripts/create_random.lua");
         }
+            if (nk_button_label(ui->ctx, "New Rect")) {
+                engine_execute_command(engine, "new_rect");
+            }
         if (nk_button_label(ui->ctx, "Clear All")) {
             engine_execute_command(engine, "clear");
         }

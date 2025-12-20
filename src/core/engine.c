@@ -177,6 +177,50 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
     printf(">> Cleared document and history.\n");
         success = true;
     }
+
+    // Commande: new_rect [x y w h]
+    // Convenience helper: allocate a new id, create a rect with deterministic name Rect<id>,
+    // and select it. This should result in a single AOF entry (create_rect).
+    else if (strncmp(command_line, "new_rect", 8) == 0) {
+        // Defaults
+        float nx = 100.0f, ny = 100.0f, nw = 120.0f, nh = 120.0f;
+        // Optional args
+        float ax, ay, aw, ah;
+        if (sscanf(command_line, "new_rect %f %f %f %f", &ax, &ay, &aw, &ah) == 4) {
+            nx = ax; ny = ay; nw = aw; nh = ah;
+        }
+
+        uint32_t new_id = engine->doc ? engine->doc->next_node_id : 1;
+        snprintf(name, sizeof(name), "Rect%u", (unsigned)new_id);
+
+        Node* node = doc_create_node(engine->doc, NODE_TYPE_RECT, name);
+        if (node) {
+            node->x = nx;
+            node->y = ny;
+            node->width = nw;
+            node->height = nh;
+            doc_add_child(engine->doc->root, node);
+            // Ensure deterministic name matches actual assigned id
+            snprintf(node->name, sizeof(node->name), "Rect%u", (unsigned)node->id);
+
+            // Select (not logged by design)
+            if (engine->ui_host) engine->ui_host->selected_node = node;
+            printf(">> New rect created: %s (ID: %u)\n", node->name, (unsigned)node->id);
+            success = true;
+
+            // Write as create_rect entry (deterministic AOF)
+            if (engine->history_file) {
+                fprintf(engine->history_file, "create_rect %u %s %f %f %f %f\n",
+                    (unsigned)node->id, node->name, node->x, node->y, node->width, node->height);
+                fflush(engine->history_file);
+            }
+
+            // New mutations invalidate redo
+            clear_redo_log();
+        }
+
+        return success;
+    }
     
     // Commande: rect <name> <x> <y> <w> <h>
     else if (sscanf(command_line, "rect %63s %f %f %f %f", name, &x, &y, &w, &h) == 5) {
@@ -261,6 +305,7 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
     else if (strncmp(command_line, "help", 4) == 0) {
         printf("Available commands:\n");
         printf("  rect <name> <x> <y> <w> <h>  : Create a rectangle\n");
+    printf("  new_rect [x y w h]           : Create a new rectangle (AOF: create_rect)\n");
         printf("  set_rect <id> <x> <y> <w> <h>: Set full rect geometry\n");
         printf("  rewrite_aof                  : Compact history.log (snapshot)\n");
     printf("  move <id> <x> <y>            : Move a node (interactive; not logged)\n");
