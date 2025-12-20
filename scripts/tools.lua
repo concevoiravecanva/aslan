@@ -9,6 +9,12 @@ local offset_y = 0
 local offset_w = 0
 local offset_h = 0
 
+-- Dernière géométrie calculée pendant le drag (commit au mouse_up en une seule commande AOF)
+local pending_x = nil
+local pending_y = nil
+local pending_w = nil
+local pending_h = nil
+
 function on_mouse_down(x, y)
     dragged_node_id = aslan.get_node_at(x, y)
     if dragged_node_id then
@@ -55,14 +61,22 @@ function on_mouse_down(x, y)
             offset_y = y - ny
             aslan.log("Lua dragging node: " .. dragged_node_id)
         end
+
+    -- Initialiser le pending state sur la géométrie courante
+    pending_x, pending_y, pending_w, pending_h = nx, ny, nw, nh
     end
 end
 
 function on_mouse_move(x, y)
     if dragged_node_id then
         if drag_mode == "move" then
-            local cmd = string.format("move %d %f %f", dragged_node_id, x - offset_x, y - offset_y)
-            aslan.execute(cmd)
+            local new_x = x - offset_x
+            local new_y = y - offset_y
+            local _, _, w, h = aslan.get_node_rect(dragged_node_id)
+            pending_x, pending_y, pending_w, pending_h = new_x, new_y, w, h
+
+            -- Exécution volatile: pas de spam dans history.log
+            aslan.execute_volatile(string.format("move %d %f %f", dragged_node_id, new_x, new_y))
         elseif drag_mode == "resize" then
             local nx, ny, nw, nh = aslan.get_node_rect(dragged_node_id)
 
@@ -95,15 +109,22 @@ function on_mouse_move(x, y)
                 new_y = (ny + nh) - new_h
             end
 
-            -- On émet des commandes textuelles (architecture AOF)
-            aslan.execute(string.format("move %d %f %f", dragged_node_id, new_x, new_y))
-            aslan.execute(string.format("resize %d %f %f", dragged_node_id, new_w, new_h))
+            pending_x, pending_y, pending_w, pending_h = new_x, new_y, new_w, new_h
+
+            -- Exécution volatile pendant le drag
+            aslan.execute_volatile(string.format("set_rect %d %f %f %f %f", dragged_node_id, new_x, new_y, new_w, new_h))
         end
     end
 end
 
 function on_mouse_up(x, y)
+    -- Commit final: une seule ligne dans l'AOF
+    if dragged_node_id and pending_x and pending_y and pending_w and pending_h then
+        aslan.execute(string.format("set_rect %d %f %f %f %f", dragged_node_id, pending_x, pending_y, pending_w, pending_h))
+    end
+
     dragged_node_id = nil
     drag_mode = "none"
     resize_corner = nil
+    pending_x, pending_y, pending_w, pending_h = nil, nil, nil, nil
 end

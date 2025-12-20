@@ -51,6 +51,18 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
         success = true;
     }
 
+    // Commande: set_rect <id> <x> <y> <w> <h>
+    else if (sscanf(command_line, "set_rect %d %f %f %f %f", &id, &x, &y, &w, &h) == 5) {
+        Node* node = doc_find_node_by_id(engine->doc, (uint32_t)id);
+        if (node) {
+            node->x = x;
+            node->y = y;
+            node->width = w;
+            node->height = h;
+            success = true;
+        }
+    }
+
     // Commande: move <id> <x> <y>
     else if (sscanf(command_line, "move %d %f %f", &id, &x, &y) == 3) {
         Node* node = doc_find_node_by_id(engine->doc, (uint32_t)id);
@@ -91,6 +103,7 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
     else if (strncmp(command_line, "help", 4) == 0) {
         printf("Available commands:\n");
         printf("  rect <name> <x> <y> <w> <h>  : Create a rectangle\n");
+    printf("  set_rect <id> <x> <y> <w> <h>: Set full rect geometry\n");
         printf("  move <id> <x> <y>            : Move a node\n");
         printf("  resize <id> <w> <h>          : Resize a node\n");
         printf("  select <id>                  : Select a node\n");
@@ -155,6 +168,7 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
     if (success && engine->history_file && 
         strncmp(command_line, "list", 4) != 0 && 
         strncmp(command_line, "help", 4) != 0 &&
+    strncmp(command_line, "select", 6) != 0 &&
         strncmp(command_line, "exit", 4) != 0) {
         fprintf(engine->history_file, "%s\n", command_line);
         fflush(engine->history_file);

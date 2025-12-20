@@ -41,6 +41,21 @@ static int l_execute(lua_State* L) {
     return 1;
 }
 
+// lua: execute_volatile(command_string) -> bool
+// Exécute sans écrire dans history.log (utile pour les drags en continu)
+static int l_execute_volatile(lua_State* L) {
+    const char* cmd = luaL_checkstring(L, 1);
+    if (!g_current_engine) return 0;
+
+    FILE* temp = g_current_engine->history_file;
+    g_current_engine->history_file = NULL;
+    bool success = engine_execute_command(g_current_engine, cmd);
+    g_current_engine->history_file = temp;
+
+    lua_pushboolean(L, success);
+    return 1;
+}
+
 // lua: create_rect(name, x, y, w, h) -> node_id
 static int l_create_rect(lua_State* L) {
     const char* name = luaL_checkstring(L, 1);
@@ -129,6 +144,7 @@ static int l_get_selected_id(lua_State* L) {
 // Enregistrement des fonctions
 static const struct luaL_Reg aslan_lib[] = {
     {"execute", l_execute},
+    {"execute_volatile", l_execute_volatile},
     {"create_rect", l_create_rect},
     {"get_node_at", l_get_node_at},
     {"get_node_rect", l_get_node_rect},
