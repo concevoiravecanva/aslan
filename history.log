@@ -1,33 +1,33 @@
 -- Session started --
 clear
-page_select 1
-page_select 1
-page_create "Page"
-page_create "Page"
-page_select 2
-page_select 2
+doc_type canvas2d
+doc_meta width 800
+doc_meta height 600
+page_create 2 "Page"
+page_create 2 "Page"
+page_create 3 "Page"
+page_create 3 "Page"
 page_select 1
 page_select 1
 create_rect 1 Rect1 100.000000 100.000000 120.000000 120.000000
-create_rect 2 Rect2 100.000000 100.000000 120.000000 120.000000
-page_select 1
-page_select 1
+create_text 2 Text2 261.000000 134.000000 395.000000 196.000000 "Text"
+bring_to_front 1
+bring_to_front 2
 page_select 2
 page_select 2
+create_rect 3 Rect3 100.000000 100.000000 628.000000 30.000000
+create_text 4 Text4 120.000000 120.000000 219.000000 503.000000 "Text"
+bring_to_front 3
+bring_to_front 4
+page_select 3
+page_select 3
+create_rect 5 Rect5 100.000000 100.000000 120.000000 120.000000
+create_rect 6 Rect6 206.000000 157.000000 120.000000 120.000000
+bring_to_front 5
+bring_to_front 6
+page_select 3
+page_select 3
 page_select 2
 page_select 2
-create_text 3 Text3 120.000000 120.000000 220.000000 60.000000 "Text"
-set_rect 3 374.000000 119.000000 220.000000 60.000000
-set_rect 4 459.000000 400.000000 143.000000 136.000000
-page_select 1
-page_select 1
-page_select 2
-page_select 2
-page_select 1
-page_select 1
-page_select 2
-page_select 2
-page_create "Page"
-page_create "Page"
 page_select 3
 page_select 3

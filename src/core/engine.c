@@ -23,6 +23,7 @@ void doc_globals_iterate(const Document* doc, doc_global_iter_fn fn, void* user)
 
 // Pages API
 uint32_t doc_page_create(Document* doc, const char* name);
+uint32_t doc_page_create_with_id(Document* doc, uint32_t page_id, const char* name);
 bool doc_page_select(Document* doc, uint32_t page_id);
 uint32_t doc_page_active_id(const Document* doc);
 const char* doc_page_name(const Document* doc, uint32_t page_id);
@@ -266,55 +267,70 @@ static bool engine_write_snapshot_to_file(Engine* engine, FILE* out, const char*
     // Document globals
     doc_globals_iterate(engine->doc, rewrite_emit_global_kv, out);
 
-    // Pages (MVP): declare pages and select active page.
-    // NOTE: For now we only snapshot the active page's node tree. This is a stepping stone:
-    // it allows UI and navigation to land first.
+    // Pages: declare pages (with stable ids) and serialize each page's node tree.
+    // Format v1 extension (back-compat):
+    // - Old: page_create "Name"
+    // - New: page_create <id> "Name"
+    // We always emit the new form to keep ids stable across save/load.
     if (engine->doc) {
         for (int i = 0; i < 32; i++) {
             if (!engine->doc->pages[i].in_use) continue;
-            fprintf(out, "page_create \"%s\"\n", engine->doc->pages[i].name[0] ? engine->doc->pages[i].name : "Page");
+            fprintf(out, "page_create %u \"%s\"\n",
+                (unsigned)engine->doc->pages[i].page_id,
+                engine->doc->pages[i].name[0] ? engine->doc->pages[i].name : "Page");
         }
+
+        // Serialize each page deterministically in the order of the pages array.
+        for (int i = 0; i < 32; i++) {
+            if (!engine->doc->pages[i].in_use) continue;
+
+            Node* page_root = engine->doc->pages[i].root;
+            if (!page_root) continue;
+
+            fprintf(out, "page_select %u\n", (unsigned)engine->doc->pages[i].page_id);
+
+            // 1) Snapshot objects deterministically by id
+            Node* nodes[4096];
+            int count = 0;
+            gather_nodes_recursive(page_root, nodes, &count, 4096);
+            qsort(nodes, (size_t)count, sizeof(Node*), cmp_node_id_ptr);
+
+            for (int j = 0; j < count; j++) {
+                Node* n = nodes[j];
+                if (!n) continue;
+                if (n->type == NODE_TYPE_RECT) {
+                    fprintf(out, "create_rect %u %s %f %f %f %f\n",
+                        (unsigned)n->id, n->name, n->x, n->y, n->width, n->height);
+                } else if (n->type == NODE_TYPE_TEXT) {
+                    fprintf(out, "create_text %u %s %f %f %f %f \"%s\"\n",
+                        (unsigned)n->id, n->name, n->x, n->y, n->width, n->height, n->text);
+                }
+            }
+
+            // 2) Persist visibility state (only when hidden)
+            for (int j = 0; j < count; j++) {
+                Node* n = nodes[j];
+                if (!n) continue;
+                if (n->visible == 0) {
+                    fprintf(out, "set_visible %u 0\n", (unsigned)n->id);
+                }
+            }
+
+            // 3) Persist z-order: based on sibling order under this page root.
+            Node* child = page_root->first_child;
+            Node* stack[4096];
+            int scount = 0;
+            while (child && scount < 4096) {
+                stack[scount++] = child;
+                child = child->next_sibling;
+            }
+            for (int j = 0; j < scount; j++) {
+                fprintf(out, "bring_to_front %u\n", (unsigned)stack[j]->id);
+            }
+        }
+
+        // Restore the user's active page at the end (so loading lands in the same page).
         fprintf(out, "page_select %u\n", (unsigned)doc_page_active_id(engine->doc));
-    }
-
-    // 1) Snapshot objects deterministically by id
-    Node* nodes[4096];
-    int count = 0;
-    gather_nodes_recursive(engine->doc->root, nodes, &count, 4096);
-    qsort(nodes, (size_t)count, sizeof(Node*), cmp_node_id_ptr);
-
-    for (int i = 0; i < count; i++) {
-        Node* n = nodes[i];
-        if (!n) continue;
-        if (n->type == NODE_TYPE_RECT) {
-            fprintf(out, "create_rect %u %s %f %f %f %f\n",
-                (unsigned)n->id, n->name, n->x, n->y, n->width, n->height);
-        } else if (n->type == NODE_TYPE_TEXT) {
-            fprintf(out, "create_text %u %s %f %f %f %f \"%s\"\n",
-                (unsigned)n->id, n->name, n->x, n->y, n->width, n->height, n->text);
-        }
-    }
-
-    // 2) Persist visibility state (only when hidden)
-    for (int i = 0; i < count; i++) {
-        Node* n = nodes[i];
-        if (!n) continue;
-        if (n->visible == 0) {
-            fprintf(out, "set_visible %u 0\n", (unsigned)n->id);
-        }
-    }
-
-    // 3) Persist z-order: last sibling is front.
-    // We encode it by iterating siblings from back->front and bringing each to front.
-    Node* child = engine->doc->root ? engine->doc->root->first_child : NULL;
-    Node* stack[4096];
-    int scount = 0;
-    while (child && scount < 4096) {
-        stack[scount++] = child;
-        child = child->next_sibling;
-    }
-    for (int i = 0; i < scount; i++) {
-        fprintf(out, "bring_to_front %u\n", (unsigned)stack[i]->id);
     }
 
     return true;
@@ -473,10 +489,23 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
         }
     }
 
-    // Commande: page_create "Name"
+    // Commande: page_create (two forms)
+    // - Old: page_create "Name"
+    // - New: page_create <id> "Name"
     else if (strncmp(command_line, "page_create ", 12) == 0) {
         const char* p = command_line + 12;
         while (*p == ' ' || *p == '\t') p++;
+
+        int forced_id = 0;
+        // If the next token starts with digit, parse id.
+        if (*p >= '0' && *p <= '9') {
+            if (sscanf(p, "%d", &forced_id) == 1) {
+                // advance past the number
+                while (*p && *p != ' ' && *p != '\t') p++;
+                while (*p == ' ' || *p == '\t') p++;
+            }
+        }
+
         char page_name[64];
         memset(page_name, 0, sizeof(page_name));
         if (*p == '"') {
@@ -492,7 +521,10 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
         }
 
         if (engine->doc) {
-            uint32_t pid = doc_page_create(engine->doc, page_name[0] ? page_name : NULL);
+            uint32_t pid = 0;
+            if (forced_id > 0) pid = doc_page_create_with_id(engine->doc, (uint32_t)forced_id, page_name[0] ? page_name : NULL);
+            else pid = doc_page_create(engine->doc, page_name[0] ? page_name : NULL);
+
             if (pid != 0) {
                 // Log command
                 if (engine->history_file && is_mutating_command_line(command_line)) {

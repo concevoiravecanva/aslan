@@ -144,16 +144,21 @@ static int page_find_free_slot(Document* doc) {
     return -1;
 }
 
-uint32_t doc_page_create(Document* doc, const char* name) {
+static uint32_t doc_page_create_internal(Document* doc, uint32_t forced_page_id, const char* name) {
     if (!doc) return 0;
     int slot = page_find_free_slot(doc);
     if (slot < 0) return 0;
+
+    if (forced_page_id != 0) {
+        // Ensure uniqueness
+        if (page_find_index_by_id(doc, forced_page_id) >= 0) return 0;
+    }
 
     Node* r = make_root_node();
     if (!r) return 0;
 
     doc->pages[slot].in_use = 1;
-    doc->pages[slot].page_id = doc->next_page_id++;
+    doc->pages[slot].page_id = forced_page_id != 0 ? forced_page_id : doc->next_page_id++;
     memset(doc->pages[slot].name, 0, sizeof(doc->pages[slot].name));
     if (name && name[0]) strncpy(doc->pages[slot].name, name, sizeof(doc->pages[slot].name) - 1);
     else {
@@ -163,10 +168,24 @@ uint32_t doc_page_create(Document* doc, const char* name) {
     doc->pages[slot].root = r;
     doc->page_count++;
 
+    // Keep next_page_id monotonic even with forced ids (avoid collisions).
+    if (forced_page_id != 0 && forced_page_id >= doc->next_page_id) {
+        doc->next_page_id = forced_page_id + 1;
+    }
+
     // Auto-select new page
     doc->active_page_id = doc->pages[slot].page_id;
     doc->root = doc->pages[slot].root;
     return doc->pages[slot].page_id;
+}
+
+uint32_t doc_page_create(Document* doc, const char* name) {
+    return doc_page_create_internal(doc, 0, name);
+}
+
+uint32_t doc_page_create_with_id(Document* doc, uint32_t page_id, const char* name) {
+    if (!doc || page_id == 0) return 0;
+    return doc_page_create_internal(doc, page_id, name);
 }
 
 bool doc_page_select(Document* doc, uint32_t page_id) {

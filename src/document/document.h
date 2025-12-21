@@ -75,6 +75,10 @@ typedef struct {
 
 // --- Pages API ---
 uint32_t doc_page_create(Document* doc, const char* name);
+// Create a page with a caller-provided id.
+// Used for deterministic replay/snapshots where ids must be stable across load/save.
+// Returns the created page id on success, 0 on failure.
+uint32_t doc_page_create_with_id(Document* doc, uint32_t page_id, const char* name);
 bool doc_page_select(Document* doc, uint32_t page_id);
 uint32_t doc_page_active_id(const Document* doc);
 const char* doc_page_name(const Document* doc, uint32_t page_id);
