@@ -30,6 +30,14 @@ typedef struct UIHost {
 
     // Tool mode: 0 = select/move/resize, 1 = create rect
     int tool_mode;
+
+    // Export settings (defaults)
+    char export_svg_path[256];
+
+    // Export modal state (Antirez-style: simple in-app dialog)
+    int show_export_svg_modal;
+    char export_svg_dir[256];
+    char export_svg_name[256];
 } UIHost;
 
 UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L);

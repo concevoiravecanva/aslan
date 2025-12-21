@@ -1,5 +1,8 @@
 #include "ui_host.h"
 #include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/stat.h>
 #include "../scripting/lua_host.h"
 
 // Implémentation spécifique SDL2 pour Nuklear
@@ -23,8 +26,60 @@ UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L) {
 
     snprintf(ui->status, sizeof(ui->status), "Ready");
     ui->tool_mode = 0;
+
+    // Export defaults
+    snprintf(ui->export_svg_path, sizeof(ui->export_svg_path), "preview.svg");
+    ui->show_export_svg_modal = 0;
+    if (getcwd(ui->export_svg_dir, sizeof(ui->export_svg_dir)) == NULL) {
+        snprintf(ui->export_svg_dir, sizeof(ui->export_svg_dir), ".");
+    }
+    snprintf(ui->export_svg_name, sizeof(ui->export_svg_name), "preview.svg");
     
     return ui;
+}
+
+static void reveal_file_in_finder_best_effort(const char* path) {
+    if (!path || !path[0]) return;
+#if defined(__APPLE__)
+    char cmd[1024];
+    snprintf(cmd, sizeof(cmd), "open -R '%s' >/dev/null 2>&1", path);
+    system(cmd);
+#else
+    (void)path;
+#endif
+}
+
+static int mkdir_p(const char* dir) {
+    if (!dir || !dir[0]) return 0;
+    char tmp[512];
+    snprintf(tmp, sizeof(tmp), "%s", dir);
+
+    size_t len = strlen(tmp);
+    if (len == 0) return 0;
+    if (tmp[len - 1] == '/') tmp[len - 1] = 0;
+
+    for (char* p = tmp + 1; *p; p++) {
+        if (*p == '/') {
+            *p = 0;
+            mkdir(tmp, 0755);
+            *p = '/';
+        }
+    }
+    mkdir(tmp, 0755);
+    return 0;
+}
+
+static void join_path(char* out, size_t cap, const char* dir, const char* name) {
+    if (!out || cap == 0) return;
+    out[0] = 0;
+    if (!name || !name[0]) return;
+    if (!dir || !dir[0]) {
+        snprintf(out, cap, "%s", name);
+        return;
+    }
+    size_t dlen = strlen(dir);
+    if (dir[dlen - 1] == '/') snprintf(out, cap, "%s%s", dir, name);
+    else snprintf(out, cap, "%s/%s", dir, name);
 }
 
 void ui_shutdown(UIHost* ui) {
@@ -65,6 +120,21 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
 
         nk_layout_row_dynamic(ui->ctx, 10, 1); // Spacer
         nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
+
+        // Export (always available)
+        nk_layout_row_dynamic(ui->ctx, 25, 1);
+        nk_label(ui->ctx, "Export", NK_TEXT_LEFT);
+
+        nk_layout_row_dynamic(ui->ctx, 32, 1);
+        if (nk_button_label(ui->ctx, "Export SVG...")) {
+            // open modal
+            ui->show_export_svg_modal = 1;
+            // keep defaults synced
+            if (getcwd(ui->export_svg_dir, sizeof(ui->export_svg_dir)) == NULL) {
+                snprintf(ui->export_svg_dir, sizeof(ui->export_svg_dir), ".");
+            }
+            snprintf(ui->export_svg_name, sizeof(ui->export_svg_name), "%s", ui->export_svg_path[0] ? ui->export_svg_path : "preview.svg");
+        }
 
     // Status line (last action)
     nk_layout_row_dynamic(ui->ctx, 22, 1);
@@ -216,7 +286,7 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
         nk_layout_row_dynamic(ui->ctx, 10, 1); // Spacer
         nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
 
-        if (ui->selected_node) {
+    if (ui->selected_node) {
             Node* n = ui->selected_node;
             nk_layout_row_dynamic(ui->ctx, 25, 1);
             nk_label(ui->ctx, "Node Properties", NK_TEXT_LEFT);
@@ -233,16 +303,61 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             nk_property_float(ui->ctx, "#W:", 0, &n->width, 2000, 1.0f, 1.0f);
             nk_property_float(ui->ctx, "#H:", 0, &n->height, 2000, 1.0f, 1.0f);
 
-            nk_layout_row_dynamic(ui->ctx, 30, 1);
-            if (nk_button_label(ui->ctx, "Export SVG")) {
-                doc_export_to_svg(engine->doc, "preview.svg");
-            }
         } else {
             nk_layout_row_dynamic(ui->ctx, 30, 1);
             nk_label(ui->ctx, "No selection", NK_TEXT_CENTERED);
         }
     }
     nk_end(ui->ctx);
+
+    // Modal export window (robust: plain nk_begin, avoids nk_popup_begin asserts)
+    if (ui->show_export_svg_modal) {
+        struct nk_rect bounds = nk_rect(win_w * 0.5f - 170.0f, win_h * 0.5f - 130.0f, 340.0f, 260.0f);
+        if (nk_begin(ui->ctx, "Export SVG", bounds,
+            NK_WINDOW_BORDER|NK_WINDOW_TITLE|NK_WINDOW_MOVABLE|NK_WINDOW_NO_SCROLLBAR)) {
+
+            nk_layout_row_dynamic(ui->ctx, 20, 1);
+            nk_label(ui->ctx, "Directory:", NK_TEXT_LEFT);
+            nk_layout_row_dynamic(ui->ctx, 28, 1);
+            nk_edit_string_zero_terminated(ui->ctx, NK_EDIT_FIELD, ui->export_svg_dir,
+                (int)sizeof(ui->export_svg_dir) - 1, nk_filter_default);
+
+            nk_layout_row_dynamic(ui->ctx, 20, 1);
+            nk_label(ui->ctx, "Filename:", NK_TEXT_LEFT);
+            nk_layout_row_dynamic(ui->ctx, 28, 1);
+            nk_edit_string_zero_terminated(ui->ctx, NK_EDIT_FIELD, ui->export_svg_name,
+                (int)sizeof(ui->export_svg_name) - 1, nk_filter_default);
+
+            nk_layout_row_dynamic(ui->ctx, 18, 1);
+            nk_label(ui->ctx, "Tip: name ends with .svg", NK_TEXT_LEFT);
+
+            nk_layout_row_dynamic(ui->ctx, 34, 2);
+            if (nk_button_label(ui->ctx, "Cancel")) {
+                ui->show_export_svg_modal = 0;
+            }
+            if (nk_button_label(ui->ctx, "Save")) {
+                char name[256];
+                snprintf(name, sizeof(name), "%s", ui->export_svg_name[0] ? ui->export_svg_name : "preview.svg");
+                size_t nlen = strlen(name);
+                if (nlen < 4 || strcmp(name + (nlen - 4), ".svg") != 0) {
+                    strncat(name, ".svg", sizeof(name) - strlen(name) - 1);
+                }
+
+                mkdir_p(ui->export_svg_dir);
+
+                char out_path[512];
+                join_path(out_path, sizeof(out_path), ui->export_svg_dir, name);
+
+                doc_export_to_svg(engine->doc, out_path);
+                snprintf(ui->export_svg_path, sizeof(ui->export_svg_path), "%s", name);
+                snprintf(ui->status, sizeof(ui->status), "Saved: %s", out_path);
+                reveal_file_in_finder_best_effort(out_path);
+
+                ui->show_export_svg_modal = 0;
+            }
+        }
+        nk_end(ui->ctx);
+    }
 
     nk_sdl_render(NK_ANTI_ALIASING_ON);
 }
