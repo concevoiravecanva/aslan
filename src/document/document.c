@@ -190,6 +190,7 @@ uint32_t doc_page_create_with_id(Document* doc, uint32_t page_id, const char* na
 
 bool doc_page_select(Document* doc, uint32_t page_id) {
     if (!doc || page_id == 0) return false;
+    if (doc->active_page_id == page_id) return true; // idempotent
     int idx = page_find_index_by_id(doc, page_id);
     if (idx < 0) return false;
     doc->active_page_id = page_id;
@@ -415,6 +416,37 @@ static void print_node_recursive(Node* node, int depth) {
            
     print_node_recursive(node->first_child, depth + 1);
     print_node_recursive(node->next_sibling, depth);
+}
+
+static void scan_max_node_id_recursive(Node* node, uint32_t* max_id) {
+    if (!node || !max_id) return;
+    if (node->type != NODE_TYPE_ROOT) {
+        if (node->id > *max_id) *max_id = node->id;
+    }
+    scan_max_node_id_recursive(node->first_child, max_id);
+    scan_max_node_id_recursive(node->next_sibling, max_id);
+}
+
+void doc_recompute_next_ids(Document* doc) {
+    if (!doc) return;
+
+    uint32_t max_node_id = 0;
+    uint32_t max_page_id = 0;
+
+    for (int i = 0; i < (int)(sizeof(doc->pages) / sizeof(doc->pages[0])); i++) {
+        if (!doc->pages[i].in_use) continue;
+        if (doc->pages[i].page_id > max_page_id) max_page_id = doc->pages[i].page_id;
+        if (doc->pages[i].root) {
+            scan_max_node_id_recursive(doc->pages[i].root, &max_node_id);
+        }
+    }
+
+    // next ids are max+1 (but never 0)
+    doc->next_node_id = max_node_id + 1;
+    if (doc->next_node_id == 0) doc->next_node_id = 1;
+
+    doc->next_page_id = max_page_id + 1;
+    if (doc->next_page_id == 0) doc->next_page_id = 1;
 }
 
 void doc_print_tree(const Document* doc) {

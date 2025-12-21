@@ -87,6 +87,10 @@ const char* doc_page_name(const Document* doc, uint32_t page_id);
 Document* doc_create(void);
 void doc_destroy(Document* doc);
 
+// After bulk loads/replays, recompute monotonic id counters from the current content.
+// Ensures further creations won't collide with existing ids.
+void doc_recompute_next_ids(Document* doc);
+
 Node* doc_create_node(Document* doc, NodeType type, const char* name);
 void doc_add_child(Node* parent, Node* child);
 Node* doc_find_node_by_id(Document* doc, uint32_t id);

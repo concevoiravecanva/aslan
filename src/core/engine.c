@@ -21,6 +21,9 @@ bool doc_unset_global(Document* doc, const char* key);
 const char* doc_get_global(const Document* doc, const char* key);
 void doc_globals_iterate(const Document* doc, doc_global_iter_fn fn, void* user);
 
+// Id maintenance (post-replay)
+void doc_recompute_next_ids(Document* doc);
+
 // Pages API
 uint32_t doc_page_create(Document* doc, const char* name);
 uint32_t doc_page_create_with_id(Document* doc, uint32_t page_id, const char* name);
@@ -190,47 +193,67 @@ static bool engine_rewrite_aof(Engine* engine) {
         doc_globals_iterate(engine->doc, rewrite_emit_global_kv, out);
     }
 
-    // 1) Snapshot objects deterministically by id
-    Node* nodes[4096];
-    int count = 0;
-    gather_nodes_recursive(engine->doc->root, nodes, &count, 4096);
-    qsort(nodes, (size_t)count, sizeof(Node*), cmp_node_id_ptr);
+    // Pages: declare pages with stable ids and rewrite each page's tree.
+    // This keeps `history.log` canonical and avoids duplicates/no-ops.
+    const uint32_t active_before = doc_page_active_id(engine->doc);
 
-    for (int i = 0; i < count; i++) {
-        Node* n = nodes[i];
-        if (!n) continue;
-        if (n->type == NODE_TYPE_RECT) {
-            fprintf(out, "create_rect %u %s %f %f %f %f\n",
-                (unsigned)n->id, n->name, n->x, n->y, n->width, n->height);
-        } else if (n->type == NODE_TYPE_TEXT) {
-            fprintf(out, "create_text %u %s %f %f %f %f \"%s\"\n",
-                (unsigned)n->id, n->name, n->x, n->y, n->width, n->height, n->text);
+    for (int pi = 0; pi < 32; pi++) {
+        if (!engine->doc->pages[pi].in_use) continue;
+        fprintf(out, "page_create %u \"%s\"\n",
+            (unsigned)engine->doc->pages[pi].page_id,
+            engine->doc->pages[pi].name[0] ? engine->doc->pages[pi].name : "Page");
+    }
+
+    for (int pi = 0; pi < 32; pi++) {
+        if (!engine->doc->pages[pi].in_use) continue;
+        Node* page_root = engine->doc->pages[pi].root;
+        if (!page_root) continue;
+
+        fprintf(out, "page_select %u\n", (unsigned)engine->doc->pages[pi].page_id);
+
+        // 1) Snapshot objects deterministically by id
+        Node* nodes[4096];
+        int count = 0;
+        gather_nodes_recursive(page_root, nodes, &count, 4096);
+        qsort(nodes, (size_t)count, sizeof(Node*), cmp_node_id_ptr);
+
+        for (int i = 0; i < count; i++) {
+            Node* n = nodes[i];
+            if (!n) continue;
+            if (n->type == NODE_TYPE_RECT) {
+                fprintf(out, "create_rect %u %s %f %f %f %f\n",
+                    (unsigned)n->id, n->name, n->x, n->y, n->width, n->height);
+            } else if (n->type == NODE_TYPE_TEXT) {
+                fprintf(out, "create_text %u %s %f %f %f %f \"%s\"\n",
+                    (unsigned)n->id, n->name, n->x, n->y, n->width, n->height, n->text);
+            }
+        }
+
+        // 2) Persist visibility state (only when hidden)
+        for (int i = 0; i < count; i++) {
+            Node* n = nodes[i];
+            if (!n) continue;
+            if (n->visible == 0) {
+                fprintf(out, "set_visible %u 0\n", (unsigned)n->id);
+            }
+        }
+
+        // 3) Persist z-order (sibling order under this page root)
+        Node* child = page_root->first_child;
+        Node* stack[4096];
+        int scount = 0;
+        while (child && scount < 4096) {
+            stack[scount++] = child;
+            child = child->next_sibling;
+        }
+        for (int i = 0; i < scount; i++) {
+            fprintf(out, "bring_to_front %u\n", (unsigned)stack[i]->id);
         }
     }
 
-    // 2) Persist visibility state (only when hidden)
-    for (int i = 0; i < count; i++) {
-        Node* n = nodes[i];
-        if (!n) continue;
-        if (n->visible == 0) {
-            fprintf(out, "set_visible %u 0\n", (unsigned)n->id);
-        }
-    }
-
-    // 3) Persist z-order: last sibling is front.
-    // We encode it by iterating siblings from back->front and bringing each to front.
-    // This is deterministic and keeps the command log small.
-    Node* child = engine->doc->root ? engine->doc->root->first_child : NULL;
-    // collect in array for reverse traversal
-    Node* stack[4096];
-    int scount = 0;
-    while (child && scount < 4096) {
-        stack[scount++] = child;
-        child = child->next_sibling;
-    }
-    for (int i = 0; i < scount; i++) {
-        // bringing in existing order replays to same order
-        fprintf(out, "bring_to_front %u\n", (unsigned)stack[i]->id);
+    // Restore active page
+    if (active_before != 0) {
+        fprintf(out, "page_select %u\n", (unsigned)active_before);
     }
 
     fclose(out);
@@ -390,6 +413,11 @@ bool engine_load_snapshot_from_aslan(Engine* engine, const char* in_path) {
     }
 
     fclose(f);
+
+    // After bulk replay, ensure future creations use collision-free ids.
+    if (engine->doc) {
+        doc_recompute_next_ids(engine->doc);
+    }
     return saw_any_command;
 }
 
@@ -522,8 +550,17 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
 
         if (engine->doc) {
             uint32_t pid = 0;
-            if (forced_id > 0) pid = doc_page_create_with_id(engine->doc, (uint32_t)forced_id, page_name[0] ? page_name : NULL);
-            else pid = doc_page_create(engine->doc, page_name[0] ? page_name : NULL);
+            if (forced_id > 0) {
+                // Idempotent: if the page already exists, treat as success but do NOT log.
+                const char* existing_name = doc_page_name(engine->doc, (uint32_t)forced_id);
+                if (existing_name) {
+                    success = true;
+                    return success;
+                }
+                pid = doc_page_create_with_id(engine->doc, (uint32_t)forced_id, page_name[0] ? page_name : NULL);
+            } else {
+                pid = doc_page_create(engine->doc, page_name[0] ? page_name : NULL);
+            }
 
             if (pid != 0) {
                 // Log command
@@ -540,7 +577,10 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
     // Commande: page_select <page_id>
     else if (sscanf(command_line, "page_select %d", &id) == 1) {
         if (engine->doc) {
-            if (doc_page_select(engine->doc, (uint32_t)id)) {
+            // Idempotent: selecting the already active page should not create log spam.
+            if ((uint32_t)id == doc_page_active_id(engine->doc)) {
+                success = true;
+            } else if (doc_page_select(engine->doc, (uint32_t)id)) {
                 if (engine->history_file && is_mutating_command_line(command_line)) {
                     fprintf(engine->history_file, "%s\n", command_line);
                     fflush(engine->history_file);
