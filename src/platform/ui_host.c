@@ -176,6 +176,45 @@ static void reveal_file_in_finder_best_effort(const char* path) {
 #endif
 }
 
+static int pick_file_mac_aslan(char* out_path, size_t cap) {
+    if (!out_path || cap == 0) return 0;
+    out_path[0] = 0;
+
+#if defined(__APPLE__)
+    // Use AppleScript to open a file chooser.
+    // Returns a POSIX path (stdout). User cancel -> empty.
+    const char* cmd =
+        "osascript -e 'try' "
+        "-e 'set f to choose file with prompt \"Open .aslan\" of type {\"public.data\"}' "
+        "-e 'POSIX path of f' "
+        "-e 'on error number -128' "
+        "-e '' "
+        "-e 'end try'";
+
+    FILE* p = popen(cmd, "r");
+    if (!p) return 0;
+
+    if (!fgets(out_path, (int)cap, p)) {
+        pclose(p);
+        out_path[0] = 0;
+        return 0;
+    }
+    pclose(p);
+
+    // Trim \n/\r
+    size_t n = strlen(out_path);
+    while (n > 0 && (out_path[n - 1] == '\n' || out_path[n - 1] == '\r')) {
+        out_path[n - 1] = 0;
+        n--;
+    }
+    return out_path[0] != 0;
+#else
+    (void)out_path;
+    (void)cap;
+    return 0;
+#endif
+}
+
 static int mkdir_p(const char* dir) {
     if (!dir || !dir[0]) return 0;
     char tmp[512];
@@ -245,8 +284,20 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                 snprintf(ui->status, sizeof(ui->status), "New document");
             }
             if (nk_button_label(ui->ctx, "Open...")) {
-                if (!ui->open_aslan_path[0]) {
-                    snprintf(ui->open_aslan_path, sizeof(ui->open_aslan_path), "./document.aslan");
+                char picked[512];
+                if (pick_file_mac_aslan(picked, sizeof(picked))) {
+                    snprintf(ui->open_aslan_path, sizeof(ui->open_aslan_path), "%s", picked);
+                    if (engine_load_snapshot_from_aslan(engine, picked)) {
+                        ui_recents_add_and_persist(ui, picked);
+                        ui->selected_node = NULL;
+                        ui->screen = 1;
+                        snprintf(ui->status, sizeof(ui->status), "Opened: %s", picked);
+                    } else {
+                        snprintf(ui->status, sizeof(ui->status), "Open failed: %s", picked);
+                    }
+                } else {
+                    // User cancelled or not supported.
+                    snprintf(ui->status, sizeof(ui->status), "Open cancelled");
                 }
             }
 

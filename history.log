@@ -1,2 +1,20 @@
 -- Session started --
 clear
+doc_type canvas2d
+doc_meta width 800
+doc_meta height 600
+set_global theme "light"
+set_global snap.enabled "1"
+set_global grid.enabled "1"
+set_global snap.step "10"
+set_global grid.step "50"
+create_text 1 Text1 170.000000 370.000000 400.000000 60.000000 "Text"
+create_text 2 Text2 50.000000 80.000000 660.000000 1030.000000 "Text"
+create_rect 3 RandomNode 80.000000 260.000000 350.000000 150.000000
+create_rect 5 Rect5 530.000000 240.000000 140.000000 170.000000
+bring_to_front 2
+bring_to_front 3
+bring_to_front 1
+bring_to_front 5
+set_rect 3 180.000000 200.000000 350.000000 150.000000
+set_rect 1 200.000000 360.000000 400.000000 60.000000
