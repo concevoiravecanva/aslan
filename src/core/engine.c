@@ -243,6 +243,75 @@ static bool engine_rewrite_aof(Engine* engine) {
     return engine->history_file != NULL;
 }
 
+static bool engine_write_snapshot_to_file(Engine* engine, FILE* out, const char* header_line) {
+    if (!engine || !engine->doc || !engine->doc->root || !out) return false;
+
+    if (header_line && header_line[0]) {
+        fprintf(out, "%s\n", header_line);
+    }
+
+    // Document meta first (so the replay configures the doc before creating items)
+    fprintf(out, "doc_type %s\n", engine->doc->doc_type[0] ? engine->doc->doc_type : "canvas2d");
+    fprintf(out, "doc_meta width %d\n", engine->doc->doc_width);
+    fprintf(out, "doc_meta height %d\n", engine->doc->doc_height);
+
+    // Document globals
+    doc_globals_iterate(engine->doc, rewrite_emit_global_kv, out);
+
+    // 1) Snapshot objects deterministically by id
+    Node* nodes[4096];
+    int count = 0;
+    gather_nodes_recursive(engine->doc->root, nodes, &count, 4096);
+    qsort(nodes, (size_t)count, sizeof(Node*), cmp_node_id_ptr);
+
+    for (int i = 0; i < count; i++) {
+        Node* n = nodes[i];
+        if (!n) continue;
+        if (n->type == NODE_TYPE_RECT) {
+            fprintf(out, "create_rect %u %s %f %f %f %f\n",
+                (unsigned)n->id, n->name, n->x, n->y, n->width, n->height);
+        } else if (n->type == NODE_TYPE_TEXT) {
+            fprintf(out, "create_text %u %s %f %f %f %f \"%s\"\n",
+                (unsigned)n->id, n->name, n->x, n->y, n->width, n->height, n->text);
+        }
+    }
+
+    // 2) Persist visibility state (only when hidden)
+    for (int i = 0; i < count; i++) {
+        Node* n = nodes[i];
+        if (!n) continue;
+        if (n->visible == 0) {
+            fprintf(out, "set_visible %u 0\n", (unsigned)n->id);
+        }
+    }
+
+    // 3) Persist z-order: last sibling is front.
+    // We encode it by iterating siblings from back->front and bringing each to front.
+    Node* child = engine->doc->root ? engine->doc->root->first_child : NULL;
+    Node* stack[4096];
+    int scount = 0;
+    while (child && scount < 4096) {
+        stack[scount++] = child;
+        child = child->next_sibling;
+    }
+    for (int i = 0; i < scount; i++) {
+        fprintf(out, "bring_to_front %u\n", (unsigned)stack[i]->id);
+    }
+
+    return true;
+}
+
+bool engine_save_snapshot_as_aslan(Engine* engine, const char* out_path) {
+    if (!engine || !engine->doc || !engine->doc->root || !out_path || !out_path[0]) return false;
+
+    FILE* out = fopen(out_path, "w");
+    if (!out) return false;
+
+    bool ok = engine_write_snapshot_to_file(engine, out, "-- aslan:1 --");
+    fclose(out);
+    return ok;
+}
+
 Engine* engine_create(void) {
     Engine* engine = (Engine*)calloc(1, sizeof(Engine));
     if (!engine) return NULL;

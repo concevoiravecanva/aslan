@@ -111,6 +111,13 @@ UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L) {
     }
     snprintf(ui->export_svg_name, sizeof(ui->export_svg_name), "preview.svg");
 
+    // Save As .aslan defaults
+    ui->show_save_aslan_modal = 0;
+    if (getcwd(ui->save_aslan_dir, sizeof(ui->save_aslan_dir)) == NULL) {
+        snprintf(ui->save_aslan_dir, sizeof(ui->save_aslan_dir), ".");
+    }
+    snprintf(ui->save_aslan_name, sizeof(ui->save_aslan_name), "document.aslan");
+
     // Globals editor defaults
     ui->global_key[0] = 0;
     ui->global_value[0] = 0;
@@ -214,6 +221,16 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
         // Export (always available)
         nk_layout_row_dynamic(ui->ctx, 25, 1);
         nk_label(ui->ctx, "Export", NK_TEXT_LEFT);
+
+        nk_layout_row_dynamic(ui->ctx, 32, 1);
+        if (nk_button_label(ui->ctx, "Save As .aslan...")) {
+            ui->show_save_aslan_modal = 1;
+            if (getcwd(ui->save_aslan_dir, sizeof(ui->save_aslan_dir)) == NULL) {
+                snprintf(ui->save_aslan_dir, sizeof(ui->save_aslan_dir), ".");
+            }
+            // Keep last filename as-is; ensure a default exists
+            if (!ui->save_aslan_name[0]) snprintf(ui->save_aslan_name, sizeof(ui->save_aslan_name), "document.aslan");
+        }
 
         nk_layout_row_dynamic(ui->ctx, 32, 1);
         if (nk_button_label(ui->ctx, "Export SVG...")) {
@@ -549,6 +566,57 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
         }
     }
     nk_end(ui->ctx);
+
+    // Modal save-as window for `.aslan` snapshots
+    if (ui->show_save_aslan_modal) {
+        struct nk_rect bounds = nk_rect(win_w * 0.5f - 170.0f, win_h * 0.5f - 130.0f, 340.0f, 260.0f);
+        if (nk_begin(ui->ctx, "Save As (.aslan)", bounds,
+            NK_WINDOW_BORDER|NK_WINDOW_TITLE|NK_WINDOW_MOVABLE|NK_WINDOW_NO_SCROLLBAR)) {
+
+            nk_layout_row_dynamic(ui->ctx, 20, 1);
+            nk_label(ui->ctx, "Directory:", NK_TEXT_LEFT);
+            nk_layout_row_dynamic(ui->ctx, 28, 1);
+            nk_edit_string_zero_terminated(ui->ctx, NK_EDIT_FIELD, ui->save_aslan_dir,
+                (int)sizeof(ui->save_aslan_dir) - 1, nk_filter_default);
+
+            nk_layout_row_dynamic(ui->ctx, 20, 1);
+            nk_label(ui->ctx, "Filename:", NK_TEXT_LEFT);
+            nk_layout_row_dynamic(ui->ctx, 28, 1);
+            nk_edit_string_zero_terminated(ui->ctx, NK_EDIT_FIELD, ui->save_aslan_name,
+                (int)sizeof(ui->save_aslan_name) - 1, nk_filter_default);
+
+            nk_layout_row_dynamic(ui->ctx, 18, 1);
+            nk_label(ui->ctx, "Tip: name ends with .aslan", NK_TEXT_LEFT);
+
+            nk_layout_row_dynamic(ui->ctx, 34, 2);
+            if (nk_button_label(ui->ctx, "Cancel")) {
+                ui->show_save_aslan_modal = 0;
+            }
+            if (nk_button_label(ui->ctx, "Save")) {
+                char name[256];
+                snprintf(name, sizeof(name), "%s", ui->save_aslan_name[0] ? ui->save_aslan_name : "document.aslan");
+                size_t nlen = strlen(name);
+                if (nlen < 6 || strcmp(name + (nlen - 6), ".aslan") != 0) {
+                    strncat(name, ".aslan", sizeof(name) - strlen(name) - 1);
+                }
+
+                mkdir_p(ui->save_aslan_dir);
+
+                char out_path[512];
+                join_path(out_path, sizeof(out_path), ui->save_aslan_dir, name);
+
+                if (engine_save_snapshot_as_aslan(engine, out_path)) {
+                    snprintf(ui->status, sizeof(ui->status), "Saved: %s", out_path);
+                    reveal_file_in_finder_best_effort(out_path);
+                } else {
+                    snprintf(ui->status, sizeof(ui->status), "Save failed: %s", out_path);
+                }
+
+                ui->show_save_aslan_modal = 0;
+            }
+        }
+        nk_end(ui->ctx);
+    }
 
     // Modal export window (robust: plain nk_begin, avoids nk_popup_begin asserts)
     if (ui->show_export_svg_modal) {

@@ -28,4 +28,9 @@ bool engine_execute_command(Engine* engine, const char* command_line);
 // Charge et rejoue le fichier history.log
 void engine_load_history(Engine* engine);
 
+// Write a canonical snapshot of the current document to a user-chosen path.
+// This is the on-disk `.aslan` v1 format (Photoshop-like: single state).
+// Returns true on success.
+bool engine_save_snapshot_as_aslan(Engine* engine, const char* out_path);
+
 #endif

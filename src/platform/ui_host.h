@@ -39,6 +39,11 @@ typedef struct UIHost {
     char export_svg_dir[256];
     char export_svg_name[256];
 
+    // Save As .aslan modal state
+    int show_save_aslan_modal;
+    char save_aslan_dir[256];
+    char save_aslan_name[256];
+
     // Globals editor state
     char global_key[64];
     char global_value[256];
