@@ -41,6 +41,36 @@ local function rect_from_points(x0, y0, x1, y1)
     return rx, ry, rw, rh
 end
 
+local function parse_bool(v)
+    if not v then return false end
+    if v == true then return true end
+    v = tostring(v)
+    v = string.lower(v)
+    return (v == "1" or v == "true" or v == "yes" or v == "on")
+end
+
+-- NOTE: Le bridge Lua actuel n'expose pas (encore) une API `get_global()`.
+-- Pour garder le drag fonctionnel, le snapping preview est désactivé par défaut.
+-- On peut réactiver proprement quand on aura ajouté `aslan.get_global` côté C.
+local function snap_enabled()
+    return false
+end
+
+local function snap_step()
+    return 10
+end
+
+local function snap_value(v, step)
+    if not step or step <= 0 then return v end
+    return math.floor((v / step) + 0.5) * step
+end
+
+local function snap_rect(x, y, w, h)
+    if not snap_enabled() then return x, y, w, h end
+    local step = snap_step()
+    return snap_value(x, step), snap_value(y, step), snap_value(w, step), snap_value(h, step)
+end
+
 function on_mouse_down(x, y)
     -- Draw-rect tool
     if current_tool_mode() == TOOL_CREATE_RECT then
@@ -117,6 +147,8 @@ function on_mouse_move(x, y)
         local min_size = 3
         rw = math.max(min_size, rw)
         rh = math.max(min_size, rh)
+
+    rx, ry, rw, rh = snap_rect(rx, ry, rw, rh)
         aslan.execute_volatile(string.format("set_rect %d %f %f %f %f", draw_preview_id, rx, ry, rw, rh))
         return
     end
@@ -126,6 +158,8 @@ function on_mouse_move(x, y)
             local new_x = x - offset_x
             local new_y = y - offset_y
             local _, _, w, h = aslan.get_node_rect(dragged_node_id)
+
+            new_x, new_y, w, h = snap_rect(new_x, new_y, w, h)
             pending_x, pending_y, pending_w, pending_h = new_x, new_y, w, h
 
             -- Exécution volatile: pas de spam dans history.log
@@ -163,6 +197,8 @@ function on_mouse_move(x, y)
             end
 
             pending_x, pending_y, pending_w, pending_h = new_x, new_y, new_w, new_h
+
+            new_x, new_y, new_w, new_h = snap_rect(new_x, new_y, new_w, new_h)
 
             -- Exécution volatile pendant le drag
             aslan.execute_volatile(string.format("set_rect %d %f %f %f %f", dragged_node_id, new_x, new_y, new_w, new_h))

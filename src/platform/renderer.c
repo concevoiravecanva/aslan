@@ -1,6 +1,9 @@
 #include "renderer.h"
 #include <stdio.h>
 
+// Globals API (declared in document.c)
+const char* doc_get_global(const Document* doc, const char* key);
+
 Renderer* renderer_create(const char* title, int width, int height) {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
@@ -47,6 +50,56 @@ void renderer_destroy(Renderer* r) {
 void renderer_begin(Renderer* r) {
     SDL_SetRenderDrawColor(r->sdl_renderer, 40, 44, 52, 255); // Fond gris foncé (style éditeur)
     SDL_RenderClear(r->sdl_renderer);
+}
+
+static int parse_bool_global(const Document* doc, const char* key) {
+    const char* v = doc ? doc_get_global(doc, key) : NULL;
+    if (!v) return 0;
+    return (strcmp(v, "1") == 0 || strcasecmp(v, "true") == 0 || strcasecmp(v, "yes") == 0);
+}
+
+static int parse_int_global(const Document* doc, const char* key, int def_value) {
+    const char* v = doc ? doc_get_global(doc, key) : NULL;
+    if (!v) return def_value;
+    int n = atoi(v);
+    return n;
+}
+
+static void renderer_draw_grid(Renderer* r, const Document* doc) {
+    if (!r || !doc) return;
+
+    if (!parse_bool_global(doc, "grid.enabled")) return;
+
+    // Step: prefer grid.step, fallback to snap.step.
+    int step = parse_int_global(doc, "grid.step", 0);
+    if (step <= 0) step = parse_int_global(doc, "snap.step", 10);
+    if (step < 2) step = 2;
+    if (step > 200) step = 200;
+
+    // Light grid over dark background.
+    SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 24);
+
+    // Vertical lines
+    for (int x = 0; x < r->width; x += step) {
+        SDL_RenderDrawLine(r->sdl_renderer, x, 0, x, r->height);
+    }
+
+    // Horizontal lines
+    for (int y = 0; y < r->height; y += step) {
+        SDL_RenderDrawLine(r->sdl_renderer, 0, y, r->width, y);
+    }
+
+    // Axis emphasis every 5 steps (subtle)
+    const int major = step * 5;
+    if (major >= 10) {
+        SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 46);
+        for (int x = 0; x < r->width; x += major) {
+            SDL_RenderDrawLine(r->sdl_renderer, x, 0, x, r->height);
+        }
+        for (int y = 0; y < r->height; y += major) {
+            SDL_RenderDrawLine(r->sdl_renderer, 0, y, r->width, y);
+        }
+    }
 }
 
 static void draw_node_recursive(Renderer* r, Node* node) {
@@ -98,6 +151,7 @@ static void draw_node_recursive(Renderer* r, Node* node) {
 
 void renderer_draw_document(Renderer* r, const Document* doc) {
     if (!doc || !doc->root) return;
+    renderer_draw_grid(r, doc);
     draw_node_recursive(r, doc->root);
 }
 
