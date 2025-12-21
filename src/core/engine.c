@@ -35,6 +35,8 @@ static bool is_mutating_command_line(const char* line) {
             strncmp(l, "create_rect ", 12) == 0 ||
             strncmp(l, "set_rect ", 9) == 0 ||
             strncmp(l, "create_text ", 12) == 0 ||
+            strncmp(l, "doc_type ", 9) == 0 ||
+            strncmp(l, "doc_meta ", 9) == 0 ||
             strncmp(l, "set_visible ", 12) == 0 ||
             strncmp(l, "bring_to_front ", 15) == 0 ||
             strncmp(l, "send_to_back ", 13) == 0 ||
@@ -83,6 +85,13 @@ static bool engine_rewrite_aof(Engine* engine) {
     }
 
     fprintf(out, "-- Aslan AOF rewrite --\n");
+
+    // Document meta first (so the replay configures the doc before creating items)
+    if (engine->doc) {
+        fprintf(out, "doc_type %s\n", engine->doc->doc_type[0] ? engine->doc->doc_type : "canvas2d");
+        fprintf(out, "doc_meta width %d\n", engine->doc->doc_width);
+        fprintf(out, "doc_meta height %d\n", engine->doc->doc_height);
+    }
 
     // 1) Snapshot objects deterministically by id
     Node* nodes[4096];
@@ -202,6 +211,8 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
         doc_destroy(engine->doc);
         engine->doc = doc_create();
 
+    // Default meta already set by doc_create()
+
         // Reset UI selection
         if (engine->ui_host) engine->ui_host->selected_node = NULL;
 
@@ -216,6 +227,28 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
         }
     printf(">> Cleared document and history.\n");
         success = true;
+    }
+
+    // Commande: doc_type <type>
+    else if (sscanf(command_line, "doc_type %31s", name) == 1) {
+        if (engine->doc) {
+            memset(engine->doc->doc_type, 0, sizeof(engine->doc->doc_type));
+            strncpy(engine->doc->doc_type, name, sizeof(engine->doc->doc_type) - 1);
+            success = true;
+        }
+    }
+
+    // Commande: doc_meta width|height <int>
+    else if (sscanf(command_line, "doc_meta %31s %d", name, &id) == 2) {
+        if (engine->doc) {
+            if (strcmp(name, "width") == 0) {
+                engine->doc->doc_width = id;
+                success = true;
+            } else if (strcmp(name, "height") == 0) {
+                engine->doc->doc_height = id;
+                success = true;
+            }
+        }
     }
 
     // Commande: new_rect [x y w h]

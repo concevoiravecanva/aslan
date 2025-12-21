@@ -58,6 +58,12 @@ Document* doc_create(void) {
     doc->root->id = 0;
     doc->root->type = NODE_TYPE_ROOT;
     strcpy(doc->root->name, "Root");
+
+    // Document meta defaults
+    memset(doc->doc_type, 0, sizeof(doc->doc_type));
+    strncpy(doc->doc_type, "canvas2d", sizeof(doc->doc_type) - 1);
+    doc->doc_width = 800;
+    doc->doc_height = 600;
     
     return doc;
 }

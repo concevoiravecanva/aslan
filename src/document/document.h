@@ -41,6 +41,12 @@ typedef struct {
     Node* root;
     uint32_t next_node_id;
     char filepath[256];
+
+    // --- Document-level metadata (future multi-page foundation) ---
+    // Antirez-style: keep it simple and AOF-driven.
+    char doc_type[32];
+    int doc_width;
+    int doc_height;
 } Document;
 
 // API C pour la manipulation du document
