@@ -38,6 +38,10 @@ typedef struct UIHost {
     int show_export_svg_modal;
     char export_svg_dir[256];
     char export_svg_name[256];
+
+    // Globals editor state
+    char global_key[64];
+    char global_value[256];
 } UIHost;
 
 UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L);

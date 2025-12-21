@@ -15,6 +15,34 @@ bool doc_send_to_back(Document* doc, uint32_t id);
 bool doc_bring_forward(Document* doc, uint32_t id);
 bool doc_send_backward(Document* doc, uint32_t id);
 
+// Globals API
+bool doc_set_global(Document* doc, const char* key, const char* value);
+bool doc_unset_global(Document* doc, const char* key);
+typedef void (*doc_global_iter_fn)(const char* key, const char* value, void* user);
+void doc_globals_iterate(const Document* doc, doc_global_iter_fn fn, void* user);
+
+static void rewrite_emit_global_kv(const char* key, const char* value, void* user) {
+    FILE* out = (FILE*)user;
+    if (!out || !key || !key[0] || !value) return;
+
+    // Minimal escaping for quotes/backslashes so the line stays parseable.
+    char escaped[512];
+    size_t wi = 0;
+    for (size_t i = 0; value[i] != '\0' && wi + 2 < sizeof(escaped); i++) {
+        char c = value[i];
+        if (c == '\\' || c == '"') {
+            if (wi + 2 >= sizeof(escaped)) break;
+            escaped[wi++] = '\\';
+            escaped[wi++] = c;
+        } else {
+            escaped[wi++] = c;
+        }
+    }
+    escaped[wi] = 0;
+
+    fprintf(out, "set_global %s \"%s\"\n", key, escaped);
+}
+
 static const char* k_history_path = "history.log";
 static const char* k_redo_path = "redo.log";
 
@@ -37,6 +65,8 @@ static bool is_mutating_command_line(const char* line) {
             strncmp(l, "create_text ", 12) == 0 ||
             strncmp(l, "doc_type ", 9) == 0 ||
             strncmp(l, "doc_meta ", 9) == 0 ||
+            strncmp(l, "set_global ", 11) == 0 ||
+            strncmp(l, "unset_global ", 13) == 0 ||
             strncmp(l, "set_visible ", 12) == 0 ||
             strncmp(l, "bring_to_front ", 15) == 0 ||
             strncmp(l, "send_to_back ", 13) == 0 ||
@@ -91,6 +121,11 @@ static bool engine_rewrite_aof(Engine* engine) {
         fprintf(out, "doc_type %s\n", engine->doc->doc_type[0] ? engine->doc->doc_type : "canvas2d");
         fprintf(out, "doc_meta width %d\n", engine->doc->doc_width);
         fprintf(out, "doc_meta height %d\n", engine->doc->doc_height);
+    }
+
+    // Document globals
+    if (engine->doc) {
+        doc_globals_iterate(engine->doc, rewrite_emit_global_kv, out);
     }
 
     // 1) Snapshot objects deterministically by id
@@ -249,6 +284,23 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
                 success = true;
             }
         }
+    }
+
+    // Commande: set_global <key> "value"
+    else if (strncmp(command_line, "set_global", 10) == 0) {
+        char key[64];
+        char value_str[256];
+        key[0] = 0;
+        value_str[0] = 0;
+
+        if (sscanf(command_line, "set_global %63s \"%255[^\"]\"", key, value_str) == 2) {
+            success = doc_set_global(engine->doc, key, value_str);
+        }
+    }
+
+    // Commande: unset_global <key>
+    else if (sscanf(command_line, "unset_global %63s", name) == 1) {
+        success = doc_unset_global(engine->doc, name);
     }
 
     // Commande: new_rect [x y w h]

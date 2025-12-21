@@ -34,6 +34,10 @@ UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L) {
         snprintf(ui->export_svg_dir, sizeof(ui->export_svg_dir), ".");
     }
     snprintf(ui->export_svg_name, sizeof(ui->export_svg_name), "preview.svg");
+
+    // Globals editor defaults
+    ui->global_key[0] = 0;
+    ui->global_value[0] = 0;
     
     return ui;
 }
@@ -280,6 +284,65 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                 snprintf(cmd, sizeof(cmd), "send_to_back %u", (unsigned)n->id);
                 engine_execute_command(engine, cmd);
                 snprintf(ui->status, sizeof(ui->status), "To Back");
+            }
+        }
+
+        // Globals panel
+        nk_layout_row_dynamic(ui->ctx, 10, 1); // Spacer
+        nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
+
+        nk_layout_row_dynamic(ui->ctx, 25, 1);
+        nk_label(ui->ctx, "Globals", NK_TEXT_LEFT);
+
+        // List existing globals
+        nk_layout_row_dynamic(ui->ctx, 120, 1);
+        if (nk_group_begin(ui->ctx, "globals_list", NK_WINDOW_BORDER)) {
+            if (engine && engine->doc) {
+                for (int i = 0; i < 64; i++) {
+                    if (!engine->doc->globals[i].in_use) continue;
+                    char row[420];
+                    snprintf(row, sizeof(row), "%s = %s", engine->doc->globals[i].key, engine->doc->globals[i].value);
+                    nk_layout_row_dynamic(ui->ctx, 22, 1);
+                    if (nk_button_label(ui->ctx, row)) {
+                        snprintf(ui->global_key, sizeof(ui->global_key), "%s", engine->doc->globals[i].key);
+                        snprintf(ui->global_value, sizeof(ui->global_value), "%s", engine->doc->globals[i].value);
+                        snprintf(ui->status, sizeof(ui->status), "Edit global: %s", ui->global_key);
+                    }
+                }
+            }
+            nk_group_end(ui->ctx);
+        }
+
+        // Editor
+        nk_layout_row_dynamic(ui->ctx, 20, 1);
+        nk_label(ui->ctx, "Key:", NK_TEXT_LEFT);
+        nk_layout_row_dynamic(ui->ctx, 28, 1);
+        nk_edit_string_zero_terminated(ui->ctx, NK_EDIT_FIELD, ui->global_key,
+            (int)sizeof(ui->global_key) - 1, nk_filter_default);
+
+        nk_layout_row_dynamic(ui->ctx, 20, 1);
+        nk_label(ui->ctx, "Value:", NK_TEXT_LEFT);
+        nk_layout_row_dynamic(ui->ctx, 28, 1);
+        nk_edit_string_zero_terminated(ui->ctx, NK_EDIT_FIELD, ui->global_value,
+            (int)sizeof(ui->global_value) - 1, nk_filter_default);
+
+        nk_layout_row_dynamic(ui->ctx, 32, 2);
+        if (nk_button_label(ui->ctx, "Set")) {
+            if (ui->global_key[0]) {
+                char cmd[512];
+                snprintf(cmd, sizeof(cmd), "set_global %s \"%s\"", ui->global_key, ui->global_value);
+                engine_execute_command(engine, cmd);
+                snprintf(ui->status, sizeof(ui->status), "Set global: %s", ui->global_key);
+            }
+        }
+        if (nk_button_label(ui->ctx, "Unset")) {
+            if (ui->global_key[0]) {
+                char cmd[256];
+                snprintf(cmd, sizeof(cmd), "unset_global %s", ui->global_key);
+                engine_execute_command(engine, cmd);
+                snprintf(ui->status, sizeof(ui->status), "Unset global: %s", ui->global_key);
+                ui->global_key[0] = 0;
+                ui->global_value[0] = 0;
             }
         }
 

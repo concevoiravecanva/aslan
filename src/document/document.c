@@ -3,6 +3,24 @@
 #include <string.h>
 #include <stdio.h>
 
+static int global_find_index(const Document* doc, const char* key) {
+    if (!doc || !key || !key[0]) return -1;
+    for (int i = 0; i < (int)(sizeof(doc->globals) / sizeof(doc->globals[0])); i++) {
+        if (doc->globals[i].in_use && strncmp(doc->globals[i].key, key, sizeof(doc->globals[i].key)) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int global_find_free_slot(Document* doc) {
+    if (!doc) return -1;
+    for (int i = 0; i < (int)(sizeof(doc->globals) / sizeof(doc->globals[0])); i++) {
+        if (!doc->globals[i].in_use) return i;
+    }
+    return -1;
+}
+
 static Node* detach_child(Node* parent, Node* child) {
     if (!parent || !child) return NULL;
     Node* prev = NULL;
@@ -64,6 +82,9 @@ Document* doc_create(void) {
     strncpy(doc->doc_type, "canvas2d", sizeof(doc->doc_type) - 1);
     doc->doc_width = 800;
     doc->doc_height = 600;
+
+    // Globals defaults
+    memset(doc->globals, 0, sizeof(doc->globals));
     
     return doc;
 }
@@ -79,6 +100,48 @@ void doc_destroy(Document* doc) {
     if (!doc) return;
     free_node_recursive(doc->root);
     free(doc);
+}
+
+bool doc_set_global(Document* doc, const char* key, const char* value) {
+    if (!doc || !key || !key[0] || !value) return false;
+
+    int idx = global_find_index(doc, key);
+    if (idx < 0) {
+        idx = global_find_free_slot(doc);
+        if (idx < 0) return false;
+        memset(doc->globals[idx].key, 0, sizeof(doc->globals[idx].key));
+        strncpy(doc->globals[idx].key, key, sizeof(doc->globals[idx].key) - 1);
+        doc->globals[idx].in_use = 1;
+    }
+
+    memset(doc->globals[idx].value, 0, sizeof(doc->globals[idx].value));
+    strncpy(doc->globals[idx].value, value, sizeof(doc->globals[idx].value) - 1);
+    return true;
+}
+
+bool doc_unset_global(Document* doc, const char* key) {
+    if (!doc || !key || !key[0]) return false;
+    int idx = global_find_index(doc, key);
+    if (idx < 0) return false;
+    memset(doc->globals[idx].key, 0, sizeof(doc->globals[idx].key));
+    memset(doc->globals[idx].value, 0, sizeof(doc->globals[idx].value));
+    doc->globals[idx].in_use = 0;
+    return true;
+}
+
+const char* doc_get_global(const Document* doc, const char* key) {
+    if (!doc || !key || !key[0]) return NULL;
+    int idx = global_find_index(doc, key);
+    if (idx < 0) return NULL;
+    return doc->globals[idx].value;
+}
+
+void doc_globals_iterate(const Document* doc, doc_global_iter_fn fn, void* user) {
+    if (!doc || !fn) return;
+    for (int i = 0; i < (int)(sizeof(doc->globals) / sizeof(doc->globals[0])); i++) {
+        if (!doc->globals[i].in_use) continue;
+        fn(doc->globals[i].key, doc->globals[i].value, user);
+    }
 }
 
 Node* doc_create_node(Document* doc, NodeType type, const char* name) {

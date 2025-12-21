@@ -47,6 +47,15 @@ typedef struct {
     char doc_type[32];
     int doc_width;
     int doc_height;
+
+    // --- Document globals (future multi-page foundation) ---
+    // Simple string key/value store, driven by AOF.
+    // Note: values are stored untyped for now; higher-level systems can parse.
+    struct {
+        char key[64];
+        char value[256];
+        int in_use;
+    } globals[64];
 } Document;
 
 // API C pour la manipulation du document
@@ -68,6 +77,16 @@ bool doc_send_backward(Document* doc, uint32_t id);
 
 // Trouve le nœud le plus profond à une position donnée (pour le clic souris)
 Node* doc_find_node_at(Document* doc, float x, float y);
+
+// --- Globals API ---
+// Returns true if set/unset succeeded.
+bool doc_set_global(Document* doc, const char* key, const char* value);
+bool doc_unset_global(Document* doc, const char* key);
+// Returns NULL if not present.
+const char* doc_get_global(const Document* doc, const char* key);
+
+typedef void (*doc_global_iter_fn)(const char* key, const char* value, void* user);
+void doc_globals_iterate(const Document* doc, doc_global_iter_fn fn, void* user);
 
 // Export du document en format SVG pour visualisation rapide
 void doc_export_to_svg(const Document* doc, const char* filename);

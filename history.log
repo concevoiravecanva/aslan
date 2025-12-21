@@ -2,9 +2,10 @@
 doc_type canvas2d
 doc_meta width 800
 doc_meta height 600
+set_global theme "dark"
 create_text 1 Text1 216.000000 309.000000 403.000000 60.000000 "Text"
-create_text 2 Text2 407.000000 116.000000 225.000000 546.000000 "Text"
-create_rect 3 RandomNode 387.000000 131.000000 123.000000 95.000000
+create_text 2 Text2 453.000000 41.000000 225.000000 546.000000 "Text"
+create_rect 3 RandomNode 133.000000 114.000000 346.000000 151.000000
 bring_to_front 3
 bring_to_front 2
 bring_to_front 1
