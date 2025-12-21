@@ -64,6 +64,15 @@ static void insert_child_after(Node* parent, Node* child, Node* after) {
     after->next_sibling = child;
 }
 
+static Node* make_root_node(void) {
+    Node* r = (Node*)calloc(1, sizeof(Node));
+    if (!r) return NULL;
+    r->id = 0;
+    r->type = NODE_TYPE_ROOT;
+    strcpy(r->name, "Root");
+    return r;
+}
+
 Document* doc_create(void) {
     Document* doc = (Document*)malloc(sizeof(Document));
     if (!doc) return NULL;
@@ -71,11 +80,22 @@ Document* doc_create(void) {
     doc->next_node_id = 1;
     memset(doc->filepath, 0, sizeof(doc->filepath));
     
-    // Création automatique de la racine
-    doc->root = (Node*)calloc(1, sizeof(Node));
-    doc->root->id = 0;
-    doc->root->type = NODE_TYPE_ROOT;
-    strcpy(doc->root->name, "Root");
+    // Pages defaults
+    memset(doc->pages, 0, sizeof(doc->pages));
+    doc->page_count = 0;
+    doc->next_page_id = 1;
+    doc->active_page_id = 0;
+
+    // Create page 0
+    doc->pages[0].in_use = 1;
+    doc->pages[0].page_id = doc->next_page_id++;
+    strncpy(doc->pages[0].name, "Page 1", sizeof(doc->pages[0].name) - 1);
+    doc->pages[0].root = make_root_node();
+    doc->page_count = 1;
+    doc->active_page_id = doc->pages[0].page_id;
+
+    // Back-compat: root points to active page root
+    doc->root = doc->pages[0].root;
 
     // Document meta defaults
     memset(doc->doc_type, 0, sizeof(doc->doc_type));
@@ -98,8 +118,76 @@ static void free_node_recursive(Node* node) {
 
 void doc_destroy(Document* doc) {
     if (!doc) return;
-    free_node_recursive(doc->root);
+    // Free all page roots
+    for (int i = 0; i < (int)(sizeof(doc->pages) / sizeof(doc->pages[0])); i++) {
+        if (doc->pages[i].in_use && doc->pages[i].root) {
+            free_node_recursive(doc->pages[i].root);
+            doc->pages[i].root = NULL;
+        }
+    }
     free(doc);
+}
+
+static int page_find_index_by_id(const Document* doc, uint32_t page_id) {
+    if (!doc || page_id == 0) return -1;
+    for (int i = 0; i < (int)(sizeof(doc->pages) / sizeof(doc->pages[0])); i++) {
+        if (doc->pages[i].in_use && doc->pages[i].page_id == page_id) return i;
+    }
+    return -1;
+}
+
+static int page_find_free_slot(Document* doc) {
+    if (!doc) return -1;
+    for (int i = 0; i < (int)(sizeof(doc->pages) / sizeof(doc->pages[0])); i++) {
+        if (!doc->pages[i].in_use) return i;
+    }
+    return -1;
+}
+
+uint32_t doc_page_create(Document* doc, const char* name) {
+    if (!doc) return 0;
+    int slot = page_find_free_slot(doc);
+    if (slot < 0) return 0;
+
+    Node* r = make_root_node();
+    if (!r) return 0;
+
+    doc->pages[slot].in_use = 1;
+    doc->pages[slot].page_id = doc->next_page_id++;
+    memset(doc->pages[slot].name, 0, sizeof(doc->pages[slot].name));
+    if (name && name[0]) strncpy(doc->pages[slot].name, name, sizeof(doc->pages[slot].name) - 1);
+    else {
+        // default name: Page N
+        snprintf(doc->pages[slot].name, sizeof(doc->pages[slot].name), "Page %d", doc->page_count + 1);
+    }
+    doc->pages[slot].root = r;
+    doc->page_count++;
+
+    // Auto-select new page
+    doc->active_page_id = doc->pages[slot].page_id;
+    doc->root = doc->pages[slot].root;
+    return doc->pages[slot].page_id;
+}
+
+bool doc_page_select(Document* doc, uint32_t page_id) {
+    if (!doc || page_id == 0) return false;
+    int idx = page_find_index_by_id(doc, page_id);
+    if (idx < 0) return false;
+    doc->active_page_id = page_id;
+    doc->root = doc->pages[idx].root;
+    return true;
+}
+
+uint32_t doc_page_active_id(const Document* doc) {
+    if (!doc) return 0;
+    return doc->active_page_id;
+}
+
+const char* doc_page_name(const Document* doc, uint32_t page_id) {
+    if (!doc || page_id == 0) return NULL;
+    int idx = page_find_index_by_id(doc, page_id);
+    if (idx < 0) return NULL;
+    return doc->pages[idx].name;
 }
 
 bool doc_set_global(Document* doc, const char* key, const char* value) {

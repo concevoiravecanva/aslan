@@ -763,6 +763,44 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
     }
     nk_end(ui->ctx);
 
+    // Bottom Pages bar (Editor)
+    {
+        float bar_h = 44.0f;
+        struct nk_rect b = nk_rect(0, (float)win_h - bar_h, (float)win_w, bar_h);
+        if (nk_begin(ui->ctx, "Pages", b, NK_WINDOW_NO_SCROLLBAR|NK_WINDOW_BORDER)) {
+            uint32_t active = (engine && engine->doc) ? doc_page_active_id(engine->doc) : 0;
+
+            // One row: + then tabs.
+            nk_layout_row_dynamic(ui->ctx, 30, 10);
+
+            if (nk_button_label(ui->ctx, "+")) {
+                engine_execute_command(engine, "page_create \"Page\"");
+                snprintf(ui->status, sizeof(ui->status), "New page");
+            }
+
+            if (engine && engine->doc) {
+                for (int i = 0; i < 32; i++) {
+                    if (!engine->doc->pages[i].in_use) continue;
+                    const char* name = engine->doc->pages[i].name;
+                    uint32_t pid = engine->doc->pages[i].page_id;
+                    if (!name || !name[0]) name = "(unnamed)";
+
+                    char label[96];
+                    if (pid == active) snprintf(label, sizeof(label), "[%s]", name);
+                    else snprintf(label, sizeof(label), "%s", name);
+
+                    if (nk_button_label(ui->ctx, label)) {
+                        char cmd[64];
+                        snprintf(cmd, sizeof(cmd), "page_select %u", (unsigned)pid);
+                        engine_execute_command(engine, cmd);
+                        snprintf(ui->status, sizeof(ui->status), "Page: %s", name);
+                    }
+                }
+            }
+        }
+        nk_end(ui->ctx);
+    }
+
     // Modal save-as window for `.aslan` snapshots
     if (ui->show_save_aslan_modal) {
         struct nk_rect bounds = nk_rect(win_w * 0.5f - 170.0f, win_h * 0.5f - 130.0f, 340.0f, 260.0f);

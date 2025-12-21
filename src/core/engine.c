@@ -21,6 +21,12 @@ bool doc_unset_global(Document* doc, const char* key);
 const char* doc_get_global(const Document* doc, const char* key);
 void doc_globals_iterate(const Document* doc, doc_global_iter_fn fn, void* user);
 
+// Pages API
+uint32_t doc_page_create(Document* doc, const char* name);
+bool doc_page_select(Document* doc, uint32_t page_id);
+uint32_t doc_page_active_id(const Document* doc);
+const char* doc_page_name(const Document* doc, uint32_t page_id);
+
 static void rewrite_emit_global_kv(const char* key, const char* value, void* user) {
     FILE* out = (FILE*)user;
     if (!out || !key || !key[0] || !value) return;
@@ -116,6 +122,8 @@ static bool is_mutating_command_line(const char* line) {
             strncmp(l, "create_rect ", 12) == 0 ||
             strncmp(l, "set_rect ", 9) == 0 ||
             strncmp(l, "create_text ", 12) == 0 ||
+            strncmp(l, "page_create ", 12) == 0 ||
+            strncmp(l, "page_select ", 12) == 0 ||
             strncmp(l, "doc_type ", 9) == 0 ||
             strncmp(l, "doc_meta ", 9) == 0 ||
             strncmp(l, "set_global ", 11) == 0 ||
@@ -257,6 +265,17 @@ static bool engine_write_snapshot_to_file(Engine* engine, FILE* out, const char*
 
     // Document globals
     doc_globals_iterate(engine->doc, rewrite_emit_global_kv, out);
+
+    // Pages (MVP): declare pages and select active page.
+    // NOTE: For now we only snapshot the active page's node tree. This is a stepping stone:
+    // it allows UI and navigation to land first.
+    if (engine->doc) {
+        for (int i = 0; i < 32; i++) {
+            if (!engine->doc->pages[i].in_use) continue;
+            fprintf(out, "page_create \"%s\"\n", engine->doc->pages[i].name[0] ? engine->doc->pages[i].name : "Page");
+        }
+        fprintf(out, "page_select %u\n", (unsigned)doc_page_active_id(engine->doc));
+    }
 
     // 1) Snapshot objects deterministically by id
     Node* nodes[4096];
@@ -449,6 +468,52 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
                 success = true;
             } else if (strcmp(name, "height") == 0) {
                 engine->doc->doc_height = id;
+                success = true;
+            }
+        }
+    }
+
+    // Commande: page_create "Name"
+    else if (strncmp(command_line, "page_create ", 12) == 0) {
+        const char* p = command_line + 12;
+        while (*p == ' ' || *p == '\t') p++;
+        char page_name[64];
+        memset(page_name, 0, sizeof(page_name));
+        if (*p == '"') {
+            p++;
+            size_t wi = 0;
+            while (*p && *p != '"' && wi + 1 < sizeof(page_name)) {
+                page_name[wi++] = *p++;
+            }
+            page_name[wi] = 0;
+        } else {
+            // fallback: single token
+            sscanf(p, "%63s", page_name);
+        }
+
+        if (engine->doc) {
+            uint32_t pid = doc_page_create(engine->doc, page_name[0] ? page_name : NULL);
+            if (pid != 0) {
+                // Log command
+                if (engine->history_file && is_mutating_command_line(command_line)) {
+                    fprintf(engine->history_file, "%s\n", command_line);
+                    fflush(engine->history_file);
+                }
+                if (engine->ui_host) engine->ui_host->selected_node = NULL;
+                success = true;
+            }
+        }
+    }
+
+    // Commande: page_select <page_id>
+    else if (sscanf(command_line, "page_select %d", &id) == 1) {
+        if (engine->doc) {
+            if (doc_page_select(engine->doc, (uint32_t)id)) {
+                if (engine->history_file && is_mutating_command_line(command_line)) {
+                    fprintf(engine->history_file, "%s\n", command_line);
+                    fflush(engine->history_file);
+                }
+                if (engine->ui_host) engine->ui_host->selected_node = NULL;
                 success = true;
             }
         }

@@ -38,6 +38,7 @@ typedef struct Node {
 
 // Le Document est le conteneur principal
 typedef struct {
+    // Back-compat: points to the active page root.
     Node* root;
     uint32_t next_node_id;
     char filepath[256];
@@ -56,7 +57,27 @@ typedef struct {
         char value[256];
         int in_use;
     } globals[64];
+
+    // --- Pages (MVP) ---
+    // Page 0 always exists.
+    // For now pages are all canvas2d and share the same globals store.
+    // Each page has its own Node tree root.
+    struct {
+        int in_use;
+        uint32_t page_id;
+        char name[64];
+        Node* root;
+    } pages[32];
+    int page_count;
+    uint32_t next_page_id;
+    uint32_t active_page_id;
 } Document;
+
+// --- Pages API ---
+uint32_t doc_page_create(Document* doc, const char* name);
+bool doc_page_select(Document* doc, uint32_t page_id);
+uint32_t doc_page_active_id(const Document* doc);
+const char* doc_page_name(const Document* doc, uint32_t page_id);
 
 // API C pour la manipulation du document
 Document* doc_create(void);
