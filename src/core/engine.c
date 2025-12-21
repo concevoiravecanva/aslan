@@ -18,7 +18,7 @@ bool doc_send_backward(Document* doc, uint32_t id);
 // Globals API
 bool doc_set_global(Document* doc, const char* key, const char* value);
 bool doc_unset_global(Document* doc, const char* key);
-typedef void (*doc_global_iter_fn)(const char* key, const char* value, void* user);
+const char* doc_get_global(const Document* doc, const char* key);
 void doc_globals_iterate(const Document* doc, doc_global_iter_fn fn, void* user);
 
 static void rewrite_emit_global_kv(const char* key, const char* value, void* user) {
@@ -45,6 +45,59 @@ static void rewrite_emit_global_kv(const char* key, const char* value, void* use
 
 static const char* k_history_path = "history.log";
 static const char* k_redo_path = "redo.log";
+
+static void prune_last_session_set_rect_and_append(const char* command_line) {
+    if (!command_line) return;
+    FILE* f = fopen(k_history_path, "r");
+    if (!f) {
+        FILE* out = fopen(k_history_path, "a");
+        if (out) {
+            fprintf(out, "%s\n", command_line);
+            fclose(out);
+        }
+        return;
+    }
+
+    char** lines = malloc(4096 * sizeof(char*));
+    int count = 0;
+    char buf[512];
+    while (fgets(buf, sizeof(buf), f) && count < 4096) {
+        lines[count++] = strdup(buf);
+    }
+    fclose(f);
+
+    // Find last session marker
+    int last_session = -1;
+    for (int i = 0; i < count; i++) {
+        if (strstr(lines[i], "-- Session started --") != NULL) last_session = i;
+    }
+
+    // Keep only the last set_rect after the last session marker (drop earlier ones), then append new.
+    int last_set_rect_after_session = -1;
+    for (int i = last_session + 1; i < count; i++) {
+        const char* l = lines[i];
+        while (*l == ' ' || *l == '\t') l++;
+        if (strncmp(l, "set_rect ", 9) == 0) last_set_rect_after_session = i;
+    }
+
+    f = fopen(k_history_path, "w");
+    if (f) {
+        for (int i = 0; i < count; i++) {
+            if (i > last_session) {
+                const char* l = lines[i];
+                while (*l == ' ' || *l == '\t') l++;
+                // Drop all but the last set_rect of the session.
+                if (strncmp(l, "set_rect ", 9) == 0 && i != last_set_rect_after_session) continue;
+            }
+            fputs(lines[i], f);
+        }
+        fprintf(f, "%s\n", command_line);
+        fclose(f);
+    }
+
+    for (int i = 0; i < count; i++) free(lines[i]);
+    free(lines);
+}
 
 static void clear_history_log(void) {
     FILE* f = fopen(k_history_path, "w");
@@ -479,11 +532,42 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
     else if (sscanf(command_line, "set_rect %d %f %f %f %f", &id, &x, &y, &w, &h) == 5) {
         Node* node = doc_find_node_by_id(engine->doc, (uint32_t)id);
         if (node) {
+            // Snap-to-grid (AOF-driven via globals)
+            int snap_enabled = 0;
+            int snap_step = 10;
+            const char* se = doc_get_global(engine->doc, "snap.enabled");
+            if (se && (strcmp(se, "1") == 0 || strcasecmp(se, "true") == 0 || strcasecmp(se, "yes") == 0)) {
+                snap_enabled = 1;
+            }
+            const char* ss = doc_get_global(engine->doc, "snap.step");
+            if (ss) {
+                int v = atoi(ss);
+                if (v >= 1 && v <= 200) snap_step = v;
+            }
+
+            if (snap_enabled) {
+                float s = (float)snap_step;
+                x = (float)(int)((x / s) + (x >= 0 ? 0.5f : -0.5f)) * s;
+                y = (float)(int)((y / s) + (y >= 0 ? 0.5f : -0.5f)) * s;
+                w = (float)(int)((w / s) + 0.5f) * s;
+                h = (float)(int)((h / s) + 0.5f) * s;
+                if (w < s) w = s;
+                if (h < s) h = s;
+            }
+
             node->x = x;
             node->y = y;
             node->width = w;
             node->height = h;
             success = true;
+
+            // Log exactly one set_rect per session (commit), keep AOF compact.
+            if (engine->history_file) {
+                char canonical[256];
+                snprintf(canonical, sizeof(canonical), "set_rect %u %f %f %f %f",
+                    (unsigned)node->id, node->x, node->y, node->width, node->height);
+                prune_last_session_set_rect_and_append(canonical);
+            }
         }
     }
 
@@ -690,6 +774,7 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
     strncmp(command_line, "select", 6) != 0 &&
     strncmp(command_line, "new_rect", 8) != 0 &&
     strncmp(command_line, "new_text", 8) != 0 &&
+    strncmp(command_line, "set_rect", 8) != 0 &&
     strncmp(command_line, "move", 4) != 0 &&
     strncmp(command_line, "resize", 6) != 0 &&
         strncmp(command_line, "exit", 4) != 0) {

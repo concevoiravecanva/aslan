@@ -232,6 +232,50 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             snprintf(ui->status, sizeof(ui->status), "Theme: %s", next);
         }
 
+        // Snap/Grid (AOF-driven globals)
+        nk_layout_row_dynamic(ui->ctx, 10, 1);
+        nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
+
+        nk_layout_row_dynamic(ui->ctx, 25, 1);
+        nk_label(ui->ctx, "Snap & Grid", NK_TEXT_LEFT);
+
+        int snap_enabled = 0;
+        int grid_enabled = 0;
+        int snap_step = 10;
+        if (engine && engine->doc) {
+            const char* se = doc_get_global(engine->doc, "snap.enabled");
+            if (se && (strcmp(se, "1") == 0 || strcasecmp(se, "true") == 0 || strcasecmp(se, "yes") == 0)) snap_enabled = 1;
+            const char* ge = doc_get_global(engine->doc, "grid.enabled");
+            if (ge && (strcmp(ge, "1") == 0 || strcasecmp(ge, "true") == 0 || strcasecmp(ge, "yes") == 0)) grid_enabled = 1;
+            const char* ss = doc_get_global(engine->doc, "snap.step");
+            if (ss) {
+                int v = atoi(ss);
+                if (v >= 1 && v <= 200) snap_step = v;
+            }
+        }
+
+        nk_layout_row_dynamic(ui->ctx, 24, 2);
+        if (nk_checkbox_label(ui->ctx, "Snap", &snap_enabled)) {
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "set_global snap.enabled \"%d\"", snap_enabled ? 1 : 0);
+            engine_execute_command(engine, cmd);
+        }
+        if (nk_checkbox_label(ui->ctx, "Grid", &grid_enabled)) {
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "set_global grid.enabled \"%d\"", grid_enabled ? 1 : 0);
+            engine_execute_command(engine, cmd);
+        }
+
+        nk_layout_row_dynamic(ui->ctx, 24, 1);
+        nk_property_int(ui->ctx, "Step", 1, &snap_step, 200, 1, 1);
+        nk_layout_row_dynamic(ui->ctx, 28, 1);
+        if (nk_button_label(ui->ctx, "Apply Step")) {
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "set_global snap.step \"%d\"", snap_step);
+            engine_execute_command(engine, cmd);
+            snprintf(ui->status, sizeof(ui->status), "Snap step: %d", snap_step);
+        }
+
     // Status line (last action)
     nk_layout_row_dynamic(ui->ctx, 22, 1);
     nk_label(ui->ctx, ui->status[0] ? ui->status : "", NK_TEXT_LEFT);
