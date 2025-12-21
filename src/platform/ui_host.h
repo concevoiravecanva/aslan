@@ -42,6 +42,11 @@ typedef struct UIHost {
     // Globals editor state
     char global_key[64];
     char global_value[256];
+
+    // Snap/Grid editor state (persist UI edits across frames)
+    int snap_step_edit;
+    int grid_step_edit;
+    int snap_grid_steps_inited;
 } UIHost;
 
 UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L);

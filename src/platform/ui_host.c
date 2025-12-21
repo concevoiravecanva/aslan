@@ -114,6 +114,11 @@ UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L) {
     // Globals editor defaults
     ui->global_key[0] = 0;
     ui->global_value[0] = 0;
+
+    // Snap/Grid step editor defaults
+    ui->snap_step_edit = 10;
+    ui->grid_step_edit = 10;
+    ui->snap_grid_steps_inited = 0;
     
     return ui;
 }
@@ -241,7 +246,8 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
 
         int snap_enabled = 0;
         int grid_enabled = 0;
-        int snap_step = 10;
+    int snap_step_doc = 10;
+    int grid_step_doc = 10;
         if (engine && engine->doc) {
             const char* se = doc_get_global(engine->doc, "snap.enabled");
             if (se && (strcmp(se, "1") == 0 || strcasecmp(se, "true") == 0 || strcasecmp(se, "yes") == 0)) snap_enabled = 1;
@@ -250,9 +256,25 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             const char* ss = doc_get_global(engine->doc, "snap.step");
             if (ss) {
                 int v = atoi(ss);
-                if (v >= 1 && v <= 200) snap_step = v;
+        if (v >= 1 && v <= 200) snap_step_doc = v;
+            }
+            const char* gs = doc_get_global(engine->doc, "grid.step");
+            if (gs) {
+                int v = atoi(gs);
+        if (v >= 1 && v <= 200) grid_step_doc = v;
+            } else {
+        // default: keep in sync with snap.step if grid.step isn't set
+        grid_step_doc = snap_step_doc;
             }
         }
+
+    // IMPORTANT: don't overwrite the user's edits every frame.
+    // We sync from document globals only once (or after a clear/new UI init).
+    if (!ui->snap_grid_steps_inited) {
+        ui->snap_step_edit = snap_step_doc;
+        ui->grid_step_edit = grid_step_doc;
+        ui->snap_grid_steps_inited = 1;
+    }
 
         nk_layout_row_dynamic(ui->ctx, 24, 2);
         if (nk_checkbox_label(ui->ctx, "Snap", &snap_enabled)) {
@@ -266,14 +288,33 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             engine_execute_command(engine, cmd);
         }
 
+        // Steps (separate)
         nk_layout_row_dynamic(ui->ctx, 24, 1);
-        nk_property_int(ui->ctx, "Step", 1, &snap_step, 200, 1, 1);
+        nk_property_int(ui->ctx, "Snap step", 1, &ui->snap_step_edit, 200, 1, 1);
         nk_layout_row_dynamic(ui->ctx, 28, 1);
-        if (nk_button_label(ui->ctx, "Apply Step")) {
+        if (nk_button_label(ui->ctx, "Apply Snap step")) {
             char cmd[128];
-            snprintf(cmd, sizeof(cmd), "set_global snap.step \"%d\"", snap_step);
+            snprintf(cmd, sizeof(cmd), "set_global snap.step \"%d\"", ui->snap_step_edit);
             engine_execute_command(engine, cmd);
-            snprintf(ui->status, sizeof(ui->status), "Snap step: %d", snap_step);
+            snprintf(ui->status, sizeof(ui->status), "Snap step: %d", ui->snap_step_edit);
+        }
+
+        nk_layout_row_dynamic(ui->ctx, 24, 1);
+        nk_property_int(ui->ctx, "Grid step", 1, &ui->grid_step_edit, 200, 1, 1);
+        nk_layout_row_dynamic(ui->ctx, 28, 1);
+        if (nk_button_label(ui->ctx, "Apply Grid step")) {
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "set_global grid.step \"%d\"", ui->grid_step_edit);
+            engine_execute_command(engine, cmd);
+            snprintf(ui->status, sizeof(ui->status), "Grid step: %d", ui->grid_step_edit);
+        }
+
+        // Optional: let user resync from document if they want
+        nk_layout_row_dynamic(ui->ctx, 24, 1);
+        if (nk_button_label(ui->ctx, "Reset steps from document")) {
+            ui->snap_step_edit = snap_step_doc;
+            ui->grid_step_edit = grid_step_doc;
+            snprintf(ui->status, sizeof(ui->status), "Steps reset");
         }
 
     // Status line (last action)

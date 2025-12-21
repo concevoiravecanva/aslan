@@ -27,3 +27,22 @@ set_global snap.enabled "0"
 set_rect 3 72.000000 163.000000 350.000000 150.000000
 set_global snap.enabled "1"
 set_rect 2 440.000000 100.000000 240.000000 600.000000
+-- Session started --
+set_global grid.enabled "0"
+set_rect 3 80.000000 260.000000 350.000000 150.000000
+set_global grid.enabled "1"
+set_global snap.enabled "0"
+set_rect 2 316.000000 134.000000 360.000000 890.000000
+send_backward 2
+-- Session started --
+set_global snap.enabled "1"
+set_global snap.step "10"
+set_global snap.step "10"
+set_global snap.step "10"
+set_global grid.step "10"
+set_rect 2 50.000000 140.000000 660.000000 1030.000000
+set_rect 2 50.000000 160.000000 660.000000 1030.000000
+-- Session started --
+set_global grid.step "50"
+set_rect 2 40.000000 100.000000 660.000000 1030.000000
+set_rect 5 600.000000 210.000000 140.000000 170.000000

@@ -2,19 +2,11 @@
 <svg width='800' height='600' xmlns='http://www.w3.org/2000/svg'>
   <rect width='100%' height='100%' fill='#f0f0f0' />
   <g>
-    <rect x='419.00' y='121.00' width='346.00' height='179.00' fill='rgb(150,240,75)' stroke='black' stroke-width='2' />
-    <text x='424.00' y='141.00' font-family='Arial' font-size='14' fill='white'>Rect3</text>
+    <rect x='80.00' y='260.00' width='350.00' height='150.00' fill='rgb(150,240,75)' stroke='black' stroke-width='2' />
+    <text x='85.00' y='280.00' font-family='Arial' font-size='14' fill='white'>RandomNode</text>
   </g>
   <g>
-    <rect x='290.00' y='75.00' width='120.00' height='120.00' fill='rgb(200,65,185)' stroke='black' stroke-width='2' />
-    <text x='295.00' y='95.00' font-family='Arial' font-size='14' fill='white'>Rect4</text>
-  </g>
-  <g>
-    <rect x='184.00' y='282.00' width='96.00' height='346.00' fill='rgb(45,225,150)' stroke='black' stroke-width='2' />
-    <text x='189.00' y='302.00' font-family='Arial' font-size='14' fill='white'>Rect6</text>
-  </g>
-  <g>
-    <rect x='472.00' y='348.00' width='139.00' height='327.00' fill='rgb(145,130,115)' stroke='black' stroke-width='2' />
-    <text x='477.00' y='368.00' font-family='Arial' font-size='14' fill='white'>Rect8</text>
+    <rect x='580.00' y='300.00' width='140.00' height='170.00' fill='rgb(250,145,40)' stroke='black' stroke-width='2' />
+    <text x='585.00' y='320.00' font-family='Arial' font-size='14' fill='white'>Rect5</text>
   </g>
 </svg>
