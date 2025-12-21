@@ -312,6 +312,52 @@ bool engine_save_snapshot_as_aslan(Engine* engine, const char* out_path) {
     return ok;
 }
 
+static bool is_comment_or_empty_line(const char* line) {
+    if (!line) return true;
+    const char* l = line;
+    while (*l == ' ' || *l == '\t') l++;
+    if (*l == '\0' || *l == '\n' || *l == '\r') return true;
+    if (*l == '-' && *(l + 1) == '-') return true;
+    return false;
+}
+
+static void strip_trailing_newlines(char* s) {
+    if (!s) return;
+    size_t n = strlen(s);
+    while (n > 0 && (s[n - 1] == '\n' || s[n - 1] == '\r')) {
+        s[n - 1] = 0;
+        n--;
+    }
+}
+
+bool engine_load_snapshot_from_aslan(Engine* engine, const char* in_path) {
+    if (!engine || !in_path || !in_path[0]) return false;
+
+    FILE* f = fopen(in_path, "r");
+    if (!f) return false;
+
+    // Reset to a clean doc + clear logs (we don't want to append open-file commands to history.log).
+    // This leverages existing clear behavior.
+    engine_execute_command(engine, "clear");
+
+    char line[1024];
+    bool saw_any_command = false;
+    while (fgets(line, sizeof(line), f)) {
+        strip_trailing_newlines(line);
+        if (is_comment_or_empty_line(line)) continue;
+
+        // Accept v1 header as comment-ish. We keep it in file but don't execute it.
+        if (strcmp(line, "-- aslan:1 --") == 0) continue;
+
+        if (engine_execute_command(engine, line)) {
+            saw_any_command = true;
+        }
+    }
+
+    fclose(f);
+    return saw_any_command;
+}
+
 Engine* engine_create(void) {
     Engine* engine = (Engine*)calloc(1, sizeof(Engine));
     if (!engine) return NULL;

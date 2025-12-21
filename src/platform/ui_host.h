@@ -28,6 +28,10 @@ typedef struct UIHost {
     // Small UX feedback for the user (last action/command)
     char status[128];
 
+    // App screen state
+    // 0 = Home, 1 = Editor
+    int screen;
+
     // Tool mode: 0 = select/move/resize, 1 = create rect
     int tool_mode;
 
@@ -43,6 +47,14 @@ typedef struct UIHost {
     int show_save_aslan_modal;
     char save_aslan_dir[256];
     char save_aslan_name[256];
+
+    // Home: Open existing doc (typed path for now)
+    char open_aslan_path[512];
+
+    // Home: Recents (MRU)
+    char recents_store_path[512];
+    int recents_count;
+    char recents_paths[16][512];
 
     // Globals editor state
     char global_key[64];

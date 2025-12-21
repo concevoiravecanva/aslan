@@ -33,4 +33,8 @@ void engine_load_history(Engine* engine);
 // Returns true on success.
 bool engine_save_snapshot_as_aslan(Engine* engine, const char* out_path);
 
+// Load a `.aslan` v1 snapshot from disk (clears current doc).
+// Returns true on success.
+bool engine_load_snapshot_from_aslan(Engine* engine, const char* in_path);
+
 #endif

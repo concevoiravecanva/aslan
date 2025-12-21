@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include "../scripting/lua_host.h"
+#include "recents.h"
 
 // Globals API (theme)
 const char* doc_get_global(const Document* doc, const char* key);
@@ -126,8 +127,42 @@ UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L) {
     ui->snap_step_edit = 10;
     ui->grid_step_edit = 10;
     ui->snap_grid_steps_inited = 0;
+
+    // Home defaults
+    ui->screen = 0; // Home
+    ui->open_aslan_path[0] = 0;
+
+    // Recents storage: simple local file in the working directory for now.
+    // (Later we can move it to an app data dir.)
+    snprintf(ui->recents_store_path, sizeof(ui->recents_store_path), "recents.txt");
+    ui->recents_count = 0;
+    for (int i = 0; i < 16; i++) ui->recents_paths[i][0] = 0;
+
+    // Load recents from disk
+    {
+        Recents r;
+        recents_load(&r, ui->recents_store_path);
+        ui->recents_count = r.count;
+        for (int i = 0; i < r.count && i < 16; i++) {
+            snprintf(ui->recents_paths[i], sizeof(ui->recents_paths[i]), "%s", r.paths[i]);
+        }
+    }
     
     return ui;
+}
+
+static void ui_recents_add_and_persist(UIHost* ui, const char* path) {
+    if (!ui || !path || !path[0]) return;
+    Recents r;
+    recents_load(&r, ui->recents_store_path);
+    recents_add(&r, path);
+    recents_save(&r, ui->recents_store_path);
+
+    ui->recents_count = r.count;
+    for (int i = 0; i < 16; i++) ui->recents_paths[i][0] = 0;
+    for (int i = 0; i < r.count && i < 16; i++) {
+        snprintf(ui->recents_paths[i], sizeof(ui->recents_paths[i]), "%s", r.paths[i]);
+    }
 }
 
 static void reveal_file_in_finder_best_effort(const char* path) {
@@ -190,12 +225,122 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
     if (theme && strcmp(theme, "dark") == 0) ui_apply_theme_dark(ui->ctx);
     else ui_apply_theme_light(ui->ctx);
 
+    // Home screen (Antirez-style: a focused, simple hub)
+    if (ui->screen == 0) {
+        float w = 560.0f;
+        float h = 520.0f;
+        struct nk_rect bounds = nk_rect(win_w * 0.5f - w * 0.5f, win_h * 0.5f - h * 0.5f, w, h);
+
+        if (nk_begin(ui->ctx, "Aslan Home", bounds,
+            NK_WINDOW_BORDER|NK_WINDOW_TITLE|NK_WINDOW_NO_SCROLLBAR)) {
+
+            nk_layout_row_dynamic(ui->ctx, 24, 1);
+            nk_label(ui->ctx, "Home", NK_TEXT_LEFT);
+
+            nk_layout_row_dynamic(ui->ctx, 30, 2);
+            if (nk_button_label(ui->ctx, "New document")) {
+                engine_execute_command(engine, "clear");
+                ui->selected_node = NULL;
+                ui->screen = 1;
+                snprintf(ui->status, sizeof(ui->status), "New document");
+            }
+            if (nk_button_label(ui->ctx, "Open...")) {
+                if (!ui->open_aslan_path[0]) {
+                    snprintf(ui->open_aslan_path, sizeof(ui->open_aslan_path), "./document.aslan");
+                }
+            }
+
+            nk_layout_row_dynamic(ui->ctx, 8, 1);
+            nk_label(ui->ctx, "", NK_TEXT_LEFT);
+
+            nk_layout_row_dynamic(ui->ctx, 18, 1);
+            nk_label(ui->ctx, "Open existing (.aslan)", NK_TEXT_LEFT);
+            nk_layout_row_dynamic(ui->ctx, 28, 1);
+            nk_edit_string_zero_terminated(ui->ctx, NK_EDIT_FIELD, ui->open_aslan_path,
+                (int)sizeof(ui->open_aslan_path) - 1, nk_filter_default);
+
+            nk_layout_row_dynamic(ui->ctx, 30, 2);
+            if (nk_button_label(ui->ctx, "Open file")) {
+                if (engine_load_snapshot_from_aslan(engine, ui->open_aslan_path)) {
+                    ui_recents_add_and_persist(ui, ui->open_aslan_path);
+                    ui->selected_node = NULL;
+                    ui->screen = 1;
+                    snprintf(ui->status, sizeof(ui->status), "Opened: %s", ui->open_aslan_path);
+                } else {
+                    snprintf(ui->status, sizeof(ui->status), "Open failed: %s", ui->open_aslan_path);
+                }
+            }
+            if (nk_button_label(ui->ctx, "Reveal in Finder")) {
+                reveal_file_in_finder_best_effort(ui->open_aslan_path);
+            }
+
+            nk_layout_row_dynamic(ui->ctx, 10, 1);
+            nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
+
+            nk_layout_row_dynamic(ui->ctx, 20, 1);
+            nk_label(ui->ctx, "Recent creations", NK_TEXT_LEFT);
+
+            if (ui->recents_count <= 0) {
+                nk_layout_row_dynamic(ui->ctx, 20, 1);
+                nk_label(ui->ctx, "(No recent files yet)", NK_TEXT_LEFT);
+            } else {
+                for (int i = 0; i < ui->recents_count && i < 16; i++) {
+                    if (!ui->recents_paths[i][0]) continue;
+                    nk_layout_row_dynamic(ui->ctx, 26, 1);
+                    if (nk_button_label(ui->ctx, ui->recents_paths[i])) {
+                        snprintf(ui->open_aslan_path, sizeof(ui->open_aslan_path), "%s", ui->recents_paths[i]);
+                        if (engine_load_snapshot_from_aslan(engine, ui->recents_paths[i])) {
+                            ui_recents_add_and_persist(ui, ui->recents_paths[i]);
+                            ui->selected_node = NULL;
+                            ui->screen = 1;
+                            snprintf(ui->status, sizeof(ui->status), "Opened: %s", ui->recents_paths[i]);
+                        } else {
+                            snprintf(ui->status, sizeof(ui->status), "Open failed: %s", ui->recents_paths[i]);
+                        }
+                    }
+                }
+            }
+
+            nk_layout_row_dynamic(ui->ctx, 10, 1);
+            nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
+
+            nk_layout_row_dynamic(ui->ctx, 20, 1);
+            nk_label(ui->ctx, "Templates", NK_TEXT_LEFT);
+            nk_layout_row_dynamic(ui->ctx, 20, 1);
+            nk_label(ui->ctx, "(Coming soon)", NK_TEXT_LEFT);
+
+            nk_layout_row_dynamic(ui->ctx, 10, 1);
+            nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
+
+            nk_layout_row_dynamic(ui->ctx, 20, 1);
+            nk_label(ui->ctx, "Settings", NK_TEXT_LEFT);
+            nk_layout_row_dynamic(ui->ctx, 20, 1);
+            nk_label(ui->ctx, "(Coming soon)", NK_TEXT_LEFT);
+
+            nk_layout_row_dynamic(ui->ctx, 10, 1);
+            nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
+
+            nk_layout_row_dynamic(ui->ctx, 18, 1);
+            nk_label(ui->ctx, ui->status, NK_TEXT_LEFT);
+        }
+        nk_end(ui->ctx);
+
+        nk_sdl_render(NK_ANTI_ALIASING_ON);
+        return;
+    }
+
     // On synchronise la sélection de l'UI avec celle de l'engine si nécessaire
     // (L'engine est la source de vérité pour les commandes 'select')
     
     // Panneau Inspecteur à droite
     if (nk_begin(ui->ctx, "Inspector", nk_rect(win_w - 250, 0, 250, win_h),
         NK_WINDOW_BORDER|NK_WINDOW_TITLE)) {
+
+        nk_layout_row_dynamic(ui->ctx, 28, 1);
+        if (nk_button_label(ui->ctx, "Back to Home")) {
+            ui->screen = 0;
+            snprintf(ui->status, sizeof(ui->status), "Home");
+        }
 
         // Section Historique (Undo/Redo/AOF)
         nk_layout_row_dynamic(ui->ctx, 25, 1);
@@ -608,6 +753,7 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                 if (engine_save_snapshot_as_aslan(engine, out_path)) {
                     snprintf(ui->status, sizeof(ui->status), "Saved: %s", out_path);
                     reveal_file_in_finder_best_effort(out_path);
+                    ui_recents_add_and_persist(ui, out_path);
                 } else {
                     snprintf(ui->status, sizeof(ui->status), "Save failed: %s", out_path);
                 }
