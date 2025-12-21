@@ -5,6 +5,82 @@
 #include <sys/stat.h>
 #include "../scripting/lua_host.h"
 
+// Globals API (theme)
+const char* doc_get_global(const Document* doc, const char* key);
+
+static void ui_apply_theme_dark(struct nk_context* ctx) {
+    if (!ctx) return;
+    struct nk_color table[NK_COLOR_COUNT];
+
+    // Loosely inspired by Nuklear demo themes.
+    table[NK_COLOR_TEXT] = nk_rgb(230, 230, 230);
+    table[NK_COLOR_WINDOW] = nk_rgb(30, 33, 36);
+    table[NK_COLOR_HEADER] = nk_rgb(45, 48, 52);
+    table[NK_COLOR_BORDER] = nk_rgb(65, 65, 65);
+    table[NK_COLOR_BUTTON] = nk_rgb(60, 60, 60);
+    table[NK_COLOR_BUTTON_HOVER] = nk_rgb(70, 70, 70);
+    table[NK_COLOR_BUTTON_ACTIVE] = nk_rgb(50, 50, 50);
+    table[NK_COLOR_TOGGLE] = nk_rgb(50, 50, 50);
+    table[NK_COLOR_TOGGLE_HOVER] = nk_rgb(60, 60, 60);
+    table[NK_COLOR_TOGGLE_CURSOR] = nk_rgb(230, 230, 230);
+    table[NK_COLOR_SELECT] = nk_rgb(50, 55, 60);
+    table[NK_COLOR_SELECT_ACTIVE] = nk_rgb(65, 70, 78);
+    table[NK_COLOR_SLIDER] = nk_rgb(60, 60, 60);
+    table[NK_COLOR_SLIDER_CURSOR] = nk_rgb(95, 95, 95);
+    table[NK_COLOR_SLIDER_CURSOR_HOVER] = nk_rgb(110, 110, 110);
+    table[NK_COLOR_SLIDER_CURSOR_ACTIVE] = nk_rgb(85, 85, 85);
+    table[NK_COLOR_PROPERTY] = nk_rgb(60, 60, 60);
+    table[NK_COLOR_EDIT] = nk_rgb(45, 45, 45);
+    table[NK_COLOR_EDIT_CURSOR] = nk_rgb(230, 230, 230);
+    table[NK_COLOR_COMBO] = nk_rgb(45, 45, 45);
+    table[NK_COLOR_CHART] = nk_rgb(45, 45, 45);
+    table[NK_COLOR_CHART_COLOR] = nk_rgb(164, 164, 164);
+    table[NK_COLOR_CHART_COLOR_HIGHLIGHT] = nk_rgb(255, 0, 0);
+    table[NK_COLOR_SCROLLBAR] = nk_rgb(45, 45, 45);
+    table[NK_COLOR_SCROLLBAR_CURSOR] = nk_rgb(70, 70, 70);
+    table[NK_COLOR_SCROLLBAR_CURSOR_HOVER] = nk_rgb(85, 85, 85);
+    table[NK_COLOR_SCROLLBAR_CURSOR_ACTIVE] = nk_rgb(60, 60, 60);
+    table[NK_COLOR_TAB_HEADER] = nk_rgb(45, 48, 52);
+
+    nk_style_from_table(ctx, table);
+}
+
+static void ui_apply_theme_light(struct nk_context* ctx) {
+    if (!ctx) return;
+    struct nk_color table[NK_COLOR_COUNT];
+
+    table[NK_COLOR_TEXT] = nk_rgb(20, 20, 20);
+    table[NK_COLOR_WINDOW] = nk_rgb(245, 245, 245);
+    table[NK_COLOR_HEADER] = nk_rgb(235, 235, 235);
+    table[NK_COLOR_BORDER] = nk_rgb(180, 180, 180);
+    table[NK_COLOR_BUTTON] = nk_rgb(225, 225, 225);
+    table[NK_COLOR_BUTTON_HOVER] = nk_rgb(210, 210, 210);
+    table[NK_COLOR_BUTTON_ACTIVE] = nk_rgb(200, 200, 200);
+    table[NK_COLOR_TOGGLE] = nk_rgb(220, 220, 220);
+    table[NK_COLOR_TOGGLE_HOVER] = nk_rgb(205, 205, 205);
+    table[NK_COLOR_TOGGLE_CURSOR] = nk_rgb(35, 35, 35);
+    table[NK_COLOR_SELECT] = nk_rgb(205, 205, 205);
+    table[NK_COLOR_SELECT_ACTIVE] = nk_rgb(190, 190, 190);
+    table[NK_COLOR_SLIDER] = nk_rgb(220, 220, 220);
+    table[NK_COLOR_SLIDER_CURSOR] = nk_rgb(160, 160, 160);
+    table[NK_COLOR_SLIDER_CURSOR_HOVER] = nk_rgb(145, 145, 145);
+    table[NK_COLOR_SLIDER_CURSOR_ACTIVE] = nk_rgb(130, 130, 130);
+    table[NK_COLOR_PROPERTY] = nk_rgb(220, 220, 220);
+    table[NK_COLOR_EDIT] = nk_rgb(235, 235, 235);
+    table[NK_COLOR_EDIT_CURSOR] = nk_rgb(20, 20, 20);
+    table[NK_COLOR_COMBO] = nk_rgb(235, 235, 235);
+    table[NK_COLOR_CHART] = nk_rgb(230, 230, 230);
+    table[NK_COLOR_CHART_COLOR] = nk_rgb(60, 60, 60);
+    table[NK_COLOR_CHART_COLOR_HIGHLIGHT] = nk_rgb(255, 0, 0);
+    table[NK_COLOR_SCROLLBAR] = nk_rgb(235, 235, 235);
+    table[NK_COLOR_SCROLLBAR_CURSOR] = nk_rgb(200, 200, 200);
+    table[NK_COLOR_SCROLLBAR_CURSOR_HOVER] = nk_rgb(185, 185, 185);
+    table[NK_COLOR_SCROLLBAR_CURSOR_ACTIVE] = nk_rgb(170, 170, 170);
+    table[NK_COLOR_TAB_HEADER] = nk_rgb(235, 235, 235);
+
+    nk_style_from_table(ctx, table);
+}
+
 // Implémentation spécifique SDL2 pour Nuklear
 #define NK_IMPLEMENTATION
 #define NK_SDL_RENDERER_IMPLEMENTATION
@@ -97,6 +173,11 @@ void ui_handle_event(UIHost* ui, SDL_Event* evt) {
 }
 
 void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
+    // Theme for Inspector UI only (read from globals)
+    const char* theme = (engine && engine->doc) ? doc_get_global(engine->doc, "theme") : NULL;
+    if (theme && strcmp(theme, "dark") == 0) ui_apply_theme_dark(ui->ctx);
+    else ui_apply_theme_light(ui->ctx);
+
     // On synchronise la sélection de l'UI avec celle de l'engine si nécessaire
     // (L'engine est la source de vérité pour les commandes 'select')
     
@@ -138,6 +219,17 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                 snprintf(ui->export_svg_dir, sizeof(ui->export_svg_dir), ".");
             }
             snprintf(ui->export_svg_name, sizeof(ui->export_svg_name), "%s", ui->export_svg_path[0] ? ui->export_svg_path : "preview.svg");
+        }
+
+        // Theme quick toggle (AOF-driven)
+        nk_layout_row_dynamic(ui->ctx, 28, 1);
+        if (nk_button_label(ui->ctx, "Toggle Theme (dark/light)")) {
+            const char* cur = (engine && engine->doc) ? doc_get_global(engine->doc, "theme") : NULL;
+            const char* next = (cur && strcmp(cur, "dark") == 0) ? "light" : "dark";
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "set_global theme \"%s\"", next);
+            engine_execute_command(engine, cmd);
+            snprintf(ui->status, sizeof(ui->status), "Theme: %s", next);
         }
 
     // Status line (last action)
