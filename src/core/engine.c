@@ -122,11 +122,12 @@ static bool is_mutating_command_line(const char* line) {
 
     // Treat only "committed" geometry changes as AOF mutations.
     // High-frequency interactive commands (move/resize) are executed but not logged.
+    // NOTE: `page_create` is logged in a canonical form inside the command handler,
+    // so it is intentionally excluded from this predicate.
     return (strncmp(l, "rect ", 5) == 0 ||
             strncmp(l, "create_rect ", 12) == 0 ||
             strncmp(l, "set_rect ", 9) == 0 ||
             strncmp(l, "create_text ", 12) == 0 ||
-            strncmp(l, "page_create ", 12) == 0 ||
             strncmp(l, "page_select ", 12) == 0 ||
             strncmp(l, "doc_type ", 9) == 0 ||
             strncmp(l, "doc_meta ", 9) == 0 ||
@@ -196,6 +197,7 @@ static bool engine_rewrite_aof(Engine* engine) {
     // Pages: declare pages with stable ids and rewrite each page's tree.
     // This keeps `history.log` canonical and avoids duplicates/no-ops.
     const uint32_t active_before = doc_page_active_id(engine->doc);
+    uint32_t active_emitted = 0;
 
     for (int pi = 0; pi < 32; pi++) {
         if (!engine->doc->pages[pi].in_use) continue;
@@ -209,7 +211,10 @@ static bool engine_rewrite_aof(Engine* engine) {
         Node* page_root = engine->doc->pages[pi].root;
         if (!page_root) continue;
 
-        fprintf(out, "page_select %u\n", (unsigned)engine->doc->pages[pi].page_id);
+        if (active_emitted != engine->doc->pages[pi].page_id) {
+            fprintf(out, "page_select %u\n", (unsigned)engine->doc->pages[pi].page_id);
+            active_emitted = engine->doc->pages[pi].page_id;
+        }
 
         // 1) Snapshot objects deterministically by id
         Node* nodes[4096];
@@ -252,8 +257,9 @@ static bool engine_rewrite_aof(Engine* engine) {
     }
 
     // Restore active page
-    if (active_before != 0) {
+    if (active_before != 0 && active_before != active_emitted) {
         fprintf(out, "page_select %u\n", (unsigned)active_before);
+        active_emitted = active_before;
     }
 
     fclose(out);
@@ -563,13 +569,19 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
             }
 
             if (pid != 0) {
-                // Log command
-                if (engine->history_file && is_mutating_command_line(command_line)) {
-                    fprintf(engine->history_file, "%s\n", command_line);
+                // Log command (canonical form).
+                // Even if the user issued the old form (without id), we
+                // persist with an explicit id so future rewrites/snapshots are stable.
+                if (engine->history_file) {
+                    char canon[256];
+                    const char* n = page_name[0] ? page_name : "Page";
+                    snprintf(canon, sizeof(canon), "page_create %u \"%s\"", (unsigned)pid, n);
+                    fprintf(engine->history_file, "%s\n", canon);
                     fflush(engine->history_file);
                 }
                 if (engine->ui_host) engine->ui_host->selected_node = NULL;
                 success = true;
+                return success;
             }
         }
     }
@@ -1024,6 +1036,8 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
         strncmp(command_line, "list", 4) != 0 && 
         strncmp(command_line, "help", 4) != 0 &&
     strncmp(command_line, "select", 6) != 0 &&
+    // page_create is logged canonically inside its handler.
+    strncmp(command_line, "page_create", 11) != 0 &&
     strncmp(command_line, "new_rect", 8) != 0 &&
     strncmp(command_line, "new_text", 8) != 0 &&
     strncmp(command_line, "set_rect", 8) != 0 &&
