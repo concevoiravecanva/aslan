@@ -1,9 +1,2 @@
 -- Session started --
 clear
-page_create 2 "Page 2"
-page_type 2 space
-page_meta 2 viewport.x 0
-page_meta 2 viewport.y 0
-page_meta 2 viewport.zoom 1.0
-create_text 1 Text1 120.000000 120.000000 220.000000 60.000000 "Text"
-set_rect 1 -246.000000 6.000000 220.000000 60.000000

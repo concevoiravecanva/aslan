@@ -23,6 +23,9 @@
 typedef struct UIHost {
     struct nk_context* ctx; // Utiliser un pointeur vers le contexte géré par nk_sdl
     struct nk_font_atlas atlas;
+    // Default UI font (and future shared font handle)
+    struct nk_font* font_inter;
+    float font_size_px;
     Node* selected_node;
     lua_State* L; // Ajout du pointeur vers l'état Lua
     // Small UX feedback for the user (last action/command)

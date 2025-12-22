@@ -147,7 +147,7 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
         // 2. Rendu
         renderer_begin(renderer);
         // 3. Rendu du document
-        renderer_draw_document(renderer, engine->doc);
+    renderer_draw_document(renderer, engine->doc, ui->ctx);
         
         // 4. Rendu de la sélection (Gizmos)
         if (ui->selected_node) {

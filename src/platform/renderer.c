@@ -1,6 +1,10 @@
 #include "renderer.h"
 #include <stdio.h>
 
+// Nuklear text rendering (reuses UI font atlas)
+#include "../../include/nuklear.h"
+#include "nuklear_sdl_renderer.h"
+
 // Globals API (declared in document.c)
 const char* doc_get_global(const Document* doc, const char* key);
 
@@ -172,12 +176,12 @@ static void world_to_screen_rect(const Renderer* r, float vx, float vy, float vz
     out->h = (int)(in->h * vz);
 }
 
-static void draw_node_recursive(Renderer* r, Node* node, float vx, float vy, float vz) {
+static void draw_node_recursive(Renderer* r, Node* node, float vx, float vy, float vz, struct nk_context* nk_ctx) {
     if (!node) return;
 
     if (node->visible == 0) {
-    draw_node_recursive(r, node->first_child, vx, vy, vz);
-    draw_node_recursive(r, node->next_sibling, vx, vy, vz);
+    draw_node_recursive(r, node->first_child, vx, vy, vz, nk_ctx);
+    draw_node_recursive(r, node->next_sibling, vx, vy, vz, nk_ctx);
         return;
     }
 
@@ -202,9 +206,9 @@ static void draw_node_recursive(Renderer* r, Node* node, float vx, float vy, flo
     }
 
     if (node->type == NODE_TYPE_TEXT) {
-    SDL_FRect wrect = { node->x, node->y, node->width, node->height };
-    SDL_Rect rect;
-    world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
+        SDL_FRect wrect = { node->x, node->y, node->width, node->height };
+        SDL_Rect rect;
+        world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
 
         // Background (dark)
         SDL_SetRenderDrawColor(r->sdl_renderer, 20, 20, 20, 180);
@@ -214,16 +218,19 @@ static void draw_node_recursive(Renderer* r, Node* node, float vx, float vy, flo
         SDL_SetRenderDrawColor(r->sdl_renderer, 240, 200, 0, 255);
         SDL_RenderDrawRect(r->sdl_renderer, &rect);
 
-        // We don't have a text renderer yet; use a small inner marker
+        // Placeholder marker.
+        // NOTE: next step is to draw glyphs via a supported Nuklear overlay window approach.
         SDL_Rect marker = { rect.x + 6, rect.y + 6, 10, 10 };
         SDL_RenderDrawRect(r->sdl_renderer, &marker);
+
+        (void)nk_ctx;
     }
 
-    draw_node_recursive(r, node->first_child, vx, vy, vz);
-    draw_node_recursive(r, node->next_sibling, vx, vy, vz);
+    draw_node_recursive(r, node->first_child, vx, vy, vz, nk_ctx);
+    draw_node_recursive(r, node->next_sibling, vx, vy, vz, nk_ctx);
 }
 
-void renderer_draw_document(Renderer* r, const Document* doc) {
+void renderer_draw_document(Renderer* r, const Document* doc, struct nk_context* nk_ctx) {
     if (!doc || !doc->root) return;
     
     // Draw page background (paper for Print type) BEFORE grid and nodes
@@ -243,7 +250,7 @@ void renderer_draw_document(Renderer* r, const Document* doc) {
         }
     }
 
-    draw_node_recursive(r, doc->root, vx, vy, vz);
+    draw_node_recursive(r, doc->root, vx, vy, vz, nk_ctx);
 }
 
 void renderer_draw_selection(Renderer* r, const Document* doc, Node* selected_node) {

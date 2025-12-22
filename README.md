@@ -48,6 +48,29 @@ Currently used keys:
 
 Note: camera keys are intentionally excluded from undo/redo.
 
+## Fonts (Inter)
+
+The UI (Nuklear) is configured to use **Inter** as the default font *if the font file is present on disk*.
+
+### Install Inter locally
+
+1) Download **Inter** from Google Fonts (or the official Inter repo).
+
+2) Put the TTF file here:
+
+- `assets/fonts/Inter-Regular.ttf`
+
+If you downloaded the full Inter package, you can copy it from something like:
+
+- `assets/fonts/Inter copy/static/Inter_18pt-Regular.ttf` ee> `assets/fonts/Inter-Regular.ttf`
+
+Aslan intentionally does **not** commit font binaries to git.
+
+### Current limitations
+
+- UI text will use Inter when installed as above.
+- Canvas text nodes currently don’t render glyphs yet (they draw a placeholder box). The next step is to reuse the Nuklear atlas to render TEXT nodes with Inter as the default.
+
 ## Save `.aslan` (snapshot)
 
 Aslan currently follows a **Photoshop-like** model:

@@ -96,10 +96,23 @@ UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L) {
     // Initialisation de Nuklear avec le renderer SDL2
     ui->ctx = nk_sdl_init(win, renderer);
     
-    // Chargement de la police par défaut
+    // Fonts
+    ui->font_inter = NULL;
+    ui->font_size_px = 14.0f;
+
+    // Load fonts into Nuklear atlas.
+    // We load Inter from disk (assets/fonts/...) to keep binaries out of git.
     struct nk_font_atlas *atlas;
     nk_sdl_font_stash_begin(&atlas);
+    if (atlas) {
+        ui->font_inter = nk_font_atlas_add_from_file(atlas, "assets/fonts/Inter-Regular.ttf", ui->font_size_px, 0);
+    }
     nk_sdl_font_stash_end();
+
+    // Apply Inter as UI default when available.
+    if (ui->font_inter) {
+        nk_style_set_font(ui->ctx, &ui->font_inter->handle);
+    }
 
     snprintf(ui->status, sizeof(ui->status), "Ready");
     ui->tool_mode = 0;

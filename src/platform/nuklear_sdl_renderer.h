@@ -12,7 +12,8 @@
 #define NK_SDL_RENDERER_H_
 
 #ifndef NK_SDL_RENDERER_SDL_H
-#define NK_SDL_RENDERER_SDL_H <SDL.h>
+// This project uses SDL2 headers.
+#define NK_SDL_RENDERER_SDL_H <SDL2/SDL.h>
 #endif
 #include NK_SDL_RENDERER_SDL_H
 NK_API struct nk_context*   nk_sdl_init(SDL_Window *win, SDL_Renderer *renderer);
@@ -22,6 +23,12 @@ NK_API int                  nk_sdl_handle_event(SDL_Event *evt);
 NK_API void                 nk_sdl_render(enum nk_anti_aliasing);
 NK_API void                 nk_sdl_shutdown(void);
 NK_API void                 nk_sdl_handle_grab(void);
+
+/*
+ * Aslan extensions (non-upstream): accessors to reuse the Nuklear font atlas
+ * for canvas text rendering.
+ */
+NK_API SDL_Texture*         nk_sdl_get_font_texture(void);
 
 #if SDL_COMPILEDVERSION < SDL_VERSIONNUM(2, 0, 22)
 /* Metal API does not support cliprects with negative coordinates or large
@@ -290,6 +297,12 @@ nk_sdl_handle_grab(void)
         ctx->input.mouse.pos.x = ctx->input.mouse.prev.x;
         ctx->input.mouse.pos.y = ctx->input.mouse.prev.y;
     }
+}
+
+NK_API SDL_Texture*
+nk_sdl_get_font_texture(void)
+{
+    return sdl.ogl.font_tex;
 }
 
 NK_API int
