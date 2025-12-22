@@ -60,6 +60,15 @@ typedef struct UIHost {
     char global_key[64];
     char global_value[256];
 
+    // New Page modal state
+    int show_new_page_modal;
+    int new_page_type_idx; // 0=Board, 1=Print
+    int new_page_preset_idx; // 0=A4, 1=A3, 2=Letter, 3=Custom
+    int new_page_orientation; // 0=Portrait, 1=Landscape
+    float new_page_width_mm;
+    float new_page_height_mm;
+    char new_page_name[64];
+
     // Snap/Grid editor state (persist UI edits across frames)
     int snap_step_edit;
     int grid_step_edit;

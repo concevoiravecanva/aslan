@@ -102,6 +102,51 @@ static void renderer_draw_grid(Renderer* r, const Document* doc) {
     }
 }
 
+static void renderer_draw_page_background(Renderer* r, const Document* doc) {
+    if (!r || !doc) return;
+    
+    uint32_t active_id = doc_page_active_id(doc);
+    if (active_id == 0) return;
+    
+    // Find active page struct
+    int pidx = -1;
+    for (int i = 0; i < 32; i++) {
+        if (doc->pages[i].in_use && doc->pages[i].page_id == active_id) {
+            pidx = i;
+            break;
+        }
+    }
+    if (pidx == -1) return;
+    
+    // If Print type, draw the paper sheet
+    if (doc->pages[pidx].type == PAGE_TYPE_PRINT) {
+        // Convert mm to px (96 DPI)
+        // mm = (px / 96) * 25.4  => px = (mm * 96) / 25.4
+        float dpi = 96.0f;
+        float px_w = (doc->pages[pidx].width * dpi) / 25.4f;
+        float px_h = (doc->pages[pidx].height * dpi) / 25.4f;
+        
+        // Center on screen (simple view for now)
+        float x = (r->width - px_w) * 0.5f;
+        float y = (r->height - px_h) * 0.5f;
+        
+        SDL_Rect paper = { (int)x, (int)y, (int)px_w, (int)px_h };
+        
+        // Shadow
+        SDL_Rect shadow = { paper.x + 4, paper.y + 4, paper.w, paper.h };
+        SDL_SetRenderDrawColor(r->sdl_renderer, 0, 0, 0, 60);
+        SDL_RenderFillRect(r->sdl_renderer, &shadow);
+        
+        // Paper (White)
+        SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 255);
+        SDL_RenderFillRect(r->sdl_renderer, &paper);
+        
+        // Border (Thin grey)
+        SDL_SetRenderDrawColor(r->sdl_renderer, 200, 200, 200, 255);
+        SDL_RenderDrawRect(r->sdl_renderer, &paper);
+    }
+}
+
 static void draw_node_recursive(Renderer* r, Node* node) {
     if (!node) return;
 
@@ -151,6 +196,10 @@ static void draw_node_recursive(Renderer* r, Node* node) {
 
 void renderer_draw_document(Renderer* r, const Document* doc) {
     if (!doc || !doc->root) return;
+    
+    // Draw page background (paper for Print type) BEFORE grid and nodes
+    renderer_draw_page_background(r, doc);
+    
     renderer_draw_grid(r, doc);
     draw_node_recursive(r, doc->root);
 }

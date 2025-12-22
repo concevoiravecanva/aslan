@@ -129,6 +129,8 @@ static bool is_mutating_command_line(const char* line) {
             strncmp(l, "set_rect ", 9) == 0 ||
             strncmp(l, "create_text ", 12) == 0 ||
             strncmp(l, "page_select ", 12) == 0 ||
+            strncmp(l, "page_type ", 10) == 0 ||
+            strncmp(l, "page_meta ", 10) == 0 ||
             strncmp(l, "doc_type ", 9) == 0 ||
             strncmp(l, "doc_meta ", 9) == 0 ||
             strncmp(l, "set_global ", 11) == 0 ||
@@ -204,6 +206,18 @@ static bool engine_rewrite_aof(Engine* engine) {
         fprintf(out, "page_create %u \"%s\"\n",
             (unsigned)engine->doc->pages[pi].page_id,
             engine->doc->pages[pi].name[0] ? engine->doc->pages[pi].name : "Page");
+            
+        // Persist page type and meta
+        if (engine->doc->pages[pi].type == PAGE_TYPE_PRINT) {
+            fprintf(out, "page_type %u print\n", (unsigned)engine->doc->pages[pi].page_id);
+            fprintf(out, "page_meta %u width %.2f\n", (unsigned)engine->doc->pages[pi].page_id, engine->doc->pages[pi].width);
+            fprintf(out, "page_meta %u height %.2f\n", (unsigned)engine->doc->pages[pi].page_id, engine->doc->pages[pi].height);
+        } else {
+            fprintf(out, "page_type %u board\n", (unsigned)engine->doc->pages[pi].page_id);
+            fprintf(out, "page_meta %u viewport.x %.2f\n", (unsigned)engine->doc->pages[pi].page_id, engine->doc->pages[pi].view_x);
+            fprintf(out, "page_meta %u viewport.y %.2f\n", (unsigned)engine->doc->pages[pi].page_id, engine->doc->pages[pi].view_y);
+            fprintf(out, "page_meta %u viewport.zoom %.2f\n", (unsigned)engine->doc->pages[pi].page_id, engine->doc->pages[pi].view_zoom);
+        }
     }
 
     for (int pi = 0; pi < 32; pi++) {
@@ -307,6 +321,18 @@ static bool engine_write_snapshot_to_file(Engine* engine, FILE* out, const char*
             fprintf(out, "page_create %u \"%s\"\n",
                 (unsigned)engine->doc->pages[i].page_id,
                 engine->doc->pages[i].name[0] ? engine->doc->pages[i].name : "Page");
+                
+            // Persist page type and meta
+            if (engine->doc->pages[i].type == PAGE_TYPE_PRINT) {
+                fprintf(out, "page_type %u print\n", (unsigned)engine->doc->pages[i].page_id);
+                fprintf(out, "page_meta %u width %.2f\n", (unsigned)engine->doc->pages[i].page_id, engine->doc->pages[i].width);
+                fprintf(out, "page_meta %u height %.2f\n", (unsigned)engine->doc->pages[i].page_id, engine->doc->pages[i].height);
+            } else {
+                fprintf(out, "page_type %u board\n", (unsigned)engine->doc->pages[i].page_id);
+                fprintf(out, "page_meta %u viewport.x %.2f\n", (unsigned)engine->doc->pages[i].page_id, engine->doc->pages[i].view_x);
+                fprintf(out, "page_meta %u viewport.y %.2f\n", (unsigned)engine->doc->pages[i].page_id, engine->doc->pages[i].view_y);
+                fprintf(out, "page_meta %u viewport.zoom %.2f\n", (unsigned)engine->doc->pages[i].page_id, engine->doc->pages[i].view_zoom);
+            }
         }
 
         // Serialize each page deterministically in the order of the pages array.
@@ -618,6 +644,27 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
     // Commande: unset_global <key>
     else if (sscanf(command_line, "unset_global %63s", name) == 1) {
         success = doc_unset_global(engine->doc, name);
+    }
+
+    // Commande: page_type <page_id> <type>
+    else if (strncmp(command_line, "page_type ", 10) == 0) {
+        char type_str[32];
+        if (sscanf(command_line, "page_type %d %31s", &id, type_str) == 2) {
+            PageType pt = PAGE_TYPE_BOARD;
+            if (strcmp(type_str, "print") == 0) pt = PAGE_TYPE_PRINT;
+            else if (strcmp(type_str, "board") == 0) pt = PAGE_TYPE_BOARD;
+            
+            success = doc_page_set_type(engine->doc, (uint32_t)id, pt);
+        }
+    }
+
+    // Commande: page_meta <page_id> <key> <value>
+    else if (strncmp(command_line, "page_meta ", 10) == 0) {
+        char key[64];
+        float val;
+        if (sscanf(command_line, "page_meta %d %63s %f", &id, key, &val) == 3) {
+            success = doc_page_set_meta(engine->doc, (uint32_t)id, key, val);
+        }
     }
 
     // Commande: new_rect [x y w h]

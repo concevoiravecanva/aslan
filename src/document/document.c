@@ -91,6 +91,11 @@ Document* doc_create(void) {
     doc->pages[0].page_id = doc->next_page_id++;
     strncpy(doc->pages[0].name, "Page 1", sizeof(doc->pages[0].name) - 1);
     doc->pages[0].root = make_root_node();
+    
+    // Default type: Board (infinite)
+    doc->pages[0].type = PAGE_TYPE_BOARD;
+    doc->pages[0].view_zoom = 1.0f;
+    
     doc->page_count = 1;
     doc->active_page_id = doc->pages[0].page_id;
 
@@ -504,5 +509,58 @@ void doc_export_to_svg(const Document* doc, const char* filename) {
 
     fprintf(f, "</svg>\n");
     fclose(f);
-    printf("Exported document to %s\n", filename);
+    printf("Exported SVG to %s\n", filename);
+}
+
+// --- Page Type & Meta API ---
+
+bool doc_page_set_type(Document* doc, uint32_t page_id, PageType type) {
+    if (!doc) return false;
+    for (int i = 0; i < 32; i++) {
+        if (doc->pages[i].in_use && doc->pages[i].page_id == page_id) {
+            doc->pages[i].type = type;
+            return true;
+        }
+    }
+    return false;
+}
+
+PageType doc_page_get_type(const Document* doc, uint32_t page_id) {
+    if (!doc) return PAGE_TYPE_BOARD;
+    for (int i = 0; i < 32; i++) {
+        if (doc->pages[i].in_use && doc->pages[i].page_id == page_id) {
+            return doc->pages[i].type;
+        }
+    }
+    return PAGE_TYPE_BOARD;
+}
+
+bool doc_page_set_meta(Document* doc, uint32_t page_id, const char* key, float value) {
+    if (!doc || !key) return false;
+    for (int i = 0; i < 32; i++) {
+        if (doc->pages[i].in_use && doc->pages[i].page_id == page_id) {
+            if (strcmp(key, "width") == 0) doc->pages[i].width = value;
+            else if (strcmp(key, "height") == 0) doc->pages[i].height = value;
+            else if (strcmp(key, "viewport.x") == 0) doc->pages[i].view_x = value;
+            else if (strcmp(key, "viewport.y") == 0) doc->pages[i].view_y = value;
+            else if (strcmp(key, "viewport.zoom") == 0) doc->pages[i].view_zoom = value;
+            else return false;
+            return true;
+        }
+    }
+    return false;
+}
+
+float doc_page_get_meta(const Document* doc, uint32_t page_id, const char* key) {
+    if (!doc || !key) return 0.0f;
+    for (int i = 0; i < 32; i++) {
+        if (doc->pages[i].in_use && doc->pages[i].page_id == page_id) {
+            if (strcmp(key, "width") == 0) return doc->pages[i].width;
+            else if (strcmp(key, "height") == 0) return doc->pages[i].height;
+            else if (strcmp(key, "viewport.x") == 0) return doc->pages[i].view_x;
+            else if (strcmp(key, "viewport.y") == 0) return doc->pages[i].view_y;
+            else if (strcmp(key, "viewport.zoom") == 0) return doc->pages[i].view_zoom;
+        }
+    }
+    return 0.0f;
 }

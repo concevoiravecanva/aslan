@@ -36,6 +36,12 @@ typedef struct Node {
     struct Node* next_sibling;
 } Node;
 
+// --- Page Type enum ---
+typedef enum {
+    PAGE_TYPE_BOARD = 0, // Default: infinite canvas
+    PAGE_TYPE_PRINT = 1  // Fixed dimensions (A4, etc.)
+} PageType;
+
 // Le Document est le conteneur principal
 typedef struct {
     // Back-compat: points to the active page root.
@@ -67,6 +73,18 @@ typedef struct {
         uint32_t page_id;
         char name[64];
         Node* root;
+        
+        // Page Type & Meta
+        PageType type;
+        
+        // Print meta (mm)
+        float width;
+        float height;
+        
+        // Board meta (viewport)
+        float view_x;
+        float view_y;
+        float view_zoom;
     } pages[32];
     int page_count;
     uint32_t next_page_id;
@@ -82,6 +100,12 @@ uint32_t doc_page_create_with_id(Document* doc, uint32_t page_id, const char* na
 bool doc_page_select(Document* doc, uint32_t page_id);
 uint32_t doc_page_active_id(const Document* doc);
 const char* doc_page_name(const Document* doc, uint32_t page_id);
+
+// Page Type & Meta API
+bool doc_page_set_type(Document* doc, uint32_t page_id, PageType type);
+PageType doc_page_get_type(const Document* doc, uint32_t page_id);
+bool doc_page_set_meta(Document* doc, uint32_t page_id, const char* key, float value);
+float doc_page_get_meta(const Document* doc, uint32_t page_id, const char* key);
 
 // API C pour la manipulation du document
 Document* doc_create(void);

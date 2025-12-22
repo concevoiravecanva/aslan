@@ -123,6 +123,15 @@ UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L) {
     ui->global_key[0] = 0;
     ui->global_value[0] = 0;
 
+    // New Page modal defaults
+    ui->show_new_page_modal = 0;
+    ui->new_page_type_idx = 0; // Board
+    ui->new_page_preset_idx = 0; // A4
+    ui->new_page_orientation = 0; // Portrait
+    ui->new_page_width_mm = 210.0f;
+    ui->new_page_height_mm = 297.0f;
+    snprintf(ui->new_page_name, sizeof(ui->new_page_name), "New Page");
+
     // Snap/Grid step editor defaults
     ui->snap_step_edit = 10;
     ui->grid_step_edit = 10;
@@ -774,8 +783,15 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             nk_layout_row_dynamic(ui->ctx, 30, 10);
 
             if (nk_button_label(ui->ctx, "+")) {
-                engine_execute_command(engine, "page_create \"Page\"");
-                snprintf(ui->status, sizeof(ui->status), "New page");
+                // Open New Page modal instead of immediate creation
+                ui->show_new_page_modal = 1;
+                // Reset defaults
+                ui->new_page_type_idx = 0; // Board
+                ui->new_page_preset_idx = 0; // A4
+                ui->new_page_orientation = 0; // Portrait
+                ui->new_page_width_mm = 210.0f;
+                ui->new_page_height_mm = 297.0f;
+                snprintf(ui->new_page_name, sizeof(ui->new_page_name), "Page %d", engine->doc->page_count + 1);
             }
 
             if (engine && engine->doc) {
@@ -897,6 +913,112 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                 reveal_file_in_finder_best_effort(out_path);
 
                 ui->show_export_svg_modal = 0;
+            }
+        }
+        nk_end(ui->ctx);
+    }
+
+    // Modal New Page window
+    if (ui->show_new_page_modal) {
+        struct nk_rect bounds = nk_rect(win_w * 0.5f - 200.0f, win_h * 0.5f - 200.0f, 400.0f, 400.0f);
+        if (nk_begin(ui->ctx, "New Page", bounds,
+            NK_WINDOW_BORDER|NK_WINDOW_TITLE|NK_WINDOW_MOVABLE|NK_WINDOW_NO_SCROLLBAR)) {
+
+            nk_layout_row_dynamic(ui->ctx, 20, 1);
+            nk_label(ui->ctx, "Page Name:", NK_TEXT_LEFT);
+            nk_layout_row_dynamic(ui->ctx, 28, 1);
+            nk_edit_string_zero_terminated(ui->ctx, NK_EDIT_FIELD, ui->new_page_name,
+                (int)sizeof(ui->new_page_name) - 1, nk_filter_default);
+
+            nk_layout_row_dynamic(ui->ctx, 20, 1);
+            nk_label(ui->ctx, "Type:", NK_TEXT_LEFT);
+            nk_layout_row_dynamic(ui->ctx, 28, 2);
+            if (nk_option_label(ui->ctx, "Board (Infinite)", ui->new_page_type_idx == 0)) ui->new_page_type_idx = 0;
+            if (nk_option_label(ui->ctx, "Print (Fixed)", ui->new_page_type_idx == 1)) ui->new_page_type_idx = 1;
+
+            if (ui->new_page_type_idx == 1) { // Print options
+                nk_layout_row_dynamic(ui->ctx, 20, 1);
+                nk_label(ui->ctx, "Preset:", NK_TEXT_LEFT);
+                nk_layout_row_dynamic(ui->ctx, 28, 4);
+                if (nk_option_label(ui->ctx, "A4", ui->new_page_preset_idx == 0)) {
+                    ui->new_page_preset_idx = 0;
+                    ui->new_page_width_mm = 210.0f;
+                    ui->new_page_height_mm = 297.0f;
+                }
+                if (nk_option_label(ui->ctx, "A3", ui->new_page_preset_idx == 1)) {
+                    ui->new_page_preset_idx = 1;
+                    ui->new_page_width_mm = 297.0f;
+                    ui->new_page_height_mm = 420.0f;
+                }
+                if (nk_option_label(ui->ctx, "Letter", ui->new_page_preset_idx == 2)) {
+                    ui->new_page_preset_idx = 2;
+                    ui->new_page_width_mm = 215.9f;
+                    ui->new_page_height_mm = 279.4f;
+                }
+                if (nk_option_label(ui->ctx, "Custom", ui->new_page_preset_idx == 3)) ui->new_page_preset_idx = 3;
+
+                nk_layout_row_dynamic(ui->ctx, 20, 1);
+                nk_label(ui->ctx, "Orientation:", NK_TEXT_LEFT);
+                nk_layout_row_dynamic(ui->ctx, 28, 2);
+                if (nk_option_label(ui->ctx, "Portrait", ui->new_page_orientation == 0)) {
+                    if (ui->new_page_orientation != 0) {
+                        float tmp = ui->new_page_width_mm;
+                        ui->new_page_width_mm = ui->new_page_height_mm;
+                        ui->new_page_height_mm = tmp;
+                    }
+                    ui->new_page_orientation = 0;
+                }
+                if (nk_option_label(ui->ctx, "Landscape", ui->new_page_orientation == 1)) {
+                    if (ui->new_page_orientation != 1) {
+                        float tmp = ui->new_page_width_mm;
+                        ui->new_page_width_mm = ui->new_page_height_mm;
+                        ui->new_page_height_mm = tmp;
+                    }
+                    ui->new_page_orientation = 1;
+                }
+
+                nk_layout_row_dynamic(ui->ctx, 20, 1);
+                nk_label(ui->ctx, "Dimensions (mm):", NK_TEXT_LEFT);
+                nk_layout_row_dynamic(ui->ctx, 28, 2);
+                nk_property_float(ui->ctx, "W", 50.0f, &ui->new_page_width_mm, 2000.0f, 1.0f, 1.0f);
+                nk_property_float(ui->ctx, "H", 50.0f, &ui->new_page_height_mm, 2000.0f, 1.0f, 1.0f);
+            }
+
+            nk_layout_row_dynamic(ui->ctx, 34, 2);
+            if (nk_button_label(ui->ctx, "Cancel")) {
+                ui->show_new_page_modal = 0;
+            }
+            if (nk_button_label(ui->ctx, "Create")) {
+                // 1. Create page
+                char cmd[128];
+                snprintf(cmd, sizeof(cmd), "page_create \"%s\"", ui->new_page_name[0] ? ui->new_page_name : "Page");
+                engine_execute_command(engine, cmd);
+                
+                // Get the newly created page id (it's the active one)
+                uint32_t pid = doc_page_active_id(engine->doc);
+                
+                // 2. Set type and meta
+                if (ui->new_page_type_idx == 1) { // Print
+                    snprintf(cmd, sizeof(cmd), "page_type %u print", (unsigned)pid);
+                    engine_execute_command(engine, cmd);
+                    snprintf(cmd, sizeof(cmd), "page_meta %u width %.2f", (unsigned)pid, ui->new_page_width_mm);
+                    engine_execute_command(engine, cmd);
+                    snprintf(cmd, sizeof(cmd), "page_meta %u height %.2f", (unsigned)pid, ui->new_page_height_mm);
+                    engine_execute_command(engine, cmd);
+                } else { // Board
+                    snprintf(cmd, sizeof(cmd), "page_type %u board", (unsigned)pid);
+                    engine_execute_command(engine, cmd);
+                    // Default viewport
+                    snprintf(cmd, sizeof(cmd), "page_meta %u viewport.x 0", (unsigned)pid);
+                    engine_execute_command(engine, cmd);
+                    snprintf(cmd, sizeof(cmd), "page_meta %u viewport.y 0", (unsigned)pid);
+                    engine_execute_command(engine, cmd);
+                    snprintf(cmd, sizeof(cmd), "page_meta %u viewport.zoom 1.0", (unsigned)pid);
+                    engine_execute_command(engine, cmd);
+                }
+                
+                ui->show_new_page_modal = 0;
+                snprintf(ui->status, sizeof(ui->status), "Created page: %s", ui->new_page_name);
             }
         }
         nk_end(ui->ctx);
