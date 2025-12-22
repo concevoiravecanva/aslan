@@ -94,14 +94,48 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                 float mx = (float)imx;
                 float my = (float)imy;
 
+                // Convert screen -> world using active page viewport.
+                // screen = (world - view) * zoom + center
+                // world  = (screen - center) / zoom + view
+                float world_x = mx;
+                float world_y = my;
+                if (engine && engine->doc) {
+                    uint32_t pid = doc_page_active_id(engine->doc);
+                    // find page
+                    for (int pi = 0; pi < 32; pi++) {
+                        if (engine->doc->pages[pi].in_use && engine->doc->pages[pi].page_id == pid) {
+                            float vx = engine->doc->pages[pi].view_x;
+                            float vy = engine->doc->pages[pi].view_y;
+                            float vz = (engine->doc->pages[pi].view_zoom != 0.0f) ? engine->doc->pages[pi].view_zoom : 1.0f;
+                            float cx = 1024.0f * 0.5f;
+                            float cy = 768.0f * 0.5f;
+                            // NOTE: renderer uses logical size 1024x768.
+                            world_x = (mx - cx) / vz + vx;
+                            world_y = (my - cy) / vz + vy;
+                            break;
+                        }
+                    }
+                }
+
                 if (e.type == SDL_MOUSEBUTTONDOWN) {
-                    scripting_call_event(ui->L, "on_mouse_down", mx, my);
+                    scripting_call_event(ui->L, "on_mouse_down", world_x, world_y);
                 }
                 else if (e.type == SDL_MOUSEBUTTONUP) {
-                    scripting_call_event(ui->L, "on_mouse_up", mx, my);
+                    scripting_call_event(ui->L, "on_mouse_up", world_x, world_y);
                 }
                 else if (e.type == SDL_MOUSEMOTION) {
-                    scripting_call_event(ui->L, "on_mouse_move", mx, my);
+                    scripting_call_event(ui->L, "on_mouse_move", world_x, world_y);
+                }
+                else if (e.type == SDL_MOUSEWHEEL) {
+                    /*
+                     * For now we expose wheel as a dedicated callback.
+                     * Convention: (delta, mx, my) where delta is vertical wheel (positive = up).
+                     */
+                    float delta = (float)e.wheel.y;
+                    // Pass wheel delta and mouse X in screen space for cursor-anchored zoom.
+                    scripting_call_event(ui->L, "on_mouse_wheel", delta, mx);
+                    /* NOTE: scripting_call_event takes 2 floats today; we pass (delta, mx).
+                       If you want (delta, mx, my), we can extend the C<->Lua event helper. */
                 }
             }
         }
@@ -114,7 +148,7 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
         
         // 4. Rendu de la sélection (Gizmos)
         if (ui->selected_node) {
-            renderer_draw_selection(renderer, ui->selected_node);
+            renderer_draw_selection(renderer, engine->doc, ui->selected_node);
         }
         
         // 5. Rendu de l'UI par dessus

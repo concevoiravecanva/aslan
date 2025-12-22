@@ -1,14 +1,17 @@
 -- Session started --
 clear
-page_create 2 "Page 2"
-page_type 2 board
-page_meta 2 viewport.x 0
-page_meta 2 viewport.y 0
-page_meta 2 viewport.zoom 1.0
-page_select 2
-create_text 1 Text1 120.000000 120.000000 220.000000 60.000000 "Text"
-set_rect 2 429.000000 171.000000 147.000000 65.000000
-page_create 3 "Page 3"
-page_type 3 print
-page_meta 3 width 210.00
-page_meta 3 height 297.00
+create_rect 1 Rect1 100.000000 100.000000 120.000000 120.000000
+create_text 2 Text2 120.000000 120.000000 220.000000 60.000000 "Text"
+set_rect 2 -280.000000 -34.000000 220.000000 60.000000
+page_meta 1 viewport.zoom 0.8929
+page_meta 1 viewport.zoom 0.7972
+page_meta 1 viewport.zoom 0.7118
+page_meta 1 viewport.zoom 0.6355
+page_meta 1 viewport.zoom 0.5674
+page_meta 1 viewport.zoom 0.6355
+page_meta 1 viewport.x 89.693130
+page_meta 1 viewport.y 91.266708
+page_meta 1 viewport.x 158.929871
+page_meta 1 viewport.y 210.857567
+page_meta 1 viewport.x 152.635620
+page_meta 1 viewport.y 272.226532

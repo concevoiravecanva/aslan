@@ -188,6 +188,37 @@ static int l_get_tool_mode(lua_State* L) {
     return 1;
 }
 
+// lua: get_active_page_id() -> page_id
+static int l_get_active_page_id(lua_State* L) {
+    if (!g_current_doc) return 0;
+    lua_pushinteger(L, (lua_Integer)doc_page_active_id(g_current_doc));
+    return 1;
+}
+
+// lua: get_page_meta(page_id, key) -> number
+static int l_get_page_meta(lua_State* L) {
+    uint32_t page_id = (uint32_t)luaL_checkinteger(L, 1);
+    const char* key = luaL_checkstring(L, 2);
+    if (!g_current_doc) return 0;
+    lua_pushnumber(L, (lua_Number)doc_page_get_meta(g_current_doc, page_id, key));
+    return 1;
+}
+
+// lua: set_page_meta(page_id, key, value) -> bool
+// Writes via engine command so it is persisted in AOF (but not undoable per option B).
+static int l_set_page_meta(lua_State* L) {
+    uint32_t page_id = (uint32_t)luaL_checkinteger(L, 1);
+    const char* key = luaL_checkstring(L, 2);
+    float value = (float)luaL_checknumber(L, 3);
+    if (!g_current_engine) return 0;
+
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd), "page_meta %u %s %f", (unsigned)page_id, key, value);
+    bool ok = engine_execute_command(g_current_engine, cmd);
+    lua_pushboolean(L, ok ? 1 : 0);
+    return 1;
+}
+
 // Enregistrement des fonctions
 static const struct luaL_Reg aslan_lib[] = {
     {"execute", l_execute},
@@ -198,6 +229,9 @@ static const struct luaL_Reg aslan_lib[] = {
     {"get_selected_id", l_get_selected_id},
     {"set_tool_mode", l_set_tool_mode},
     {"get_tool_mode", l_get_tool_mode},
+    {"get_active_page_id", l_get_active_page_id},
+    {"get_page_meta", l_get_page_meta},
+    {"set_page_meta", l_set_page_meta},
     {"log", l_log_info},
     {NULL, NULL}
 };

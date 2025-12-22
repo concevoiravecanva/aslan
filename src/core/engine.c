@@ -130,7 +130,9 @@ static bool is_mutating_command_line(const char* line) {
             strncmp(l, "create_text ", 12) == 0 ||
             strncmp(l, "page_select ", 12) == 0 ||
             strncmp(l, "page_type ", 10) == 0 ||
-            strncmp(l, "page_meta ", 10) == 0 ||
+            // NOTE: `page_meta` is treated as view/camera state for option B:
+            // persisted in history/save, but NOT undoable.
+            // So we intentionally exclude it from the undo/redo mutating predicate.
             strncmp(l, "doc_type ", 9) == 0 ||
             strncmp(l, "doc_meta ", 9) == 0 ||
             strncmp(l, "set_global ", 11) == 0 ||

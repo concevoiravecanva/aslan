@@ -408,7 +408,8 @@ static Node* find_node_at_recursive(Node* node, float x, float y) {
 
 Node* doc_find_node_at(Document* doc, float x, float y) {
     if (!doc || !doc->root) return NULL;
-    // On commence par les enfants de la racine
+    // This function operates in WORLD coordinates.
+    // Screen->world conversion should be done at the call-site (where window center is known).
     return find_node_at_recursive(doc->root->first_child, x, y);
 }
 

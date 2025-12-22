@@ -104,6 +104,26 @@ UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L) {
     snprintf(ui->status, sizeof(ui->status), "Ready");
     ui->tool_mode = 0;
 
+    // Default modality: Select.
+    // Keep Lua in sync so scripts see a known initial state.
+    if (ui->L) {
+        lua_getglobal(ui->L, "aslan");
+        if (lua_istable(ui->L, -1)) {
+            lua_getfield(ui->L, -1, "set_tool_mode");
+            if (lua_isfunction(ui->L, -1)) {
+                lua_pushinteger(ui->L, ui->tool_mode);
+                if (lua_pcall(ui->L, 1, 0, 0) != LUA_OK) {
+                    lua_pop(ui->L, 1);
+                }
+            } else {
+                lua_pop(ui->L, 1);
+            }
+            lua_pop(ui->L, 1);
+        } else {
+            lua_pop(ui->L, 1);
+        }
+    }
+
     // Export defaults
     snprintf(ui->export_svg_path, sizeof(ui->export_svg_path), "preview.svg");
     ui->show_export_svg_modal = 0;
@@ -566,10 +586,72 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                 lua_pop(ui->L, 1);
             }
         }
+
+        // Pan tool (hand)
+        nk_layout_row_dynamic(ui->ctx, 28, 1);
+        int pan_mode = (ui->tool_mode == 2);
+        if (nk_checkbox_label(ui->ctx, "Pan (hand)", &pan_mode)) {
+            ui->tool_mode = pan_mode ? 2 : 0;
+            snprintf(ui->status, sizeof(ui->status), pan_mode ? "Tool: Pan" : "Tool: Select");
+            lua_getglobal(ui->L, "aslan");
+            if (lua_istable(ui->L, -1)) {
+                lua_getfield(ui->L, -1, "set_tool_mode");
+                if (lua_isfunction(ui->L, -1)) {
+                    lua_pushinteger(ui->L, ui->tool_mode);
+                    if (lua_pcall(ui->L, 1, 0, 0) != LUA_OK) {
+                        lua_pop(ui->L, 1);
+                    }
+                } else {
+                    lua_pop(ui->L, 1);
+                }
+                lua_pop(ui->L, 1);
+            } else {
+                lua_pop(ui->L, 1);
+            }
+        }
         
         // Section Outils
         nk_layout_row_dynamic(ui->ctx, 25, 1);
         nk_label(ui->ctx, "Tools", NK_TEXT_LEFT);
+
+        // Zoom controls (trackpad-friendly)
+        {
+            uint32_t pid = (engine && engine->doc) ? doc_page_active_id(engine->doc) : 0;
+            nk_layout_row_dynamic(ui->ctx, 30, 2);
+            if (nk_button_label(ui->ctx, "Zoom -") && pid) {
+                char cmd[128];
+                // Multiply by ~0.9 (coarse but usable)
+                float z = 1.0f;
+                for (int i = 0; i < 32; i++) {
+                    if (engine->doc->pages[i].in_use && engine->doc->pages[i].page_id == pid) {
+                        z = engine->doc->pages[i].view_zoom;
+                        break;
+                    }
+                }
+                if (z <= 0.0f) z = 1.0f;
+                z *= (1.0f / 1.12f);
+                if (z < 0.10f) z = 0.10f;
+                snprintf(cmd, sizeof(cmd), "page_meta %u viewport.zoom %.4f", (unsigned)pid, z);
+                engine_execute_command(engine, cmd);
+                snprintf(ui->status, sizeof(ui->status), "Zoom: %.2f", z);
+            }
+            if (nk_button_label(ui->ctx, "Zoom +") && pid) {
+                char cmd[128];
+                float z = 1.0f;
+                for (int i = 0; i < 32; i++) {
+                    if (engine->doc->pages[i].in_use && engine->doc->pages[i].page_id == pid) {
+                        z = engine->doc->pages[i].view_zoom;
+                        break;
+                    }
+                }
+                if (z <= 0.0f) z = 1.0f;
+                z *= 1.12f;
+                if (z > 12.0f) z = 12.0f;
+                snprintf(cmd, sizeof(cmd), "page_meta %u viewport.zoom %.4f", (unsigned)pid, z);
+                engine_execute_command(engine, cmd);
+                snprintf(ui->status, sizeof(ui->status), "Zoom: %.2f", z);
+            }
+        }
 
         // 2x2 grid of buttons
         nk_layout_row_dynamic(ui->ctx, 30, 2);

@@ -126,14 +126,28 @@ static void renderer_draw_page_background(Renderer* r, const Document* doc) {
         float px_w = (doc->pages[pidx].width * dpi) / 25.4f;
         float px_h = (doc->pages[pidx].height * dpi) / 25.4f;
         
-        // Center on screen (simple view for now)
-        float x = (r->width - px_w) * 0.5f;
-        float y = (r->height - px_h) * 0.5f;
+    // Draw in world space (paper origin at 0,0), then apply viewport transform.
+    // This makes Print pages pan/zoom like Board pages.
+    float world_x = 0.0f;
+    float world_y = 0.0f;
+
+    // Viewport (camera)
+    float vx = doc->pages[pidx].view_x;
+    float vy = doc->pages[pidx].view_y;
+    float vz = (doc->pages[pidx].view_zoom != 0.0f) ? doc->pages[pidx].view_zoom : 1.0f;
+
+    float cx = (float)r->width * 0.5f;
+    float cy = (float)r->height * 0.5f;
+
+    float x = (world_x - vx) * vz + cx;
+    float y = (world_y - vy) * vz + cy;
+    float w = px_w * vz;
+    float h = px_h * vz;
         
-        SDL_Rect paper = { (int)x, (int)y, (int)px_w, (int)px_h };
+    SDL_Rect paper = { (int)x, (int)y, (int)w, (int)h };
         
         // Shadow
-        SDL_Rect shadow = { paper.x + 4, paper.y + 4, paper.w, paper.h };
+    SDL_Rect shadow = { paper.x + 4, paper.y + 4, paper.w, paper.h };
         SDL_SetRenderDrawColor(r->sdl_renderer, 0, 0, 0, 60);
         SDL_RenderFillRect(r->sdl_renderer, &shadow);
         
@@ -147,17 +161,30 @@ static void renderer_draw_page_background(Renderer* r, const Document* doc) {
     }
 }
 
-static void draw_node_recursive(Renderer* r, Node* node) {
+static void world_to_screen_rect(const Renderer* r, float vx, float vy, float vz, const SDL_FRect* in, SDL_Rect* out) {
+    if (!r || !in || !out) return;
+    if (vz == 0.0f) vz = 1.0f;
+    float cx = (float)r->width * 0.5f;
+    float cy = (float)r->height * 0.5f;
+    out->x = (int)((in->x - vx) * vz + cx);
+    out->y = (int)((in->y - vy) * vz + cy);
+    out->w = (int)(in->w * vz);
+    out->h = (int)(in->h * vz);
+}
+
+static void draw_node_recursive(Renderer* r, Node* node, float vx, float vy, float vz) {
     if (!node) return;
 
     if (node->visible == 0) {
-        draw_node_recursive(r, node->first_child);
-        draw_node_recursive(r, node->next_sibling);
+    draw_node_recursive(r, node->first_child, vx, vy, vz);
+    draw_node_recursive(r, node->next_sibling, vx, vy, vz);
         return;
     }
 
     if (node->type == NODE_TYPE_RECT) {
-        SDL_Rect rect = { (int)node->x, (int)node->y, (int)node->width, (int)node->height };
+    SDL_FRect wrect = { node->x, node->y, node->width, node->height };
+    SDL_Rect rect;
+    world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
         
         // Couleur basée sur l'ID pour le prototype
         int color_seed = node->id * 12345;
@@ -175,7 +202,9 @@ static void draw_node_recursive(Renderer* r, Node* node) {
     }
 
     if (node->type == NODE_TYPE_TEXT) {
-        SDL_Rect rect = { (int)node->x, (int)node->y, (int)node->width, (int)node->height };
+    SDL_FRect wrect = { node->x, node->y, node->width, node->height };
+    SDL_Rect rect;
+    world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
 
         // Background (dark)
         SDL_SetRenderDrawColor(r->sdl_renderer, 20, 20, 20, 180);
@@ -190,8 +219,8 @@ static void draw_node_recursive(Renderer* r, Node* node) {
         SDL_RenderDrawRect(r->sdl_renderer, &marker);
     }
 
-    draw_node_recursive(r, node->first_child);
-    draw_node_recursive(r, node->next_sibling);
+    draw_node_recursive(r, node->first_child, vx, vy, vz);
+    draw_node_recursive(r, node->next_sibling, vx, vy, vz);
 }
 
 void renderer_draw_document(Renderer* r, const Document* doc) {
@@ -201,14 +230,42 @@ void renderer_draw_document(Renderer* r, const Document* doc) {
     renderer_draw_page_background(r, doc);
     
     renderer_draw_grid(r, doc);
-    draw_node_recursive(r, doc->root);
+
+    // Apply active page viewport for drawing nodes.
+    float vx = 0.0f, vy = 0.0f, vz = 1.0f;
+    uint32_t active_id = doc_page_active_id(doc);
+    for (int i = 0; i < 32; i++) {
+        if (doc->pages[i].in_use && doc->pages[i].page_id == active_id) {
+            vx = doc->pages[i].view_x;
+            vy = doc->pages[i].view_y;
+            vz = (doc->pages[i].view_zoom != 0.0f) ? doc->pages[i].view_zoom : 1.0f;
+            break;
+        }
+    }
+
+    draw_node_recursive(r, doc->root, vx, vy, vz);
 }
 
-void renderer_draw_selection(Renderer* r, Node* selected_node) {
+void renderer_draw_selection(Renderer* r, const Document* doc, Node* selected_node) {
     if (!selected_node) return;
 
-    // On utilise une épaisseur de trait plus visible
-    SDL_Rect rect = { (int)selected_node->x, (int)selected_node->y, (int)selected_node->width, (int)selected_node->height };
+    // Match the same viewport transform used for node rendering.
+    float vx = 0.0f, vy = 0.0f, vz = 1.0f;
+    if (doc) {
+        uint32_t active_id = doc_page_active_id(doc);
+        for (int i = 0; i < 32; i++) {
+            if (doc->pages[i].in_use && doc->pages[i].page_id == active_id) {
+                vx = doc->pages[i].view_x;
+                vy = doc->pages[i].view_y;
+                vz = (doc->pages[i].view_zoom != 0.0f) ? doc->pages[i].view_zoom : 1.0f;
+                break;
+            }
+        }
+    }
+
+    SDL_FRect wrect = { selected_node->x, selected_node->y, selected_node->width, selected_node->height };
+    SDL_Rect rect;
+    world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
     
     // 1. Bordure de sélection (Bleu vif)
     SDL_SetRenderDrawColor(r->sdl_renderer, 0, 120, 215, 255);
@@ -219,19 +276,22 @@ void renderer_draw_selection(Renderer* r, Node* selected_node) {
     SDL_RenderDrawRect(r->sdl_renderer, &inner);
     
     // 2. Poignées de redimensionnement (carrés) dans chaque coin, *à l'intérieur* de la forme
-    const int handle_size = 18;
+    // Keep handles readable when zooming: size scales a bit but is clamped.
+    int handle_size = (int)(18.0f * vz);
+    if (handle_size < 8) handle_size = 8;
+    if (handle_size > 28) handle_size = 28;
 
-    SDL_Rect handle_tl = { (int)selected_node->x,
-                           (int)selected_node->y,
+    SDL_Rect handle_tl = { rect.x,
+                           rect.y,
                            handle_size, handle_size };
-    SDL_Rect handle_tr = { (int)(selected_node->x + selected_node->width - handle_size),
-                           (int)selected_node->y,
+    SDL_Rect handle_tr = { rect.x + rect.w - handle_size,
+                           rect.y,
                            handle_size, handle_size };
-    SDL_Rect handle_bl = { (int)selected_node->x,
-                           (int)(selected_node->y + selected_node->height - handle_size),
+    SDL_Rect handle_bl = { rect.x,
+                           rect.y + rect.h - handle_size,
                            handle_size, handle_size };
-    SDL_Rect handle_br = { (int)(selected_node->x + selected_node->width - handle_size),
-                           (int)(selected_node->y + selected_node->height - handle_size),
+    SDL_Rect handle_br = { rect.x + rect.w - handle_size,
+                           rect.y + rect.h - handle_size,
                            handle_size, handle_size };
 
     SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 255);

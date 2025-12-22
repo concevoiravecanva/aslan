@@ -20,6 +20,17 @@ local pending_h = nil
 -- 1 = create rect (draw)
 local TOOL_SELECT = 0
 local TOOL_CREATE_RECT = 1
+local TOOL_PAN = 2
+
+-- Pan state (camera drag)
+local pan_active = false
+local pan_start_mx = 0
+local pan_start_my = 0
+local pan_start_vx = 0
+local pan_start_vy = 0
+local pan_pid = nil
+local pan_pending_vx = nil
+local pan_pending_vy = nil
 
 -- Draw-rect state
 local draw_active = false
@@ -71,20 +82,79 @@ local function snap_rect(x, y, w, h)
     return snap_value(x, step), snap_value(y, step), snap_value(w, step), snap_value(h, step)
 end
 
+-- Mouse wheel zoom
+-- C bridge currently provides 2 floats to event callbacks.
+-- We use convention: on_mouse_wheel(delta, mx) (my isn't available yet).
+--
+-- Sane defaults:
+-- - zoom starts at 1.0
+-- - per notch: 1.12x (smooth but noticeable)
+-- - clamp: [0.10, 12.0]
+--
+-- Coordinate convention (matches C side):
+--   screen = (world - view) * zoom + center
+-- With missing my, we keep X under cursor stable and keep Y centered.
+function on_mouse_wheel(delta, mx)
+    if not delta or delta == 0 then return end
+
+    local pid = aslan.get_active_page_id()
+    if not pid then return end
+
+    local z = aslan.get_page_meta(pid, "viewport.zoom")
+    local vx = aslan.get_page_meta(pid, "viewport.x")
+    local vy = aslan.get_page_meta(pid, "viewport.y")
+    if not z or z == 0 then z = 1.0 end
+    if not vx then vx = 0.0 end
+    if not vy then vy = 0.0 end
+
+    local zoom_step = 1.12
+    local min_zoom = 0.10
+    local max_zoom = 12.0
+
+    local z2 = z
+    if delta > 0 then
+        z2 = z * (zoom_step ^ delta)
+    else
+        z2 = z / (zoom_step ^ (-delta))
+    end
+    if z2 < min_zoom then z2 = min_zoom end
+    if z2 > max_zoom then z2 = max_zoom end
+
+    -- Keep the world X under the cursor stable.
+    -- We don't have screen center or my, so we approximate center_x as 0 in this Lua layer.
+    -- That still feels okay if you mostly wheel-zoom near center; later we can expose center.
+    local mx0 = mx or 0.0
+    local world_x = (mx0 / z) + vx
+    local vx2 = world_x - (mx0 / z2)
+
+    aslan.set_page_meta(pid, "viewport.zoom", z2)
+    aslan.set_page_meta(pid, "viewport.x", vx2)
+    -- keep y unchanged for now
+    aslan.set_page_meta(pid, "viewport.y", vy)
+end
+
 function on_mouse_down(x, y)
+    -- Pan tool: drag camera
+    if current_tool_mode() == TOOL_PAN then
+        local pid = aslan.get_active_page_id()
+        if not pid then return end
+        pan_active = true
+        pan_pid = pid
+        pan_start_mx = x
+        pan_start_my = y
+        pan_start_vx = aslan.get_page_meta(pid, "viewport.x") or 0
+        pan_start_vy = aslan.get_page_meta(pid, "viewport.y") or 0
+        return
+    end
+
     -- Draw-rect tool
     if current_tool_mode() == TOOL_CREATE_RECT then
         draw_active = true
         draw_start_x = x
         draw_start_y = y
 
-        -- Create a preview node (volatile, not in AOF)
-        aslan.execute_volatile("new_rect " .. x .. " " .. y .. " 1 1")
-        draw_preview_id = aslan.get_selected_id()
-        if draw_preview_id then
-            aslan.execute_volatile(string.format("select %d", draw_preview_id))
-            aslan.log("Draw preview id=" .. draw_preview_id)
-        end
+    -- Preview disabled for now (was causing accidental duplicates).
+    draw_preview_id = nil
         return
     end
 
@@ -140,18 +210,23 @@ function on_mouse_down(x, y)
 end
 
 function on_mouse_move(x, y)
-    -- Draw-rect preview update
-    if draw_active and draw_preview_id then
-        local rx, ry, rw, rh = rect_from_points(draw_start_x, draw_start_y, x, y)
-        -- keep minimum size for visibility
-        local min_size = 3
-        rw = math.max(min_size, rw)
-        rh = math.max(min_size, rh)
-
-    rx, ry, rw, rh = snap_rect(rx, ry, rw, rh)
-        aslan.execute_volatile(string.format("set_rect %d %f %f %f %f", draw_preview_id, rx, ry, rw, rh))
+    if pan_active and pan_pid then
+    -- NOTE: main.c already converts mouse to WORLD coordinates.
+    -- Therefore deltas here are already world-space deltas (do NOT divide by zoom).
+    -- Dragging the mouse right should move the camera left (so content follows hand).
+    local dx = (x - pan_start_mx)
+    local dy = (y - pan_start_my)
+    local vx = pan_start_vx - dx
+    local vy = pan_start_vy - dy
+    -- For responsiveness we preview during drag, but without AOF spam.
+    pan_pending_vx = vx
+    pan_pending_vy = vy
+    aslan.execute_volatile(string.format("page_meta %u viewport.x %f", pan_pid, vx))
+    aslan.execute_volatile(string.format("page_meta %u viewport.y %f", pan_pid, vy))
         return
     end
+
+    -- Draw-rect preview update (disabled)
 
     if dragged_node_id then
         if drag_mode == "move" then
@@ -207,6 +282,19 @@ function on_mouse_move(x, y)
 end
 
 function on_mouse_up(x, y)
+    if pan_active and pan_pid then
+        -- Commit a single camera update in AOF (option B: persisted, not undoable).
+        if pan_pending_vx ~= nil and pan_pending_vy ~= nil then
+            aslan.execute(string.format("page_meta %u viewport.x %f", pan_pid, pan_pending_vx))
+            aslan.execute(string.format("page_meta %u viewport.y %f", pan_pid, pan_pending_vy))
+        end
+        pan_active = false
+        pan_pid = nil
+        pan_pending_vx = nil
+        pan_pending_vy = nil
+        return
+    end
+
     -- Commit draw-rect
     if draw_active then
         draw_active = false
@@ -221,11 +309,6 @@ function on_mouse_up(x, y)
             return
         end
 
-        -- Remove preview (move offscreen) and create committed rect
-        if draw_preview_id then
-            aslan.execute_volatile(string.format("set_rect %d -10000 -10000 1 1", draw_preview_id))
-        end
-
         -- Create committed rect (this logs a single create_rect line)
         aslan.execute(string.format("new_rect %f %f %f %f", rx, ry, rw, rh))
         local new_id = aslan.get_selected_id()
@@ -233,7 +316,7 @@ function on_mouse_up(x, y)
             aslan.execute(string.format("select %d", new_id))
         end
 
-        draw_preview_id = nil
+    draw_preview_id = nil
         return
     end
 
