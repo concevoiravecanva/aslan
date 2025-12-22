@@ -26,8 +26,11 @@ local TOOL_PAN = 2
 local pan_active = false
 local pan_start_mx = 0
 local pan_start_my = 0
+local pan_start_sx = 0
+local pan_start_sy = 0
 local pan_start_vx = 0
 local pan_start_vy = 0
+local pan_start_vz = 1.0
 local pan_pid = nil
 local pan_pending_vx = nil
 local pan_pending_vy = nil
@@ -140,10 +143,19 @@ function on_mouse_down(x, y)
         if not pid then return end
         pan_active = true
         pan_pid = pid
-        pan_start_mx = x
-        pan_start_my = y
-        pan_start_vx = aslan.get_page_meta(pid, "viewport.x") or 0
-        pan_start_vy = aslan.get_page_meta(pid, "viewport.y") or 0
+    -- Pan anti-jitter note:
+    -- - main.c converts mouse to WORLD coords for most tools.
+    -- - but for camera panning, if we use WORLD deltas while also updating the camera,
+    --   the world coords can "move under the cursor" frame-to-frame (feedback loop).
+    -- - so we compute deltas in SCREEN pixels and convert using the zoom captured at pan start.
+    pan_start_mx = x
+    pan_start_my = y
+    pan_start_sx = aslan.get_mouse_x() or 0
+    pan_start_sy = aslan.get_mouse_y() or 0
+    pan_start_vx = aslan.get_page_meta(pid, "viewport.x") or 0
+    pan_start_vy = aslan.get_page_meta(pid, "viewport.y") or 0
+    pan_start_vz = aslan.get_page_meta(pid, "viewport.zoom") or 1.0
+    if pan_start_vz == 0 then pan_start_vz = 1.0 end
         return
     end
 
@@ -211,13 +223,19 @@ end
 
 function on_mouse_move(x, y)
     if pan_active and pan_pid then
-    -- NOTE: main.c already converts mouse to WORLD coordinates.
-    -- Therefore deltas here are already world-space deltas (do NOT divide by zoom).
-    -- Dragging the mouse right should move the camera left (so content follows hand).
-    local dx = (x - pan_start_mx)
-    local dy = (y - pan_start_my)
-    local vx = pan_start_vx - dx
-    local vy = pan_start_vy - dy
+    -- Use SCREEN deltas so camera updates don’t change the basis mid-drag (prevents trembling).
+    -- Convert pixels -> world units using the zoom captured at drag start.
+    local sx = aslan.get_mouse_x() or 0
+    local sy = aslan.get_mouse_y() or 0
+    local dx_px = sx - pan_start_sx
+    local dy_px = sy - pan_start_sy
+    local dx_world = dx_px / pan_start_vz
+    local dy_world = dy_px / pan_start_vz
+
+    -- Dragging right should move content right (hand tool): camera moves left.
+    local vx = pan_start_vx - dx_world
+    local vy = pan_start_vy - dy_world
+
     -- For responsiveness we preview during drag, but without AOF spam.
     pan_pending_vx = vx
     pan_pending_vy = vy

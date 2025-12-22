@@ -94,6 +94,9 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                 float mx = (float)imx;
                 float my = (float)imy;
 
+                // Expose raw screen mouse position to Lua tools (used for jitter-free pan).
+                scripting_set_mouse_screen(mx, my);
+
                 // Convert screen -> world using active page viewport.
                 // screen = (world - view) * zoom + center
                 // world  = (screen - center) / zoom + view

@@ -1,0 +1,14 @@
+# Build output
+/aslan_proto
+
+# Object files
+**/*.o
+
+# macOS
+.DS_Store
+
+# Logs / runtime artifacts
+history.log
+redo.log
+preview.svg
+recents.txt

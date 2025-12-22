@@ -1,17 +1,16 @@
 -- Session started --
 clear
-create_rect 1 Rect1 100.000000 100.000000 120.000000 120.000000
-create_text 2 Text2 120.000000 120.000000 220.000000 60.000000 "Text"
-set_rect 2 -280.000000 -34.000000 220.000000 60.000000
+create_rect 1 Rect1 -418.000000 -224.000000 299.000000 127.000000
+create_rect 2 Rect2 -291.000000 -110.000000 226.000000 226.000000
+create_rect 3 Rect3 100.000000 100.000000 120.000000 120.000000
+create_rect 4 Rect4 63.000000 164.000000 76.000000 24.000000
+set_rect 4 11.000000 170.000000 76.000000 24.000000
+set_rect 1 -361.000000 -260.000000 299.000000 127.000000
+set_global grid.enabled "1"
+set_global grid.enabled "0"
+page_meta 1 viewport.x -12.000000
+page_meta 1 viewport.y 8.000000
+page_meta 1 viewport.x 26.000000
+page_meta 1 viewport.y 14.000000
 page_meta 1 viewport.zoom 0.8929
-page_meta 1 viewport.zoom 0.7972
-page_meta 1 viewport.zoom 0.7118
-page_meta 1 viewport.zoom 0.6355
-page_meta 1 viewport.zoom 0.5674
-page_meta 1 viewport.zoom 0.6355
-page_meta 1 viewport.x 89.693130
-page_meta 1 viewport.y 91.266708
-page_meta 1 viewport.x 158.929871
-page_meta 1 viewport.y 210.857567
-page_meta 1 viewport.x 152.635620
-page_meta 1 viewport.y 272.226532
+page_meta 1 viewport.zoom 1.0000

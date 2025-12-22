@@ -31,6 +31,9 @@ int scripting_run_file(lua_State* L, const char* filepath);
 // Appelle une fonction Lua spécifique (ex: pour les événements)
 void scripting_call_event(lua_State* L, const char* func_name, float x, float y);
 
+// Update raw mouse position in SCREEN coordinates (pixels) for Lua tools.
+void scripting_set_mouse_screen(float sx, float sy);
+
 // Sync internal script host pointers after Engine swaps/rebuilds its Document (undo/redo).
 void scripting_set_document(Document* doc);
 

@@ -31,6 +31,10 @@ static Document* g_current_doc = NULL;
 static Engine* g_current_engine = NULL;
 static char g_script_base_dir[PATH_MAX] = {0};
 
+// Raw mouse position in SCREEN coordinates (pixels). Updated from the main loop.
+static float g_mouse_sx = 0.0f;
+static float g_mouse_sy = 0.0f;
+
 void scripting_set_document(Document* doc) {
     g_current_doc = doc;
 }
@@ -38,6 +42,11 @@ void scripting_set_document(Document* doc) {
 void scripting_set_base_dir(const char* base_dir) {
     if (!base_dir) return;
     strncpy(g_script_base_dir, base_dir, sizeof(g_script_base_dir) - 1);
+}
+
+void scripting_set_mouse_screen(float sx, float sy) {
+    g_mouse_sx = sx;
+    g_mouse_sy = sy;
 }
 
 static int resolve_script_path(char out_path[PATH_MAX], const char* filepath) {
@@ -219,6 +228,18 @@ static int l_set_page_meta(lua_State* L) {
     return 1;
 }
 
+// lua: get_mouse_x() -> number
+static int l_get_mouse_x(lua_State* L) {
+    lua_pushnumber(L, (lua_Number)g_mouse_sx);
+    return 1;
+}
+
+// lua: get_mouse_y() -> number
+static int l_get_mouse_y(lua_State* L) {
+    lua_pushnumber(L, (lua_Number)g_mouse_sy);
+    return 1;
+}
+
 // Enregistrement des fonctions
 static const struct luaL_Reg aslan_lib[] = {
     {"execute", l_execute},
@@ -232,6 +253,8 @@ static const struct luaL_Reg aslan_lib[] = {
     {"get_active_page_id", l_get_active_page_id},
     {"get_page_meta", l_get_page_meta},
     {"set_page_meta", l_set_page_meta},
+    {"get_mouse_x", l_get_mouse_x},
+    {"get_mouse_y", l_get_mouse_y},
     {"log", l_log_info},
     {NULL, NULL}
 };
