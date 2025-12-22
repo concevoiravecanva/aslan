@@ -92,8 +92,8 @@ Document* doc_create(void) {
     strncpy(doc->pages[0].name, "Page 1", sizeof(doc->pages[0].name) - 1);
     doc->pages[0].root = make_root_node();
     
-    // Default type: Board (infinite)
-    doc->pages[0].type = PAGE_TYPE_BOARD;
+    // Default type: Space (infinite)
+    doc->pages[0].type = PAGE_TYPE_SPACE;
     doc->pages[0].view_zoom = 1.0f;
     
     doc->page_count = 1;
@@ -527,13 +527,13 @@ bool doc_page_set_type(Document* doc, uint32_t page_id, PageType type) {
 }
 
 PageType doc_page_get_type(const Document* doc, uint32_t page_id) {
-    if (!doc) return PAGE_TYPE_BOARD;
+    if (!doc) return PAGE_TYPE_SPACE;
     for (int i = 0; i < 32; i++) {
         if (doc->pages[i].in_use && doc->pages[i].page_id == page_id) {
             return doc->pages[i].type;
         }
     }
-    return PAGE_TYPE_BOARD;
+    return PAGE_TYPE_SPACE;
 }
 
 bool doc_page_set_meta(Document* doc, uint32_t page_id, const char* key, float value) {

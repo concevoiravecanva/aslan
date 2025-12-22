@@ -62,7 +62,7 @@ typedef struct UIHost {
 
     // New Page modal state
     int show_new_page_modal;
-    int new_page_type_idx; // 0=Board, 1=Print
+    int new_page_type_idx; // 0=Space, 1=Page, 2=Table, 3=Note, 4=Clip
     int new_page_preset_idx; // 0=A4, 1=A3, 2=Letter, 3=Custom
     int new_page_orientation; // 0=Portrait, 1=Landscape
     float new_page_width_mm;

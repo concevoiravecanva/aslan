@@ -38,8 +38,16 @@ typedef struct Node {
 
 // --- Page Type enum ---
 typedef enum {
-    PAGE_TYPE_BOARD = 0, // Default: infinite canvas
-    PAGE_TYPE_PRINT = 1  // Fixed dimensions (A4, etc.)
+    // IMPORTANT: keep numeric values stable for AOF/back-compat.
+    // Legacy names:
+    // - BOARD => SPACE
+    // - PRINT => PAGE
+    PAGE_TYPE_SPACE = 0, // Infinite canvas (Miro-like)
+    PAGE_TYPE_PAGE  = 1, // Fixed dimensions (A4, etc.)
+    // Placeholders (UI-visible, behavior TBD)
+    PAGE_TYPE_TABLE = 2,
+    PAGE_TYPE_NOTE  = 3,
+    PAGE_TYPE_CLIP  = 4
 } PageType;
 
 // Le Document est le conteneur principal

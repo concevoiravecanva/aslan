@@ -210,15 +210,24 @@ static bool engine_rewrite_aof(Engine* engine) {
             engine->doc->pages[pi].name[0] ? engine->doc->pages[pi].name : "Page");
             
         // Persist page type and meta
-        if (engine->doc->pages[pi].type == PAGE_TYPE_PRINT) {
-            fprintf(out, "page_type %u print\n", (unsigned)engine->doc->pages[pi].page_id);
+        if (engine->doc->pages[pi].type == PAGE_TYPE_PAGE) {
+            // Canonical token: page
+            fprintf(out, "page_type %u page\n", (unsigned)engine->doc->pages[pi].page_id);
             fprintf(out, "page_meta %u width %.2f\n", (unsigned)engine->doc->pages[pi].page_id, engine->doc->pages[pi].width);
             fprintf(out, "page_meta %u height %.2f\n", (unsigned)engine->doc->pages[pi].page_id, engine->doc->pages[pi].height);
-        } else {
-            fprintf(out, "page_type %u board\n", (unsigned)engine->doc->pages[pi].page_id);
+        } else if (engine->doc->pages[pi].type == PAGE_TYPE_SPACE) {
+            // Canonical token: space
+            fprintf(out, "page_type %u space\n", (unsigned)engine->doc->pages[pi].page_id);
             fprintf(out, "page_meta %u viewport.x %.2f\n", (unsigned)engine->doc->pages[pi].page_id, engine->doc->pages[pi].view_x);
             fprintf(out, "page_meta %u viewport.y %.2f\n", (unsigned)engine->doc->pages[pi].page_id, engine->doc->pages[pi].view_y);
             fprintf(out, "page_meta %u viewport.zoom %.2f\n", (unsigned)engine->doc->pages[pi].page_id, engine->doc->pages[pi].view_zoom);
+        } else {
+            // Placeholders for now: only persist type so we don't lose intent.
+            const char* t = "space";
+            if (engine->doc->pages[pi].type == PAGE_TYPE_TABLE) t = "table";
+            else if (engine->doc->pages[pi].type == PAGE_TYPE_NOTE) t = "note";
+            else if (engine->doc->pages[pi].type == PAGE_TYPE_CLIP) t = "clip";
+            fprintf(out, "page_type %u %s\n", (unsigned)engine->doc->pages[pi].page_id, t);
         }
     }
 
@@ -325,15 +334,21 @@ static bool engine_write_snapshot_to_file(Engine* engine, FILE* out, const char*
                 engine->doc->pages[i].name[0] ? engine->doc->pages[i].name : "Page");
                 
             // Persist page type and meta
-            if (engine->doc->pages[i].type == PAGE_TYPE_PRINT) {
-                fprintf(out, "page_type %u print\n", (unsigned)engine->doc->pages[i].page_id);
+            if (engine->doc->pages[i].type == PAGE_TYPE_PAGE) {
+                fprintf(out, "page_type %u page\n", (unsigned)engine->doc->pages[i].page_id);
                 fprintf(out, "page_meta %u width %.2f\n", (unsigned)engine->doc->pages[i].page_id, engine->doc->pages[i].width);
                 fprintf(out, "page_meta %u height %.2f\n", (unsigned)engine->doc->pages[i].page_id, engine->doc->pages[i].height);
-            } else {
-                fprintf(out, "page_type %u board\n", (unsigned)engine->doc->pages[i].page_id);
+            } else if (engine->doc->pages[i].type == PAGE_TYPE_SPACE) {
+                fprintf(out, "page_type %u space\n", (unsigned)engine->doc->pages[i].page_id);
                 fprintf(out, "page_meta %u viewport.x %.2f\n", (unsigned)engine->doc->pages[i].page_id, engine->doc->pages[i].view_x);
                 fprintf(out, "page_meta %u viewport.y %.2f\n", (unsigned)engine->doc->pages[i].page_id, engine->doc->pages[i].view_y);
                 fprintf(out, "page_meta %u viewport.zoom %.2f\n", (unsigned)engine->doc->pages[i].page_id, engine->doc->pages[i].view_zoom);
+            } else {
+                const char* t = "space";
+                if (engine->doc->pages[i].type == PAGE_TYPE_TABLE) t = "table";
+                else if (engine->doc->pages[i].type == PAGE_TYPE_NOTE) t = "note";
+                else if (engine->doc->pages[i].type == PAGE_TYPE_CLIP) t = "clip";
+                fprintf(out, "page_type %u %s\n", (unsigned)engine->doc->pages[i].page_id, t);
             }
         }
 
@@ -652,9 +667,16 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
     else if (strncmp(command_line, "page_type ", 10) == 0) {
         char type_str[32];
         if (sscanf(command_line, "page_type %d %31s", &id, type_str) == 2) {
-            PageType pt = PAGE_TYPE_BOARD;
-            if (strcmp(type_str, "print") == 0) pt = PAGE_TYPE_PRINT;
-            else if (strcmp(type_str, "board") == 0) pt = PAGE_TYPE_BOARD;
+            // Canonical tokens: page, space, table, note, clip
+            // Back-compat tokens: print => page, board => space
+            PageType pt = PAGE_TYPE_SPACE;
+            if (strcmp(type_str, "page") == 0) pt = PAGE_TYPE_PAGE;
+            else if (strcmp(type_str, "space") == 0) pt = PAGE_TYPE_SPACE;
+            else if (strcmp(type_str, "table") == 0) pt = PAGE_TYPE_TABLE;
+            else if (strcmp(type_str, "note") == 0) pt = PAGE_TYPE_NOTE;
+            else if (strcmp(type_str, "clip") == 0) pt = PAGE_TYPE_CLIP;
+            else if (strcmp(type_str, "print") == 0) pt = PAGE_TYPE_PAGE;
+            else if (strcmp(type_str, "board") == 0) pt = PAGE_TYPE_SPACE;
             
             success = doc_page_set_type(engine->doc, (uint32_t)id, pt);
         }

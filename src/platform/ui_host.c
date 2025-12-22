@@ -145,7 +145,7 @@ UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L) {
 
     // New Page modal defaults
     ui->show_new_page_modal = 0;
-    ui->new_page_type_idx = 0; // Board
+    ui->new_page_type_idx = 0; // Space
     ui->new_page_preset_idx = 0; // A4
     ui->new_page_orientation = 0; // Portrait
     ui->new_page_width_mm = 210.0f;
@@ -868,7 +868,7 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                 // Open New Page modal instead of immediate creation
                 ui->show_new_page_modal = 1;
                 // Reset defaults
-                ui->new_page_type_idx = 0; // Board
+                ui->new_page_type_idx = 0; // Space
                 ui->new_page_preset_idx = 0; // A4
                 ui->new_page_orientation = 0; // Portrait
                 ui->new_page_width_mm = 210.0f;
@@ -1014,11 +1014,16 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
 
             nk_layout_row_dynamic(ui->ctx, 20, 1);
             nk_label(ui->ctx, "Type:", NK_TEXT_LEFT);
-            nk_layout_row_dynamic(ui->ctx, 28, 2);
-            if (nk_option_label(ui->ctx, "Board (Infinite)", ui->new_page_type_idx == 0)) ui->new_page_type_idx = 0;
-            if (nk_option_label(ui->ctx, "Print (Fixed)", ui->new_page_type_idx == 1)) ui->new_page_type_idx = 1;
+            nk_layout_row_dynamic(ui->ctx, 28, 3);
+            if (nk_option_label(ui->ctx, "Space (Infinite)", ui->new_page_type_idx == 0)) ui->new_page_type_idx = 0;
+            if (nk_option_label(ui->ctx, "Page (Fixed)", ui->new_page_type_idx == 1)) ui->new_page_type_idx = 1;
+            if (nk_option_label(ui->ctx, "Table (TBD)", ui->new_page_type_idx == 2)) ui->new_page_type_idx = 2;
 
-            if (ui->new_page_type_idx == 1) { // Print options
+            nk_layout_row_dynamic(ui->ctx, 28, 2);
+            if (nk_option_label(ui->ctx, "Note (TBD)", ui->new_page_type_idx == 3)) ui->new_page_type_idx = 3;
+            if (nk_option_label(ui->ctx, "Clip (TBD)", ui->new_page_type_idx == 4)) ui->new_page_type_idx = 4;
+
+            if (ui->new_page_type_idx == 1) { // Page options
                 nk_layout_row_dynamic(ui->ctx, 20, 1);
                 nk_label(ui->ctx, "Preset:", NK_TEXT_LEFT);
                 nk_layout_row_dynamic(ui->ctx, 28, 4);
@@ -1080,15 +1085,15 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                 uint32_t pid = doc_page_active_id(engine->doc);
                 
                 // 2. Set type and meta
-                if (ui->new_page_type_idx == 1) { // Print
-                    snprintf(cmd, sizeof(cmd), "page_type %u print", (unsigned)pid);
+                if (ui->new_page_type_idx == 1) { // Page
+                    snprintf(cmd, sizeof(cmd), "page_type %u page", (unsigned)pid);
                     engine_execute_command(engine, cmd);
                     snprintf(cmd, sizeof(cmd), "page_meta %u width %.2f", (unsigned)pid, ui->new_page_width_mm);
                     engine_execute_command(engine, cmd);
                     snprintf(cmd, sizeof(cmd), "page_meta %u height %.2f", (unsigned)pid, ui->new_page_height_mm);
                     engine_execute_command(engine, cmd);
-                } else { // Board
-                    snprintf(cmd, sizeof(cmd), "page_type %u board", (unsigned)pid);
+                } else if (ui->new_page_type_idx == 0) { // Space
+                    snprintf(cmd, sizeof(cmd), "page_type %u space", (unsigned)pid);
                     engine_execute_command(engine, cmd);
                     // Default viewport
                     snprintf(cmd, sizeof(cmd), "page_meta %u viewport.x 0", (unsigned)pid);
@@ -1096,6 +1101,13 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                     snprintf(cmd, sizeof(cmd), "page_meta %u viewport.y 0", (unsigned)pid);
                     engine_execute_command(engine, cmd);
                     snprintf(cmd, sizeof(cmd), "page_meta %u viewport.zoom 1.0", (unsigned)pid);
+                    engine_execute_command(engine, cmd);
+                } else {
+                    const char* t = "space";
+                    if (ui->new_page_type_idx == 2) t = "table";
+                    else if (ui->new_page_type_idx == 3) t = "note";
+                    else if (ui->new_page_type_idx == 4) t = "clip";
+                    snprintf(cmd, sizeof(cmd), "page_type %u %s", (unsigned)pid, t);
                     engine_execute_command(engine, cmd);
                 }
                 

@@ -118,8 +118,8 @@ static void renderer_draw_page_background(Renderer* r, const Document* doc) {
     }
     if (pidx == -1) return;
     
-    // If Print type, draw the paper sheet
-    if (doc->pages[pidx].type == PAGE_TYPE_PRINT) {
+    // If Page type, draw the paper sheet
+    if (doc->pages[pidx].type == PAGE_TYPE_PAGE) {
         // Convert mm to px (96 DPI)
         // mm = (px / 96) * 25.4  => px = (mm * 96) / 25.4
         float dpi = 96.0f;
