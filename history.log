@@ -5,10 +5,19 @@ page_type 2 grid
 page_select 2
 page_select 1
 page_select 1
+page_select 2
+page_select 2
+page_select 1
 page_select 1
 page_select 2
 page_select 2
 page_select 1
 page_select 1
-page_create 3 "Page 3"
-page_type 3 table
+page_select 2
+page_select 2
+page_select 1
+page_select 1
+page_select 2
+page_select 2
+page_select 1
+page_select 1

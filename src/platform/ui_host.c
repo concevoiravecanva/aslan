@@ -1282,17 +1282,14 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
 
             nk_layout_row_dynamic(ui->ctx, 20, 1);
             nk_label(ui->ctx, "Type:", NK_TEXT_LEFT);
-            nk_layout_row_dynamic(ui->ctx, 28, 3);
+            nk_layout_row_dynamic(ui->ctx, 28, 2);
             if (nk_option_label(ui->ctx, "Space (Infinite)", ui->new_page_type_idx == 0)) ui->new_page_type_idx = 0;
             if (nk_option_label(ui->ctx, "Page (Fixed)", ui->new_page_type_idx == 1)) ui->new_page_type_idx = 1;
-            if (nk_option_label(ui->ctx, "Table (TBD)", ui->new_page_type_idx == 2)) ui->new_page_type_idx = 2;
 
-            nk_layout_row_dynamic(ui->ctx, 28, 2);
-            if (nk_option_label(ui->ctx, "Note (TBD)", ui->new_page_type_idx == 3)) ui->new_page_type_idx = 3;
-            if (nk_option_label(ui->ctx, "Clip (TBD)", ui->new_page_type_idx == 4)) ui->new_page_type_idx = 4;
-
-            nk_layout_row_dynamic(ui->ctx, 28, 1);
-            if (nk_option_label(ui->ctx, "Grid (Table)", ui->new_page_type_idx == 5)) ui->new_page_type_idx = 5;
+            nk_layout_row_dynamic(ui->ctx, 28, 3);
+            if (nk_option_label(ui->ctx, "Note (TBD)", ui->new_page_type_idx == 2)) ui->new_page_type_idx = 2;
+            if (nk_option_label(ui->ctx, "Clip (TBD)", ui->new_page_type_idx == 3)) ui->new_page_type_idx = 3;
+            if (nk_option_label(ui->ctx, "Grid (Table)", ui->new_page_type_idx == 4)) ui->new_page_type_idx = 4;
 
             if (ui->new_page_type_idx == 1) { // Page options
                 nk_layout_row_dynamic(ui->ctx, 20, 1);
@@ -1375,10 +1372,9 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                     engine_execute_command(engine, cmd);
                 } else {
                     const char* t = "space";
-                    if (ui->new_page_type_idx == 2) t = "table";
-                    else if (ui->new_page_type_idx == 3) t = "note";
-                    else if (ui->new_page_type_idx == 4) t = "clip";
-                    else if (ui->new_page_type_idx == 5) t = "grid";
+                    if (ui->new_page_type_idx == 2) t = "note";
+                    else if (ui->new_page_type_idx == 3) t = "clip";
+                    else if (ui->new_page_type_idx == 4) t = "grid";
                     snprintf(cmd, sizeof(cmd), "page_type %u %s", (unsigned)pid, t);
                     engine_execute_command(engine, cmd);
                 }
