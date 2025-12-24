@@ -39,6 +39,11 @@ typedef struct {
     int cursor_row;
     int cursor_col;
 
+    // --- Selection (volatile UI state; not persisted) ---
+    bool is_selecting;
+    int anchor_row;
+    int anchor_col;
+
     // --- AOF persistence helpers (debounce) ---
     // When >= 0, this row has unflushed edits pending for history.log.
     int aof_last_edited_row;

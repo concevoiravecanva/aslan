@@ -296,6 +296,186 @@ static void note_doc_join_with_previous_line(AslanNoteDoc* doc) {
     note_doc_clamp_cursor(doc);
 }
 
+static void note_sel_clear(AslanNoteDoc* doc) {
+    if (!doc) return;
+    doc->is_selecting = false;
+    doc->anchor_row = doc->cursor_row;
+    doc->anchor_col = doc->cursor_col;
+}
+
+static int note_sel_has_range(const AslanNoteDoc* doc) {
+    if (!doc) return 0;
+    if (!doc->is_selecting) return 0;
+    return !(doc->anchor_row == doc->cursor_row && doc->anchor_col == doc->cursor_col);
+}
+
+static void note_sel_normalize(const AslanNoteDoc* doc,
+                               int* out_sr, int* out_sc,
+                               int* out_er, int* out_ec) {
+    int ar = doc ? doc->anchor_row : 0;
+    int ac = doc ? doc->anchor_col : 0;
+    int cr = doc ? doc->cursor_row : 0;
+    int cc = doc ? doc->cursor_col : 0;
+
+    int sr = ar, sc = ac, er = cr, ec = cc;
+    if (sr > er || (sr == er && sc > ec)) {
+        sr = cr; sc = cc;
+        er = ar; ec = ac;
+    }
+
+    if (out_sr) *out_sr = sr;
+    if (out_sc) *out_sc = sc;
+    if (out_er) *out_er = er;
+    if (out_ec) *out_ec = ec;
+}
+
+static void note_doc_delete_selection(AslanNoteDoc* doc) {
+    if (!doc) return;
+    note_doc_clamp_cursor(doc);
+    if (!note_sel_has_range(doc)) return;
+
+    int sr = 0, sc = 0, er = 0, ec = 0;
+    note_sel_normalize(doc, &sr, &sc, &er, &ec);
+    if (sr < 0) sr = 0;
+    if (er < 0) er = 0;
+    if (sr >= doc->row_count) sr = doc->row_count - 1;
+    if (er >= doc->row_count) er = doc->row_count - 1;
+    if (sr < 0 || er < 0 || doc->row_count <= 0) {
+        note_sel_clear(doc);
+        return;
+    }
+
+    AslanRow* r0 = &doc->rows[sr];
+    AslanRow* r1 = &doc->rows[er];
+    int max_sc = (int)(r0 ? r0->len : 0);
+    int max_ec = (int)(r1 ? r1->len : 0);
+    if (sc < 0) sc = 0;
+    if (ec < 0) ec = 0;
+    if (sc > max_sc) sc = max_sc;
+    if (ec > max_ec) ec = max_ec;
+
+    if (sr == er) {
+        // Delete within one line: [sc, ec)
+        if (r0 && r0->chars && ec > sc) {
+            memmove(r0->chars + sc, r0->chars + ec, (r0->len - (size_t)ec) + 1);
+            r0->len -= (size_t)(ec - sc);
+        }
+        doc->cursor_row = sr;
+        doc->cursor_col = sc;
+        note_doc_clamp_cursor(doc);
+        doc->aof_last_edited_row = sr;
+        doc->aof_last_edit_time_ms = SDL_GetTicks();
+        note_sel_clear(doc);
+        return;
+    }
+
+    // Multi-line delete: keep prefix of sr up to sc, keep suffix of er from ec.
+    const char* suffix = "";
+    size_t suffix_len = 0;
+    if (r1 && r1->chars && ec <= (int)r1->len) {
+        suffix = r1->chars + ec;
+        suffix_len = r1->len - (size_t)ec;
+    }
+
+    // Truncate start row at sc.
+    if (r0 && r0->chars) {
+        if (sc <= (int)r0->len) {
+            r0->chars[sc] = '\0';
+            r0->len = (size_t)sc;
+        }
+    }
+
+    // Append suffix to start row.
+    if (suffix_len > 0 && r0) {
+        if (r0->len + suffix_len + 1 > r0->cap) {
+            size_t new_cap = r0->cap ? r0->cap : 32;
+            while (new_cap < r0->len + suffix_len + 1) new_cap *= 2;
+            char* new_chars = (char*)realloc(r0->chars, new_cap);
+            if (!new_chars) return;
+            r0->chars = new_chars;
+            r0->cap = new_cap;
+        }
+        memcpy(r0->chars + r0->len, suffix, suffix_len);
+        r0->len += suffix_len;
+        r0->chars[r0->len] = '\0';
+    }
+
+    // Free removed rows content.
+    for (int r = sr + 1; r <= er; r++) {
+        free(doc->rows[r].chars);
+        doc->rows[r].chars = NULL;
+        doc->rows[r].len = 0;
+        doc->rows[r].cap = 0;
+    }
+
+    // Remove rows [sr+1 .. er]
+    int remove_count = er - sr;
+    if (remove_count > 0) {
+        int tail_start = er + 1;
+        if (tail_start < doc->row_count) {
+            memmove(&doc->rows[sr + 1], &doc->rows[tail_start],
+                    (size_t)(doc->row_count - tail_start) * sizeof(AslanRow));
+        }
+        doc->row_count -= remove_count;
+    }
+
+    doc->cursor_row = sr;
+    doc->cursor_col = sc;
+    note_doc_clamp_cursor(doc);
+    doc->aof_last_edited_row = sr;
+    doc->aof_last_edit_time_ms = SDL_GetTicks();
+    note_sel_clear(doc);
+}
+
+static char* note_doc_copy_selection_text(const AslanNoteDoc* doc) {
+    if (!doc) return NULL;
+    if (!note_sel_has_range(doc)) return NULL;
+
+    int sr = 0, sc = 0, er = 0, ec = 0;
+    note_sel_normalize(doc, &sr, &sc, &er, &ec);
+    if (sr < 0 || er < 0 || sr >= doc->row_count || er >= doc->row_count) return NULL;
+
+    size_t total = 0;
+    for (int r = sr; r <= er; r++) {
+        const AslanRow* row = &doc->rows[r];
+        int a = 0;
+        int b = (int)(row ? row->len : 0);
+        if (r == sr) a = sc;
+        if (r == er) b = ec;
+        if (a < 0) a = 0;
+        if (b < 0) b = 0;
+        if (a > (int)row->len) a = (int)row->len;
+        if (b > (int)row->len) b = (int)row->len;
+        if (b < a) b = a;
+        total += (size_t)(b - a);
+        if (r != er) total += 1; // '\n'
+    }
+
+    char* out = (char*)malloc(total + 1);
+    if (!out) return NULL;
+    size_t at = 0;
+    for (int r = sr; r <= er; r++) {
+        const AslanRow* row = &doc->rows[r];
+        int a = 0;
+        int b = (int)(row ? row->len : 0);
+        if (r == sr) a = sc;
+        if (r == er) b = ec;
+        if (a < 0) a = 0;
+        if (b < 0) b = 0;
+        if (a > (int)row->len) a = (int)row->len;
+        if (b > (int)row->len) b = (int)row->len;
+        if (b < a) b = a;
+        size_t n = (size_t)(b - a);
+        if (n > 0 && row && row->chars) {
+            memcpy(out + at, row->chars + a, n);
+            at += n;
+        }
+        if (r != er) out[at++] = '\n';
+    }
+    out[at] = '\0';
+    return out;
+}
+
 int note_handle_input(AslanNoteDoc* doc, const SDL_Event* ev) {
     if (!doc || !ev) return 0;
 
@@ -308,6 +488,89 @@ int note_handle_input(AslanNoteDoc* doc, const SDL_Event* ev) {
     switch (ev->type) {
         case SDL_KEYDOWN: {
             SDL_Keycode sym = ev->key.keysym.sym;
+            const SDL_Keymod mod = ev->key.keysym.mod;
+            const int shift = (mod & KMOD_SHIFT) != 0;
+            const int shortcut = (mod & (KMOD_CTRL | KMOD_GUI)) != 0;
+
+            // Clipboard shortcuts
+            if (shortcut && (sym == SDLK_c || sym == SDLK_x || sym == SDLK_v)) {
+                if (sym == SDLK_c || sym == SDLK_x) {
+                    char* txt = note_doc_copy_selection_text(doc);
+                    if (txt) {
+                        SDL_SetClipboardText(txt);
+                        free(txt);
+                        if (sym == SDLK_x) {
+                            note_doc_delete_selection(doc);
+                        }
+                        return 1;
+                    }
+                    // No selection: let it fall through (no-op)
+                } else if (sym == SDLK_v) {
+                    char* clip = SDL_GetClipboardText();
+                    if (clip) {
+                        // Replace selection if any
+                        if (note_sel_has_range(doc)) {
+                            note_doc_delete_selection(doc);
+                        }
+
+                        // Insert clipboard, supporting newlines.
+                        note_doc_clamp_cursor(doc);
+                        int row = doc->cursor_row;
+                        int col = doc->cursor_col;
+                        AslanRow* r = &doc->rows[row];
+
+                        const char* p = clip;
+                        while (*p) {
+                            const char* nl = strchr(p, '\n');
+                            size_t chunk_len = nl ? (size_t)(nl - p) : strlen(p);
+
+                            // Insert chunk into current row at col
+                            for (size_t i = 0; i < chunk_len; i++) {
+                                unsigned char ch = (unsigned char)p[i];
+                                if (!isprint(ch) && ch != '\t') continue;
+                                note_row_insert_char(r, col, (char)ch);
+                                col++;
+                            }
+                            doc->cursor_col = col;
+                            doc->aof_last_edited_row = doc->cursor_row;
+                            doc->aof_last_edit_time_ms = SDL_GetTicks();
+
+                            if (!nl) break;
+
+                            // newline -> split
+                            note_doc_insert_newline(doc);
+                            row = doc->cursor_row;
+                            col = doc->cursor_col;
+                            r = &doc->rows[row];
+
+                            p = nl + 1;
+                        }
+
+                        SDL_free(clip);
+                        note_sel_clear(doc);
+                        return 1;
+                    }
+                }
+            }
+
+            // Selection anchor handling: shift-held movements extend selection.
+            // Without shift, any navigation clears selection.
+            if (!shift) {
+                // If user starts navigating without shift, clear selection.
+                if (sym == SDLK_UP || sym == SDLK_DOWN || sym == SDLK_LEFT || sym == SDLK_RIGHT ||
+                    sym == SDLK_HOME || sym == SDLK_END) {
+                    note_sel_clear(doc);
+                }
+            } else {
+                // Start selection on first shift-navigation.
+                if (!doc->is_selecting && (sym == SDLK_UP || sym == SDLK_DOWN || sym == SDLK_LEFT || sym == SDLK_RIGHT ||
+                                           sym == SDLK_HOME || sym == SDLK_END)) {
+                    doc->is_selecting = true;
+                    doc->anchor_row = doc->cursor_row;
+                    doc->anchor_col = doc->cursor_col;
+                }
+            }
+
             switch (sym) {
                 case SDLK_UP:
                     doc->cursor_row--;
@@ -335,10 +598,18 @@ int note_handle_input(AslanNoteDoc* doc, const SDL_Event* ev) {
                     return 1;
                 case SDLK_RETURN:
                 case SDLK_KP_ENTER:
+                    if (note_sel_has_range(doc)) {
+                        note_doc_delete_selection(doc);
+                    }
                     note_doc_insert_newline(doc);
+                    note_sel_clear(doc);
                     return 1;
                 case SDLK_BACKSPACE: {
                     note_doc_clamp_cursor(doc);
+                    if (note_sel_has_range(doc)) {
+                        note_doc_delete_selection(doc);
+                        return 1;
+                    }
                     AslanRow* r = &doc->rows[doc->cursor_row];
                     if (doc->cursor_col > 0) {
                         note_row_delete_char(r, doc->cursor_col);
@@ -351,6 +622,7 @@ int note_handle_input(AslanNoteDoc* doc, const SDL_Event* ev) {
                         // Join with previous line when at beginning.
                         note_doc_join_with_previous_line(doc);
                     }
+                    note_sel_clear(doc);
                     return 1;
                 }
                 default:
@@ -360,6 +632,9 @@ int note_handle_input(AslanNoteDoc* doc, const SDL_Event* ev) {
         }
         case SDL_TEXTINPUT: {
             note_doc_clamp_cursor(doc);
+            if (note_sel_has_range(doc)) {
+                note_doc_delete_selection(doc);
+            }
             AslanRow* r = &doc->rows[doc->cursor_row];
             const char* s = ev->text.text;
             for (int i = 0; s[i]; i++) {
@@ -373,6 +648,7 @@ int note_handle_input(AslanNoteDoc* doc, const SDL_Event* ev) {
             // Current row content changed -> mark pending for AOF.
             doc->aof_last_edited_row = doc->cursor_row;
             doc->aof_last_edit_time_ms = SDL_GetTicks();
+            note_sel_clear(doc);
             return 1;
         }
         default:
@@ -808,6 +1084,9 @@ bool doc_page_set_type(Document* doc, uint32_t page_id, PageType type) {
                 note_insert_line(nd, 0, "");
                 nd->cursor_row = 0;
                 nd->cursor_col = 0;
+                nd->is_selecting = false;
+                nd->anchor_row = 0;
+                nd->anchor_col = 0;
                 nd->aof_last_edited_row = -1;
                 nd->aof_last_edit_time_ms = 0;
                 doc->pages[i].note = nd;

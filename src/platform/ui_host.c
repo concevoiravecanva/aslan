@@ -1316,10 +1316,44 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             const float w = (float)win_w - pad_x * 2.0f;
             const float scroll_y = (active_note->scroll_y > 0.0f) ? active_note->scroll_y : 0.0f;
             struct nk_color txt_col = nk_rgb(0, 0, 0);
+            struct nk_color sel_bg = nk_rgb(10, 132, 255); // macOS selection blue
+            struct nk_color sel_txt = nk_rgb(255, 255, 255);
 
             // Dedicated font for NOTE (monospace) so caret alignment is deterministic.
             const struct nk_user_font* note_font = ui->ctx->style.font;
             if (ui->font_mono) note_font = &ui->font_mono->handle;
+
+            // Measure a single monospace cell.
+            float char_w = 8.0f;
+            if (note_font && note_font->width) {
+                const char* cell = "M";
+                char_w = note_font->width(note_font->userdata, note_font->height, cell, 1);
+                if (char_w < 1.0f) char_w = 8.0f;
+            }
+
+            // Selection (range between cursor and anchor). We draw:
+            // 1) normal text in black
+            // 2) selection background rects
+            // 3) selected text in white (redrawn on top)
+            int sel_active = (active_note->is_selecting &&
+                              !(active_note->anchor_row == active_note->cursor_row && active_note->anchor_col == active_note->cursor_col));
+            int sel_sr = 0, sel_sc = 0, sel_er = 0, sel_ec = 0;
+            if (sel_active) {
+                sel_sr = active_note->anchor_row;
+                sel_sc = active_note->anchor_col;
+                sel_er = active_note->cursor_row;
+                sel_ec = active_note->cursor_col;
+                if (sel_sr > sel_er || (sel_sr == sel_er && sel_sc > sel_ec)) {
+                    int tr = sel_sr, tc = sel_sc;
+                    sel_sr = sel_er; sel_sc = sel_ec;
+                    sel_er = tr; sel_ec = tc;
+                }
+                if (sel_sr < 0) sel_sr = 0;
+                if (sel_er < 0) sel_er = 0;
+                if (sel_sr >= active_note->row_count) sel_sr = active_note->row_count - 1;
+                if (sel_er >= active_note->row_count) sel_er = active_note->row_count - 1;
+                if (sel_sr < 0 || sel_er < 0) sel_active = 0;
+            }
 
             for (int i = 0; i < active_note->row_count; i++) {
                 const char* t = (active_note->rows[i].chars ? active_note->rows[i].chars : "");
@@ -1330,6 +1364,45 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                              note_font,
                              nk_rgba(0, 0, 0, 0),
                              txt_col);
+
+                if (sel_active && i >= sel_sr && i <= sel_er) {
+                    int line_len = (int)strlen(t);
+                    int a = 0;
+                    int b = line_len;
+                    if (i == sel_sr) a = sel_sc;
+                    if (i == sel_er) b = sel_ec;
+                    if (a < 0) a = 0;
+                    if (b < 0) b = 0;
+                    if (a > line_len) a = line_len;
+                    if (b > line_len) b = line_len;
+                    if (b < a) b = a;
+
+                    if (b > a) {
+                        float rx = pad_x + 6.0f + (float)a * char_w;
+                        float ry = top_y + (float)i * line_h + 3.0f - scroll_y;
+                        float rw = (float)(b - a) * char_w;
+                        float rh = note_font ? note_font->height : (line_h - 4.0f);
+                        if (rh > line_h - 4.0f) rh = line_h - 4.0f;
+
+                        nk_fill_rect(&ui->ctx->overlay, nk_rect(rx, ry, rw, rh), 2.0f, sel_bg);
+
+                        // Redraw selected substring in white.
+                        char buf[2048];
+                        int n = b - a;
+                        if (n > 0) {
+                            if (n >= (int)sizeof(buf)) n = (int)sizeof(buf) - 1;
+                            memcpy(buf, t + a, (size_t)n);
+                            buf[n] = 0;
+                            nk_draw_text(&ui->ctx->overlay,
+                                         nk_rect(rx, ry, rw, line_h),
+                                         buf,
+                                         n,
+                                         note_font,
+                                         nk_rgba(0, 0, 0, 0),
+                                         sel_txt);
+                        }
+                    }
+                }
             }
 
             // Caret: fixed-width math (JetBrains Mono) for pixel-perfect alignment.
@@ -1337,9 +1410,6 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                 int col = active_note->cursor_col;
                 if (col < 0) col = 0;
 
-                // Measure a single monospace cell.
-                const char* cell = "M";
-                float char_w = note_font->width(note_font->userdata, note_font->height, cell, 1);
                 if (char_w < 1.0f) char_w = 8.0f;
 
                 float cx0 = pad_x + 6.0f + (float)col * char_w;
