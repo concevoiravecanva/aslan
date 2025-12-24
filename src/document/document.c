@@ -6,6 +6,9 @@
 
 #include <SDL2/SDL.h>
 
+// Nuklear font measurement API (used only here; keep it out of core headers).
+#include "../../include/nuklear.h"
+
 // Local strdup (C99, minimal)
 static char* aslan_strdup(const char* s) {
     if (!s) s = "";
@@ -53,7 +56,79 @@ AslanGrid* grid_create(int r, int c) {
     // Default widths (simple + editable later)
     for (int j = 0; j < c; j++) g->col_widths[j] = 140;
 
+    // UI focus defaults
+    g->active_row = 0;
+    g->active_col = 0;
+
     return g;
+}
+
+int grid_address_to_coords(const char* address, int* out_r, int* out_c) {
+    if (!address || !address[0] || !out_r || !out_c) return 0;
+
+    // Skip leading whitespace
+    const char* p = address;
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+    if (!*p) return 0;
+
+    // Column: A-Z (case-insensitive)
+    char col_ch = *p;
+    if (col_ch >= 'a' && col_ch <= 'z') col_ch = (char)(col_ch - 'a' + 'A');
+    if (col_ch < 'A' || col_ch > 'Z') return 0;
+    int col = (int)(col_ch - 'A');
+    p++;
+
+    // Row: 1..
+    if (*p < '0' || *p > '9') return 0;
+    int row_1 = 0;
+    while (*p >= '0' && *p <= '9') {
+        int d = *p - '0';
+        // guard overflow (rows are small anyway)
+        if (row_1 > 1000000) return 0;
+        row_1 = row_1 * 10 + d;
+        p++;
+    }
+    if (row_1 <= 0) return 0;
+
+    // Allow trailing whitespace only
+    while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') p++;
+    if (*p != '\0') return 0;
+
+    *out_r = row_1 - 1;
+    *out_c = col;
+    return 1;
+}
+
+void grid_compute_column_widths(AslanGrid* grid, const void* font_ptr) {
+    const struct nk_user_font* font = (const struct nk_user_font*)font_ptr;
+    if (!grid || !font) return;
+    if (grid->rows <= 0 || grid->cols <= 0) return;
+    if (!grid->data || !grid->col_widths) return;
+    if (!font->width) return;
+
+    // Tuning: keep grid readable but bounded.
+    const float pad_px = 16.0f;      // left+right padding around text
+    const float min_px = 60.0f;      // minimum column width
+    const float max_px = 420.0f;     // maximum column width to prevent layout breakage
+
+    for (int c = 0; c < grid->cols; c++) {
+        float best = min_px;
+
+        for (int r = 0; r < grid->rows; r++) {
+            const char* txt = (grid->data[r] && grid->data[r][c]) ? grid->data[r][c] : "";
+            int len = (int)strlen(txt);
+            float w = font->width(font->userdata, font->height, txt, len) + pad_px;
+            if (w > best) best = w;
+            if (best >= max_px) {
+                best = max_px;
+                break;
+            }
+        }
+
+        if (best < min_px) best = min_px;
+        if (best > max_px) best = max_px;
+        grid->col_widths[c] = (int)(best + 0.5f);
+    }
 }
 
 void grid_destroy(AslanGrid* grid) {

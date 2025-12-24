@@ -2,22 +2,5 @@
 clear
 page_create 2 "Page 2"
 page_type 2 grid
-page_select 2
-page_select 1
-page_select 1
-page_select 2
-page_select 2
-page_select 1
-page_select 1
-page_select 2
-page_select 2
-page_select 1
-page_select 1
-page_select 2
-page_select 2
-page_select 1
-page_select 1
-page_select 2
-page_select 2
 page_select 1
 page_select 1

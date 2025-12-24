@@ -17,8 +17,34 @@ static void ui_render_grid_page(struct nk_context* ctx, AslanGrid* grid) {
     if (grid->rows <= 0 || grid->cols <= 0) return;
     if (!grid->data || !grid->col_widths) return;
 
+    // Auto-size columns based on current content. Keep it cheap for now.
+    // Use JetBrains Mono (same as NOTE) when available so widths are stable.
+    const struct nk_user_font* grid_font = ctx->style.font;
+    if (grid_font) grid_compute_column_widths(grid, (const void*)grid_font);
+
+    if (grid->active_row < 0) grid->active_row = 0;
+    if (grid->active_col < 0) grid->active_col = 0;
+    if (grid->active_row >= grid->rows) grid->active_row = grid->rows - 1;
+    if (grid->active_col >= grid->cols) grid->active_col = grid->cols - 1;
+
     // Antirez-style minimal: simple row loop with fixed-height edits.
     const float row_h = 26.0f;
+
+    // Navigation request (applied after the loop to avoid fighting Nuklear layout)
+    int nav_dr = 0;
+    int nav_dc = 0;
+
+    // TAB moves right, ENTER moves down.
+    // We only act when the grid is focused (some widget inside is active).
+    // nk_input_is_key_pressed is edge-triggered.
+    if (nk_window_has_focus(ctx) || nk_item_is_any_active(ctx)) {
+        if (nk_input_is_key_pressed(&ctx->input, NK_KEY_TAB)) {
+            nav_dc = 1;
+        }
+        if (nk_input_is_key_pressed(&ctx->input, NK_KEY_ENTER)) {
+            nav_dr = 1;
+        }
+    }
 
     for (int r = 0; r < grid->rows; r++) {
         // sum widths for nk_layout_row_static is overrated; we layout each cell in a row
@@ -37,7 +63,22 @@ static void ui_render_grid_page(struct nk_context* ctx, AslanGrid* grid) {
             buf[sizeof(buf) - 1] = 0;
 
             // Render as editable field.
-            nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, buf, (int)sizeof(buf) - 1, nk_filter_default);
+            // If this is the active cell, request focus.
+            if (r == grid->active_row && c == grid->active_col) {
+                nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD|NK_EDIT_AUTO_SELECT, buf, (int)sizeof(buf) - 1, nk_filter_default);
+                // If it is now active, keep the model in sync.
+                if (nk_item_is_any_active(ctx)) {
+                    grid->active_row = r;
+                    grid->active_col = c;
+                }
+            } else {
+                nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, buf, (int)sizeof(buf) - 1, nk_filter_default);
+                // Click-to-focus: if this widget became active, record its coords.
+                if (nk_item_is_any_active(ctx)) {
+                    grid->active_row = r;
+                    grid->active_col = c;
+                }
+            }
 
             // Persist changes if the buffer differs from original.
             if (strcmp(buf, original) != 0) {
@@ -45,6 +86,25 @@ static void ui_render_grid_page(struct nk_context* ctx, AslanGrid* grid) {
             }
         }
         nk_layout_row_end(ctx);
+    }
+
+    // Apply navigation after rendering so focus moves cleanly.
+    if (nav_dr || nav_dc) {
+        int nr = grid->active_row + nav_dr;
+        int nc = grid->active_col + nav_dc;
+        if (nc >= grid->cols) {
+            nc = 0;
+            nr++;
+        }
+        if (nr >= grid->rows) nr = grid->rows - 1;
+        if (nr < 0) nr = 0;
+        if (nc < 0) nc = 0;
+
+        grid->active_row = nr;
+        grid->active_col = nc;
+
+        // Try to force next widget focus by removing current active state.
+        nk_edit_unfocus(ctx);
     }
 }
 

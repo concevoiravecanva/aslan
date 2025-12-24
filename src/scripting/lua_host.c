@@ -248,6 +248,36 @@ static int l_get_mouse_y(lua_State* L) {
     return 1;
 }
 
+// lua: grid_get("A1") -> string|nil
+// Reads from the active page if it is a GRID page.
+static int l_aslan_grid_get(lua_State* L) {
+    const char* addr = luaL_checkstring(L, 1);
+    if (!g_current_doc) return 0;
+
+    uint32_t pid = doc_page_active_id(g_current_doc);
+    // Find page slot by page_id
+    for (int i = 0; i < 32; i++) {
+        if (!g_current_doc->pages[i].in_use) continue;
+        if (g_current_doc->pages[i].page_id != pid) continue;
+        if (g_current_doc->pages[i].type != PAGE_TYPE_GRID) {
+            return 0;
+        }
+        AslanGrid* grid = g_current_doc->pages[i].grid;
+        if (!grid) return 0;
+
+        int r = 0, c = 0;
+        if (!grid_address_to_coords(addr, &r, &c)) return 0;
+        if (r < 0 || r >= grid->rows) return 0;
+        if (c < 0 || c >= grid->cols) return 0;
+
+        const char* v = (grid->data[r] && grid->data[r][c]) ? grid->data[r][c] : NULL;
+        if (!v || !v[0]) return 0;
+        lua_pushstring(L, v);
+        return 1;
+    }
+    return 0;
+}
+
 // Enregistrement des fonctions
 static const struct luaL_Reg aslan_lib[] = {
     {"execute", l_execute},
@@ -264,6 +294,7 @@ static const struct luaL_Reg aslan_lib[] = {
     {"set_page_meta", l_set_page_meta},
     {"get_mouse_x", l_get_mouse_x},
     {"get_mouse_y", l_get_mouse_y},
+    {"grid_get", l_aslan_grid_get},
     {"log", l_log_info},
     {NULL, NULL}
 };

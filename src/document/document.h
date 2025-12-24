@@ -6,6 +6,10 @@
 #include <stddef.h>
 #include <stdio.h> // FILE
 
+// Keep Nuklear types out of the core document API.
+// Grid autosizing uses the Nuklear font interface, but we pass it as an opaque pointer here
+// to avoid pulling Nuklear headers into all translation units.
+
 // Forward decl to avoid pulling SDL into core headers.
 // SDL defines SDL_Event as a union typedef.
 union SDL_Event;
@@ -69,11 +73,24 @@ typedef struct {
 
     // Per-column width in pixels (UI hint; owned by the grid).
     int* col_widths;
+
+    // --- UI state (not persisted) ---
+    // Currently focused/editing cell (0-based). Use -1 when no cell is active.
+    int active_row;
+    int active_col;
 } AslanGrid;
 
 AslanGrid* grid_create(int r, int c);
 void grid_destroy(AslanGrid* grid);
 void grid_set_cell(AslanGrid* grid, int r, int c, const char* text);
+
+// Auto-size: compute per-column widths from content (pixels).
+// `font` should be a Nuklear font (e.g. JetBrains Mono) so width measurement matches rendering.
+void grid_compute_column_widths(AslanGrid* grid, const void* font);
+
+// Excel-style address helper: "A1" -> (0,0), "B3" -> (2,1). Columns A-Z only for now.
+// Returns 1 on success, 0 on parse error.
+int grid_address_to_coords(const char* address, int* out_r, int* out_c);
 
 // Notes pillar #1: insertion with dynamic array growth
 void note_insert_line(AslanNoteDoc* doc, int row_idx, const char* text);
