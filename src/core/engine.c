@@ -128,6 +128,7 @@ static bool is_mutating_command_line(const char* line) {
             strncmp(l, "create_rect ", 12) == 0 ||
             strncmp(l, "set_rect ", 9) == 0 ||
             strncmp(l, "create_text ", 12) == 0 ||
+            strncmp(l, "set_text ", 9) == 0 ||
             strncmp(l, "page_select ", 12) == 0 ||
             strncmp(l, "page_type ", 10) == 0 ||
             // NOTE: `page_meta` is treated as view/camera state for option B:
@@ -913,6 +914,63 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
             node->x = x;
             node->y = y;
             success = true;
+        }
+    }
+
+    // Commande: set_text <id> "content"
+    else if (strncmp(command_line, "set_text ", 9) == 0) {
+        const char* p = command_line + 9;
+        while (*p == ' ' || *p == '\t') p++;
+        
+        if (sscanf(p, "%d", &id) == 1) {
+            // Skip past the id
+            while (*p && (*p >= '0' && *p <= '9')) p++;
+            while (*p == ' ' || *p == '\t') p++;
+            
+            // Extract quoted content
+            char content[1024];
+            content[0] = 0;
+            if (*p == '"') {
+                p++;
+                size_t wi = 0;
+                while (*p && wi + 1 < sizeof(content)) {
+                    if (*p == '\\' && *(p+1) == '"') {
+                        // Unescape \"
+                        content[wi++] = '"';
+                        p += 2;
+                    } else if (*p == '"') {
+                        break;
+                    } else {
+                        content[wi++] = *p++;
+                    }
+                }
+                content[wi] = 0;
+            }
+            
+            Node* node = doc_find_node_by_id(engine->doc, (uint32_t)id);
+            if (node && node->type == NODE_TYPE_TEXT) {
+                strncpy(node->text, content, sizeof(node->text) - 1);
+                node->text[sizeof(node->text) - 1] = 0;
+                success = true;
+                
+                // Log to history
+                if (engine->history_file) {
+                    char canonical[1100];
+                    // Re-escape quotes for AOF
+                    char escaped[1024];
+                    int j = 0;
+                    for (int i = 0; content[i] && j < (int)sizeof(escaped) - 2; i++) {
+                        if (content[i] == '"') {
+                            escaped[j++] = '\\';
+                        }
+                        escaped[j++] = content[i];
+                    }
+                    escaped[j] = '\0';
+                    snprintf(canonical, sizeof(canonical), "set_text %u \"%s\"", (unsigned)node->id, escaped);
+                    fprintf(engine->history_file, "%s\n", canonical);
+                    fflush(engine->history_file);
+                }
+            }
         }
     }
 

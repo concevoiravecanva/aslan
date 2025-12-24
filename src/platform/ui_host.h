@@ -76,6 +76,17 @@ typedef struct UIHost {
     int snap_step_edit;
     int grid_step_edit;
     int snap_grid_steps_inited;
+
+    // Text editor state for TEXT nodes
+    char text_edit_buf[2048];
+    int text_edit_inited;
+
+    // In-situ text editing (Approach #2)
+    uint32_t editing_node_id;      // 0 = none
+    char inline_edit_buf[2048];
+    int inline_edit_inited;
+    int inline_edit_wants_focus;
+    int inline_edit_dirty;
 } UIHost;
 
 UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L);

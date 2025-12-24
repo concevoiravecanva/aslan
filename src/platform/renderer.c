@@ -206,24 +206,8 @@ static void draw_node_recursive(Renderer* r, Node* node, float vx, float vy, flo
     }
 
     if (node->type == NODE_TYPE_TEXT) {
-        SDL_FRect wrect = { node->x, node->y, node->width, node->height };
-        SDL_Rect rect;
-        world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
-
-        // Background (dark)
-        SDL_SetRenderDrawColor(r->sdl_renderer, 20, 20, 20, 180);
-        SDL_RenderFillRect(r->sdl_renderer, &rect);
-
-        // Border (yellow)
-        SDL_SetRenderDrawColor(r->sdl_renderer, 240, 200, 0, 255);
-        SDL_RenderDrawRect(r->sdl_renderer, &rect);
-
-        // Placeholder marker.
-        // NOTE: next step is to draw glyphs via a supported Nuklear overlay window approach.
-        SDL_Rect marker = { rect.x + 6, rect.y + 6, 10, 10 };
-        SDL_RenderDrawRect(r->sdl_renderer, &marker);
-
-        (void)nk_ctx;
+        // Text is rendered in ui_render() (Nuklear overlay pass) to reuse the font atlas
+        // without requiring a current Nuklear window during the SDL renderer pass.
     }
 
     draw_node_recursive(r, node->first_child, vx, vy, vz, nk_ctx);

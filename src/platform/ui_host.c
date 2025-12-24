@@ -301,6 +301,14 @@ void ui_handle_event(UIHost* ui, SDL_Event* evt) {
 }
 
 void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
+    // Track selection changes so we can reset inspector edit buffers (e.g., text)
+    static uint32_t last_selected_id = 0;
+    uint32_t cur_selected_id = (ui && ui->selected_node) ? ui->selected_node->id : 0;
+    if (cur_selected_id != last_selected_id) {
+        ui->text_edit_inited = 0;
+        last_selected_id = cur_selected_id;
+    }
+
     // Theme for Inspector UI only (read from globals)
     const char* theme = (engine && engine->doc) ? doc_get_global(engine->doc, "theme") : NULL;
     if (theme && strcmp(theme, "dark") == 0) ui_apply_theme_dark(ui->ctx);
@@ -836,12 +844,174 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             nk_property_float(ui->ctx, "#W:", 0, &n->width, 2000, 1.0f, 1.0f);
             nk_property_float(ui->ctx, "#H:", 0, &n->height, 2000, 1.0f, 1.0f);
 
+            // Text editor for TEXT nodes
+            if (n->type == NODE_TYPE_TEXT) {
+                // Initialize text buffer once per selection (and keep user edits while selected)
+                if (!ui->text_edit_inited) {
+                    snprintf(ui->text_edit_buf, sizeof(ui->text_edit_buf), "%s", n->text);
+                    ui->text_edit_inited = 1;
+                }
+
+                nk_layout_row_dynamic(ui->ctx, 10, 1);
+                nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
+
+                nk_layout_row_dynamic(ui->ctx, 20, 1);
+                nk_label(ui->ctx, "Text Content", NK_TEXT_LEFT);
+
+                nk_layout_row_dynamic(ui->ctx, 120, 1);
+                nk_edit_string_zero_terminated(ui->ctx, NK_EDIT_BOX, ui->text_edit_buf, 
+                    (int)sizeof(ui->text_edit_buf) - 1, nk_filter_default);
+
+                nk_layout_row_dynamic(ui->ctx, 32, 1);
+                if (nk_button_label(ui->ctx, "Apply Text")) {
+                    char cmd[2200];
+                    // Escape quotes in text
+                    char escaped[2100];
+                    int j = 0;
+                    for (int i = 0; ui->text_edit_buf[i] && j < (int)sizeof(escaped) - 2; i++) {
+                        if (ui->text_edit_buf[i] == '"') {
+                            escaped[j++] = '\\';
+                        }
+                        escaped[j++] = ui->text_edit_buf[i];
+                    }
+                    escaped[j] = '\0';
+                    snprintf(cmd, sizeof(cmd), "set_text %u \"%s\"", (unsigned)n->id, escaped);
+                    engine_execute_command(engine, cmd);
+                    snprintf(ui->status, sizeof(ui->status), "Text updated");
+                }
+            }
+
         } else {
             nk_layout_row_dynamic(ui->ctx, 30, 1);
             nk_label(ui->ctx, "No selection", NK_TEXT_CENTERED);
+            ui->text_edit_inited = 0;
         }
     }
     nk_end(ui->ctx);
+
+    // Inline (in-situ) text editing overlay
+    // Contract:
+    // - Activated by UI (double-click hook will set ui->editing_node_id).
+    // - While active, we show an edit box right on top of the text node.
+    // - Enter commits, Esc cancels.
+    // - Click outside commits (handled by losing active state + dirty flag).
+    if (engine && engine->doc && ui->editing_node_id) {
+        Node* n = doc_find_node_by_id(engine->doc, ui->editing_node_id);
+        if (!n || n->type != NODE_TYPE_TEXT) {
+            ui->editing_node_id = 0;
+            ui->inline_edit_inited = 0;
+            ui->inline_edit_dirty = 0;
+        } else {
+            // Initialize buffer on entry
+            if (!ui->inline_edit_inited) {
+                snprintf(ui->inline_edit_buf, sizeof(ui->inline_edit_buf), "%s", n->text);
+                ui->inline_edit_inited = 1;
+                ui->inline_edit_wants_focus = 1;
+                ui->inline_edit_dirty = 0;
+            }
+
+            // World -> screen (match logical 1024x768 center like main.c)
+            float vx = 0.0f, vy = 0.0f, vz = 1.0f;
+            uint32_t pid = doc_page_active_id(engine->doc);
+            for (int pi = 0; pi < 32; pi++) {
+                if (engine->doc->pages[pi].in_use && engine->doc->pages[pi].page_id == pid) {
+                    vx = engine->doc->pages[pi].view_x;
+                    vy = engine->doc->pages[pi].view_y;
+                    vz = (engine->doc->pages[pi].view_zoom != 0.0f) ? engine->doc->pages[pi].view_zoom : 1.0f;
+                    break;
+                }
+            }
+            float cx = 1024.0f * 0.5f;
+            float cy = 768.0f * 0.5f;
+            float sx = (n->x - vx) * vz + cx;
+            float sy = (n->y - vy) * vz + cy;
+            float sw = n->width * vz;
+            float sh = n->height * vz;
+            if (sw < 40) sw = 40;
+            if (sh < 26) sh = 26;
+
+            // Antirez-style: minimal chrome.
+            struct nk_style_window old_w = ui->ctx->style.window;
+            struct nk_style_edit old_e = ui->ctx->style.edit;
+
+            ui->ctx->style.window.background = nk_rgba(0, 0, 0, 0);
+            ui->ctx->style.window.fixed_background = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+            ui->ctx->style.window.border = 0;
+            ui->ctx->style.window.rounding = 0;
+            ui->ctx->style.window.padding = nk_vec2(0, 0);
+            ui->ctx->style.window.group_padding = nk_vec2(0, 0);
+
+            // Edit style: subtle underline-ish border
+            ui->ctx->style.edit.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+            ui->ctx->style.edit.hover = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+            ui->ctx->style.edit.active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+            ui->ctx->style.edit.border = 1;
+            ui->ctx->style.edit.rounding = 0;
+            ui->ctx->style.edit.border_color = nk_rgb(0, 120, 215);
+            ui->ctx->style.edit.cursor_normal = nk_rgb(235, 235, 235);
+            ui->ctx->style.edit.cursor_hover = nk_rgb(235, 235, 235);
+            ui->ctx->style.edit.text_normal = nk_rgb(235, 235, 235);
+            ui->ctx->style.edit.text_hover = nk_rgb(235, 235, 235);
+            ui->ctx->style.edit.text_active = nk_rgb(235, 235, 235);
+            ui->ctx->style.edit.padding = nk_vec2(6, 6);
+
+            if (nk_begin(ui->ctx, "_inline_text_edit", nk_rect(sx, sy, sw, sh),
+                         NK_WINDOW_NO_SCROLLBAR|
+                         NK_WINDOW_BACKGROUND)) {
+                nk_layout_row_dynamic(ui->ctx, sh, 1);
+
+                if (ui->inline_edit_wants_focus) {
+                    // Give focus to this widget this frame.
+                    nk_edit_focus(ui->ctx, NK_EDIT_ALWAYS_INSERT_MODE);
+                    ui->inline_edit_wants_focus = 0;
+                }
+
+                int before_len = (int)strlen(ui->inline_edit_buf);
+                nk_flags fl = NK_EDIT_BOX | NK_EDIT_SELECTABLE | NK_EDIT_AUTO_SELECT;
+                nk_edit_string_zero_terminated(ui->ctx, fl, ui->inline_edit_buf,
+                    (int)sizeof(ui->inline_edit_buf) - 1, nk_filter_default);
+                int after_len = (int)strlen(ui->inline_edit_buf);
+                if (after_len != before_len) ui->inline_edit_dirty = 1;
+
+                // Commit/cancel shortcuts
+                if (nk_input_is_key_pressed(&ui->ctx->input, NK_KEY_ENTER)) {
+                    ui->inline_edit_dirty = 1; // commit even if unchanged (idempotent)
+                    // commit below after nk_end
+                    ui->editing_node_id = ui->editing_node_id; // keep
+                }
+                // Nuklear doesn't expose a dedicated ESC key in its key enum.
+                // We use NK_KEY_TEXT_RESET_MODE as a "cancel" shortcut.
+                if (nk_input_is_key_pressed(&ui->ctx->input, NK_KEY_TEXT_RESET_MODE)) {
+                    // Cancel
+                    ui->editing_node_id = 0;
+                    ui->inline_edit_inited = 0;
+                    ui->inline_edit_dirty = 0;
+                }
+            }
+            nk_end(ui->ctx);
+
+            // If we are still editing and Enter was pressed, commit now.
+            if (ui->editing_node_id && nk_input_is_key_pressed(&ui->ctx->input, NK_KEY_ENTER)) {
+                char cmd[2200];
+                char escaped[2100];
+                int j = 0;
+                for (int i = 0; ui->inline_edit_buf[i] && j < (int)sizeof(escaped) - 2; i++) {
+                    if (ui->inline_edit_buf[i] == '"') escaped[j++] = '\\';
+                    escaped[j++] = ui->inline_edit_buf[i];
+                }
+                escaped[j] = '\0';
+                snprintf(cmd, sizeof(cmd), "set_text %u \"%s\"", (unsigned)n->id, escaped);
+                engine_execute_command(engine, cmd);
+                ui->editing_node_id = 0;
+                ui->inline_edit_inited = 0;
+                ui->inline_edit_dirty = 0;
+                snprintf(ui->status, sizeof(ui->status), "Text updated");
+            }
+
+            ui->ctx->style.window = old_w;
+            ui->ctx->style.edit = old_e;
+        }
+    }
 
     // Bottom Pages bar (Editor)
     {
@@ -1105,6 +1275,53 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             }
         }
         nk_end(ui->ctx);
+    }
+
+    // Draw TEXT nodes into Nuklear's overlay command buffer.
+    // This doesn't create a window, so it won't interfere with input routing.
+    if (engine && engine->doc && engine->doc->root && ui->ctx->style.font) {
+        // Get viewport transform
+        float vx = 0.0f, vy = 0.0f, vz = 1.0f;
+        uint32_t pid = doc_page_active_id(engine->doc);
+        for (int pi = 0; pi < 32; pi++) {
+            if (engine->doc->pages[pi].in_use && engine->doc->pages[pi].page_id == pid) {
+                vx = engine->doc->pages[pi].view_x;
+                vy = engine->doc->pages[pi].view_y;
+                vz = (engine->doc->pages[pi].view_zoom != 0.0f) ? engine->doc->pages[pi].view_zoom : 1.0f;
+                break;
+            }
+        }
+        float cx = 1024.0f * 0.5f;
+        float cy = 768.0f * 0.5f;
+
+        // Initialize and start the overlay buffer
+        nk_command_buffer_init(&ui->ctx->overlay, &ui->ctx->memory, NK_CLIPPING_OFF);
+        nk_start_buffer(ui->ctx, &ui->ctx->overlay);
+
+        struct nk_color col = nk_rgb(235, 235, 235);
+
+        for (Node* n = engine->doc->root->first_child; n; n = n->next_sibling) {
+            if (!n->visible) continue;
+            if (n->type != NODE_TYPE_TEXT) continue;
+
+            float sx = (n->x - vx) * vz + cx;
+            float sy = (n->y - vy) * vz + cy;
+            float sw = n->width * vz;
+            float sh = n->height * vz;
+            if (sw < 1) sw = 1;
+            if (sh < 1) sh = 1;
+
+            const char* txt = (n->text[0] ? n->text : "Text");
+            nk_draw_text(&ui->ctx->overlay,
+                         nk_rect(sx + 6.0f, sy + 6.0f, sw - 12.0f, sh - 12.0f),
+                         txt,
+                         (int)strlen(txt),
+                         ui->ctx->style.font,
+                         nk_rgba(0, 0, 0, 0),
+                         col);
+        }
+
+        nk_finish_buffer(ui->ctx, &ui->ctx->overlay);
     }
 
     nk_sdl_render(NK_ANTI_ALIASING_ON);

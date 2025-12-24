@@ -67,6 +67,13 @@ void run_interactive_mode(Engine* engine) {
 // Boucle principale visuelle
 void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
     SDL_Event e;
+
+    // Double-click detection (Antirez-style: small, local state)
+    static uint32_t last_click_ms = 0;
+    static float last_click_world_x = 0.0f;
+    static float last_click_world_y = 0.0f;
+    const uint32_t dbl_click_ms = 350;
+    const float dbl_click_dist = 6.0f; // world units (good enough at typical zooms)
     
     while (engine->is_running) {
         // 1. Gestion des événements (Input)
@@ -88,7 +95,9 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
             
             ui_handle_event(ui, &e);
             
-            if (!nk_item_is_any_active(ui->ctx)) {
+            // While an inline text editor is active, don't forward mouse events to Lua tools.
+            // This keeps the edit widget stable and avoids accidental drags.
+            if (!nk_item_is_any_active(ui->ctx) && (!ui || ui->editing_node_id == 0)) {
                 int imx, imy;
                 SDL_GetMouseState(&imx, &imy);
                 float mx = (float)imx;
@@ -121,6 +130,25 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                 }
 
                 if (e.type == SDL_MOUSEBUTTONDOWN) {
+                    // Double-click: if we clicked twice quickly in roughly the same spot,
+                    // and a TEXT node is already selected, enter inline edit mode.
+                    if (e.button.button == SDL_BUTTON_LEFT && ui && ui->selected_node && ui->selected_node->type == NODE_TYPE_TEXT) {
+                        uint32_t now = SDL_GetTicks();
+                        float dx = world_x - last_click_world_x;
+                        float dy = world_y - last_click_world_y;
+                        float d2 = dx*dx + dy*dy;
+                        if (last_click_ms && (now - last_click_ms) <= dbl_click_ms && d2 <= (dbl_click_dist * dbl_click_dist)) {
+                            ui->editing_node_id = ui->selected_node->id;
+                            ui->inline_edit_inited = 0;
+                            ui->inline_edit_wants_focus = 1;
+                            // Reset click state so triple-click doesn't retrigger
+                            last_click_ms = 0;
+                        } else {
+                            last_click_ms = now;
+                            last_click_world_x = world_x;
+                            last_click_world_y = world_y;
+                        }
+                    }
                     scripting_call_event(ui->L, "on_mouse_down", world_x, world_y);
                 }
                 else if (e.type == SDL_MOUSEBUTTONUP) {
