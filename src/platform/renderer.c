@@ -214,6 +214,65 @@ static void draw_node_recursive(Renderer* r, Node* node, float vx, float vy, flo
     draw_node_recursive(r, node->next_sibling, vx, vy, vz, nk_ctx);
 }
 
+static void renderer_draw_note_doc(Renderer* r, const Document* doc, int page_index) {
+    if (!r || !doc) return;
+    if (page_index < 0 || page_index >= 32) return;
+
+    const AslanNoteDoc* nd = doc->pages[page_index].note;
+    if (!nd) return;
+
+    // Notes are a TOP-TO-BOTTOM document (Notion-like), NOT a pan/zoom canvas.
+    // So we draw in SCREEN space and ignore viewport.* entirely.
+
+    // Antirez-style v1: fixed line height, no font metrics yet.
+    const float line_h = 22.0f;
+    const float pad_x = 80.0f;
+    const float top_y = 80.0f;
+    const float w = (float)r->width - pad_x * 2.0f;
+    const float scroll_y = (nd->scroll_y > 0.0f) ? nd->scroll_y : 0.0f;
+
+    // Draw a subtle paper panel so it's obvious this is an editor area.
+    SDL_Rect paper = { (int)pad_x, (int)(top_y - 24.0f), (int)w, r->height - (int)(top_y - 24.0f) };
+    SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 14);
+    SDL_RenderFillRect(r->sdl_renderer, &paper);
+    SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 26);
+    SDL_RenderDrawRect(r->sdl_renderer, &paper);
+
+    for (int i = 0; i < nd->row_count; i++) {
+    SDL_Rect srect;
+    srect.x = (int)pad_x;
+    srect.y = (int)(top_y + (float)i * line_h - scroll_y);
+    srect.w = (int)w;
+    srect.h = (int)(line_h - 2.0f);
+
+        // Background strip
+        SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 24);
+        SDL_RenderFillRect(r->sdl_renderer, &srect);
+
+        // Cursor highlight
+        if (i == nd->cursor_row) {
+            SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 60);
+            SDL_RenderFillRect(r->sdl_renderer, &srect);
+        }
+
+        // Left gutter
+        SDL_Rect gutter = { srect.x - 10, srect.y, 6, srect.h };
+        SDL_SetRenderDrawColor(r->sdl_renderer, 90, 180, 255, (i == nd->cursor_row) ? 200 : 120);
+        SDL_RenderFillRect(r->sdl_renderer, &gutter);
+
+    }
+
+    // Caret (v1): fixed-width estimate.
+    if (nd->cursor_row >= 0 && nd->cursor_row < nd->row_count) {
+        float char_w = 8.0f;
+        int caret_x = (int)(pad_x + 6.0f + (float)nd->cursor_col * char_w);
+        int caret_y = (int)(top_y + (float)nd->cursor_row * line_h - scroll_y + 3.0f);
+        SDL_Rect caret = { caret_x, caret_y, 2, (int)(line_h - 6.0f) };
+        SDL_SetRenderDrawColor(r->sdl_renderer, 90, 180, 255, 255);
+        SDL_RenderFillRect(r->sdl_renderer, &caret);
+    }
+}
+
 void renderer_draw_document(Renderer* r, const Document* doc, struct nk_context* nk_ctx) {
     if (!doc || !doc->root) return;
     
@@ -222,18 +281,29 @@ void renderer_draw_document(Renderer* r, const Document* doc, struct nk_context*
     
     renderer_draw_grid(r, doc);
 
-    // Apply active page viewport for drawing nodes.
-    float vx = 0.0f, vy = 0.0f, vz = 1.0f;
+    // Active page index
+    int pidx = -1;
     uint32_t active_id = doc_page_active_id(doc);
     for (int i = 0; i < 32; i++) {
         if (doc->pages[i].in_use && doc->pages[i].page_id == active_id) {
-            vx = doc->pages[i].view_x;
-            vy = doc->pages[i].view_y;
-            vz = (doc->pages[i].view_zoom != 0.0f) ? doc->pages[i].view_zoom : 1.0f;
+            pidx = i;
             break;
         }
     }
 
+    // Special renderer mode for Notes pages.
+    if (pidx >= 0 && doc->pages[pidx].type == PAGE_TYPE_NOTE) {
+        renderer_draw_note_doc(r, doc, pidx);
+        return;
+    }
+
+    // Otherwise: draw the normal canvas node tree.
+    float vx = 0.0f, vy = 0.0f, vz = 1.0f;
+    if (pidx >= 0) {
+        vx = doc->pages[pidx].view_x;
+        vy = doc->pages[pidx].view_y;
+        vz = (doc->pages[pidx].view_zoom != 0.0f) ? doc->pages[pidx].view_zoom : 1.0f;
+    }
     draw_node_recursive(r, doc->root, vx, vy, vz, nk_ctx);
 }
 

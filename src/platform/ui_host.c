@@ -1277,17 +1277,21 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
         nk_end(ui->ctx);
     }
 
-    // Draw TEXT nodes into Nuklear's overlay command buffer.
+    // Draw TEXT nodes + NOTE pages into Nuklear's overlay command buffer.
     // This doesn't create a window, so it won't interfere with input routing.
     if (engine && engine->doc && engine->doc->root && ui->ctx->style.font) {
         // Get viewport transform
         float vx = 0.0f, vy = 0.0f, vz = 1.0f;
         uint32_t pid = doc_page_active_id(engine->doc);
+        PageType active_pt = PAGE_TYPE_SPACE;
+        AslanNoteDoc* active_note = NULL;
         for (int pi = 0; pi < 32; pi++) {
             if (engine->doc->pages[pi].in_use && engine->doc->pages[pi].page_id == pid) {
                 vx = engine->doc->pages[pi].view_x;
                 vy = engine->doc->pages[pi].view_y;
                 vz = (engine->doc->pages[pi].view_zoom != 0.0f) ? engine->doc->pages[pi].view_zoom : 1.0f;
+                active_pt = engine->doc->pages[pi].type;
+                active_note = engine->doc->pages[pi].note;
                 break;
             }
         }
@@ -1299,6 +1303,28 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
         nk_start_buffer(ui->ctx, &ui->ctx->overlay);
 
         struct nk_color col = nk_rgb(235, 235, 235);
+
+        // NOTE page overlay: render each line in a top-to-bottom document layout.
+        // v1: fixed line height + fixed padding; scroll will come next.
+        if (active_pt == PAGE_TYPE_NOTE && active_note && active_note->row_count > 0) {
+            const float line_h = 22.0f;
+            const float pad_x = 80.0f;
+            const float top_y = 80.0f;
+            const float w = (float)win_w - pad_x * 2.0f;
+            const float scroll_y = (active_note->scroll_y > 0.0f) ? active_note->scroll_y : 0.0f;
+            struct nk_color txt_col = nk_rgb(0, 0, 0);
+
+            for (int i = 0; i < active_note->row_count; i++) {
+                const char* t = (active_note->rows[i].chars ? active_note->rows[i].chars : "");
+                nk_draw_text(&ui->ctx->overlay,
+                             nk_rect(pad_x + 6.0f, top_y + (float)i * line_h + 3.0f - scroll_y, w - 12.0f, line_h),
+                             t,
+                             (int)strlen(t),
+                             ui->ctx->style.font,
+                             nk_rgba(0, 0, 0, 0),
+                             txt_col);
+            }
+        }
 
         for (Node* n = engine->doc->root->first_child; n; n = n->next_sibling) {
             if (!n->visible) continue;

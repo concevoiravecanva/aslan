@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <ctype.h>
+
+#include <SDL2/SDL.h>
 
 static int global_find_index(const Document* doc, const char* key) {
     if (!doc || !key || !key[0]) return -1;
@@ -121,10 +124,270 @@ static void free_node_recursive(Node* node) {
     free(node);
 }
 
+// =========================
+// Notes (v1)
+// =========================
+
+static void note_row_set_text(AslanRow* r, const char* text) {
+    if (!r) return;
+    if (!text) text = "";
+
+    size_t n = strlen(text);
+    if (n + 1 > r->cap) {
+        size_t new_cap = r->cap ? r->cap : 32;
+        while (new_cap < n + 1) new_cap *= 2;
+        char* new_chars = (char*)realloc(r->chars, new_cap);
+        if (!new_chars) return;
+        r->chars = new_chars;
+        r->cap = new_cap;
+    }
+    memcpy(r->chars, text, n);
+    r->chars[n] = '\0';
+    r->len = n;
+}
+
+static void note_row_insert_char(AslanRow* r, int at, char c) {
+    if (!r) return;
+    if (at < 0) at = 0;
+    if ((size_t)at > r->len) at = (int)r->len;
+
+    if (r->len + 2 > r->cap) {
+        size_t new_cap = r->cap ? r->cap : 32;
+        while (new_cap < r->len + 2) new_cap *= 2;
+        char* new_chars = (char*)realloc(r->chars, new_cap);
+        if (!new_chars) return;
+        r->chars = new_chars;
+        r->cap = new_cap;
+    }
+
+    memmove(r->chars + at + 1, r->chars + at, (r->len - (size_t)at) + 1);
+    r->chars[at] = c;
+    r->len++;
+}
+
+static void note_row_delete_char(AslanRow* r, int at) {
+    if (!r) return;
+    if (r->len == 0) return;
+    if (at <= 0) return;
+    if ((size_t)at > r->len) at = (int)r->len;
+
+    size_t idx = (size_t)at - 1;
+    memmove(r->chars + idx, r->chars + idx + 1, (r->len - idx));
+    r->len--;
+}
+
+void note_insert_line(AslanNoteDoc* doc, int row_idx, const char* text) {
+    if (!doc) return;
+    if (row_idx < 0) row_idx = 0;
+    if (row_idx > doc->row_count) row_idx = doc->row_count;
+
+    if (doc->row_count + 1 > doc->row_cap) {
+        int new_cap = doc->row_cap ? doc->row_cap * 2 : 16;
+        while (new_cap < doc->row_count + 1) new_cap *= 2;
+        AslanRow* new_rows = (AslanRow*)realloc(doc->rows, (size_t)new_cap * sizeof(AslanRow));
+        if (!new_rows) return;
+        doc->rows = new_rows;
+        doc->row_cap = new_cap;
+    }
+
+    if (row_idx < doc->row_count) {
+        memmove(&doc->rows[row_idx + 1], &doc->rows[row_idx], (size_t)(doc->row_count - row_idx) * sizeof(AslanRow));
+    }
+
+    AslanRow* r = &doc->rows[row_idx];
+    memset(r, 0, sizeof(*r));
+    r->type = ASLAN_ROW_TEXT;
+    note_row_set_text(r, text);
+
+    doc->row_count++;
+    if (doc->cursor_row >= row_idx) doc->cursor_row++;
+}
+
+static void note_doc_clamp_cursor(AslanNoteDoc* doc) {
+    if (!doc) return;
+    if (doc->row_count <= 0) {
+        doc->cursor_row = 0;
+        doc->cursor_col = 0;
+        return;
+    }
+
+    if (doc->cursor_row < 0) doc->cursor_row = 0;
+    if (doc->cursor_row >= doc->row_count) doc->cursor_row = doc->row_count - 1;
+
+    int max_col = (int)doc->rows[doc->cursor_row].len;
+    if (doc->cursor_col < 0) doc->cursor_col = 0;
+    if (doc->cursor_col > max_col) doc->cursor_col = max_col;
+}
+
+static void note_doc_insert_newline(AslanNoteDoc* doc) {
+    if (!doc) return;
+    if (doc->row_count == 0) {
+        note_insert_line(doc, 0, "");
+        doc->cursor_row = 0;
+        doc->cursor_col = 0;
+        return;
+    }
+
+    note_doc_clamp_cursor(doc);
+    AslanRow* r = &doc->rows[doc->cursor_row];
+    int at = doc->cursor_col;
+    if (at < 0) at = 0;
+    if ((size_t)at > r->len) at = (int)r->len;
+
+    const char* tail = r->chars ? (r->chars + at) : "";
+    note_insert_line(doc, doc->cursor_row + 1, tail);
+    if (r->chars) r->chars[at] = '\0';
+    r->len = (size_t)at;
+
+    doc->cursor_row++;
+    doc->cursor_col = 0;
+}
+
+static void note_doc_join_with_previous_line(AslanNoteDoc* doc) {
+    if (!doc) return;
+    note_doc_clamp_cursor(doc);
+    if (doc->cursor_row <= 0) return;
+    if (doc->cursor_row >= doc->row_count) return;
+
+    int cur = doc->cursor_row;
+    int prev = cur - 1;
+    AslanRow* rprev = &doc->rows[prev];
+    AslanRow* rcur = &doc->rows[cur];
+
+    size_t prev_len = rprev->len;
+    size_t cur_len = rcur->len;
+
+    // Ensure previous line has room
+    if (prev_len + cur_len + 1 > rprev->cap) {
+        size_t new_cap = rprev->cap ? rprev->cap : 32;
+        while (new_cap < prev_len + cur_len + 1) new_cap *= 2;
+        char* new_chars = (char*)realloc(rprev->chars, new_cap);
+        if (!new_chars) return;
+        rprev->chars = new_chars;
+        rprev->cap = new_cap;
+    }
+
+    if (cur_len && rcur->chars) {
+        memcpy(rprev->chars + prev_len, rcur->chars, cur_len);
+        rprev->len = prev_len + cur_len;
+        rprev->chars[rprev->len] = '\0';
+    }
+
+    // Delete current line
+    free(rcur->chars);
+    rcur->chars = NULL;
+    rcur->len = 0;
+    rcur->cap = 0;
+
+    if (cur < doc->row_count - 1) {
+        memmove(&doc->rows[cur], &doc->rows[cur + 1], (size_t)(doc->row_count - cur - 1) * sizeof(AslanRow));
+    }
+    doc->row_count--;
+
+    doc->cursor_row = prev;
+    doc->cursor_col = (int)prev_len;
+    note_doc_clamp_cursor(doc);
+}
+
+int note_handle_input(AslanNoteDoc* doc, const SDL_Event* ev) {
+    if (!doc || !ev) return 0;
+
+    if (doc->row_count == 0) {
+        note_insert_line(doc, 0, "");
+        doc->cursor_row = 0;
+        doc->cursor_col = 0;
+    }
+
+    switch (ev->type) {
+        case SDL_KEYDOWN: {
+            SDL_Keycode sym = ev->key.keysym.sym;
+            switch (sym) {
+                case SDLK_UP:
+                    doc->cursor_row--;
+                    note_doc_clamp_cursor(doc);
+                    return 1;
+                case SDLK_DOWN:
+                    doc->cursor_row++;
+                    note_doc_clamp_cursor(doc);
+                    return 1;
+                case SDLK_LEFT:
+                    doc->cursor_col--;
+                    note_doc_clamp_cursor(doc);
+                    return 1;
+                case SDLK_RIGHT:
+                    doc->cursor_col++;
+                    note_doc_clamp_cursor(doc);
+                    return 1;
+                case SDLK_HOME:
+                    doc->cursor_col = 0;
+                    note_doc_clamp_cursor(doc);
+                    return 1;
+                case SDLK_END:
+                    note_doc_clamp_cursor(doc);
+                    doc->cursor_col = (int)doc->rows[doc->cursor_row].len;
+                    return 1;
+                case SDLK_RETURN:
+                case SDLK_KP_ENTER:
+                    note_doc_insert_newline(doc);
+                    return 1;
+                case SDLK_BACKSPACE: {
+                    note_doc_clamp_cursor(doc);
+                    AslanRow* r = &doc->rows[doc->cursor_row];
+                    if (doc->cursor_col > 0) {
+                        note_row_delete_char(r, doc->cursor_col);
+                        doc->cursor_col--;
+                    } else {
+                        // Join with previous line when at beginning.
+                        note_doc_join_with_previous_line(doc);
+                    }
+                    return 1;
+                }
+                default:
+                    break;
+            }
+            break;
+        }
+        case SDL_TEXTINPUT: {
+            note_doc_clamp_cursor(doc);
+            AslanRow* r = &doc->rows[doc->cursor_row];
+            const char* s = ev->text.text;
+            for (int i = 0; s[i]; i++) {
+                unsigned char ch = (unsigned char)s[i];
+                if (ch == '\n' || ch == '\r') continue;
+                if (!isprint(ch) && ch != '\t') continue;
+                note_row_insert_char(r, doc->cursor_col, (char)ch);
+                doc->cursor_col++;
+            }
+            return 1;
+        }
+        default:
+            break;
+    }
+
+    return 0;
+}
+
 void doc_destroy(Document* doc) {
     if (!doc) return;
     // Free all page roots
     for (int i = 0; i < (int)(sizeof(doc->pages) / sizeof(doc->pages[0])); i++) {
+        // Free page-owned note payload
+        if (doc->pages[i].in_use && doc->pages[i].note) {
+            AslanNoteDoc* nd = doc->pages[i].note;
+            for (int r = 0; r < nd->row_count; r++) {
+                free(nd->rows[r].chars);
+                nd->rows[r].chars = NULL;
+                nd->rows[r].len = 0;
+                nd->rows[r].cap = 0;
+            }
+            free(nd->rows);
+            nd->rows = NULL;
+            nd->row_count = 0;
+            nd->row_cap = 0;
+            free(nd);
+            doc->pages[i].note = NULL;
+        }
+
         if (doc->pages[i].in_use && doc->pages[i].root) {
             free_node_recursive(doc->pages[i].root);
             doc->pages[i].root = NULL;
@@ -171,6 +434,7 @@ static uint32_t doc_page_create_internal(Document* doc, uint32_t forced_page_id,
         snprintf(doc->pages[slot].name, sizeof(doc->pages[slot].name), "Page %d", doc->page_count + 1);
     }
     doc->pages[slot].root = r;
+    doc->pages[slot].note = NULL;
     doc->page_count++;
 
     // Keep next_page_id monotonic even with forced ids (avoid collisions).
@@ -520,6 +784,17 @@ bool doc_page_set_type(Document* doc, uint32_t page_id, PageType type) {
     for (int i = 0; i < 32; i++) {
         if (doc->pages[i].in_use && doc->pages[i].page_id == page_id) {
             doc->pages[i].type = type;
+
+            // Notes ownership: allocate on first transition to NOTE.
+            if (type == PAGE_TYPE_NOTE && doc->pages[i].note == NULL) {
+                AslanNoteDoc* nd = (AslanNoteDoc*)calloc(1, sizeof(AslanNoteDoc));
+                if (!nd) return false;
+                // Always ensure there's at least one empty line.
+                note_insert_line(nd, 0, "");
+                nd->cursor_row = 0;
+                nd->cursor_col = 0;
+                doc->pages[i].note = nd;
+            }
             return true;
         }
     }

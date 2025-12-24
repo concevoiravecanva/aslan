@@ -204,6 +204,14 @@ static int l_get_active_page_id(lua_State* L) {
     return 1;
 }
 
+// lua: get_page_type(page_id) -> int (PageType)
+static int l_get_page_type(lua_State* L) {
+    uint32_t page_id = (uint32_t)luaL_checkinteger(L, 1);
+    if (!g_current_doc) return 0;
+    lua_pushinteger(L, (lua_Integer)doc_page_get_type(g_current_doc, page_id));
+    return 1;
+}
+
 // lua: get_page_meta(page_id, key) -> number
 static int l_get_page_meta(lua_State* L) {
     uint32_t page_id = (uint32_t)luaL_checkinteger(L, 1);
@@ -251,6 +259,7 @@ static const struct luaL_Reg aslan_lib[] = {
     {"set_tool_mode", l_set_tool_mode},
     {"get_tool_mode", l_get_tool_mode},
     {"get_active_page_id", l_get_active_page_id},
+    {"get_page_type", l_get_page_type},
     {"get_page_meta", l_get_page_meta},
     {"set_page_meta", l_set_page_meta},
     {"get_mouse_x", l_get_mouse_x},

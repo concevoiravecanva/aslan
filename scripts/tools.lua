@@ -103,6 +103,13 @@ function on_mouse_wheel(delta, mx)
     local pid = aslan.get_active_page_id()
     if not pid then return end
 
+    -- Notes pages are linear docs (Notion-like), not a pan/zoom canvas.
+    -- Ignore zoom on notes to avoid viewport spam in history.log.
+    local pt = aslan.get_page_type and aslan.get_page_type(pid) or nil
+    if pt == "note" or pt == 3 then
+        return
+    end
+
     local z = aslan.get_page_meta(pid, "viewport.zoom")
     local vx = aslan.get_page_meta(pid, "viewport.x")
     local vy = aslan.get_page_meta(pid, "viewport.y")
@@ -141,6 +148,13 @@ function on_mouse_down(x, y)
     if current_tool_mode() == TOOL_PAN then
         local pid = aslan.get_active_page_id()
         if not pid then return end
+
+        -- Notes pages are linear docs (Notion-like), not a pan/zoom canvas.
+        local pt = aslan.get_page_type and aslan.get_page_type(pid) or nil
+        if pt == "note" or pt == 3 then
+            return
+        end
+
         pan_active = true
         pan_pid = pid
     -- Pan anti-jitter note:
@@ -301,6 +315,16 @@ end
 
 function on_mouse_up(x, y)
     if pan_active and pan_pid then
+        -- Notes pages are linear docs (Notion-like), not a pan/zoom canvas.
+        local pt = aslan.get_page_type and aslan.get_page_type(pan_pid) or nil
+        if pt == "note" or pt == 3 then
+            pan_active = false
+            pan_pid = nil
+            pan_pending_vx = nil
+            pan_pending_vy = nil
+            return
+        end
+
         -- Commit a single camera update in AOF (option B: persisted, not undoable).
         if pan_pending_vx ~= nil and pan_pending_vy ~= nil then
             aslan.execute(string.format("page_meta %u viewport.x %f", pan_pid, pan_pending_vx))

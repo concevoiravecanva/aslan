@@ -3,6 +3,55 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdio.h> // FILE
+
+// Forward decl to avoid pulling SDL into core headers.
+// SDL defines SDL_Event as a union typedef.
+union SDL_Event;
+
+// =========================
+// Notes (Notion/Kilo-inspired)
+// =========================
+typedef enum {
+    ASLAN_ROW_TEXT = 0,
+    ASLAN_ROW_GRID = 1,       // reserved
+    ASLAN_ROW_LUA_WIDGET = 2  // reserved
+} AslanRowType;
+
+typedef struct {
+    AslanRowType type;
+
+    // Kilo-style line storage (only used for ASLAN_ROW_TEXT in v1)
+    char* chars;
+    size_t len;
+    size_t cap;
+
+    // Reserved for BLOCK rows
+    void* block;
+} AslanRow;
+
+typedef struct {
+    AslanRow* rows;
+    int row_count;
+    int row_cap;
+
+    int cursor_row;
+    int cursor_col;
+
+    // Screen-space vertical scroll for NOTE pages.
+    float scroll_y;
+} AslanNoteDoc;
+
+// Notes pillar #1: insertion with dynamic array growth
+void note_insert_line(AslanNoteDoc* doc, int row_idx, const char* text);
+
+// Notes pillar #2: input/navigation (option 2: arrows + transition-to-edit)
+// Returns 1 if event was consumed.
+int note_handle_input(AslanNoteDoc* doc, const union SDL_Event* ev);
+
+// Notes pillar #3: snapshot serialization logic (used by rewrite_aof)
+void engine_serialize_note(const AslanNoteDoc* doc, uint32_t page_id, FILE* fp);
 
 // Types de nœuds graphiques supportés
 typedef enum {
@@ -81,6 +130,10 @@ typedef struct {
         uint32_t page_id;
         char name[64];
         Node* root;
+
+    // Optional payloads by page type
+    // (Owned by the page; freed in doc_destroy.)
+    AslanNoteDoc* note;
         
         // Page Type & Meta
         PageType type;

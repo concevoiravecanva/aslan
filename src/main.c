@@ -79,6 +79,7 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
         // 1. Gestion des événements (Input)
         nk_input_begin(ui->ctx);
         while (SDL_PollEvent(&e) != 0) {
+            bool note_consumed_wheel = false;
             if (e.type == SDL_QUIT) {
                 engine->is_running = false;
             }
@@ -94,6 +95,91 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
             }
             
             ui_handle_event(ui, &e);
+
+            // NOTE pages: use mouse wheel for vertical scroll (Notion-like).
+            // Consume wheel here so it doesn't become zoom/pan in Lua tools.
+            if (engine && engine->doc && e.type == SDL_MOUSEWHEEL) {
+                bool note_captures_mouse = false;
+                uint32_t note_pid = 0;
+                AslanNoteDoc* note_doc = NULL;
+                uint32_t pid = doc_page_active_id(engine->doc);
+                for (int pi = 0; pi < 32; pi++) {
+                    if (!engine->doc->pages[pi].in_use) continue;
+                    if (engine->doc->pages[pi].page_id != pid) continue;
+                    if (engine->doc->pages[pi].type == PAGE_TYPE_NOTE && engine->doc->pages[pi].note) {
+                        // SDL wheel: y > 0 is up. We want scroll_y to decrease when wheel up.
+                        float dy = (float)e.wheel.y * 40.0f;
+                        float ny = engine->doc->pages[pi].note->scroll_y - dy;
+                        if (ny < 0.0f) ny = 0.0f;
+                        engine->doc->pages[pi].note->scroll_y = ny;
+                        note_consumed_wheel = true;
+                    }
+                    break;
+                }
+            }
+
+            // Notes input: when a NOTE page is active, consume keyboard/text input
+            // (Kilo-like navigation + text input) before Lua tool routing.
+            if (engine && engine->doc && !nk_item_is_any_active(ui->ctx) && (!ui || ui->editing_node_id == 0)) {
+                uint32_t pid = doc_page_active_id(engine->doc);
+                for (int pi = 0; pi < 32; pi++) {
+                    if (!engine->doc->pages[pi].in_use) continue;
+                    if (engine->doc->pages[pi].page_id != pid) continue;
+                    if (engine->doc->pages[pi].type != PAGE_TYPE_NOTE) break;
+
+                    // Ensure text input is enabled for SDL_TEXTINPUT events.
+                    if (!SDL_IsTextInputActive()) SDL_StartTextInput();
+
+                    if (engine->doc->pages[pi].note) {
+                        if (e.type == SDL_KEYDOWN || e.type == SDL_TEXTINPUT) {
+                            AslanNoteDoc* nd = engine->doc->pages[pi].note;
+                            int before_row = nd->cursor_row;
+
+                            int consumed = note_handle_input(nd, &e);
+
+                            // Persist edits: for v1 we conservatively snapshot the line that changed.
+                            // SDL_TEXTINPUT always mutates the current line.
+                            // ENTER creates a new line: persist both previous line and new line.
+                            // BACKSPACE could join lines: persist the current line after the operation.
+                            if (consumed && engine->history_file) {
+                                if (e.type == SDL_TEXTINPUT) {
+                                    if (nd->cursor_row >= 0 && nd->cursor_row < nd->row_count) {
+                                        const char* t = nd->rows[nd->cursor_row].chars ? nd->rows[nd->cursor_row].chars : "";
+                                        fprintf(engine->history_file, "note_set_ln %u %d \"%s\"\n", (unsigned)pid, nd->cursor_row, t);
+                                        fflush(engine->history_file);
+                                    }
+                                } else if (e.type == SDL_KEYDOWN) {
+                                    SDL_Keycode sym = e.key.keysym.sym;
+                                    if (sym == SDLK_RETURN || sym == SDLK_KP_ENTER) {
+                                        // After insert_newline, cursor is on new line.
+                                        int new_row = nd->cursor_row;
+                                        int prev_row = new_row - 1;
+                                        if (prev_row >= 0 && prev_row < nd->row_count) {
+                                            const char* t = nd->rows[prev_row].chars ? nd->rows[prev_row].chars : "";
+                                            fprintf(engine->history_file, "note_set_ln %u %d \"%s\"\n", (unsigned)pid, prev_row, t);
+                                        }
+                                        if (new_row >= 0 && new_row < nd->row_count) {
+                                            const char* t = nd->rows[new_row].chars ? nd->rows[new_row].chars : "";
+                                            fprintf(engine->history_file, "note_set_ln %u %d \"%s\"\n", (unsigned)pid, new_row, t);
+                                        }
+                                        fflush(engine->history_file);
+                                    } else if (sym == SDLK_BACKSPACE) {
+                                        // Could have changed current row or merged rows.
+                                        if (nd->cursor_row >= 0 && nd->cursor_row < nd->row_count) {
+                                            const char* t = nd->rows[nd->cursor_row].chars ? nd->rows[nd->cursor_row].chars : "";
+                                            fprintf(engine->history_file, "note_set_ln %u %d \"%s\"\n", (unsigned)pid, nd->cursor_row, t);
+                                            fflush(engine->history_file);
+                                        }
+                                        // If merging happened, the old row index might be gone; that's OK for v1.
+                                        (void)before_row;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
             
             // While an inline text editor is active, don't forward mouse events to Lua tools.
             // This keeps the edit widget stable and avoids accidental drags.
@@ -130,6 +216,41 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                 }
 
                 if (e.type == SDL_MOUSEBUTTONDOWN) {
+                    bool note_consumed_click = false;
+                    // NOTE page click-to-focus: if active page is NOTE, and click is in note area, set cursor and start text input.
+                    if (e.button.button == SDL_BUTTON_LEFT && engine && engine->doc) {
+                        uint32_t pid = doc_page_active_id(engine->doc);
+                        for (int pi = 0; pi < 32; pi++) {
+                            if (!engine->doc->pages[pi].in_use) continue;
+                            if (engine->doc->pages[pi].page_id != pid) continue;
+                            if (engine->doc->pages[pi].type == PAGE_TYPE_NOTE && engine->doc->pages[pi].note) {
+                                // Note area: screen space, x: 80 to width-80, y: 80 to height
+                                const float pad_x = 80.0f;
+                                const float top_y = 80.0f;
+                                const float line_h = 22.0f;
+                                const float char_w = 8.0f;
+                                if (mx >= pad_x && mx <= 1024.0f - pad_x && my >= top_y) {
+                                    AslanNoteDoc* nd = engine->doc->pages[pi].note;
+                                    float scroll_y = nd->scroll_y;
+                                    int row = (int)((my - top_y + scroll_y) / line_h);
+                                    if (row < 0) row = 0;
+                                    if (row >= nd->row_count) row = nd->row_count - 1;
+                                    if (nd->row_count == 0) row = 0;
+                                    int col = (int)((mx - pad_x - 6.0f) / char_w);
+                                    if (col < 0) col = 0;
+                                    const char* line = (row < nd->row_count) ? nd->rows[row].chars : "";
+                                    int line_len = line ? strlen(line) : 0;
+                                    if (col > line_len) col = line_len;
+                                    nd->cursor_row = row;
+                                    nd->cursor_col = col;
+                                    SDL_StartTextInput();
+                                    note_consumed_click = true;
+                                }
+                            }
+                            break;
+                        }
+                    }
+
                     // Double-click: if we clicked twice quickly in roughly the same spot,
                     // and a TEXT node is already selected, enter inline edit mode.
                     if (e.button.button == SDL_BUTTON_LEFT && ui && ui->selected_node && ui->selected_node->type == NODE_TYPE_TEXT) {
@@ -149,7 +270,9 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                             last_click_world_y = world_y;
                         }
                     }
-                    scripting_call_event(ui->L, "on_mouse_down", world_x, world_y);
+                    if (!note_consumed_click) {
+                        scripting_call_event(ui->L, "on_mouse_down", world_x, world_y);
+                    }
                 }
                 else if (e.type == SDL_MOUSEBUTTONUP) {
                     scripting_call_event(ui->L, "on_mouse_up", world_x, world_y);
@@ -158,6 +281,10 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                     scripting_call_event(ui->L, "on_mouse_move", world_x, world_y);
                 }
                 else if (e.type == SDL_MOUSEWHEEL) {
+                    // NOTE pages already consumed wheel for scroll above.
+                    if (note_consumed_wheel) {
+                        continue;
+                    }
                     /*
                      * For now we expose wheel as a dedicated callback.
                      * Convention: (delta, mx, my) where delta is vertical wheel (positive = up).

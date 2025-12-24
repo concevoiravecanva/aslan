@@ -53,6 +53,33 @@ static void rewrite_emit_global_kv(const char* key, const char* value, void* use
     fprintf(out, "set_global %s \"%s\"\n", key, escaped);
 }
 
+void engine_serialize_note(const AslanNoteDoc* doc, uint32_t page_id, FILE* fp) {
+    if (!fp) return;
+
+    // Canonical snapshot format for notes. For now: clear + re-insert all text lines.
+    fprintf(fp, "note_clear %u\n", (unsigned)page_id);
+
+    if (!doc) return;
+
+    for (int i = 0; i < doc->row_count; i++) {
+        const AslanRow* r = &doc->rows[i];
+        if (r->type != ASLAN_ROW_TEXT) continue;
+
+        const char* content = r->chars ? r->chars : "";
+        char escaped[2048];
+        int j = 0;
+        for (int k = 0; content[k] && j < (int)sizeof(escaped) - 2; k++) {
+            if (content[k] == '"') {
+                escaped[j++] = '\\';
+            }
+            escaped[j++] = content[k];
+        }
+        escaped[j] = '\0';
+
+        fprintf(fp, "note_ins_ln %u %d \"%s\"\n", (unsigned)page_id, i, escaped);
+    }
+}
+
 static const char* k_history_path = "history.log";
 static const char* k_redo_path = "redo.log";
 
@@ -242,6 +269,11 @@ static bool engine_rewrite_aof(Engine* engine) {
             active_emitted = engine->doc->pages[pi].page_id;
         }
 
+        // Notes snapshot (v1): emit note lines before canvas objects.
+        if (engine->doc->pages[pi].type == PAGE_TYPE_NOTE) {
+            engine_serialize_note(engine->doc->pages[pi].note, engine->doc->pages[pi].page_id, out);
+        }
+
         // 1) Snapshot objects deterministically by id
         Node* nodes[4096];
         int count = 0;
@@ -361,6 +393,11 @@ static bool engine_write_snapshot_to_file(Engine* engine, FILE* out, const char*
             if (!page_root) continue;
 
             fprintf(out, "page_select %u\n", (unsigned)engine->doc->pages[i].page_id);
+
+            // Notes snapshot (v1): emit note lines before canvas objects.
+            if (engine->doc->pages[i].type == PAGE_TYPE_NOTE) {
+                engine_serialize_note(engine->doc->pages[i].note, engine->doc->pages[i].page_id, out);
+            }
 
             // 1) Snapshot objects deterministically by id
             Node* nodes[4096];
@@ -689,6 +726,134 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
         float val;
         if (sscanf(command_line, "page_meta %d %63s %f", &id, key, &val) == 3) {
             success = doc_page_set_meta(engine->doc, (uint32_t)id, key, val);
+        }
+    }
+
+    // Commande: note_clear <page_id>
+    else if (sscanf(command_line, "note_clear %d", &id) == 1) {
+        if (engine->doc) {
+            for (int i = 0; i < 32; i++) {
+                if (!engine->doc->pages[i].in_use) continue;
+                if (engine->doc->pages[i].page_id != (uint32_t)id) continue;
+
+                // Ensure note doc exists for note pages.
+                if (engine->doc->pages[i].type == PAGE_TYPE_NOTE && engine->doc->pages[i].note == NULL) {
+                    (void)doc_page_set_type(engine->doc, (uint32_t)id, PAGE_TYPE_NOTE);
+                }
+
+                AslanNoteDoc* nd = engine->doc->pages[i].note;
+                if (!nd) {
+                    success = true;
+                    break;
+                }
+
+                // Free current rows, keep doc object.
+                for (int r = 0; r < nd->row_count; r++) {
+                    free(nd->rows[r].chars);
+                    nd->rows[r].chars = NULL;
+                    nd->rows[r].len = 0;
+                    nd->rows[r].cap = 0;
+                }
+                free(nd->rows);
+                nd->rows = NULL;
+                nd->row_count = 0;
+                nd->row_cap = 0;
+                nd->cursor_row = 0;
+                nd->cursor_col = 0;
+                success = true;
+                break;
+            }
+        }
+    }
+
+    // Commande: note_ins_ln <page_id> <row> "text"
+    else if (strncmp(command_line, "note_ins_ln ", 12) == 0) {
+        int page_id = 0;
+        int row_idx = 0;
+        char text[2048];
+        text[0] = 0;
+        if (sscanf(command_line, "note_ins_ln %d %d \"%2047[^\"]\"", &page_id, &row_idx, text) >= 2) {
+            if (engine->doc) {
+                for (int i = 0; i < 32; i++) {
+                    if (!engine->doc->pages[i].in_use) continue;
+                    if (engine->doc->pages[i].page_id != (uint32_t)page_id) continue;
+
+                    if (engine->doc->pages[i].type == PAGE_TYPE_NOTE && engine->doc->pages[i].note == NULL) {
+                        (void)doc_page_set_type(engine->doc, (uint32_t)page_id, PAGE_TYPE_NOTE);
+                    }
+                    AslanNoteDoc* nd = engine->doc->pages[i].note;
+                    if (!nd) {
+                        success = true;
+                        break;
+                    }
+
+                    // Ensure row_idx is clamped insert.
+                    note_insert_line(nd, row_idx, text);
+                    success = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Commande: note_set_ln <page_id> <row> "text"
+    else if (strncmp(command_line, "note_set_ln ", 12) == 0) {
+        int page_id = 0;
+        int row_idx = 0;
+        char text[2048];
+        text[0] = 0;
+
+        if (sscanf(command_line, "note_set_ln %d %d \"%2047[^\"]\"", &page_id, &row_idx, text) >= 2) {
+            if (engine->doc) {
+                for (int i = 0; i < 32; i++) {
+                    if (!engine->doc->pages[i].in_use) continue;
+                    if (engine->doc->pages[i].page_id != (uint32_t)page_id) continue;
+
+                    if (engine->doc->pages[i].type == PAGE_TYPE_NOTE && engine->doc->pages[i].note == NULL) {
+                        (void)doc_page_set_type(engine->doc, (uint32_t)page_id, PAGE_TYPE_NOTE);
+                    }
+
+                    AslanNoteDoc* nd = engine->doc->pages[i].note;
+                    if (!nd) {
+                        success = true;
+                        break;
+                    }
+
+                    if (nd->row_count == 0) {
+                        note_insert_line(nd, 0, "");
+                    }
+
+                    if (row_idx < 0) row_idx = 0;
+                    if (row_idx >= nd->row_count) {
+                        // Extend with empty lines up to row_idx.
+                        while (nd->row_count <= row_idx) {
+                            note_insert_line(nd, nd->row_count, "");
+                        }
+                    }
+
+                    AslanRow* r = &nd->rows[row_idx];
+                    if (r->type != ASLAN_ROW_TEXT) r->type = ASLAN_ROW_TEXT;
+
+                    size_t n = strlen(text);
+                    if (n + 1 > r->cap) {
+                        size_t new_cap = r->cap ? r->cap : 32;
+                        while (new_cap < n + 1) new_cap *= 2;
+                        char* new_chars = (char*)realloc(r->chars, new_cap);
+                        if (!new_chars) {
+                            success = true;
+                            break;
+                        }
+                        r->chars = new_chars;
+                        r->cap = new_cap;
+                    }
+                    memcpy(r->chars, text, n);
+                    r->chars[n] = '\0';
+                    r->len = n;
+
+                    success = true;
+                    break;
+                }
+            }
         }
     }
 
