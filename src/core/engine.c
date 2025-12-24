@@ -255,6 +255,7 @@ static bool engine_rewrite_aof(Engine* engine) {
             if (engine->doc->pages[pi].type == PAGE_TYPE_TABLE) t = "table";
             else if (engine->doc->pages[pi].type == PAGE_TYPE_NOTE) t = "note";
             else if (engine->doc->pages[pi].type == PAGE_TYPE_CLIP) t = "clip";
+            else if (engine->doc->pages[pi].type == PAGE_TYPE_GRID) t = "grid";
             fprintf(out, "page_type %u %s\n", (unsigned)engine->doc->pages[pi].page_id, t);
         }
     }
@@ -381,6 +382,7 @@ static bool engine_write_snapshot_to_file(Engine* engine, FILE* out, const char*
                 if (engine->doc->pages[i].type == PAGE_TYPE_TABLE) t = "table";
                 else if (engine->doc->pages[i].type == PAGE_TYPE_NOTE) t = "note";
                 else if (engine->doc->pages[i].type == PAGE_TYPE_CLIP) t = "clip";
+                else if (engine->doc->pages[i].type == PAGE_TYPE_GRID) t = "grid";
                 fprintf(out, "page_type %u %s\n", (unsigned)engine->doc->pages[i].page_id, t);
             }
         }
@@ -713,6 +715,7 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
             else if (strcmp(type_str, "table") == 0) pt = PAGE_TYPE_TABLE;
             else if (strcmp(type_str, "note") == 0) pt = PAGE_TYPE_NOTE;
             else if (strcmp(type_str, "clip") == 0) pt = PAGE_TYPE_CLIP;
+            else if (strcmp(type_str, "grid") == 0) pt = PAGE_TYPE_GRID;
             else if (strcmp(type_str, "print") == 0) pt = PAGE_TYPE_PAGE;
             else if (strcmp(type_str, "board") == 0) pt = PAGE_TYPE_SPACE;
             

@@ -6,6 +6,86 @@
 
 #include <SDL2/SDL.h>
 
+// Local strdup (C99, minimal)
+static char* aslan_strdup(const char* s) {
+    if (!s) s = "";
+    size_t n = strlen(s);
+    char* out = (char*)malloc(n + 1);
+    if (!out) return NULL;
+    memcpy(out, s, n);
+    out[n] = '\0';
+    return out;
+}
+
+// =========================
+// Grid (Tableau) (v1)
+// =========================
+
+AslanGrid* grid_create(int r, int c) {
+    if (r < 1) r = 1;
+    if (c < 1) c = 1;
+
+    AslanGrid* g = (AslanGrid*)calloc(1, sizeof(AslanGrid));
+    if (!g) return NULL;
+    g->rows = r;
+    g->cols = c;
+
+    g->data = (char***)calloc((size_t)r, sizeof(char**));
+    if (!g->data) {
+        free(g);
+        return NULL;
+    }
+
+    for (int i = 0; i < r; i++) {
+        g->data[i] = (char**)calloc((size_t)c, sizeof(char*));
+        if (!g->data[i]) {
+            grid_destroy(g);
+            return NULL;
+        }
+        // cells default to NULL
+    }
+
+    g->col_widths = (int*)calloc((size_t)c, sizeof(int));
+    if (!g->col_widths) {
+        grid_destroy(g);
+        return NULL;
+    }
+    // Default widths (simple + editable later)
+    for (int j = 0; j < c; j++) g->col_widths[j] = 140;
+
+    return g;
+}
+
+void grid_destroy(AslanGrid* grid) {
+    if (!grid) return;
+    if (grid->data) {
+        for (int r = 0; r < grid->rows; r++) {
+            if (!grid->data[r]) continue;
+            for (int c = 0; c < grid->cols; c++) {
+                free(grid->data[r][c]);
+                grid->data[r][c] = NULL;
+            }
+            free(grid->data[r]);
+            grid->data[r] = NULL;
+        }
+        free(grid->data);
+        grid->data = NULL;
+    }
+    free(grid->col_widths);
+    grid->col_widths = NULL;
+    free(grid);
+}
+
+void grid_set_cell(AslanGrid* grid, int r, int c, const char* text) {
+    if (!grid) return;
+    if (r < 0 || r >= grid->rows) return;
+    if (c < 0 || c >= grid->cols) return;
+    char* dup = aslan_strdup(text);
+    if (!dup) return;
+    free(grid->data[r][c]);
+    grid->data[r][c] = dup;
+}
+
 static int global_find_index(const Document* doc, const char* key) {
     if (!doc || !key || !key[0]) return -1;
     for (int i = 0; i < (int)(sizeof(doc->globals) / sizeof(doc->globals[0])); i++) {
@@ -694,6 +774,12 @@ void doc_destroy(Document* doc) {
             doc->pages[i].note = NULL;
         }
 
+        // Free page-owned grid payload
+        if (doc->pages[i].in_use && doc->pages[i].grid) {
+            grid_destroy(doc->pages[i].grid);
+            doc->pages[i].grid = NULL;
+        }
+
         if (doc->pages[i].in_use && doc->pages[i].root) {
             free_node_recursive(doc->pages[i].root);
             doc->pages[i].root = NULL;
@@ -1105,6 +1191,14 @@ bool doc_page_set_type(Document* doc, uint32_t page_id, PageType type) {
                 nd->aof_last_edited_row = -1;
                 nd->aof_last_edit_time_ms = 0;
                 doc->pages[i].note = nd;
+            }
+
+            // Grid ownership: allocate on first transition to GRID.
+            if (type == PAGE_TYPE_GRID && doc->pages[i].grid == NULL) {
+                // Minimal default: 8x4 table
+                AslanGrid* g = grid_create(8, 4);
+                if (!g) return false;
+                doc->pages[i].grid = g;
             }
             return true;
         }

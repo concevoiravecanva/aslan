@@ -9,6 +9,45 @@
 // Globals API (theme)
 const char* doc_get_global(const Document* doc, const char* key);
 
+// =========================
+// GRID page UI (v1)
+// =========================
+static void ui_render_grid_page(struct nk_context* ctx, AslanGrid* grid) {
+    if (!ctx || !grid) return;
+    if (grid->rows <= 0 || grid->cols <= 0) return;
+    if (!grid->data || !grid->col_widths) return;
+
+    // Antirez-style minimal: simple row loop with fixed-height edits.
+    const float row_h = 26.0f;
+
+    for (int r = 0; r < grid->rows; r++) {
+        // sum widths for nk_layout_row_static is overrated; we layout each cell in a row
+        // by calling nk_layout_row_begin/end and pushing widths.
+        nk_layout_row_begin(ctx, NK_STATIC, row_h, grid->cols);
+        for (int c = 0; c < grid->cols; c++) {
+            int w = grid->col_widths[c];
+            if (w < 40) w = 40;
+            nk_layout_row_push(ctx, (float)w);
+
+            // Cell buffer: keep it local; editing will be wired to persist changes.
+            char buf[256];
+            buf[0] = 0;
+            const char* original = (grid->data[r] && grid->data[r][c]) ? grid->data[r][c] : "";
+            strncpy(buf, original, sizeof(buf) - 1);
+            buf[sizeof(buf) - 1] = 0;
+
+            // Render as editable field.
+            nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, buf, (int)sizeof(buf) - 1, nk_filter_default);
+
+            // Persist changes if the buffer differs from original.
+            if (strcmp(buf, original) != 0) {
+                grid_set_cell(grid, r, c, buf[0] ? buf : NULL);
+            }
+        }
+        nk_layout_row_end(ctx);
+    }
+}
+
 static void ui_apply_theme_dark(struct nk_context* ctx) {
     if (!ctx) return;
     struct nk_color table[NK_COLOR_COUNT];
@@ -412,6 +451,54 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
     // On synchronise la sélection de l'UI avec celle de l'engine si nécessaire
     // (L'engine est la source de vérité pour les commandes 'select')
     
+    // Page content (center panel)
+    // NOTE: NOTE pages are rendered via the overlay path elsewhere; here we focus on
+    // making non-overlay page types (like GRID) visible.
+    if (engine && engine->doc) {
+        const float left_pad = 10.0f;
+        const float top_pad = 10.0f;
+        const float right_panel_w = 250.0f;
+        const float bottom_bar_h = 44.0f; // Matches Pages bar height
+        struct nk_rect page_bounds = nk_rect(left_pad, top_pad,
+            (float)win_w - right_panel_w - left_pad * 2.0f,
+            (float)win_h - top_pad - bottom_bar_h - 10.0f);
+
+        if (nk_begin(ui->ctx, "Page", page_bounds, NK_WINDOW_BORDER|NK_WINDOW_TITLE|NK_WINDOW_SCROLL_AUTO_HIDE)) {
+            int pid = engine->doc->active_page_id;
+            if (pid < 0 || pid >= 32 || !engine->doc->pages[pid].in_use) {
+                nk_layout_row_dynamic(ui->ctx, 24, 1);
+                nk_label(ui->ctx, "No active page", NK_TEXT_LEFT);
+            } else {
+                int ptype = engine->doc->pages[pid].type;
+                const char* pname = engine->doc->pages[pid].name;
+                char header[160];
+                snprintf(header, sizeof(header), "Page: %s  (#%d)", pname ? pname : "(unnamed)", pid);
+                nk_layout_row_dynamic(ui->ctx, 24, 1);
+                nk_label(ui->ctx, header, NK_TEXT_LEFT);
+
+                nk_layout_row_dynamic(ui->ctx, 8, 1);
+                nk_label(ui->ctx, " ", NK_TEXT_LEFT);
+
+                if (ptype == PAGE_TYPE_GRID) {
+                    ui_render_grid_page(ui->ctx, engine->doc->pages[pid].grid);
+                } else if (ptype == PAGE_TYPE_TABLE) {
+                    nk_layout_row_dynamic(ui->ctx, 22, 1);
+                    nk_label(ui->ctx, "(Table page: rendering not wired here)", NK_TEXT_LEFT);
+                } else if (ptype == PAGE_TYPE_NOTE) {
+                    nk_layout_row_dynamic(ui->ctx, 22, 1);
+                    nk_label(ui->ctx, "(Note page: rendered in overlay)", NK_TEXT_LEFT);
+                } else if (ptype == PAGE_TYPE_CLIP) {
+                    nk_layout_row_dynamic(ui->ctx, 22, 1);
+                    nk_label(ui->ctx, "(Clip page)", NK_TEXT_LEFT);
+                } else {
+                    nk_layout_row_dynamic(ui->ctx, 22, 1);
+                    nk_label(ui->ctx, "(Unsupported page type)", NK_TEXT_LEFT);
+                }
+            }
+        }
+        nk_end(ui->ctx);
+    }
+
     // Panneau Inspecteur à droite
     if (nk_begin(ui->ctx, "Inspector", nk_rect(win_w - 250, 0, 250, win_h),
         NK_WINDOW_BORDER|NK_WINDOW_TITLE)) {
@@ -562,6 +649,25 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
     // Status line (last action)
     nk_layout_row_dynamic(ui->ctx, 22, 1);
     nk_label(ui->ctx, ui->status[0] ? ui->status : "", NK_TEXT_LEFT);
+
+        // Active page view (minimal)
+        if (engine && engine->doc) {
+            uint32_t pid = doc_page_active_id(engine->doc);
+            for (int pi = 0; pi < 32; pi++) {
+                if (!engine->doc->pages[pi].in_use) continue;
+                if (engine->doc->pages[pi].page_id != pid) continue;
+
+                if (engine->doc->pages[pi].type == PAGE_TYPE_GRID) {
+                    nk_layout_row_dynamic(ui->ctx, 10, 1);
+                    nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
+                    nk_layout_row_dynamic(ui->ctx, 20, 1);
+                    nk_label(ui->ctx, "Grid", NK_TEXT_LEFT);
+                    ui_render_grid_page(ui->ctx, engine->doc->pages[pi].grid);
+                }
+
+                break;
+            }
+        }
 
         // Tool mode toggle
         nk_layout_row_dynamic(ui->ctx, 28, 1);
@@ -1185,6 +1291,9 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             if (nk_option_label(ui->ctx, "Note (TBD)", ui->new_page_type_idx == 3)) ui->new_page_type_idx = 3;
             if (nk_option_label(ui->ctx, "Clip (TBD)", ui->new_page_type_idx == 4)) ui->new_page_type_idx = 4;
 
+            nk_layout_row_dynamic(ui->ctx, 28, 1);
+            if (nk_option_label(ui->ctx, "Grid (Table)", ui->new_page_type_idx == 5)) ui->new_page_type_idx = 5;
+
             if (ui->new_page_type_idx == 1) { // Page options
                 nk_layout_row_dynamic(ui->ctx, 20, 1);
                 nk_label(ui->ctx, "Preset:", NK_TEXT_LEFT);
@@ -1269,6 +1378,7 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                     if (ui->new_page_type_idx == 2) t = "table";
                     else if (ui->new_page_type_idx == 3) t = "note";
                     else if (ui->new_page_type_idx == 4) t = "clip";
+                    else if (ui->new_page_type_idx == 5) t = "grid";
                     snprintf(cmd, sizeof(cmd), "page_type %u %s", (unsigned)pid, t);
                     engine_execute_command(engine, cmd);
                 }

@@ -52,7 +52,28 @@ typedef struct {
 
     // Screen-space vertical scroll for NOTE pages.
     float scroll_y;
+
+    // Soft-wrap support: max characters per visual line (updated by UI each frame).
+    int max_chars_per_visual_line;
 } AslanNoteDoc;
+
+// =========================
+// Grid (Tableau) (v1)
+// =========================
+typedef struct {
+    int rows;
+    int cols;
+
+    // 2D array of strings. data[r][c] is either NULL or a heap-allocated C string.
+    char*** data;
+
+    // Per-column width in pixels (UI hint; owned by the grid).
+    int* col_widths;
+} AslanGrid;
+
+AslanGrid* grid_create(int r, int c);
+void grid_destroy(AslanGrid* grid);
+void grid_set_cell(AslanGrid* grid, int r, int c, const char* text);
 
 // Notes pillar #1: insertion with dynamic array growth
 void note_insert_line(AslanNoteDoc* doc, int row_idx, const char* text);
@@ -107,7 +128,8 @@ typedef enum {
     // Placeholders (UI-visible, behavior TBD)
     PAGE_TYPE_TABLE = 2,
     PAGE_TYPE_NOTE  = 3,
-    PAGE_TYPE_CLIP  = 4
+    PAGE_TYPE_CLIP  = 4,
+    PAGE_TYPE_GRID  = 5
 } PageType;
 
 // Le Document est le conteneur principal
@@ -145,6 +167,7 @@ typedef struct {
     // Optional payloads by page type
     // (Owned by the page; freed in doc_destroy.)
     AslanNoteDoc* note;
+    AslanGrid* grid;
         
         // Page Type & Meta
         PageType type;
