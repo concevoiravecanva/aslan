@@ -255,8 +255,8 @@ static void renderer_draw_note_doc(Renderer* r, const Document* doc, int page_in
             SDL_RenderFillRect(r->sdl_renderer, &srect);
         }
 
-        // Left gutter
-        SDL_Rect gutter = { srect.x - 10, srect.y, 6, srect.h };
+    // Left gutter (click target for full-line selection)
+    SDL_Rect gutter = { srect.x - 14, srect.y, 12, srect.h };
         SDL_SetRenderDrawColor(r->sdl_renderer, 90, 180, 255, (i == nd->cursor_row) ? 200 : 120);
         SDL_RenderFillRect(r->sdl_renderer, &gutter);
 

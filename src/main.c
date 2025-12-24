@@ -106,6 +106,8 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
 
     // NOTE selection via mouse drag (screen-space)
     static bool note_drag_selecting = false;
+    static bool note_drag_from_gutter = false;
+    static bool note_mouse_captured_by_note = false;
 
     // Double-click detection (Antirez-style: small, local state)
     static uint32_t last_click_ms = 0;
@@ -271,7 +273,15 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                                 const float pad_x = 80.0f;
                                 const float top_y = 80.0f;
                                 const float line_h = 22.0f;
-                                if (mx >= pad_x && mx <= 1024.0f - pad_x && my >= top_y) {
+                                const float text_x = pad_x + 6.0f;
+
+                                // IMPORTANT: match the actual blue gutter drawn in renderer_draw_note_doc():
+                                // SDL_Rect gutter = { srect.x - 14, w = 12 } where srect.x = pad_x.
+                                const float gutter_x0 = pad_x - 14.0f;
+                                const float gutter_x1 = gutter_x0 + 12.0f;
+
+                                // Note paper region (same as before)
+                                if (mx >= gutter_x0 && mx <= 1024.0f - pad_x && my >= top_y) {
                                     AslanNoteDoc* nd = engine->doc->pages[pi].note;
                                     float scroll_y = nd->scroll_y;
                                     int row = (int)((my - top_y + scroll_y) / line_h);
@@ -279,14 +289,24 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                                     if (row >= nd->row_count) row = nd->row_count - 1;
                                     if (nd->row_count == 0) row = 0;
                                     (void)((row < nd->row_count) ? nd->rows[row].chars : "");
+
+                                    // Decide gutter click based on the actual blue rectangle.
+                                    bool clicked_gutter = (mx >= gutter_x0 && mx < gutter_x1);
+
                                     // Match the same left origin used by NOTE overlay text.
-                                    float rel_x = mx - (pad_x + 6.0f);
+                                    float rel_x = mx - text_x;
                                     const struct nk_user_font* saved_font = ui->ctx->style.font;
                                     if (ui->font_mono) ui->ctx->style.font = &ui->font_mono->handle;
                                     int col = note_pick_col_from_x(ui->ctx, rel_x);
                                     ui->ctx->style.font = saved_font;
+
                                     nd->cursor_row = row;
-                                    nd->cursor_col = col;
+                                    if (clicked_gutter) {
+                                        // Gutter click selects whole line.
+                                        nd->cursor_col = (row >= 0 && row < nd->row_count) ? (int)nd->rows[row].len : 0;
+                                    } else {
+                                        nd->cursor_col = col;
+                                    }
 
                                     // Mouse selection: start drag selection.
                                     SDL_Keymod mods = SDL_GetModState();
@@ -294,18 +314,30 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                                     if (!shift) {
                                         // Start a fresh selection anchored at the click.
                                         nd->is_selecting = false;
-                                        nd->anchor_row = nd->cursor_row;
-                                        nd->anchor_col = nd->cursor_col;
+                                        if (clicked_gutter) {
+                                            nd->anchor_row = row;
+                                            nd->anchor_col = 0;
+                                        } else {
+                                            nd->anchor_row = nd->cursor_row;
+                                            nd->anchor_col = nd->cursor_col;
+                                        }
                                     } else {
                                         // Shift+click extends selection from existing anchor.
                                         if (!nd->is_selecting) {
                                             // No existing selection => anchor becomes pre-click caret.
                                             nd->is_selecting = true;
-                                            nd->anchor_row = nd->cursor_row;
-                                            nd->anchor_col = nd->cursor_col;
+                                            if (clicked_gutter) {
+                                                nd->anchor_row = row;
+                                                nd->anchor_col = 0;
+                                            } else {
+                                                nd->anchor_row = nd->cursor_row;
+                                                nd->anchor_col = nd->cursor_col;
+                                            }
                                         }
                                     }
                                     note_drag_selecting = true;
+                                    note_drag_from_gutter = clicked_gutter;
+                                    note_mouse_captured_by_note = true;
 
                                     SDL_StartTextInput();
                                     note_consumed_click = true;
@@ -339,11 +371,19 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                     }
                 }
                 else if (e.type == SDL_MOUSEBUTTONUP) {
-                    // Stop NOTE drag selection if active; otherwise let tools handle it.
+                    bool was_note_capture = note_mouse_captured_by_note;
+
+                    // Stop NOTE drag selection if active.
                     if (e.button.button == SDL_BUTTON_LEFT) {
                         note_drag_selecting = false;
+                        note_drag_from_gutter = false;
+                        note_mouse_captured_by_note = false;
                     }
-                    scripting_call_event(ui->L, "on_mouse_up", world_x, world_y);
+
+                    // If the NOTE captured the mouse, don't forward mouse-up to tools.
+                    if (!was_note_capture) {
+                        scripting_call_event(ui->L, "on_mouse_up", world_x, world_y);
+                    }
                 }
                 else if (e.type == SDL_MOUSEMOTION) {
                     bool note_consumed_move = false;
@@ -361,18 +401,26 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                                 AslanNoteDoc* nd = engine->doc->pages[pi].note;
                                 float scroll_y = nd->scroll_y;
 
+                                const float text_x = pad_x + 6.0f;
+                                const float gutter_x0 = pad_x - 14.0f;
+                                const float gutter_x1 = gutter_x0 + 12.0f;
+
                                 // Consider drag active only in note region.
-                                if (mx >= pad_x && mx <= 1024.0f - pad_x && my >= top_y) {
+                                if (mx >= gutter_x0 && mx <= 1024.0f - pad_x && my >= top_y) {
                                     int row = (int)((my - top_y + scroll_y) / line_h);
                                     if (row < 0) row = 0;
                                     if (row >= nd->row_count) row = nd->row_count - 1;
                                     if (nd->row_count == 0) row = 0;
 
-                                    float rel_x = mx - (pad_x + 6.0f);
-                                    const struct nk_user_font* saved_font = ui->ctx->style.font;
-                                    if (ui->font_mono) ui->ctx->style.font = &ui->font_mono->handle;
-                                    int col = note_pick_col_from_x(ui->ctx, rel_x);
-                                    ui->ctx->style.font = saved_font;
+                                    int col = 0;
+                                    bool in_gutter = (mx >= gutter_x0 && mx < gutter_x1);
+                                    if (!note_drag_from_gutter && !in_gutter) {
+                                        float rel_x = mx - text_x;
+                                        const struct nk_user_font* saved_font = ui->ctx->style.font;
+                                        if (ui->font_mono) ui->ctx->style.font = &ui->font_mono->handle;
+                                        col = note_pick_col_from_x(ui->ctx, rel_x);
+                                        ui->ctx->style.font = saved_font;
+                                    }
 
                                     // Ensure selection is active while dragging.
                                     if (!nd->is_selecting) {
@@ -380,7 +428,13 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                                         // anchor already set on mouse down
                                     }
                                     nd->cursor_row = row;
-                                    nd->cursor_col = col;
+                                    if (note_drag_from_gutter || in_gutter) {
+                                        // Whole-line selection while dragging from gutter.
+                                        nd->anchor_col = 0;
+                                        nd->cursor_col = (row >= 0 && row < nd->row_count) ? (int)nd->rows[row].len : 0;
+                                    } else {
+                                        nd->cursor_col = col;
+                                    }
 
                                     note_consumed_move = true;
                                 }

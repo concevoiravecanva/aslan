@@ -1,5 +1,114 @@
 -- Session started --
 clear
 page_create 2 "Page 2"
-page_type 2 note
-note_set_ln 2 0 "Paolo est la"
+page_type 2 space
+page_meta 2 viewport.x 0
+page_meta 2 viewport.y 0
+page_meta 2 viewport.zoom 1.0
+create_rect 1 Rect1 100.000000 100.000000 120.000000 120.000000
+set_rect 1 -164.000000 -92.000000 120.000000 120.000000
+page_meta 2 viewport.zoom 0.8929
+page_meta 2 viewport.zoom 0.7972
+page_meta 2 viewport.zoom 0.7118
+page_meta 2 viewport.zoom 0.6355
+page_meta 2 viewport.zoom 0.5674
+page_meta 2 viewport.zoom 0.5066
+page_meta 2 viewport.zoom 0.4523
+page_meta 2 viewport.zoom 0.4038
+page_meta 2 viewport.zoom 0.3605
+page_meta 2 viewport.zoom 0.3219
+page_meta 2 viewport.zoom 0.360528
+page_meta 2 viewport.x 212.688049
+page_meta 2 viewport.y 0.000000
+page_meta 2 viewport.x 379.110633
+page_meta 2 viewport.y 202.480810
+create_text 2 Text2 120.000000 120.000000 220.000000 60.000000 "Text"
+page_meta 2 viewport.x 404.074014
+page_meta 2 viewport.y 271.823548
+page_create 3 "Page 3"
+page_type 3 page
+page_meta 3 width 210.00
+page_meta 3 height 297.00
+page_meta 3 viewport.zoom 0.8929
+page_meta 3 viewport.zoom 0.7972
+page_meta 3 viewport.zoom 0.7118
+page_meta 3 viewport.zoom 0.6355
+page_meta 3 viewport.zoom 0.5674
+page_meta 3 viewport.zoom 0.5066
+page_meta 3 viewport.zoom 0.4523
+page_meta 3 viewport.zoom 0.4038
+page_meta 3 viewport.zoom 0.3605
+page_meta 3 viewport.zoom 0.321875
+page_meta 3 viewport.x -95.201111
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.zoom 0.287388
+page_meta 3 viewport.x -201.826355
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.zoom 0.256596
+page_meta 3 viewport.x -321.246796
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.zoom 0.229104
+page_meta 3 viewport.x -454.997894
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.zoom 0.204557
+page_meta 3 viewport.x -604.798889
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.zoom 0.182640
+page_meta 3 viewport.x -772.576111
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.zoom 0.163071
+page_meta 3 viewport.x -960.486755
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.zoom 0.145599
+page_meta 3 viewport.x -1170.947266
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.zoom 0.129999
+page_meta 3 viewport.x -1406.663208
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.zoom 0.116071
+page_meta 3 viewport.x -1670.665283
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.zoom 0.130000
+page_meta 3 viewport.x -1224.817505
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.zoom 0.145600
+page_meta 3 viewport.x -826.740540
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.zoom 0.163072
+page_meta 3 viewport.x -471.314728
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.zoom 0.182641
+page_meta 3 viewport.x -153.970245
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.zoom 0.204558
+page_meta 3 viewport.x 129.372482
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.zoom 0.229105
+page_meta 3 viewport.x 382.356964
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.zoom 0.256598
+page_meta 3 viewport.x 608.235962
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.zoom 0.287390
+page_meta 3 viewport.x 809.913269
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.zoom 0.321877
+page_meta 3 viewport.x 989.982178
+page_meta 3 viewport.y 0.000000
+page_meta 3 viewport.x 871.924660
+page_meta 3 viewport.y 580.967259
+page_meta 3 viewport.x 548.819897
+page_meta 3 viewport.y 711.451910
+page_create 4 "Page 4"
+page_type 4 note
+note_set_ln 4 0 ",l,,l"
+note_set_ln 4 0 ",l,,lhhuhuh"
+note_set_ln 4 0 ",l,,lhhuhuhgvg"
+note_set_ln 4 0 ",l,,lhhuhuhgvg"
+note_set_ln 4 1 ""
+note_set_ln 4 2 "jiji"
+note_set_ln 4 4 "Input Clavier : Transformer des tou"
+note_set_ln 4 3 "Input Clavier : Transformer des tou"
+note_set_ln 4 2 "jijiuris pour le ranger ailleurs.Input Clavier : Transformer des tou"
+note_set_ln 4 2 "jijiuris pour le ranger ailleursInput Clavier : Transformer des tou"
+note_set_ln 4 1 "Input Clavier : Transformer des tou"
