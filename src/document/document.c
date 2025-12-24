@@ -230,6 +230,9 @@ static void note_doc_insert_newline(AslanNoteDoc* doc) {
 
     note_doc_clamp_cursor(doc);
     AslanRow* r = &doc->rows[doc->cursor_row];
+    // The current row will be modified (split) -> mark it pending for AOF.
+    doc->aof_last_edited_row = doc->cursor_row;
+    doc->aof_last_edit_time_ms = SDL_GetTicks();
     int at = doc->cursor_col;
     if (at < 0) at = 0;
     if ((size_t)at > r->len) at = (int)r->len;
@@ -272,6 +275,10 @@ static void note_doc_join_with_previous_line(AslanNoteDoc* doc) {
         rprev->len = prev_len + cur_len;
         rprev->chars[rprev->len] = '\0';
     }
+
+    // Previous row content changed -> mark it pending for AOF.
+    doc->aof_last_edited_row = prev;
+    doc->aof_last_edit_time_ms = SDL_GetTicks();
 
     // Delete current line
     free(rcur->chars);
@@ -336,6 +343,10 @@ int note_handle_input(AslanNoteDoc* doc, const SDL_Event* ev) {
                     if (doc->cursor_col > 0) {
                         note_row_delete_char(r, doc->cursor_col);
                         doc->cursor_col--;
+
+                        // Current row content changed -> mark pending for AOF.
+                        doc->aof_last_edited_row = doc->cursor_row;
+                        doc->aof_last_edit_time_ms = SDL_GetTicks();
                     } else {
                         // Join with previous line when at beginning.
                         note_doc_join_with_previous_line(doc);
@@ -358,6 +369,10 @@ int note_handle_input(AslanNoteDoc* doc, const SDL_Event* ev) {
                 note_row_insert_char(r, doc->cursor_col, (char)ch);
                 doc->cursor_col++;
             }
+
+            // Current row content changed -> mark pending for AOF.
+            doc->aof_last_edited_row = doc->cursor_row;
+            doc->aof_last_edit_time_ms = SDL_GetTicks();
             return 1;
         }
         default:
@@ -793,6 +808,8 @@ bool doc_page_set_type(Document* doc, uint32_t page_id, PageType type) {
                 note_insert_line(nd, 0, "");
                 nd->cursor_row = 0;
                 nd->cursor_col = 0;
+                nd->aof_last_edited_row = -1;
+                nd->aof_last_edit_time_ms = 0;
                 doc->pages[i].note = nd;
             }
             return true;

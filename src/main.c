@@ -80,6 +80,26 @@ static int note_pick_col_from_x(struct nk_context* ctx, float rel_x) {
     return col;
 }
 
+// Flush the last edited NOTE row to AOF (history.log) if pending.
+static void note_aof_flush_pending(Engine* engine, uint32_t page_id, AslanNoteDoc* nd) {
+    if (!engine || !engine->history_file || !nd) return;
+    int row = nd->aof_last_edited_row;
+    if (row < 0) return;
+    if (nd->row_count <= 0 || !nd->rows) {
+        nd->aof_last_edited_row = -1;
+        return;
+    }
+    if (row >= nd->row_count) {
+        // Row vanished (e.g. merge). Nothing to flush.
+        nd->aof_last_edited_row = -1;
+        return;
+    }
+    const char* t = nd->rows[row].chars ? nd->rows[row].chars : "";
+    fprintf(engine->history_file, "note_set_ln %u %d \"%s\"\n", (unsigned)page_id, row, t);
+    fflush(engine->history_file);
+    nd->aof_last_edited_row = -1;
+}
+
 // Boucle principale visuelle
 void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
     SDL_Event e;
@@ -92,12 +112,46 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
     const float dbl_click_dist = 6.0f; // world units (good enough at typical zooms)
 
     while (engine->is_running) {
+        // NOTE AOF debounce: if user stopped typing for 500ms, flush pending row.
+        if (engine && engine->doc) {
+            uint32_t pid = doc_page_active_id(engine->doc);
+            for (int pi = 0; pi < 32; pi++) {
+                if (!engine->doc->pages[pi].in_use) continue;
+                if (engine->doc->pages[pi].page_id != pid) continue;
+                if (engine->doc->pages[pi].type == PAGE_TYPE_NOTE && engine->doc->pages[pi].note) {
+                    AslanNoteDoc* nd = engine->doc->pages[pi].note;
+                    if (nd->aof_last_edited_row >= 0) {
+                        uint32_t now = SDL_GetTicks();
+                        if (nd->aof_last_edit_time_ms != 0 && (now - nd->aof_last_edit_time_ms) > 500) {
+                            note_aof_flush_pending(engine, pid, nd);
+                        }
+                    }
+                }
+                break;
+            }
+        }
+
         // 1. Gestion des événements (Input)
         nk_input_begin(ui->ctx);
         while (SDL_PollEvent(&e) != 0) {
             bool note_consumed_wheel = false;
             if (e.type == SDL_QUIT) {
                 engine->is_running = false;
+            }
+
+            // Flush NOTE edits when window loses focus.
+            if (e.type == SDL_WINDOWEVENT && e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                if (engine && engine->doc) {
+                    uint32_t pid = doc_page_active_id(engine->doc);
+                    for (int pi = 0; pi < 32; pi++) {
+                        if (!engine->doc->pages[pi].in_use) continue;
+                        if (engine->doc->pages[pi].page_id != pid) continue;
+                        if (engine->doc->pages[pi].type == PAGE_TYPE_NOTE && engine->doc->pages[pi].note) {
+                            note_aof_flush_pending(engine, pid, engine->doc->pages[pi].note);
+                        }
+                        break;
+                    }
+                }
             }
 
             // Raccourcis clavier (macOS): Cmd+Z (Undo), Cmd+Shift+Z (Redo)
@@ -153,42 +207,12 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
 
                             int consumed = note_handle_input(nd, &e);
 
-                            // Persist edits: for v1 we conservatively snapshot the line that changed.
-                            // SDL_TEXTINPUT always mutates the current line.
-                            // ENTER creates a new line: persist both previous line and new line.
-                            // BACKSPACE could join lines: persist the current line after the operation.
-                            if (consumed && engine->history_file) {
-                                if (e.type == SDL_TEXTINPUT) {
-                                    if (nd->cursor_row >= 0 && nd->cursor_row < nd->row_count) {
-                                        const char* t = nd->rows[nd->cursor_row].chars ? nd->rows[nd->cursor_row].chars : "";
-                                        fprintf(engine->history_file, "note_set_ln %u %d \"%s\"\n", (unsigned)pid, nd->cursor_row, t);
-                                        fflush(engine->history_file);
-                                    }
-                                } else if (e.type == SDL_KEYDOWN) {
-                                    SDL_Keycode sym = e.key.keysym.sym;
-                                    if (sym == SDLK_RETURN || sym == SDLK_KP_ENTER) {
-                                        // After insert_newline, cursor is on new line.
-                                        int new_row = nd->cursor_row;
-                                        int prev_row = new_row - 1;
-                                        if (prev_row >= 0 && prev_row < nd->row_count) {
-                                            const char* t = nd->rows[prev_row].chars ? nd->rows[prev_row].chars : "";
-                                            fprintf(engine->history_file, "note_set_ln %u %d \"%s\"\n", (unsigned)pid, prev_row, t);
-                                        }
-                                        if (new_row >= 0 && new_row < nd->row_count) {
-                                            const char* t = nd->rows[new_row].chars ? nd->rows[new_row].chars : "";
-                                            fprintf(engine->history_file, "note_set_ln %u %d \"%s\"\n", (unsigned)pid, new_row, t);
-                                        }
-                                        fflush(engine->history_file);
-                                    } else if (sym == SDLK_BACKSPACE) {
-                                        // Could have changed current row or merged rows.
-                                        if (nd->cursor_row >= 0 && nd->cursor_row < nd->row_count) {
-                                            const char* t = nd->rows[nd->cursor_row].chars ? nd->rows[nd->cursor_row].chars : "";
-                                            fprintf(engine->history_file, "note_set_ln %u %d \"%s\"\n", (unsigned)pid, nd->cursor_row, t);
-                                            fflush(engine->history_file);
-                                        }
-                                        // If merging happened, the old row index might be gone; that's OK for v1.
-                                        (void)before_row;
-                                    }
+                            // AOF strategy (Antirez-style):
+                            // - Don't spam history.log per key.
+                            // - If the cursor changes row, flush the previous pending row immediately.
+                            if (consumed) {
+                                if (nd->cursor_row != before_row) {
+                                    note_aof_flush_pending(engine, pid, nd);
                                 }
                             }
                         }

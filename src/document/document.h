@@ -39,6 +39,12 @@ typedef struct {
     int cursor_row;
     int cursor_col;
 
+    // --- AOF persistence helpers (debounce) ---
+    // When >= 0, this row has unflushed edits pending for history.log.
+    int aof_last_edited_row;
+    // Timestamp (SDL ticks, ms) of the last edit affecting aof_last_edited_row.
+    uint32_t aof_last_edit_time_ms;
+
     // Screen-space vertical scroll for NOTE pages.
     float scroll_y;
 } AslanNoteDoc;
