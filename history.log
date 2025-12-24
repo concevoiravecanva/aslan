@@ -2,13 +2,4 @@
 clear
 page_create 2 "Page 2"
 page_type 2 note
-note_set_ln 2 0 "Paolo"
-note_set_ln 2 0 "Paolo"
-note_set_ln 2 1 "Oui "
-note_set_ln 2 1 "Oui c est "
-note_set_ln 2 1 "Oui c est moi"
-note_set_ln 2 1 "Oui c est moi"
-note_set_ln 2 2 ""
-note_set_ln 2 3 ""
-note_set_ln 2 4 "slection est un tat volatil d"
-note_set_ln 2 4 "slection est un tat volatil d"
+note_set_ln 2 0 "Paolo est la"

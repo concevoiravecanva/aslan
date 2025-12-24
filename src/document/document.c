@@ -488,9 +488,24 @@ int note_handle_input(AslanNoteDoc* doc, const SDL_Event* ev) {
     switch (ev->type) {
         case SDL_KEYDOWN: {
             SDL_Keycode sym = ev->key.keysym.sym;
-            const SDL_Keymod mod = ev->key.keysym.mod;
+            SDL_Keymod mod = ev->key.keysym.mod;
+            // On macOS, relying only on event.mod can be flaky depending on input method.
+            // Use a conservative fallback to the global mod state.
+            if (mod == KMOD_NONE) mod = SDL_GetModState();
             const int shift = (mod & KMOD_SHIFT) != 0;
             const int shortcut = (mod & (KMOD_CTRL | KMOD_GUI)) != 0;
+
+            // Select all
+            if (shortcut && sym == SDLK_a) {
+                note_doc_clamp_cursor(doc);
+                doc->is_selecting = true;
+                doc->anchor_row = 0;
+                doc->anchor_col = 0;
+                doc->cursor_row = doc->row_count - 1;
+                if (doc->cursor_row < 0) doc->cursor_row = 0;
+                doc->cursor_col = (doc->row_count > 0) ? (int)doc->rows[doc->cursor_row].len : 0;
+                return 1;
+            }
 
             // Clipboard shortcuts
             if (shortcut && (sym == SDLK_c || sym == SDLK_x || sym == SDLK_v)) {

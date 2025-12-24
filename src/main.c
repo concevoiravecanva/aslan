@@ -104,6 +104,9 @@ static void note_aof_flush_pending(Engine* engine, uint32_t page_id, AslanNoteDo
 void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
     SDL_Event e;
 
+    // NOTE selection via mouse drag (screen-space)
+    static bool note_drag_selecting = false;
+
     // Double-click detection (Antirez-style: small, local state)
     static uint32_t last_click_ms = 0;
     static float last_click_world_x = 0.0f;
@@ -284,6 +287,26 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                                     ui->ctx->style.font = saved_font;
                                     nd->cursor_row = row;
                                     nd->cursor_col = col;
+
+                                    // Mouse selection: start drag selection.
+                                    SDL_Keymod mods = SDL_GetModState();
+                                    bool shift = (mods & KMOD_SHIFT) != 0;
+                                    if (!shift) {
+                                        // Start a fresh selection anchored at the click.
+                                        nd->is_selecting = false;
+                                        nd->anchor_row = nd->cursor_row;
+                                        nd->anchor_col = nd->cursor_col;
+                                    } else {
+                                        // Shift+click extends selection from existing anchor.
+                                        if (!nd->is_selecting) {
+                                            // No existing selection => anchor becomes pre-click caret.
+                                            nd->is_selecting = true;
+                                            nd->anchor_row = nd->cursor_row;
+                                            nd->anchor_col = nd->cursor_col;
+                                        }
+                                    }
+                                    note_drag_selecting = true;
+
                                     SDL_StartTextInput();
                                     note_consumed_click = true;
                                 }
@@ -316,10 +339,59 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                     }
                 }
                 else if (e.type == SDL_MOUSEBUTTONUP) {
+                    // Stop NOTE drag selection if active; otherwise let tools handle it.
+                    if (e.button.button == SDL_BUTTON_LEFT) {
+                        note_drag_selecting = false;
+                    }
                     scripting_call_event(ui->L, "on_mouse_up", world_x, world_y);
                 }
                 else if (e.type == SDL_MOUSEMOTION) {
-                    scripting_call_event(ui->L, "on_mouse_move", world_x, world_y);
+                    bool note_consumed_move = false;
+
+                    // If we're dragging in a NOTE page, update cursor position + selection.
+                    if (note_drag_selecting && engine && engine->doc) {
+                        uint32_t pid = doc_page_active_id(engine->doc);
+                        for (int pi = 0; pi < 32; pi++) {
+                            if (!engine->doc->pages[pi].in_use) continue;
+                            if (engine->doc->pages[pi].page_id != pid) continue;
+                            if (engine->doc->pages[pi].type == PAGE_TYPE_NOTE && engine->doc->pages[pi].note) {
+                                const float pad_x = 80.0f;
+                                const float top_y = 80.0f;
+                                const float line_h = 22.0f;
+                                AslanNoteDoc* nd = engine->doc->pages[pi].note;
+                                float scroll_y = nd->scroll_y;
+
+                                // Consider drag active only in note region.
+                                if (mx >= pad_x && mx <= 1024.0f - pad_x && my >= top_y) {
+                                    int row = (int)((my - top_y + scroll_y) / line_h);
+                                    if (row < 0) row = 0;
+                                    if (row >= nd->row_count) row = nd->row_count - 1;
+                                    if (nd->row_count == 0) row = 0;
+
+                                    float rel_x = mx - (pad_x + 6.0f);
+                                    const struct nk_user_font* saved_font = ui->ctx->style.font;
+                                    if (ui->font_mono) ui->ctx->style.font = &ui->font_mono->handle;
+                                    int col = note_pick_col_from_x(ui->ctx, rel_x);
+                                    ui->ctx->style.font = saved_font;
+
+                                    // Ensure selection is active while dragging.
+                                    if (!nd->is_selecting) {
+                                        nd->is_selecting = true;
+                                        // anchor already set on mouse down
+                                    }
+                                    nd->cursor_row = row;
+                                    nd->cursor_col = col;
+
+                                    note_consumed_move = true;
+                                }
+                            }
+                            break;
+                        }
+                    }
+
+                    if (!note_consumed_move) {
+                        scripting_call_event(ui->L, "on_mouse_move", world_x, world_y);
+                    }
                 }
                 else if (e.type == SDL_MOUSEWHEEL) {
                     // NOTE pages already consumed wheel for scroll above.
