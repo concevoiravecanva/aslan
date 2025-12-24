@@ -261,16 +261,6 @@ static void renderer_draw_note_doc(Renderer* r, const Document* doc, int page_in
         SDL_RenderFillRect(r->sdl_renderer, &gutter);
 
     }
-
-    // Caret (v1): fixed-width estimate.
-    if (nd->cursor_row >= 0 && nd->cursor_row < nd->row_count) {
-        float char_w = 8.0f;
-        int caret_x = (int)(pad_x + 6.0f + (float)nd->cursor_col * char_w);
-        int caret_y = (int)(top_y + (float)nd->cursor_row * line_h - scroll_y + 3.0f);
-        SDL_Rect caret = { caret_x, caret_y, 2, (int)(line_h - 6.0f) };
-        SDL_SetRenderDrawColor(r->sdl_renderer, 90, 180, 255, 255);
-        SDL_RenderFillRect(r->sdl_renderer, &caret);
-    }
 }
 
 void renderer_draw_document(Renderer* r, const Document* doc, struct nk_context* nk_ctx) {

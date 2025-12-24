@@ -25,6 +25,8 @@ typedef struct UIHost {
     struct nk_font_atlas atlas;
     // Default UI font (and future shared font handle)
     struct nk_font* font_inter;
+    // Monospace font for NOTE editor (stable caret + click mapping)
+    struct nk_font* font_mono;
     float font_size_px;
     Node* selected_node;
     lua_State* L; // Ajout du pointeur vers l'état Lua

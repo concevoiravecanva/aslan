@@ -98,6 +98,7 @@ UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L) {
     
     // Fonts
     ui->font_inter = NULL;
+    ui->font_mono = NULL;
     ui->font_size_px = 14.0f;
 
     // Load fonts into Nuklear atlas.
@@ -106,6 +107,8 @@ UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L) {
     nk_sdl_font_stash_begin(&atlas);
     if (atlas) {
         ui->font_inter = nk_font_atlas_add_from_file(atlas, "assets/fonts/Inter-Regular.ttf", ui->font_size_px, 0);
+    // NOTE editor monospace font (ships in repo under assets/).
+    ui->font_mono = nk_font_atlas_add_from_file(atlas, "assets/fonts/JetBrains_Mono/static/JetBrainsMono-Regular.ttf", ui->font_size_px, 0);
     }
     nk_sdl_font_stash_end();
 
@@ -1314,15 +1317,38 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             const float scroll_y = (active_note->scroll_y > 0.0f) ? active_note->scroll_y : 0.0f;
             struct nk_color txt_col = nk_rgb(0, 0, 0);
 
+            // Dedicated font for NOTE (monospace) so caret alignment is deterministic.
+            const struct nk_user_font* note_font = ui->ctx->style.font;
+            if (ui->font_mono) note_font = &ui->font_mono->handle;
+
             for (int i = 0; i < active_note->row_count; i++) {
                 const char* t = (active_note->rows[i].chars ? active_note->rows[i].chars : "");
                 nk_draw_text(&ui->ctx->overlay,
                              nk_rect(pad_x + 6.0f, top_y + (float)i * line_h + 3.0f - scroll_y, w - 12.0f, line_h),
                              t,
                              (int)strlen(t),
-                             ui->ctx->style.font,
+                             note_font,
                              nk_rgba(0, 0, 0, 0),
                              txt_col);
+            }
+
+            // Caret: fixed-width math (JetBrains Mono) for pixel-perfect alignment.
+            if (active_note->cursor_row >= 0 && active_note->cursor_row < active_note->row_count && note_font && note_font->width) {
+                int col = active_note->cursor_col;
+                if (col < 0) col = 0;
+
+                // Measure a single monospace cell.
+                const char* cell = "M";
+                float char_w = note_font->width(note_font->userdata, note_font->height, cell, 1);
+                if (char_w < 1.0f) char_w = 8.0f;
+
+                float cx0 = pad_x + 6.0f + (float)col * char_w;
+                float cy0 = top_y + (float)active_note->cursor_row * line_h + 3.0f - scroll_y;
+                float caret_h = note_font->height;
+                if (caret_h > line_h - 4.0f) caret_h = line_h - 4.0f;
+                float cy1 = cy0 + caret_h;
+
+                nk_stroke_line(&ui->ctx->overlay, cx0, cy0, cx0, cy1, 2.0f, nk_rgb(90, 180, 255));
             }
         }
 

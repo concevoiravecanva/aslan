@@ -64,6 +64,22 @@ void run_interactive_mode(Engine* engine) {
     }
 }
 
+// NOTE pages: fixed-width mapping (JetBrains Mono) so caret never drifts.
+// `cursor_col` is treated as ASCII column for v1 (good enough for notes).
+static int note_pick_col_from_x(struct nk_context* ctx, float rel_x) {
+    if (!ctx || !ctx->style.font) return 0;
+    if (rel_x <= 0.0f) return 0;
+
+    // Measure one monospace cell in the active font.
+    const char* cell = "M";
+    float char_w = ctx->style.font->width(ctx->style.font->userdata, ctx->style.font->height, cell, 1);
+    if (char_w < 1.0f) char_w = 8.0f;
+
+    int col = (int)(rel_x / char_w);
+    if (col < 0) col = 0;
+    return col;
+}
+
 // Boucle principale visuelle
 void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
     SDL_Event e;
@@ -74,7 +90,7 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
     static float last_click_world_y = 0.0f;
     const uint32_t dbl_click_ms = 350;
     const float dbl_click_dist = 6.0f; // world units (good enough at typical zooms)
-    
+
     while (engine->is_running) {
         // 1. Gestion des événements (Input)
         nk_input_begin(ui->ctx);
@@ -228,7 +244,6 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                                 const float pad_x = 80.0f;
                                 const float top_y = 80.0f;
                                 const float line_h = 22.0f;
-                                const float char_w = 8.0f;
                                 if (mx >= pad_x && mx <= 1024.0f - pad_x && my >= top_y) {
                                     AslanNoteDoc* nd = engine->doc->pages[pi].note;
                                     float scroll_y = nd->scroll_y;
@@ -236,11 +251,13 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                                     if (row < 0) row = 0;
                                     if (row >= nd->row_count) row = nd->row_count - 1;
                                     if (nd->row_count == 0) row = 0;
-                                    int col = (int)((mx - pad_x - 6.0f) / char_w);
-                                    if (col < 0) col = 0;
-                                    const char* line = (row < nd->row_count) ? nd->rows[row].chars : "";
-                                    int line_len = line ? strlen(line) : 0;
-                                    if (col > line_len) col = line_len;
+                                    (void)((row < nd->row_count) ? nd->rows[row].chars : "");
+                                    // Match the same left origin used by NOTE overlay text.
+                                    float rel_x = mx - (pad_x + 6.0f);
+                                    const struct nk_user_font* saved_font = ui->ctx->style.font;
+                                    if (ui->font_mono) ui->ctx->style.font = &ui->font_mono->handle;
+                                    int col = note_pick_col_from_x(ui->ctx, rel_x);
+                                    ui->ctx->style.font = saved_font;
                                     nd->cursor_row = row;
                                     nd->cursor_col = col;
                                     SDL_StartTextInput();
