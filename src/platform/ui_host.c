@@ -1301,8 +1301,10 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
         float cx = 1024.0f * 0.5f;
         float cy = 768.0f * 0.5f;
 
-        // Initialize and start the overlay buffer
-        nk_command_buffer_init(&ui->ctx->overlay, &ui->ctx->memory, NK_CLIPPING_OFF);
+    // Initialize and start the overlay buffer.
+    // NOTE: clipping must be ON, otherwise NOTE text can draw outside the paper panel
+    // and appears to "disappear"/"move" when scrolling.
+    nk_command_buffer_init(&ui->ctx->overlay, &ui->ctx->memory, NK_CLIPPING_ON);
         nk_start_buffer(ui->ctx, &ui->ctx->overlay);
 
         struct nk_color col = nk_rgb(235, 235, 235);
@@ -1314,10 +1316,28 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             const float pad_x = 80.0f;
             const float top_y = 80.0f;
             const float w = (float)win_w - pad_x * 2.0f;
-            const float scroll_y = (active_note->scroll_y > 0.0f) ? active_note->scroll_y : 0.0f;
+
+            // Clamp scroll so we can't overscroll past the end of the document.
+            // Overscroll combined with lack of clipping caused the top lines to look like
+            // they were jumping/disappearing.
+            float scroll_y = (active_note->scroll_y > 0.0f) ? active_note->scroll_y : 0.0f;
+            {
+                float viewport_h = (float)win_h - (top_y - 24.0f);
+                if (viewport_h < 0.0f) viewport_h = 0.0f;
+                float content_h = (float)active_note->row_count * line_h;
+                float max_scroll = content_h - viewport_h;
+                if (max_scroll < 0.0f) max_scroll = 0.0f;
+                if (scroll_y > max_scroll) scroll_y = max_scroll;
+                active_note->scroll_y = scroll_y;
+            }
+
             struct nk_color txt_col = nk_rgb(0, 0, 0);
             struct nk_color sel_bg = nk_rgb(10, 132, 255); // macOS selection blue
             struct nk_color sel_txt = nk_rgb(255, 255, 255);
+
+            // Clip NOTE rendering to the paper panel.
+            nk_push_scissor(&ui->ctx->overlay,
+                            nk_rect(pad_x, top_y - 24.0f, w, (float)win_h - (top_y - 24.0f)));
 
             // Dedicated font for NOTE (monospace) so caret alignment is deterministic.
             const struct nk_user_font* note_font = ui->ctx->style.font;
@@ -1420,6 +1440,10 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
 
                 nk_stroke_line(&ui->ctx->overlay, cx0, cy0, cx0, cy1, 2.0f, nk_rgb(90, 180, 255));
             }
+
+            // NOTE: this Nuklear integration doesn't expose nk_pop_scissor.
+            // Leaving the scissor as-is is OK because other UI code will set scissor
+            // again for subsequent commands.
         }
 
         for (Node* n = engine->doc->root->first_child; n; n = n->next_sibling) {

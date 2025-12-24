@@ -186,6 +186,25 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                         float dy = (float)e.wheel.y * 40.0f;
                         float ny = engine->doc->pages[pi].note->scroll_y - dy;
                         if (ny < 0.0f) ny = 0.0f;
+
+                        // Clamp to doc height.
+                        // We use the same layout constants as the renderer/overlay.
+                        {
+                            const float line_h = 22.0f;
+                            const float top_y = 80.0f;
+                            // Use current SDL window height.
+                            int ww = 0, wh = 0;
+                            if (renderer && renderer->window) {
+                                SDL_GetWindowSize(renderer->window, &ww, &wh);
+                            }
+                            float viewport_h = (float)wh - (top_y - 24.0f);
+                            if (viewport_h < 0.0f) viewport_h = 0.0f;
+                            float content_h = (float)engine->doc->pages[pi].note->row_count * line_h;
+                            float max_scroll = content_h - viewport_h;
+                            if (max_scroll < 0.0f) max_scroll = 0.0f;
+                            if (ny > max_scroll) ny = max_scroll;
+                        }
+
                         engine->doc->pages[pi].note->scroll_y = ny;
                         note_consumed_wheel = true;
                     }
