@@ -343,30 +343,6 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                 }
             }
 
-            nk_layout_row_dynamic(ui->ctx, 8, 1);
-            nk_label(ui->ctx, "", NK_TEXT_LEFT);
-
-            nk_layout_row_dynamic(ui->ctx, 18, 1);
-            nk_label(ui->ctx, "Open existing (.aslan)", NK_TEXT_LEFT);
-            nk_layout_row_dynamic(ui->ctx, 28, 1);
-            nk_edit_string_zero_terminated(ui->ctx, NK_EDIT_FIELD, ui->open_aslan_path,
-                (int)sizeof(ui->open_aslan_path) - 1, nk_filter_default);
-
-            nk_layout_row_dynamic(ui->ctx, 30, 2);
-            if (nk_button_label(ui->ctx, "Open file")) {
-                if (engine_load_snapshot_from_aslan(engine, ui->open_aslan_path)) {
-                    ui_recents_add_and_persist(ui, ui->open_aslan_path);
-                    ui->selected_node = NULL;
-                    ui->screen = 1;
-                    snprintf(ui->status, sizeof(ui->status), "Opened: %s", ui->open_aslan_path);
-                } else {
-                    snprintf(ui->status, sizeof(ui->status), "Open failed: %s", ui->open_aslan_path);
-                }
-            }
-            if (nk_button_label(ui->ctx, "Reveal in Finder")) {
-                reveal_file_in_finder_best_effort(ui->open_aslan_path);
-            }
-
             nk_layout_row_dynamic(ui->ctx, 10, 1);
             nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
 
