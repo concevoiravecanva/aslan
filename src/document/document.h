@@ -172,7 +172,7 @@ typedef struct {
     } globals[64];
 
     // --- Pages (MVP) ---
-    // Page 0 always exists.
+    // Pages are created explicitly (e.g., via Home -> New Page).
     // For now pages are all canvas2d and share the same globals store.
     // Each page has its own Node tree root.
     struct {

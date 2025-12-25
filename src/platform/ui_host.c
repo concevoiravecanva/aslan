@@ -12,7 +12,8 @@ const char* doc_get_global(const Document* doc, const char* key);
 // =========================
 // GRID page UI (v1)
 // =========================
-static void ui_render_grid_page(struct nk_context* ctx, AslanGrid* grid) {
+// NOTE: We pass engine/doc so the grid can emit AOF commands (history.log persistence).
+static void ui_render_grid_page(struct nk_context* ctx, Engine* engine, uint32_t page_id, AslanGrid* grid) {
     if (!ctx || !grid) return;
     if (grid->rows <= 0 || grid->cols <= 0) return;
     if (!grid->data || !grid->col_widths) return;
@@ -33,18 +34,8 @@ static void ui_render_grid_page(struct nk_context* ctx, AslanGrid* grid) {
     // Navigation request (applied after the loop to avoid fighting Nuklear layout)
     int nav_dr = 0;
     int nav_dc = 0;
-
-    // TAB moves right, ENTER moves down.
-    // We only act when the grid is focused (some widget inside is active).
-    // nk_input_is_key_pressed is edge-triggered.
-    if (nk_window_has_focus(ctx) || nk_item_is_any_active(ctx)) {
-        if (nk_input_is_key_pressed(&ctx->input, NK_KEY_TAB)) {
-            nav_dc = 1;
-        }
-        if (nk_input_is_key_pressed(&ctx->input, NK_KEY_ENTER)) {
-            nav_dr = 1;
-        }
-    }
+    int grid_cell_active_after = 0;
+    int should_unfocus = 0;
 
     for (int r = 0; r < grid->rows; r++) {
         // sum widths for nk_layout_row_static is overrated; we layout each cell in a row
@@ -63,29 +54,68 @@ static void ui_render_grid_page(struct nk_context* ctx, AslanGrid* grid) {
             buf[sizeof(buf) - 1] = 0;
 
             // Render as editable field.
-            // If this is the active cell, request focus.
-            if (r == grid->active_row && c == grid->active_col) {
-                nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD|NK_EDIT_AUTO_SELECT, buf, (int)sizeof(buf) - 1, nk_filter_default);
-                // If it is now active, keep the model in sync.
-                if (nk_item_is_any_active(ctx)) {
-                    grid->active_row = r;
-                    grid->active_col = c;
-                }
-            } else {
-                nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, buf, (int)sizeof(buf) - 1, nk_filter_default);
-                // Click-to-focus: if this widget became active, record its coords.
-                if (nk_item_is_any_active(ctx)) {
-                    grid->active_row = r;
-                    grid->active_col = c;
-                }
+            // Important: do NOT use NK_EDIT_ALLOW_TAB or NK_EDIT_MULTILINE here.
+            // We want TAB/ENTER to navigate like a spreadsheet.
+            const nk_flags cell_flags = NK_EDIT_FIELD|NK_EDIT_AUTO_SELECT|NK_EDIT_SIG_ENTER;
+
+            const int is_model_active_cell = (r == grid->active_row && c == grid->active_col);
+            if (is_model_active_cell) {
+                /* Ensure the active cell gets focus when we navigate. */
+                nk_edit_focus(ctx, NK_EDIT_FIELD);
+            }
+
+            nk_flags edit_ret = nk_edit_string_zero_terminated(ctx, cell_flags, buf, (int)sizeof(buf) - 1, nk_filter_default);
+
+            // Click-to-focus: if this widget became active, record its coords.
+            if (nk_item_is_any_active(ctx)) {
+                grid->active_row = r;
+                grid->active_col = c;
+                grid_cell_active_after = 1;
             }
 
             // Persist changes if the buffer differs from original.
+            // IMPORTANT: don't call grid_set_cell here if we also call engine_execute_command.
+            // Otherwise we apply twice and can cause duplicate history lines.
             if (strcmp(buf, original) != 0) {
-                grid_set_cell(grid, r, c, buf[0] ? buf : NULL);
+                if (engine) {
+                    // Persist to AOF via engine command (so it appears in history.log).
+                    // Escape quotes but keep it minimal.
+                    char escaped[256];
+                    int j = 0;
+                    for (int k = 0; buf[k] && j < (int)sizeof(escaped) - 2; k++) {
+                        if (buf[k] == '"') escaped[j++] = '\\';
+                        escaped[j++] = buf[k];
+                    }
+                    escaped[j] = 0;
+                    char cmd[512];
+                    snprintf(cmd, sizeof(cmd), "grid_set %u %d %d \"%s\"", (unsigned)page_id, r, c, escaped);
+                    engine_execute_command(engine, cmd);
+                } else {
+                    grid_set_cell(grid, r, c, buf[0] ? buf : NULL);
+                }
+            }
+
+            // Spreadsheet-style commit/navigation.
+            // Nuklear will set NK_EDIT_COMMITED when Enter is pressed with NK_EDIT_SIG_ENTER.
+            // For Tab we still need to intercept; it otherwise triggers navigation in Nuklear.
+            if (grid_cell_active_after && grid->active_row == r && grid->active_col == c) {
+                if (edit_ret & NK_EDIT_COMMITED) {
+                    nav_dr = 1;
+                    should_unfocus = 1;
+                }
             }
         }
         nk_layout_row_end(ctx);
+    }
+
+    // TAB moves right.
+    // Detect *after* rendering so we know whether a cell ended up active this frame.
+    // Enter is handled via NK_EDIT_COMMITED above (more reliable than raw key state).
+    if (grid_cell_active_after) {
+        if (nk_input_is_key_pressed(&ctx->input, NK_KEY_TAB)) {
+            nav_dc = 1;
+            should_unfocus = 1;
+        }
     }
 
     // Apply navigation after rendering so focus moves cleanly.
@@ -103,8 +133,8 @@ static void ui_render_grid_page(struct nk_context* ctx, AslanGrid* grid) {
         grid->active_row = nr;
         grid->active_col = nc;
 
-        // Try to force next widget focus by removing current active state.
-        nk_edit_unfocus(ctx);
+    // Force next widget focus by removing current active state.
+    if (should_unfocus) nk_edit_unfocus(ctx);
     }
 }
 
@@ -430,10 +460,27 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
 
             nk_layout_row_dynamic(ui->ctx, 30, 2);
             if (nk_button_label(ui->ctx, "New document")) {
-                engine_execute_command(engine, "clear");
+                // True new document: reset state/history, then let the user pick the first page.
+                if (engine) engine_execute_command(engine, "clear");
                 ui->selected_node = NULL;
-                ui->screen = 1;
-                snprintf(ui->status, sizeof(ui->status), "New document");
+                ui->editing_node_id = 0;
+                ui->inline_edit_inited = 0;
+                ui->inline_edit_dirty = 0;
+                ui->text_edit_inited = 0;
+
+                // Show the New Page modal so the user chooses what to create.
+                // Do not create a blank/"No active page" state.
+                ui->show_new_page_modal = 1;
+                // Reset defaults
+                ui->new_page_type_idx = 0; // Space
+                ui->new_page_preset_idx = 0; // A4
+                ui->new_page_orientation = 0; // Portrait
+                ui->new_page_width_mm = 210.0f;
+                ui->new_page_height_mm = 297.0f;
+                // First page of a new doc
+                snprintf(ui->new_page_name, sizeof(ui->new_page_name), "Page 1");
+
+                snprintf(ui->status, sizeof(ui->status), "Choose page type");
             }
             if (nk_button_label(ui->ctx, "Open...")) {
                 char picked[512];
@@ -504,6 +551,126 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
         }
         nk_end(ui->ctx);
 
+        // Modal New Page window (also available on Home)
+        if (ui->show_new_page_modal) {
+            struct nk_rect bounds = nk_rect(win_w * 0.5f - 200.0f, win_h * 0.5f - 200.0f, 400.0f, 400.0f);
+            if (nk_begin(ui->ctx, "New Page", bounds,
+                NK_WINDOW_BORDER|NK_WINDOW_TITLE|NK_WINDOW_MOVABLE|NK_WINDOW_NO_SCROLLBAR)) {
+
+                nk_layout_row_dynamic(ui->ctx, 20, 1);
+                nk_label(ui->ctx, "Page Name:", NK_TEXT_LEFT);
+                nk_layout_row_dynamic(ui->ctx, 28, 1);
+                nk_edit_string_zero_terminated(ui->ctx, NK_EDIT_FIELD, ui->new_page_name,
+                    (int)sizeof(ui->new_page_name) - 1, nk_filter_default);
+
+                nk_layout_row_dynamic(ui->ctx, 20, 1);
+                nk_label(ui->ctx, "Type:", NK_TEXT_LEFT);
+                nk_layout_row_dynamic(ui->ctx, 28, 2);
+                if (nk_option_label(ui->ctx, "Space (Infinite)", ui->new_page_type_idx == 0)) ui->new_page_type_idx = 0;
+                if (nk_option_label(ui->ctx, "Page (Fixed)", ui->new_page_type_idx == 1)) ui->new_page_type_idx = 1;
+
+                nk_layout_row_dynamic(ui->ctx, 28, 3);
+                if (nk_option_label(ui->ctx, "Note (TBD)", ui->new_page_type_idx == 2)) ui->new_page_type_idx = 2;
+                if (nk_option_label(ui->ctx, "Clip (TBD)", ui->new_page_type_idx == 3)) ui->new_page_type_idx = 3;
+                if (nk_option_label(ui->ctx, "Grid (Table)", ui->new_page_type_idx == 4)) ui->new_page_type_idx = 4;
+
+                if (ui->new_page_type_idx == 1) { // Page options
+                    nk_layout_row_dynamic(ui->ctx, 20, 1);
+                    nk_label(ui->ctx, "Preset:", NK_TEXT_LEFT);
+                    nk_layout_row_dynamic(ui->ctx, 28, 4);
+                    if (nk_option_label(ui->ctx, "A4", ui->new_page_preset_idx == 0)) {
+                        ui->new_page_preset_idx = 0;
+                        ui->new_page_width_mm = 210.0f;
+                        ui->new_page_height_mm = 297.0f;
+                    }
+                    if (nk_option_label(ui->ctx, "A3", ui->new_page_preset_idx == 1)) {
+                        ui->new_page_preset_idx = 1;
+                        ui->new_page_width_mm = 297.0f;
+                        ui->new_page_height_mm = 420.0f;
+                    }
+                    if (nk_option_label(ui->ctx, "Letter", ui->new_page_preset_idx == 2)) {
+                        ui->new_page_preset_idx = 2;
+                        ui->new_page_width_mm = 215.9f;
+                        ui->new_page_height_mm = 279.4f;
+                    }
+                    if (nk_option_label(ui->ctx, "Custom", ui->new_page_preset_idx == 3)) ui->new_page_preset_idx = 3;
+
+                    nk_layout_row_dynamic(ui->ctx, 20, 1);
+                    nk_label(ui->ctx, "Orientation:", NK_TEXT_LEFT);
+                    nk_layout_row_dynamic(ui->ctx, 28, 2);
+                    if (nk_option_label(ui->ctx, "Portrait", ui->new_page_orientation == 0)) {
+                        if (ui->new_page_orientation != 0) {
+                            float tmp = ui->new_page_width_mm;
+                            ui->new_page_width_mm = ui->new_page_height_mm;
+                            ui->new_page_height_mm = tmp;
+                        }
+                        ui->new_page_orientation = 0;
+                    }
+                    if (nk_option_label(ui->ctx, "Landscape", ui->new_page_orientation == 1)) {
+                        if (ui->new_page_orientation != 1) {
+                            float tmp = ui->new_page_width_mm;
+                            ui->new_page_width_mm = ui->new_page_height_mm;
+                            ui->new_page_height_mm = tmp;
+                        }
+                        ui->new_page_orientation = 1;
+                    }
+
+                    nk_layout_row_dynamic(ui->ctx, 20, 1);
+                    nk_label(ui->ctx, "Dimensions (mm):", NK_TEXT_LEFT);
+                    nk_layout_row_dynamic(ui->ctx, 28, 2);
+                    nk_property_float(ui->ctx, "W", 50.0f, &ui->new_page_width_mm, 2000.0f, 1.0f, 1.0f);
+                    nk_property_float(ui->ctx, "H", 50.0f, &ui->new_page_height_mm, 2000.0f, 1.0f, 1.0f);
+                }
+
+                nk_layout_row_dynamic(ui->ctx, 34, 2);
+                if (nk_button_label(ui->ctx, "Cancel")) {
+                    ui->show_new_page_modal = 0;
+                }
+                if (nk_button_label(ui->ctx, "Create")) {
+                    // 1. Create page
+                    char cmd[128];
+                    snprintf(cmd, sizeof(cmd), "page_create \"%s\"", ui->new_page_name[0] ? ui->new_page_name : "Page");
+                    engine_execute_command(engine, cmd);
+
+                    // Get the newly created page id (it's the active one)
+                    uint32_t pid = (engine && engine->doc) ? doc_page_active_id(engine->doc) : 0;
+
+                    // 2. Set type and meta
+                    if (pid && ui->new_page_type_idx == 1) { // Page
+                        snprintf(cmd, sizeof(cmd), "page_type %u page", (unsigned)pid);
+                        engine_execute_command(engine, cmd);
+                        snprintf(cmd, sizeof(cmd), "page_meta %u width %.2f", (unsigned)pid, ui->new_page_width_mm);
+                        engine_execute_command(engine, cmd);
+                        snprintf(cmd, sizeof(cmd), "page_meta %u height %.2f", (unsigned)pid, ui->new_page_height_mm);
+                        engine_execute_command(engine, cmd);
+                    } else if (pid && ui->new_page_type_idx == 0) { // Space
+                        snprintf(cmd, sizeof(cmd), "page_type %u space", (unsigned)pid);
+                        engine_execute_command(engine, cmd);
+                        // Default viewport
+                        snprintf(cmd, sizeof(cmd), "page_meta %u viewport.x 0", (unsigned)pid);
+                        engine_execute_command(engine, cmd);
+                        snprintf(cmd, sizeof(cmd), "page_meta %u viewport.y 0", (unsigned)pid);
+                        engine_execute_command(engine, cmd);
+                        snprintf(cmd, sizeof(cmd), "page_meta %u viewport.zoom 1.0", (unsigned)pid);
+                        engine_execute_command(engine, cmd);
+                    } else if (pid) {
+                        const char* t = "space";
+                        if (ui->new_page_type_idx == 2) t = "note";
+                        else if (ui->new_page_type_idx == 3) t = "clip";
+                        else if (ui->new_page_type_idx == 4) t = "grid";
+                        snprintf(cmd, sizeof(cmd), "page_type %u %s", (unsigned)pid, t);
+                        engine_execute_command(engine, cmd);
+                    }
+
+                    ui->show_new_page_modal = 0;
+                    ui->screen = 1; // enter editor view
+                    ui->selected_node = NULL;
+                    snprintf(ui->status, sizeof(ui->status), "Created page: %s", ui->new_page_name);
+                }
+            }
+            nk_end(ui->ctx);
+        }
+
         nk_sdl_render(NK_ANTI_ALIASING_ON);
         return;
     }
@@ -512,51 +679,42 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
     // (L'engine est la source de vérité pour les commandes 'select')
     
     // Page content (center panel)
-    // NOTE: NOTE pages are rendered via the overlay path elsewhere; here we focus on
-    // making non-overlay page types (like GRID) visible.
+    // IMPORTANT: this panel sits on top of the canvas and will capture mouse input.
+    // We only show it for GRID pages (spreadsheet UI). Other page types should use
+    // the canvas directly like before.
     if (engine && engine->doc) {
-        const float left_pad = 10.0f;
-        const float top_pad = 10.0f;
-        const float right_panel_w = 250.0f;
-        const float bottom_bar_h = 44.0f; // Matches Pages bar height
-        struct nk_rect page_bounds = nk_rect(left_pad, top_pad,
-            (float)win_w - right_panel_w - left_pad * 2.0f,
-            (float)win_h - top_pad - bottom_bar_h - 10.0f);
+        uint32_t active_id = engine->doc->active_page_id;
+        int pid = -1;
+        for (int i = 0; i < 32; i++) {
+            if (engine->doc->pages[i].in_use && engine->doc->pages[i].page_id == active_id) {
+                pid = i;
+                break;
+            }
+        }
 
-        if (nk_begin(ui->ctx, "Page", page_bounds, NK_WINDOW_BORDER|NK_WINDOW_TITLE|NK_WINDOW_SCROLL_AUTO_HIDE)) {
-            int pid = engine->doc->active_page_id;
-            if (pid < 0 || pid >= 32 || !engine->doc->pages[pid].in_use) {
-                nk_layout_row_dynamic(ui->ctx, 24, 1);
-                nk_label(ui->ctx, "No active page", NK_TEXT_LEFT);
-            } else {
-                int ptype = engine->doc->pages[pid].type;
+        if (pid >= 0 && engine->doc->pages[pid].type == PAGE_TYPE_GRID) {
+            const float left_pad = 10.0f;
+            const float top_pad = 10.0f;
+            const float right_panel_w = 250.0f;
+            const float bottom_bar_h = 44.0f; // Matches Pages bar height
+            struct nk_rect page_bounds = nk_rect(left_pad, top_pad,
+                (float)win_w - right_panel_w - left_pad * 2.0f,
+                (float)win_h - top_pad - bottom_bar_h - 10.0f);
+
+            if (nk_begin(ui->ctx, "Page", page_bounds, NK_WINDOW_BORDER|NK_WINDOW_TITLE|NK_WINDOW_SCROLL_AUTO_HIDE)) {
                 const char* pname = engine->doc->pages[pid].name;
                 char header[160];
-                snprintf(header, sizeof(header), "Page: %s  (#%d)", pname ? pname : "(unnamed)", pid);
+                snprintf(header, sizeof(header), "Grid: %s  (id #%u)", pname ? pname : "(unnamed)", (unsigned)engine->doc->pages[pid].page_id);
                 nk_layout_row_dynamic(ui->ctx, 24, 1);
                 nk_label(ui->ctx, header, NK_TEXT_LEFT);
 
                 nk_layout_row_dynamic(ui->ctx, 8, 1);
                 nk_label(ui->ctx, " ", NK_TEXT_LEFT);
 
-                if (ptype == PAGE_TYPE_GRID) {
-                    ui_render_grid_page(ui->ctx, engine->doc->pages[pid].grid);
-                } else if (ptype == PAGE_TYPE_TABLE) {
-                    nk_layout_row_dynamic(ui->ctx, 22, 1);
-                    nk_label(ui->ctx, "(Table page: rendering not wired here)", NK_TEXT_LEFT);
-                } else if (ptype == PAGE_TYPE_NOTE) {
-                    nk_layout_row_dynamic(ui->ctx, 22, 1);
-                    nk_label(ui->ctx, "(Note page: rendered in overlay)", NK_TEXT_LEFT);
-                } else if (ptype == PAGE_TYPE_CLIP) {
-                    nk_layout_row_dynamic(ui->ctx, 22, 1);
-                    nk_label(ui->ctx, "(Clip page)", NK_TEXT_LEFT);
-                } else {
-                    nk_layout_row_dynamic(ui->ctx, 22, 1);
-                    nk_label(ui->ctx, "(Unsupported page type)", NK_TEXT_LEFT);
-                }
+                ui_render_grid_page(ui->ctx, engine, (uint32_t)engine->doc->pages[pid].page_id, engine->doc->pages[pid].grid);
             }
+            nk_end(ui->ctx);
         }
-        nk_end(ui->ctx);
     }
 
     // Panneau Inspecteur à droite
@@ -722,7 +880,7 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                     nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
                     nk_layout_row_dynamic(ui->ctx, 20, 1);
                     nk_label(ui->ctx, "Grid", NK_TEXT_LEFT);
-                    ui_render_grid_page(ui->ctx, engine->doc->pages[pi].grid);
+                    ui_render_grid_page(ui->ctx, engine, (uint32_t)engine->doc->pages[pi].page_id, engine->doc->pages[pi].grid);
                 }
 
                 break;

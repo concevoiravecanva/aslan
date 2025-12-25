@@ -244,21 +244,9 @@ Document* doc_create(void) {
     doc->next_page_id = 1;
     doc->active_page_id = 0;
 
-    // Create page 0
-    doc->pages[0].in_use = 1;
-    doc->pages[0].page_id = doc->next_page_id++;
-    strncpy(doc->pages[0].name, "Page 1", sizeof(doc->pages[0].name) - 1);
-    doc->pages[0].root = make_root_node();
-    
-    // Default type: Space (infinite)
-    doc->pages[0].type = PAGE_TYPE_SPACE;
-    doc->pages[0].view_zoom = 1.0f;
-    
-    doc->page_count = 1;
-    doc->active_page_id = doc->pages[0].page_id;
-
-    // Back-compat: root points to active page root
-    doc->root = doc->pages[0].root;
+    // Start empty: pages are created explicitly by the UI/user.
+    // This avoids having an extra default page ("Page 1") when Home -> New Page is used.
+    doc->root = make_root_node();
 
     // Document meta defaults
     memset(doc->doc_type, 0, sizeof(doc->doc_type));
@@ -830,6 +818,9 @@ int note_handle_input(AslanNoteDoc* doc, const SDL_Event* ev) {
 
 void doc_destroy(Document* doc) {
     if (!doc) return;
+    // Track whether doc->root is owned by any page root.
+    Node* doc_root = doc->root;
+    int doc_root_is_page_root = 0;
     // Free all page roots
     for (int i = 0; i < (int)(sizeof(doc->pages) / sizeof(doc->pages[0])); i++) {
         // Free page-owned note payload
@@ -856,9 +847,16 @@ void doc_destroy(Document* doc) {
         }
 
         if (doc->pages[i].in_use && doc->pages[i].root) {
+            if (doc->pages[i].root == doc_root) doc_root_is_page_root = 1;
             free_node_recursive(doc->pages[i].root);
             doc->pages[i].root = NULL;
         }
+    }
+
+    // If the doc root wasn't one of the page roots (empty-doc case), free it too.
+    if (doc_root && !doc_root_is_page_root) {
+        free_node_recursive(doc_root);
+        doc->root = NULL;
     }
     free(doc);
 }

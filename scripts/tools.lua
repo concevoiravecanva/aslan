@@ -1,6 +1,15 @@
 -- scripts/tools.lua
 aslan.log("Tools script loaded (Command-Log version)!")
 
+-- Quick GRID debug (startup): lets you verify `aslan.grid_get("A1")` in the terminal.
+-- Put some text in cell A1 of a GRID page, restart the app, and you should see it here.
+do
+    local pid = aslan.get_active_page_id and aslan.get_active_page_id() or nil
+    local pt = (pid and aslan.get_page_type) and aslan.get_page_type(pid) or nil
+    local v = (aslan.grid_get and aslan.grid_get("A1")) or nil
+    aslan.log("[GRID] active_page=" .. tostring(pid) .. " type=" .. tostring(pt) .. " A1=" .. tostring(v))
+end
+
 local dragged_node_id = nil
 local drag_mode = "none" -- "move" or "resize"
 local resize_corner = nil -- "tl"|"tr"|"bl"|"br"

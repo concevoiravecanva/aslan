@@ -156,8 +156,8 @@ static bool is_mutating_command_line(const char* line) {
             strncmp(l, "set_rect ", 9) == 0 ||
             strncmp(l, "create_text ", 12) == 0 ||
             strncmp(l, "set_text ", 9) == 0 ||
-            strncmp(l, "page_select ", 12) == 0 ||
             strncmp(l, "page_type ", 10) == 0 ||
+            strncmp(l, "grid_set ", 9) == 0 ||
             // NOTE: `page_meta` is treated as view/camera state for option B:
             // persisted in history/save, but NOT undoable.
             // So we intentionally exclude it from the undo/redo mutating predicate.
@@ -857,6 +857,41 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
                     break;
                 }
             }
+        }
+    }
+
+    // Commande: grid_set <page_id> <row> <col> "text"
+    else if (strncmp(command_line, "grid_set ", 9) == 0) {
+        int page_id = 0;
+        int r = 0;
+        int c = 0;
+        char text[2048];
+        text[0] = 0;
+
+        // Allow empty string: grid_set 2 0 0 ""
+        if (sscanf(command_line, "grid_set %d %d %d \"%2047[^\"]\"", &page_id, &r, &c, text) >= 3) {
+            if (engine->doc) {
+                for (int i = 0; i < 32; i++) {
+                    if (!engine->doc->pages[i].in_use) continue;
+                    if (engine->doc->pages[i].page_id != (uint32_t)page_id) continue;
+
+                    // Ensure grid exists for grid pages.
+                    if (engine->doc->pages[i].type == PAGE_TYPE_GRID && engine->doc->pages[i].grid == NULL) {
+                        (void)doc_page_set_type(engine->doc, (uint32_t)page_id, PAGE_TYPE_GRID);
+                    }
+
+                    AslanGrid* g = engine->doc->pages[i].grid;
+                    if (!g) {
+                        success = true;
+                        break;
+                    }
+
+                    grid_set_cell(g, r, c, text);
+                    success = true;
+                    break;
+                }
+            }
+
         }
     }
 

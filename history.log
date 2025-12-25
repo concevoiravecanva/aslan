@@ -1,6 +1,26 @@
 -- Session started --
 clear
+page_create 1 "Page 1"
+page_type 1 space
+page_meta 1 viewport.x 0
+page_meta 1 viewport.y 0
+page_meta 1 viewport.zoom 1.0
 page_create 2 "Page 2"
 page_type 2 grid
 page_select 1
-page_select 1
+page_select 2
+grid_set 2 0 0 "f"
+grid_set 2 0 0 "ff"
+grid_set 2 0 0 "fff"
+grid_set 2 0 0 "ffff"
+grid_set 2 0 0 "fffff"
+grid_set 2 0 0 "ffffff"
+grid_set 2 0 0 "fffffff"
+grid_set 2 0 0 "ffffffff"
+grid_set 2 0 0 "fffffffff"
+grid_set 2 0 0 "ffffffffff"
+grid_set 2 0 0 "fffffffffff"
+grid_set 2 0 0 "ffffffffffff"
+grid_set 2 0 0 "fffffffffffff"
+grid_set 2 0 0 "ffffffffffffff"
+grid_set 2 0 0 "ffffffffffffff "
