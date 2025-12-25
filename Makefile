@@ -19,7 +19,7 @@ SRC = src/main.c \
       src/core/engine.c
 
 OBJ = $(SRC:.c=.o)
-TARGET = aslan_proto
+TARGET = aslan
 
 # Default target tries to build with Lua
 all: $(TARGET)

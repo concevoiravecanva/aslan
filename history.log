@@ -1,6 +1,7 @@
 -- Session started --
 clear
 page_create 1 "Page 1"
-page_type 1 clip
-clip_add 1 ""
-clip_del 1 0
+page_type 1 space
+page_meta 1 viewport.x 0
+page_meta 1 viewport.y 0
+page_meta 1 viewport.zoom 1.0
