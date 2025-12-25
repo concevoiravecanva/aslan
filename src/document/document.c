@@ -161,6 +161,208 @@ void grid_set_cell(AslanGrid* grid, int r, int c, const char* text) {
     grid->data[r][c] = dup;
 }
 
+// =========================
+// Clip (Video Sequence Editor) (v1)
+// =========================
+
+AslanClipPage* clip_page_create(void) {
+    AslanClipPage* page = (AslanClipPage*)calloc(1, sizeof(AslanClipPage));
+    if (!page) return NULL;
+    
+    page->clips = NULL;
+    page->clip_count = 0;
+    page->clip_cap = 0;
+    page->active_index = -1;
+    page->editing_field = 0;
+    page->playhead = 0.0;
+    page->is_playing = false;
+    
+    return page;
+}
+
+void clip_page_destroy(AslanClipPage* page) {
+    if (!page) return;
+    free(page->clips);
+    page->clips = NULL;
+    free(page);
+}
+
+int clip_add(AslanClipPage* page, const char* path) {
+    if (!page) return -1;
+    
+    // Grow array if needed
+    if (page->clip_count >= page->clip_cap) {
+        int new_cap = page->clip_cap < 8 ? 8 : page->clip_cap * 2;
+        AslanClip* new_clips = (AslanClip*)realloc(page->clips, (size_t)new_cap * sizeof(AslanClip));
+        if (!new_clips) return -1;
+        page->clips = new_clips;
+        page->clip_cap = new_cap;
+    }
+    
+    int idx = page->clip_count;
+    AslanClip* clip = &page->clips[idx];
+    memset(clip, 0, sizeof(AslanClip));
+    
+    if (path) {
+        strncpy(clip->source_path, path, sizeof(clip->source_path) - 1);
+        clip->source_path[sizeof(clip->source_path) - 1] = '\0';
+    }
+    
+    clip->start_time = 0.0;
+    clip->end_time = 10.0;  // Default 10 seconds
+    clip->is_selected = false;
+    clip->comment[0] = '\0';
+    
+    page->clip_count++;
+    return idx;
+}
+
+bool clip_delete(AslanClipPage* page, int index) {
+    if (!page || !page->clips) return false;
+    if (index < 0 || index >= page->clip_count) return false;
+    
+    // Shift remaining clips down
+    for (int i = index; i < page->clip_count - 1; i++) {
+        page->clips[i] = page->clips[i + 1];
+    }
+    
+    page->clip_count--;
+    
+    // Adjust active index if needed
+    if (page->active_index >= page->clip_count) {
+        page->active_index = page->clip_count - 1;
+    }
+    if (page->active_index == index) {
+        page->active_index = -1;
+    } else if (page->active_index > index) {
+        page->active_index--;
+    }
+    
+    return true;
+}
+
+bool clip_move(AslanClipPage* page, int from, int to) {
+    if (!page || !page->clips) return false;
+    if (from < 0 || from >= page->clip_count) return false;
+    if (to < 0 || to >= page->clip_count) return false;
+    if (from == to) return true;
+    
+    AslanClip temp = page->clips[from];
+    
+    if (from < to) {
+        // Shift elements down
+        for (int i = from; i < to; i++) {
+            page->clips[i] = page->clips[i + 1];
+        }
+    } else {
+        // Shift elements up
+        for (int i = from; i > to; i--) {
+            page->clips[i] = page->clips[i - 1];
+        }
+    }
+    
+    page->clips[to] = temp;
+    
+    // Update active index if it was affected
+    if (page->active_index == from) {
+        page->active_index = to;
+    } else if (from < to && page->active_index > from && page->active_index <= to) {
+        page->active_index--;
+    } else if (from > to && page->active_index >= to && page->active_index < from) {
+        page->active_index++;
+    }
+    
+    return true;
+}
+
+bool clip_split(AslanClipPage* page, int index, double split_time) {
+    if (!page || !page->clips) return false;
+    if (index < 0 || index >= page->clip_count) return false;
+    
+    AslanClip* clip = &page->clips[index];
+    
+    // Validate split time is within clip range
+    if (split_time <= clip->start_time || split_time >= clip->end_time) return false;
+    
+    // Add a new clip (this may reallocate)
+    int new_idx = clip_add(page, clip->source_path);
+    if (new_idx < 0) return false;
+    
+    // After potential reallocation, get fresh pointer
+    clip = &page->clips[index];
+    AslanClip* new_clip = &page->clips[new_idx];
+    
+    // Configure new clip (second half)
+    new_clip->start_time = split_time;
+    new_clip->end_time = clip->end_time;
+    strncpy(new_clip->comment, clip->comment, sizeof(new_clip->comment) - 1);
+    
+    // Truncate original clip (first half)
+    clip->end_time = split_time;
+    
+    // Move new clip to right after the original
+    if (new_idx != index + 1) {
+        clip_move(page, new_idx, index + 1);
+    }
+    
+    return true;
+}
+
+bool clip_set_source(AslanClipPage* page, int index, const char* path) {
+    if (!page || !page->clips) return false;
+    if (index < 0 || index >= page->clip_count) return false;
+    
+    if (path) {
+        strncpy(page->clips[index].source_path, path, sizeof(page->clips[index].source_path) - 1);
+        page->clips[index].source_path[sizeof(page->clips[index].source_path) - 1] = '\0';
+    } else {
+        page->clips[index].source_path[0] = '\0';
+    }
+    
+    return true;
+}
+
+bool clip_set_range(AslanClipPage* page, int index, double start, double end) {
+    if (!page || !page->clips) return false;
+    if (index < 0 || index >= page->clip_count) return false;
+    if (start < 0.0) start = 0.0;
+    if (end < start) end = start;
+    
+    page->clips[index].start_time = start;
+    page->clips[index].end_time = end;
+    
+    return true;
+}
+
+bool clip_set_comment(AslanClipPage* page, int index, const char* comment) {
+    if (!page || !page->clips) return false;
+    if (index < 0 || index >= page->clip_count) return false;
+    
+    if (comment) {
+        strncpy(page->clips[index].comment, comment, sizeof(page->clips[index].comment) - 1);
+        page->clips[index].comment[sizeof(page->clips[index].comment) - 1] = '\0';
+    } else {
+        page->clips[index].comment[0] = '\0';
+    }
+    
+    return true;
+}
+
+double clip_get_duration(const AslanClip* clip) {
+    if (!clip) return 0.0;
+    double dur = clip->end_time - clip->start_time;
+    return dur > 0.0 ? dur : 0.0;
+}
+
+double clip_page_total_duration(const AslanClipPage* page) {
+    if (!page || !page->clips) return 0.0;
+    double total = 0.0;
+    for (int i = 0; i < page->clip_count; i++) {
+        total += clip_get_duration(&page->clips[i]);
+    }
+    return total;
+}
+
 static int global_find_index(const Document* doc, const char* key) {
     if (!doc || !key || !key[0]) return -1;
     for (int i = 0; i < (int)(sizeof(doc->globals) / sizeof(doc->globals[0])); i++) {
@@ -846,6 +1048,12 @@ void doc_destroy(Document* doc) {
             doc->pages[i].grid = NULL;
         }
 
+        // Free page-owned clip payload
+        if (doc->pages[i].in_use && doc->pages[i].clip) {
+            clip_page_destroy(doc->pages[i].clip);
+            doc->pages[i].clip = NULL;
+        }
+
         if (doc->pages[i].in_use && doc->pages[i].root) {
             if (doc->pages[i].root == doc_root) doc_root_is_page_root = 1;
             free_node_recursive(doc->pages[i].root);
@@ -1272,6 +1480,13 @@ bool doc_page_set_type(Document* doc, uint32_t page_id, PageType type) {
                 AslanGrid* g = grid_create(8, 4);
                 if (!g) return false;
                 doc->pages[i].grid = g;
+            }
+
+            // Clip ownership: allocate on first transition to CLIP.
+            if (type == PAGE_TYPE_CLIP && doc->pages[i].clip == NULL) {
+                AslanClipPage* cp = clip_page_create();
+                if (!cp) return false;
+                doc->pages[i].clip = cp;
             }
             return true;
         }

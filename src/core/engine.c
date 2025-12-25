@@ -21,6 +21,15 @@ bool doc_unset_global(Document* doc, const char* key);
 const char* doc_get_global(const Document* doc, const char* key);
 void doc_globals_iterate(const Document* doc, doc_global_iter_fn fn, void* user);
 
+// Clip API
+int clip_add(AslanClipPage* page, const char* path);
+bool clip_delete(AslanClipPage* page, int index);
+bool clip_move(AslanClipPage* page, int from, int to);
+bool clip_split(AslanClipPage* page, int index, double time);
+bool clip_set_source(AslanClipPage* page, int index, const char* path);
+bool clip_set_range(AslanClipPage* page, int index, double start, double end);
+bool clip_set_comment(AslanClipPage* page, int index, const char* comment);
+
 // Id maintenance (post-replay)
 void doc_recompute_next_ids(Document* doc);
 
@@ -158,6 +167,14 @@ static bool is_mutating_command_line(const char* line) {
             strncmp(l, "set_text ", 9) == 0 ||
             strncmp(l, "page_type ", 10) == 0 ||
             strncmp(l, "grid_set ", 9) == 0 ||
+            // CLIP commands
+            strncmp(l, "clip_add ", 9) == 0 ||
+            strncmp(l, "clip_del ", 9) == 0 ||
+            strncmp(l, "clip_move ", 10) == 0 ||
+            strncmp(l, "clip_split ", 11) == 0 ||
+            strncmp(l, "clip_set_source ", 16) == 0 ||
+            strncmp(l, "clip_set_range ", 15) == 0 ||
+            strncmp(l, "clip_set_comment ", 17) == 0 ||
             // NOTE: `page_meta` is treated as view/camera state for option B:
             // persisted in history/save, but NOT undoable.
             // So we intentionally exclude it from the undo/redo mutating predicate.
@@ -892,6 +909,181 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
                 }
             }
 
+        }
+    }
+
+    // =========================
+    // CLIP Commands (Video Sequence Editor)
+    // =========================
+
+    // Commande: clip_add <page_id> "path"
+    else if (strncmp(command_line, "clip_add ", 9) == 0) {
+        int page_id = 0;
+        char path[256];
+        path[0] = 0;
+
+        if (sscanf(command_line, "clip_add %d \"%255[^\"]\"", &page_id, path) >= 1) {
+            if (engine->doc) {
+                for (int i = 0; i < 32; i++) {
+                    if (!engine->doc->pages[i].in_use) continue;
+                    if (engine->doc->pages[i].page_id != (uint32_t)page_id) continue;
+
+                    // Ensure clip page exists
+                    if (engine->doc->pages[i].type == PAGE_TYPE_CLIP && engine->doc->pages[i].clip == NULL) {
+                        (void)doc_page_set_type(engine->doc, (uint32_t)page_id, PAGE_TYPE_CLIP);
+                    }
+
+                    AslanClipPage* cp = engine->doc->pages[i].clip;
+                    if (!cp) {
+                        success = true;
+                        break;
+                    }
+
+                    clip_add(cp, path);
+                    success = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Commande: clip_del <page_id> <index>
+    else if (strncmp(command_line, "clip_del ", 9) == 0) {
+        int page_id = 0;
+        int index = 0;
+
+        if (sscanf(command_line, "clip_del %d %d", &page_id, &index) == 2) {
+            if (engine->doc) {
+                for (int i = 0; i < 32; i++) {
+                    if (!engine->doc->pages[i].in_use) continue;
+                    if (engine->doc->pages[i].page_id != (uint32_t)page_id) continue;
+
+                    AslanClipPage* cp = engine->doc->pages[i].clip;
+                    if (cp) {
+                        clip_delete(cp, index);
+                    }
+                    success = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Commande: clip_move <page_id> <from> <to>
+    else if (strncmp(command_line, "clip_move ", 10) == 0) {
+        int page_id = 0;
+        int from = 0;
+        int to = 0;
+
+        if (sscanf(command_line, "clip_move %d %d %d", &page_id, &from, &to) == 3) {
+            if (engine->doc) {
+                for (int i = 0; i < 32; i++) {
+                    if (!engine->doc->pages[i].in_use) continue;
+                    if (engine->doc->pages[i].page_id != (uint32_t)page_id) continue;
+
+                    AslanClipPage* cp = engine->doc->pages[i].clip;
+                    if (cp) {
+                        clip_move(cp, from, to);
+                    }
+                    success = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Commande: clip_split <page_id> <index> <time>
+    else if (strncmp(command_line, "clip_split ", 11) == 0) {
+        int page_id = 0;
+        int index = 0;
+        double split_time = 0.0;
+
+        if (sscanf(command_line, "clip_split %d %d %lf", &page_id, &index, &split_time) == 3) {
+            if (engine->doc) {
+                for (int i = 0; i < 32; i++) {
+                    if (!engine->doc->pages[i].in_use) continue;
+                    if (engine->doc->pages[i].page_id != (uint32_t)page_id) continue;
+
+                    AslanClipPage* cp = engine->doc->pages[i].clip;
+                    if (cp) {
+                        clip_split(cp, index, split_time);
+                    }
+                    success = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Commande: clip_set_source <page_id> <index> "path"
+    else if (strncmp(command_line, "clip_set_source ", 16) == 0) {
+        int page_id = 0;
+        int index = 0;
+        char path[256];
+        path[0] = 0;
+
+        if (sscanf(command_line, "clip_set_source %d %d \"%255[^\"]\"", &page_id, &index, path) >= 2) {
+            if (engine->doc) {
+                for (int i = 0; i < 32; i++) {
+                    if (!engine->doc->pages[i].in_use) continue;
+                    if (engine->doc->pages[i].page_id != (uint32_t)page_id) continue;
+
+                    AslanClipPage* cp = engine->doc->pages[i].clip;
+                    if (cp) {
+                        clip_set_source(cp, index, path);
+                    }
+                    success = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Commande: clip_set_range <page_id> <index> <start> <end>
+    else if (strncmp(command_line, "clip_set_range ", 15) == 0) {
+        int page_id = 0;
+        int index = 0;
+        double start_time = 0.0;
+        double end_time = 0.0;
+
+        if (sscanf(command_line, "clip_set_range %d %d %lf %lf", &page_id, &index, &start_time, &end_time) == 4) {
+            if (engine->doc) {
+                for (int i = 0; i < 32; i++) {
+                    if (!engine->doc->pages[i].in_use) continue;
+                    if (engine->doc->pages[i].page_id != (uint32_t)page_id) continue;
+
+                    AslanClipPage* cp = engine->doc->pages[i].clip;
+                    if (cp) {
+                        clip_set_range(cp, index, start_time, end_time);
+                    }
+                    success = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Commande: clip_set_comment <page_id> <index> "comment"
+    else if (strncmp(command_line, "clip_set_comment ", 17) == 0) {
+        int page_id = 0;
+        int index = 0;
+        char comment[256];
+        comment[0] = 0;
+
+        if (sscanf(command_line, "clip_set_comment %d %d \"%255[^\"]\"", &page_id, &index, comment) >= 2) {
+            if (engine->doc) {
+                for (int i = 0; i < 32; i++) {
+                    if (!engine->doc->pages[i].in_use) continue;
+                    if (engine->doc->pages[i].page_id != (uint32_t)page_id) continue;
+
+                    AslanClipPage* cp = engine->doc->pages[i].clip;
+                    if (cp) {
+                        clip_set_comment(cp, index, comment);
+                    }
+                    success = true;
+                    break;
+                }
+            }
         }
     }
 

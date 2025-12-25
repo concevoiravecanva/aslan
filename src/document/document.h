@@ -134,6 +134,49 @@ typedef struct Node {
     struct Node* next_sibling;
 } Node;
 
+// =========================
+// Clip (Video Sequence Editor) (v1)
+// =========================
+typedef struct {
+    char source_path[256];   // Path to source video file
+    double start_time;       // IN point (seconds)
+    double end_time;         // OUT point (seconds)
+    bool is_selected;        // Selection state for UI
+    char comment[256];       // Optional comment (Descript-style)
+} AslanClip;
+
+typedef struct {
+    AslanClip* clips;        // Dynamic array of clips
+    int clip_count;          // Number of clips
+    int clip_cap;            // Capacity of clips array
+    
+    int active_index;        // Currently focused clip (-1 if none)
+    int editing_field;       // 0=none, 1=source, 2=start, 3=end, 4=comment
+    
+    // Playhead position for preview (seconds from start of sequence)
+    double playhead;
+    bool is_playing;
+} AslanClipPage;
+
+// Clip API
+AslanClipPage* clip_page_create(void);
+void clip_page_destroy(AslanClipPage* page);
+
+// Core operations
+int clip_add(AslanClipPage* page, const char* path);           // Returns index of new clip
+bool clip_delete(AslanClipPage* page, int index);              // Delete clip at index
+bool clip_move(AslanClipPage* page, int from, int to);         // Reorder clips
+bool clip_split(AslanClipPage* page, int index, double time);  // Split clip at time
+
+// Setters
+bool clip_set_source(AslanClipPage* page, int index, const char* path);
+bool clip_set_range(AslanClipPage* page, int index, double start, double end);
+bool clip_set_comment(AslanClipPage* page, int index, const char* comment);
+
+// Utility
+double clip_get_duration(const AslanClip* clip);               // end - start
+double clip_page_total_duration(const AslanClipPage* page);    // Sum of all clip durations
+
 // --- Page Type enum ---
 typedef enum {
     // IMPORTANT: keep numeric values stable for AOF/back-compat.
@@ -185,6 +228,7 @@ typedef struct {
     // (Owned by the page; freed in doc_destroy.)
     AslanNoteDoc* note;
     AslanGrid* grid;
+    AslanClipPage* clip;
         
         // Page Type & Meta
         PageType type;

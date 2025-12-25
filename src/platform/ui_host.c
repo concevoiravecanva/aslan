@@ -9,6 +9,12 @@
 // Globals API (theme)
 const char* doc_get_global(const Document* doc, const char* key);
 
+// Clip API forward declarations
+double clip_page_total_duration(const AslanClipPage* page);
+
+// Page type API
+bool doc_page_set_type(Document* doc, uint32_t page_id, PageType type);
+
 // =========================
 // GRID page UI (v1)
 // =========================
@@ -135,6 +141,445 @@ static void ui_render_grid_page(struct nk_context* ctx, Engine* engine, uint32_t
 
     // Force next widget focus by removing current active state.
     if (should_unfocus) nk_edit_unfocus(ctx);
+    }
+}
+
+// =========================
+// CLIP page UI (Video Sequence Editor)
+// =========================
+// Format time as MM:SS.ms
+static void format_time(double seconds, char* buf, size_t buf_size) {
+    if (seconds < 0) seconds = 0;
+    int mins = (int)(seconds / 60.0);
+    double secs = seconds - (double)(mins * 60);
+    snprintf(buf, buf_size, "%02d:%05.2f", mins, secs);
+}
+
+// Parse time from MM:SS or MM:SS.ms format
+static double parse_time(const char* str) {
+    if (!str || !str[0]) return 0.0;
+    int mins = 0;
+    double secs = 0.0;
+    if (sscanf(str, "%d:%lf", &mins, &secs) >= 1) {
+        return (double)mins * 60.0 + secs;
+    }
+    // Try just seconds
+    if (sscanf(str, "%lf", &secs) == 1) {
+        return secs;
+    }
+    return 0.0;
+}
+
+// Extract filename from path
+static const char* get_filename(const char* path) {
+    if (!path || !path[0]) return "(no file)";
+    const char* last_slash = strrchr(path, '/');
+    if (!last_slash) last_slash = strrchr(path, '\\');
+    return last_slash ? last_slash + 1 : path;
+}
+
+static void ui_render_clip_page(struct nk_context* ctx, Engine* engine, uint32_t page_id, AslanClipPage* clip_page) {
+    if (!ctx || !clip_page) return;
+
+    // Ensure SDL text input is active
+    SDL_StartTextInput();
+
+    const float row_h = 32.0f;
+    const float gutter_w = 40.0f;
+    const float filename_w = 180.0f;
+    const float time_w = 80.0f;
+    const float timeline_min_w = 200.0f;
+
+    // Colors
+    struct nk_color bg_normal = nk_rgb(40, 42, 46);
+    struct nk_color bg_selected = nk_rgb(60, 80, 100);
+    struct nk_color timeline_bg = nk_rgb(50, 52, 56);
+    struct nk_color timeline_fill = nk_rgb(80, 140, 200);
+    struct nk_color text_dim = nk_rgb(140, 140, 140);
+    struct nk_color gutter_color = nk_rgb(60, 100, 180);
+
+    // Header row
+    nk_layout_row_begin(ctx, NK_STATIC, row_h, 5);
+    {
+        nk_layout_row_push(ctx, gutter_w);
+        nk_label(ctx, "#", NK_TEXT_CENTERED);
+
+        nk_layout_row_push(ctx, filename_w);
+        nk_label(ctx, "Source", NK_TEXT_LEFT);
+
+        nk_layout_row_push(ctx, time_w);
+        nk_label(ctx, "IN", NK_TEXT_CENTERED);
+
+        nk_layout_row_push(ctx, timeline_min_w);
+        nk_label(ctx, "Timeline", NK_TEXT_CENTERED);
+
+        nk_layout_row_push(ctx, time_w);
+        nk_label(ctx, "OUT", NK_TEXT_CENTERED);
+    }
+    nk_layout_row_end(ctx);
+
+    // Separator
+    nk_layout_row_dynamic(ctx, 2, 1);
+    {
+        struct nk_rect sep_bounds = nk_widget_bounds(ctx);
+        struct nk_command_buffer* canvas = nk_window_get_canvas(ctx);
+        nk_fill_rect(canvas, sep_bounds, 0, nk_rgb(70, 70, 70));
+        nk_spacing(ctx, 1);
+    }
+
+    // Track navigation requests
+    int nav_dir = 0;  // -1 = up, +1 = down
+    int click_index = -1;
+
+    // Handle keyboard navigation
+    if (nk_input_is_key_pressed(&ctx->input, NK_KEY_UP)) nav_dir = -1;
+    if (nk_input_is_key_pressed(&ctx->input, NK_KEY_DOWN)) nav_dir = 1;
+
+    // Render each clip as a row
+    for (int i = 0; i < clip_page->clip_count; i++) {
+        AslanClip* clip = &clip_page->clips[i];
+        bool is_active = (i == clip_page->active_index);
+
+        // Row background color
+        struct nk_color row_bg = is_active ? bg_selected : bg_normal;
+
+        nk_layout_row_begin(ctx, NK_STATIC, row_h, 5);
+        {
+            // Gutter (line number)
+            nk_layout_row_push(ctx, gutter_w);
+            {
+                struct nk_rect gutter_bounds = nk_widget_bounds(ctx);
+                struct nk_command_buffer* canvas = nk_window_get_canvas(ctx);
+                nk_fill_rect(canvas, gutter_bounds, 0, gutter_color);
+                
+                char line_num[16];
+                snprintf(line_num, sizeof(line_num), "%d", i + 1);
+                nk_label_colored(ctx, line_num, NK_TEXT_CENTERED, nk_rgb(255, 255, 255));
+            }
+
+            // Filename
+            nk_layout_row_push(ctx, filename_w);
+            {
+                struct nk_rect cell_bounds = nk_widget_bounds(ctx);
+                struct nk_command_buffer* canvas = nk_window_get_canvas(ctx);
+                nk_fill_rect(canvas, cell_bounds, 0, row_bg);
+
+                const char* fname = get_filename(clip->source_path);
+                
+                // Click detection for this cell
+                if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT, cell_bounds)) {
+                    click_index = i;
+                }
+
+                // If editing this field
+                if (is_active && clip_page->editing_field == 1) {
+                    char buf[256];
+                    strncpy(buf, clip->source_path, sizeof(buf) - 1);
+                    buf[sizeof(buf) - 1] = '\0';
+                    
+                    nk_flags edit_ret = nk_edit_string_zero_terminated(ctx, 
+                        NK_EDIT_FIELD | NK_EDIT_SIG_ENTER | NK_EDIT_AUTO_SELECT,
+                        buf, sizeof(buf) - 1, nk_filter_default);
+                    
+                    if (edit_ret & NK_EDIT_COMMITED) {
+                        // Save change
+                        if (engine) {
+                            char cmd[512];
+                            snprintf(cmd, sizeof(cmd), "clip_set_source %u %d \"%s\"", 
+                                (unsigned)page_id, i, buf);
+                            engine_execute_command(engine, cmd);
+                        }
+                        clip_page->editing_field = 0;
+                    }
+                } else {
+                    nk_label_colored(ctx, fname, NK_TEXT_LEFT, nk_rgb(220, 220, 220));
+                }
+            }
+
+            // IN time
+            nk_layout_row_push(ctx, time_w);
+            {
+                struct nk_rect cell_bounds = nk_widget_bounds(ctx);
+                struct nk_command_buffer* canvas = nk_window_get_canvas(ctx);
+                nk_fill_rect(canvas, cell_bounds, 0, row_bg);
+
+                char time_str[32];
+                format_time(clip->start_time, time_str, sizeof(time_str));
+
+                if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT, cell_bounds)) {
+                    click_index = i;
+                    if (is_active) clip_page->editing_field = 2;
+                }
+
+                if (is_active && clip_page->editing_field == 2) {
+                    char buf[32];
+                    strncpy(buf, time_str, sizeof(buf) - 1);
+                    buf[sizeof(buf) - 1] = '\0';
+                    
+                    nk_flags edit_ret = nk_edit_string_zero_terminated(ctx,
+                        NK_EDIT_FIELD | NK_EDIT_SIG_ENTER | NK_EDIT_AUTO_SELECT,
+                        buf, sizeof(buf) - 1, nk_filter_default);
+                    
+                    if (edit_ret & NK_EDIT_COMMITED) {
+                        double new_time = parse_time(buf);
+                        if (engine) {
+                            char cmd[256];
+                            snprintf(cmd, sizeof(cmd), "clip_set_range %u %d %f %f",
+                                (unsigned)page_id, i, new_time, clip->end_time);
+                            engine_execute_command(engine, cmd);
+                        }
+                        clip_page->editing_field = 0;
+                    }
+                } else {
+                    nk_label_colored(ctx, time_str, NK_TEXT_CENTERED, text_dim);
+                }
+            }
+
+            // Timeline bar
+            nk_layout_row_push(ctx, timeline_min_w);
+            {
+                struct nk_rect bar_bounds = nk_widget_bounds(ctx);
+                struct nk_command_buffer* canvas = nk_window_get_canvas(ctx);
+                
+                // Background
+                nk_fill_rect(canvas, bar_bounds, 4, timeline_bg);
+                
+                // Calculate fill ratio (assuming max clip duration display of 60s for visualization)
+                double duration = clip->end_time - clip->start_time;
+                if (duration < 0) duration = 0;
+                float fill_ratio = (float)(duration / 60.0);
+                if (fill_ratio > 1.0f) fill_ratio = 1.0f;
+                
+                // Fill bar
+                struct nk_rect fill_rect = bar_bounds;
+                fill_rect.w = bar_bounds.w * fill_ratio;
+                fill_rect.x += 2;
+                fill_rect.y += 2;
+                fill_rect.w -= 4;
+                fill_rect.h -= 4;
+                if (fill_rect.w > 0) {
+                    nk_fill_rect(canvas, fill_rect, 2, is_active ? timeline_fill : nk_rgb(60, 100, 140));
+                }
+                
+                // Duration text overlay
+                char dur_str[32];
+                snprintf(dur_str, sizeof(dur_str), "%.1fs", duration);
+                nk_label_colored(ctx, dur_str, NK_TEXT_CENTERED, nk_rgb(200, 200, 200));
+
+                if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT, bar_bounds)) {
+                    click_index = i;
+                }
+            }
+
+            // OUT time
+            nk_layout_row_push(ctx, time_w);
+            {
+                struct nk_rect cell_bounds = nk_widget_bounds(ctx);
+                struct nk_command_buffer* canvas = nk_window_get_canvas(ctx);
+                nk_fill_rect(canvas, cell_bounds, 0, row_bg);
+
+                char time_str[32];
+                format_time(clip->end_time, time_str, sizeof(time_str));
+
+                if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT, cell_bounds)) {
+                    click_index = i;
+                    if (is_active) clip_page->editing_field = 3;
+                }
+
+                if (is_active && clip_page->editing_field == 3) {
+                    char buf[32];
+                    strncpy(buf, time_str, sizeof(buf) - 1);
+                    buf[sizeof(buf) - 1] = '\0';
+                    
+                    nk_flags edit_ret = nk_edit_string_zero_terminated(ctx,
+                        NK_EDIT_FIELD | NK_EDIT_SIG_ENTER | NK_EDIT_AUTO_SELECT,
+                        buf, sizeof(buf) - 1, nk_filter_default);
+                    
+                    if (edit_ret & NK_EDIT_COMMITED) {
+                        double new_time = parse_time(buf);
+                        if (engine) {
+                            char cmd[256];
+                            snprintf(cmd, sizeof(cmd), "clip_set_range %u %d %f %f",
+                                (unsigned)page_id, i, clip->start_time, new_time);
+                            engine_execute_command(engine, cmd);
+                        }
+                        clip_page->editing_field = 0;
+                    }
+                } else {
+                    nk_label_colored(ctx, time_str, NK_TEXT_CENTERED, text_dim);
+                }
+            }
+        }
+        nk_layout_row_end(ctx);
+
+        // Comment line (if any)
+        if (clip->comment[0] != '\0' || (is_active && clip_page->editing_field == 4)) {
+            nk_layout_row_begin(ctx, NK_STATIC, row_h - 6, 2);
+            {
+                nk_layout_row_push(ctx, gutter_w);
+                nk_spacing(ctx, 1);
+
+                nk_layout_row_push(ctx, filename_w + time_w + timeline_min_w + time_w);
+                
+                if (is_active && clip_page->editing_field == 4) {
+                    char buf[256];
+                    strncpy(buf, clip->comment, sizeof(buf) - 1);
+                    buf[sizeof(buf) - 1] = '\0';
+                    
+                    nk_flags edit_ret = nk_edit_string_zero_terminated(ctx,
+                        NK_EDIT_FIELD | NK_EDIT_SIG_ENTER,
+                        buf, sizeof(buf) - 1, nk_filter_default);
+                    
+                    if (edit_ret & NK_EDIT_COMMITED) {
+                        if (engine) {
+                            char escaped[512];
+                            int j = 0;
+                            for (int k = 0; buf[k] && j < (int)sizeof(escaped) - 2; k++) {
+                                if (buf[k] == '"') escaped[j++] = '\\';
+                                escaped[j++] = buf[k];
+                            }
+                            escaped[j] = '\0';
+                            
+                            char cmd[768];
+                            snprintf(cmd, sizeof(cmd), "clip_set_comment %u %d \"%s\"",
+                                (unsigned)page_id, i, escaped);
+                            engine_execute_command(engine, cmd);
+                        }
+                        clip_page->editing_field = 0;
+                    }
+                } else {
+                    char comment_display[280];
+                    snprintf(comment_display, sizeof(comment_display), "  -- %s", clip->comment);
+                    nk_label_colored(ctx, comment_display, NK_TEXT_LEFT, text_dim);
+                }
+            }
+            nk_layout_row_end(ctx);
+        }
+    }
+
+    // Handle click to select
+    if (click_index >= 0 && click_index < clip_page->clip_count) {
+        if (clip_page->active_index != click_index) {
+            clip_page->active_index = click_index;
+            clip_page->editing_field = 0;
+        }
+    }
+
+    // Apply keyboard navigation
+    if (nav_dir != 0 && clip_page->clip_count > 0) {
+        clip_page->editing_field = 0;
+        int new_idx = clip_page->active_index + nav_dir;
+        if (new_idx < 0) new_idx = 0;
+        if (new_idx >= clip_page->clip_count) new_idx = clip_page->clip_count - 1;
+        clip_page->active_index = new_idx;
+    }
+
+    // Toolbar / Actions
+    nk_layout_row_dynamic(ctx, 8, 1);
+    nk_spacing(ctx, 1);
+
+    nk_layout_row_dynamic(ctx, 28, 5);
+    {
+        if (nk_button_label(ctx, "+ Add Clip")) {
+            if (engine) {
+                char cmd[64];
+                snprintf(cmd, sizeof(cmd), "clip_add %u \"\"", (unsigned)page_id);
+                engine_execute_command(engine, cmd);
+                // Select the new clip
+                clip_page->active_index = clip_page->clip_count - 1;
+            }
+        }
+
+        if (nk_button_label(ctx, "Delete")) {
+            if (engine && clip_page->active_index >= 0) {
+                char cmd[64];
+                snprintf(cmd, sizeof(cmd), "clip_del %u %d", (unsigned)page_id, clip_page->active_index);
+                engine_execute_command(engine, cmd);
+            }
+        }
+
+        if (nk_button_label(ctx, "Move Up")) {
+            if (engine && clip_page->active_index > 0) {
+                char cmd[64];
+                snprintf(cmd, sizeof(cmd), "clip_move %u %d %d", 
+                    (unsigned)page_id, clip_page->active_index, clip_page->active_index - 1);
+                engine_execute_command(engine, cmd);
+            }
+        }
+
+        if (nk_button_label(ctx, "Move Down")) {
+            if (engine && clip_page->active_index >= 0 && clip_page->active_index < clip_page->clip_count - 1) {
+                char cmd[64];
+                snprintf(cmd, sizeof(cmd), "clip_move %u %d %d",
+                    (unsigned)page_id, clip_page->active_index, clip_page->active_index + 1);
+                engine_execute_command(engine, cmd);
+            }
+        }
+
+        if (nk_button_label(ctx, "Split (S)")) {
+            if (engine && clip_page->active_index >= 0) {
+                AslanClip* clip = &clip_page->clips[clip_page->active_index];
+                double mid = (clip->start_time + clip->end_time) / 2.0;
+                char cmd[64];
+                snprintf(cmd, sizeof(cmd), "clip_split %u %d %f",
+                    (unsigned)page_id, clip_page->active_index, mid);
+                engine_execute_command(engine, cmd);
+            }
+        }
+    }
+
+    // Status bar
+    nk_layout_row_dynamic(ctx, 4, 1);
+    nk_spacing(ctx, 1);
+    
+    nk_layout_row_dynamic(ctx, 20, 1);
+    {
+        double total = clip_page_total_duration(clip_page);
+        char status[128];
+        snprintf(status, sizeof(status), "Clips: %d | Total Duration: %.1fs", 
+            clip_page->clip_count, total);
+        nk_label_colored(ctx, status, NK_TEXT_LEFT, text_dim);
+    }
+
+    // Handle 'S' key for split
+    if (ctx->input.keyboard.text_len > 0) {
+        for (int i = 0; i < ctx->input.keyboard.text_len; i++) {
+            if (ctx->input.keyboard.text[i] == 's' || ctx->input.keyboard.text[i] == 'S') {
+                if (clip_page->editing_field == 0 && engine && clip_page->active_index >= 0) {
+                    AslanClip* clip = &clip_page->clips[clip_page->active_index];
+                    double mid = (clip->start_time + clip->end_time) / 2.0;
+                    char cmd[64];
+                    snprintf(cmd, sizeof(cmd), "clip_split %u %d %f",
+                        (unsigned)page_id, clip_page->active_index, mid);
+                    engine_execute_command(engine, cmd);
+                }
+            }
+        }
+    }
+
+    // Handle Delete/Backspace key
+    if (nk_input_is_key_pressed(&ctx->input, NK_KEY_DEL) || 
+        (clip_page->editing_field == 0 && nk_input_is_key_pressed(&ctx->input, NK_KEY_BACKSPACE))) {
+        if (engine && clip_page->active_index >= 0) {
+            char cmd[64];
+            snprintf(cmd, sizeof(cmd), "clip_del %u %d", (unsigned)page_id, clip_page->active_index);
+            engine_execute_command(engine, cmd);
+        }
+    }
+
+    // Handle Enter to start editing filename
+    if (clip_page->editing_field == 0 && nk_input_is_key_pressed(&ctx->input, NK_KEY_ENTER)) {
+        clip_page->editing_field = 1;  // Start editing filename
+    }
+
+    // Handle Tab to cycle through fields
+    if (nk_input_is_key_pressed(&ctx->input, NK_KEY_TAB)) {
+        clip_page->editing_field = (clip_page->editing_field + 1) % 5;
+    }
+
+    // Handle Escape to cancel editing
+    if (nk_input_is_key_pressed(&ctx->input, NK_KEY_TEXT_RESET_MODE)) {
+        clip_page->editing_field = 0;
     }
 }
 
@@ -715,6 +1160,38 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             }
             nk_end(ui->ctx);
         }
+
+        // CLIP page rendering
+        if (pid >= 0 && engine->doc->pages[pid].type == PAGE_TYPE_CLIP) {
+            const float left_pad = 10.0f;
+            const float top_pad = 10.0f;
+            const float right_panel_w = 250.0f;
+            const float bottom_bar_h = 44.0f;
+            struct nk_rect page_bounds = nk_rect(left_pad, top_pad,
+                (float)win_w - right_panel_w - left_pad * 2.0f,
+                (float)win_h - top_pad - bottom_bar_h - 10.0f);
+
+            if (nk_begin(ui->ctx, "Page", page_bounds, NK_WINDOW_BORDER|NK_WINDOW_TITLE|NK_WINDOW_SCROLL_AUTO_HIDE)) {
+                const char* pname = engine->doc->pages[pid].name;
+                char header[160];
+                snprintf(header, sizeof(header), "Clip: %s  (Video Sequence Editor)", pname ? pname : "(unnamed)");
+                nk_layout_row_dynamic(ui->ctx, 24, 1);
+                nk_label(ui->ctx, header, NK_TEXT_LEFT);
+
+                nk_layout_row_dynamic(ui->ctx, 8, 1);
+                nk_spacing(ui->ctx, 1);
+
+                // Ensure clip page exists
+                if (!engine->doc->pages[pid].clip) {
+                    doc_page_set_type(engine->doc, engine->doc->pages[pid].page_id, PAGE_TYPE_CLIP);
+                }
+
+                if (engine->doc->pages[pid].clip) {
+                    ui_render_clip_page(ui->ctx, engine, (uint32_t)engine->doc->pages[pid].page_id, engine->doc->pages[pid].clip);
+                }
+            }
+            nk_end(ui->ctx);
+        }
     }
 
     // Panneau Inspecteur à droite
@@ -881,6 +1358,22 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                     nk_layout_row_dynamic(ui->ctx, 20, 1);
                     nk_label(ui->ctx, "Grid", NK_TEXT_LEFT);
                     ui_render_grid_page(ui->ctx, engine, (uint32_t)engine->doc->pages[pi].page_id, engine->doc->pages[pi].grid);
+                }
+
+                if (engine->doc->pages[pi].type == PAGE_TYPE_CLIP) {
+                    nk_layout_row_dynamic(ui->ctx, 10, 1);
+                    nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
+                    nk_layout_row_dynamic(ui->ctx, 20, 1);
+                    nk_label(ui->ctx, "Clip (Video Editor)", NK_TEXT_LEFT);
+                    
+                    // Ensure clip page exists
+                    if (!engine->doc->pages[pi].clip) {
+                        doc_page_set_type(engine->doc, engine->doc->pages[pi].page_id, PAGE_TYPE_CLIP);
+                    }
+                    
+                    if (engine->doc->pages[pi].clip) {
+                        ui_render_clip_page(ui->ctx, engine, (uint32_t)engine->doc->pages[pi].page_id, engine->doc->pages[pi].clip);
+                    }
                 }
 
                 break;
