@@ -16,6 +16,52 @@ double clip_page_total_duration(const AslanClipPage* page);
 bool doc_page_set_type(Document* doc, uint32_t page_id, PageType type);
 
 // =========================
+// NOTE Callouts (v1)
+// =========================
+static const char* callout_icon_utf8(AslanCalloutTheme t) {
+    // NOTE: Remix Icon uses Unicode Private Use Area glyphs.
+    // These byte sequences must match the RemixIcon font version shipped in assets.
+    switch (t) {
+        case ASLAN_CALLOUT_INFO:  return "\xee\xbe\x91"; // information-line (PUA)
+        case ASLAN_CALLOUT_STAR:  return "\xee\xbe\x81"; // star-line (PUA) - chosen default
+        case ASLAN_CALLOUT_ALERT: return "\xee\x90\xac"; // error-warning-line (PUA)
+        case ASLAN_CALLOUT_CHECK: return "\xee\xbd\x9e"; // checkbox-circle-line (PUA) - chosen default
+        case ASLAN_CALLOUT_IDEA:  return "\xee\xed\x9a"; // lightbulb-line (PUA)
+        default: return "!";
+    }
+}
+
+static void callout_theme_colors(AslanCalloutTheme t, struct nk_color* out_bg, struct nk_color* out_accent) {
+    if (!out_bg || !out_accent) return;
+    switch (t) {
+        case ASLAN_CALLOUT_INFO:
+            *out_bg = nk_rgb(235, 245, 255);
+            *out_accent = nk_rgb(10, 132, 255);
+            break;
+        case ASLAN_CALLOUT_STAR:
+            *out_bg = nk_rgb(255, 251, 235);
+            *out_accent = nk_rgb(245, 158, 11);
+            break;
+        case ASLAN_CALLOUT_ALERT:
+            *out_bg = nk_rgb(254, 242, 242);
+            *out_accent = nk_rgb(239, 68, 68);
+            break;
+        case ASLAN_CALLOUT_CHECK:
+            *out_bg = nk_rgb(240, 253, 244);
+            *out_accent = nk_rgb(34, 197, 94);
+            break;
+        case ASLAN_CALLOUT_IDEA:
+            *out_bg = nk_rgb(245, 243, 255);
+            *out_accent = nk_rgb(168, 85, 247);
+            break;
+        default:
+            *out_bg = nk_rgb(245, 245, 245);
+            *out_accent = nk_rgb(120, 120, 120);
+            break;
+    }
+}
+
+// =========================
 // GRID page UI (v1)
 // =========================
 // NOTE: We pass engine/doc so the grid can emit AOF commands (history.log persistence).
@@ -676,6 +722,7 @@ UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L) {
     ui->font_h1 = NULL;
     ui->font_h2 = NULL;
     ui->font_h3 = NULL;
+    ui->font_icons = NULL;
     ui->font_size_px = 14.0f;
 
     // Load fonts into Nuklear atlas.
@@ -686,6 +733,18 @@ UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L) {
         ui->font_inter = nk_font_atlas_add_from_file(atlas, "assets/fonts/Inter-Regular.ttf", ui->font_size_px, 0);
     // NOTE editor monospace font (ships in repo under assets/).
     ui->font_mono = nk_font_atlas_add_from_file(atlas, "assets/fonts/JetBrains_Mono/static/JetBrainsMono-Regular.ttf", ui->font_size_px, 0);
+
+    // Remix Icon font (icons).
+    // NOTE: Keep size close to UI font size so icons align with text.
+    {
+        // RemixIcon uses Unicode Private Use Area.
+        // Without a rune range, Nuklear may skip baking those glyphs -> missing icons.
+        static const nk_rune icon_range[] = { 0xE000, 0xF8FF, 0 };
+        struct nk_font_config icon_cfg = nk_font_config(0);
+        icon_cfg.range = icon_range;
+        // Make icons a bit larger for callouts.
+        ui->font_icons = nk_font_atlas_add_from_file(atlas, "assets/remixicon.ttf", 20.0f, &icon_cfg);
+    }
         
         // Heading fonts for NOTE blocks (JetBrains Mono in different weights)
         ui->font_h3 = nk_font_atlas_add_from_file(atlas, "assets/fonts/JetBrains_Mono/static/JetBrainsMono-Medium.ttf", 18.0f, 0);
@@ -892,6 +951,8 @@ static float get_line_height(AslanRowType type) {
         case ASLAN_ROW_HEADING_2: return 28.0f;
         case ASLAN_ROW_HEADING_3: return 24.0f;
         case ASLAN_ROW_SEPARATOR: return 22.0f; // Same as regular text
+    case ASLAN_ROW_CALLOUT: return 42.0f;
+    case ASLAN_ROW_CHECKLIST: return 26.0f;
         default: return 22.0f; // Regular text
     }
 }
@@ -1286,6 +1347,16 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             if (nk_button_label(ui->ctx, "Separator")) {
                 engine_execute_command(engine, "note_insert_block separator");
                 snprintf(ui->status, sizeof(ui->status), "Inserted Separator");
+            }
+
+            if (nk_button_label(ui->ctx, "Callout (Info)")) {
+                engine_execute_command(engine, "note_insert_block callout");
+                snprintf(ui->status, sizeof(ui->status), "Inserted Callout");
+            }
+
+            if (nk_button_label(ui->ctx, "Checklist")) {
+                engine_execute_command(engine, "note_insert_block checklist");
+                snprintf(ui->status, sizeof(ui->status), "Inserted Checklist");
             }
         } else {
 
@@ -2320,6 +2391,101 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                     float line_start_x = pad_x + (w - line_width) * 0.5f; // Center the line
                     nk_stroke_line(canvas, line_start_x, y_pos, line_start_x + line_width, y_pos, 1.0f, nk_rgb(180, 180, 180));
                     continue; // Skip text rendering for separator
+                }
+
+                // Callout block: draw custom background, accent bar, icon, then text.
+                if (row->type == ASLAN_ROW_CALLOUT) {
+                    AslanCalloutTheme theme = ASLAN_CALLOUT_INFO;
+                    if (row->block) {
+                        AslanCalloutBlock* cb = (AslanCalloutBlock*)row->block;
+                        theme = cb->theme;
+                    }
+
+                    struct nk_color bg;
+                    struct nk_color accent;
+                    callout_theme_colors(theme, &bg, &accent);
+
+                    float y_pos = top_y + get_line_y_position(active_note, i) + 2.0f - scroll_y;
+                    float row_h = get_line_height(row->type);
+
+                    // Outer bounds for the callout block.
+                    struct nk_rect bounds = nk_rect(pad_x + 0.0f, y_pos, w, row_h - 2.0f);
+                    nk_fill_rect(&ui->ctx->overlay, bounds, 8.0f, bg);
+
+                    // Left accent bar.
+                    struct nk_rect accent_rect = nk_rect(bounds.x, bounds.y, 4.0f, bounds.h);
+                    nk_fill_rect(&ui->ctx->overlay, accent_rect, 0.0f, accent);
+
+                    // Icon.
+                    const struct nk_user_font* icon_font = (ui->font_icons ? &ui->font_icons->handle : note_font);
+                    const char* icon = callout_icon_utf8(theme);
+                    nk_draw_text(&ui->ctx->overlay,
+                                 nk_rect(bounds.x + 10.0f, bounds.y + 1.0f, 30.0f, bounds.h),
+                                 icon,
+                                 (int)strlen(icon),
+                                 icon_font,
+                                 nk_rgba(0, 0, 0, 0),
+                                 accent);
+
+                    // Text.
+                    const float text_x = bounds.x + 10.0f + 34.0f;
+                    nk_draw_text(&ui->ctx->overlay,
+                                 nk_rect(text_x, bounds.y + 2.0f, bounds.w - (text_x - bounds.x) - 10.0f, bounds.h),
+                                 t,
+                                 (int)strlen(t),
+                                 note_font,
+                                 nk_rgba(0, 0, 0, 0),
+                                 nk_rgb(30, 30, 30));
+                    // Selection overlay is drawn later using row->chars; keep that logic unchanged.
+                    continue;
+                }
+
+                // Checklist block: checkbox + text, and strikethrough when checked.
+                if (row->type == ASLAN_ROW_CHECKLIST) {
+                    int checked = 0;
+                    if (row->block) {
+                        AslanChecklistBlock* cl = (AslanChecklistBlock*)row->block;
+                        checked = cl->checked ? 1 : 0;
+                    }
+
+                    float y_pos = top_y + get_line_y_position(active_note, i) + 3.0f - scroll_y;
+                    float row_h = get_line_height(row->type);
+
+                    // Checkbox bounds (visual only; click handling is in main.c).
+                    struct nk_command_buffer* canvas = &ui->ctx->overlay;
+                    struct nk_rect cb = nk_rect(pad_x + 6.0f, y_pos + 2.0f, 18.0f, 18.0f);
+                    struct nk_color border = nk_rgb(180, 180, 180);
+                    struct nk_color fill = nk_rgb(255, 255, 255);
+                    nk_fill_rect(canvas, cb, 4.0f, fill);
+                    nk_stroke_rect(canvas, cb, 4.0f, 1.0f, border);
+                    if (checked) {
+                        // Simple check mark (two strokes).
+                        struct nk_color c = nk_rgb(34, 197, 94);
+                        nk_stroke_line(canvas, cb.x + 4.0f, cb.y + 10.0f, cb.x + 8.0f, cb.y + 14.0f, 2.0f, c);
+                        nk_stroke_line(canvas, cb.x + 8.0f, cb.y + 14.0f, cb.x + 15.0f, cb.y + 4.0f, 2.0f, c);
+                    }
+
+                    // Text (muted + strikethrough if checked).
+                    const float text_x = pad_x + 6.0f + 26.0f;
+                    struct nk_color tcol = checked ? nk_rgb(160, 160, 160) : nk_rgb(30, 30, 30);
+                    nk_draw_text(canvas,
+                                 nk_rect(text_x, y_pos, w - (text_x - pad_x), row_h),
+                                 t,
+                                 (int)strlen(t),
+                                 note_font,
+                                 nk_rgba(0, 0, 0, 0),
+                                 tcol);
+
+                    if (checked && t && t[0]) {
+                        float tw = 0.0f;
+                        if (note_font && note_font->width) {
+                            tw = note_font->width(note_font->userdata, note_font->height, t, (int)strlen(t));
+                        }
+                        float ly = y_pos + (row_h * 0.5f);
+                        nk_stroke_line(canvas, text_x, ly, text_x + tw, ly, 1.5f, tcol);
+                    }
+
+                    continue;
                 }
 
                 // Calculate Y position using helper function (accumulate row heights for proper spacing)

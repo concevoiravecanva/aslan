@@ -24,8 +24,35 @@ typedef enum {
     ASLAN_ROW_HEADING_1 = 3,  // H1 block (large title)
     ASLAN_ROW_HEADING_2 = 4,  // H2 block (medium title)
     ASLAN_ROW_HEADING_3 = 5,  // H3 block (small title)
-    ASLAN_ROW_SEPARATOR = 6   // Visual separator line
+    ASLAN_ROW_SEPARATOR = 6,  // Visual separator line
+    ASLAN_ROW_CALLOUT = 7,    // Callout block (icon + pastel background + accent bar)
+    ASLAN_ROW_CHECKLIST = 8   // Checklist block (checkbox + strikethrough)
 } AslanRowType;
+
+// NOTE Callout themes (kept small/stable for AOF durability)
+typedef enum {
+    ASLAN_CALLOUT_INFO = 0,
+    ASLAN_CALLOUT_STAR = 1,
+    ASLAN_CALLOUT_ALERT = 2,
+    ASLAN_CALLOUT_CHECK = 3,
+    ASLAN_CALLOUT_IDEA = 4
+} AslanCalloutTheme;
+
+// NOTE Callout block payload (owned by the row; persisted via AOF)
+typedef struct {
+    // User content (UTF-8). We keep it dynamic like text rows (same edit path, easier).
+    char* chars;
+    size_t len;
+    size_t cap;
+
+    // Theme index drives icon + bg + accent color.
+    AslanCalloutTheme theme;
+} AslanCalloutBlock;
+
+// NOTE Checklist payload (row->chars stores the editable text)
+typedef struct {
+    int checked; // 0/1
+} AslanChecklistBlock;
 
 typedef struct {
     AslanRowType type;

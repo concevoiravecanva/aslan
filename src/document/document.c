@@ -521,6 +521,65 @@ static void note_row_delete_char(AslanRow* r, int at) {
     r->len--;
 }
 
+// Callout text editing helpers (payload owns the editable buffer).
+static void callout_ensure_cap(AslanCalloutBlock* cb, size_t need) {
+    if (!cb) return;
+    if (need <= cb->cap) return;
+    size_t new_cap = cb->cap ? cb->cap : 32;
+    while (new_cap < need) new_cap *= 2;
+    char* new_chars = (char*)realloc(cb->chars, new_cap);
+    if (!new_chars) return;
+    cb->chars = new_chars;
+    cb->cap = new_cap;
+}
+
+static void callout_insert_char(AslanCalloutBlock* cb, int at, char c) {
+    if (!cb) return;
+    if (at < 0) at = 0;
+    if ((size_t)at > cb->len) at = (int)cb->len;
+    callout_ensure_cap(cb, cb->len + 2);
+    if (!cb->chars || cb->cap < cb->len + 2) return;
+    memmove(cb->chars + at + 1, cb->chars + at, (cb->len - (size_t)at) + 1);
+    cb->chars[at] = c;
+    cb->len++;
+}
+
+static void callout_delete_char(AslanCalloutBlock* cb, int at) {
+    if (!cb) return;
+    if (cb->len == 0) return;
+    if (at <= 0) return;
+    if ((size_t)at > cb->len) at = (int)cb->len;
+    size_t idx = (size_t)at - 1;
+    memmove(cb->chars + idx, cb->chars + idx + 1, (cb->len - idx));
+    cb->len--;
+}
+
+static void note_mirror_callout_text_to_row(AslanRow* row) {
+    if (!row) return;
+    if (row->type != ASLAN_ROW_CALLOUT || !row->block) return;
+    AslanCalloutBlock* cb = (AslanCalloutBlock*)row->block;
+    if (!cb) return;
+
+    size_t n = cb->len;
+    if (n + 1 > row->cap) {
+        size_t new_cap = row->cap ? row->cap : 32;
+        while (new_cap < n + 1) new_cap *= 2;
+        char* new_chars = (char*)realloc(row->chars, new_cap);
+        if (!new_chars) return;
+        row->chars = new_chars;
+        row->cap = new_cap;
+    }
+    if (!row->chars) return;
+    if (!cb->chars) {
+        row->chars[0] = '\0';
+        row->len = 0;
+        return;
+    }
+    memcpy(row->chars, cb->chars, n);
+    row->chars[n] = '\0';
+    row->len = n;
+}
+
 void note_insert_line(AslanNoteDoc* doc, int row_idx, const char* text) {
     if (!doc) return;
     if (row_idx < 0) row_idx = 0;
@@ -970,10 +1029,17 @@ int note_handle_input(AslanNoteDoc* doc, const SDL_Event* ev) {
                         note_doc_delete_selection(doc);
                         return 1;
                     }
-                    AslanRow* r = &doc->rows[doc->cursor_row];
+                    AslanRow* visual_row = &doc->rows[doc->cursor_row];
                     if (doc->cursor_col > 0) {
-                        note_row_delete_char(r, doc->cursor_col);
+                        if (visual_row->type == ASLAN_ROW_CALLOUT && visual_row->block) {
+                            callout_delete_char((AslanCalloutBlock*)visual_row->block, doc->cursor_col);
+                        } else {
+                            note_row_delete_char(visual_row, doc->cursor_col);
+                        }
                         doc->cursor_col--;
+
+                        // Keep visual row text in sync for rendering/selection logic.
+                        note_mirror_callout_text_to_row(visual_row);
 
                         // Current row content changed -> mark pending for AOF.
                         doc->aof_last_edited_row = doc->cursor_row;
@@ -995,15 +1061,22 @@ int note_handle_input(AslanNoteDoc* doc, const SDL_Event* ev) {
             if (note_sel_has_range(doc)) {
                 note_doc_delete_selection(doc);
             }
-            AslanRow* r = &doc->rows[doc->cursor_row];
+            AslanRow* visual_row = &doc->rows[doc->cursor_row];
             const char* s = ev->text.text;
             for (int i = 0; s[i]; i++) {
                 unsigned char ch = (unsigned char)s[i];
                 if (ch == '\n' || ch == '\r') continue;
                 if (!isprint(ch) && ch != '\t') continue;
-                note_row_insert_char(r, doc->cursor_col, (char)ch);
+                if (visual_row->type == ASLAN_ROW_CALLOUT && visual_row->block) {
+                    callout_insert_char((AslanCalloutBlock*)visual_row->block, doc->cursor_col, (char)ch);
+                } else {
+                    note_row_insert_char(visual_row, doc->cursor_col, (char)ch);
+                }
                 doc->cursor_col++;
             }
+
+            // Keep visual row text in sync for rendering/selection logic.
+            note_mirror_callout_text_to_row(visual_row);
 
             // Current row content changed -> mark pending for AOF.
             doc->aof_last_edited_row = doc->cursor_row;

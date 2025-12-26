@@ -80,6 +80,31 @@ static int note_pick_col_from_x(struct nk_context* ctx, float rel_x) {
     return col;
 }
 
+// NOTE pages now have variable-height blocks (H1/H2/H3/Callout).
+// Keep input picking consistent with renderer/UI overlay by accumulating per-row heights.
+static float note_row_height(AslanRowType type) {
+    switch (type) {
+        case ASLAN_ROW_HEADING_1: return 34.0f;
+        case ASLAN_ROW_HEADING_2: return 28.0f;
+        case ASLAN_ROW_HEADING_3: return 24.0f;
+        case ASLAN_ROW_CALLOUT: return 42.0f;
+    case ASLAN_ROW_CHECKLIST: return 26.0f;
+        case ASLAN_ROW_SEPARATOR: return 22.0f;
+        default: return 22.0f;
+    }
+}
+
+static int note_pick_row_from_y(const AslanNoteDoc* nd, float top_y, float scroll_y, float my) {
+    if (!nd || nd->row_count <= 0) return 0;
+    float y = top_y - scroll_y;
+    for (int r = 0; r < nd->row_count; r++) {
+        float h = note_row_height(nd->rows[r].type);
+        if (my < y + h) return r;
+        y += h;
+    }
+    return nd->row_count - 1;
+}
+
 // Flush the last edited NOTE row to AOF (history.log) if pending.
 static void note_aof_flush_pending(Engine* engine, uint32_t page_id, AslanNoteDoc* nd) {
     if (!engine || !engine->history_file || !nd) return;
@@ -291,7 +316,6 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                                 // Note area: screen space, x: 80 to width-80, y: 80 to height
                                 const float pad_x = 80.0f;
                                 const float top_y = 80.0f;
-                                const float line_h = 22.0f;
                                 const float text_x = pad_x + 6.0f;
 
                                 // IMPORTANT: match the actual blue gutter drawn in renderer_draw_note_doc():
@@ -303,10 +327,7 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                                 if (mx >= gutter_x0 && mx <= 1024.0f - pad_x && my >= top_y) {
                                     AslanNoteDoc* nd = engine->doc->pages[pi].note;
                                     float scroll_y = nd->scroll_y;
-                                    int row = (int)((my - top_y + scroll_y) / line_h);
-                                    if (row < 0) row = 0;
-                                    if (row >= nd->row_count) row = nd->row_count - 1;
-                                    if (nd->row_count == 0) row = 0;
+                                    int row = note_pick_row_from_y(nd, top_y, scroll_y, my);
                                     (void)((row < nd->row_count) ? nd->rows[row].chars : "");
 
                                     // Decide gutter click based on the actual blue rectangle.
@@ -416,7 +437,6 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
                             if (engine->doc->pages[pi].type == PAGE_TYPE_NOTE && engine->doc->pages[pi].note) {
                                 const float pad_x = 80.0f;
                                 const float top_y = 80.0f;
-                                const float line_h = 22.0f;
                                 AslanNoteDoc* nd = engine->doc->pages[pi].note;
                                 float scroll_y = nd->scroll_y;
 
@@ -426,10 +446,7 @@ void run_visual_mode(Engine* engine, Renderer* renderer, UIHost* ui) {
 
                                 // Consider drag active only in note region.
                                 if (mx >= gutter_x0 && mx <= 1024.0f - pad_x && my >= top_y) {
-                                    int row = (int)((my - top_y + scroll_y) / line_h);
-                                    if (row < 0) row = 0;
-                                    if (row >= nd->row_count) row = nd->row_count - 1;
-                                    if (nd->row_count == 0) row = 0;
+                                    int row = note_pick_row_from_y(nd, top_y, scroll_y, my);
 
                                     int col = 0;
                                     bool in_gutter = (mx >= gutter_x0 && mx < gutter_x1);

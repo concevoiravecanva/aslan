@@ -72,20 +72,38 @@ void engine_serialize_note(const AslanNoteDoc* doc, uint32_t page_id, FILE* fp) 
 
     for (int i = 0; i < doc->row_count; i++) {
         const AslanRow* r = &doc->rows[i];
-        if (r->type != ASLAN_ROW_TEXT) continue;
-
         const char* content = r->chars ? r->chars : "";
+
+        // Escape helper (minimal for now: quotes)
         char escaped[2048];
         int j = 0;
         for (int k = 0; content[k] && j < (int)sizeof(escaped) - 2; k++) {
-            if (content[k] == '"') {
+            if (content[k] == '\"') {
                 escaped[j++] = '\\';
             }
             escaped[j++] = content[k];
         }
         escaped[j] = '\0';
 
-        fprintf(fp, "note_ins_ln %u %d \"%s\"\n", (unsigned)page_id, i, escaped);
+        if (r->type == ASLAN_ROW_TEXT) {
+            fprintf(fp, "note_ins_ln %u %d \"%s\"\n", (unsigned)page_id, i, escaped);
+        } else if (r->type == ASLAN_ROW_HEADING_1) {
+            fprintf(fp, "note_ins_block %u %d h1 \"%s\"\n", (unsigned)page_id, i, escaped);
+        } else if (r->type == ASLAN_ROW_HEADING_2) {
+            fprintf(fp, "note_ins_block %u %d h2 \"%s\"\n", (unsigned)page_id, i, escaped);
+        } else if (r->type == ASLAN_ROW_HEADING_3) {
+            fprintf(fp, "note_ins_block %u %d h3 \"%s\"\n", (unsigned)page_id, i, escaped);
+        } else if (r->type == ASLAN_ROW_SEPARATOR) {
+            fprintf(fp, "note_ins_block %u %d separator \"%s\"\n", (unsigned)page_id, i, escaped);
+        } else if (r->type == ASLAN_ROW_CALLOUT) {
+            // Theme defaults to INFO if missing.
+            int theme = 0;
+            if (r->block) {
+                const AslanCalloutBlock* cb = (const AslanCalloutBlock*)r->block;
+                theme = (int)cb->theme;
+            }
+            fprintf(fp, "note_ins_block %u %d callout %d \"%s\"\n", (unsigned)page_id, i, theme, escaped);
+        }
     }
 }
 
@@ -175,6 +193,9 @@ static bool is_mutating_command_line(const char* line) {
             strncmp(l, "clip_set_source ", 16) == 0 ||
             strncmp(l, "clip_set_range ", 15) == 0 ||
             strncmp(l, "clip_set_comment ", 17) == 0 ||
+            // NOTE block commands
+            strncmp(l, "note_insert_block ", 18) == 0 ||
+            strncmp(l, "note_set_callout_theme ", 23) == 0 ||
             // NOTE: `page_meta` is treated as view/camera state for option B:
             // persisted in history/save, but NOT undoable.
             // So we intentionally exclude it from the undo/redo mutating predicate.
@@ -773,6 +794,18 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
                     nd->rows[r].chars = NULL;
                     nd->rows[r].len = 0;
                     nd->rows[r].cap = 0;
+
+                    // Free optional block payloads.
+                    if (nd->rows[r].block) {
+                        // Currently only callouts allocate a payload; safe to treat as such.
+                        AslanCalloutBlock* cb = (AslanCalloutBlock*)nd->rows[r].block;
+                        free(cb->chars);
+                        cb->chars = NULL;
+                        cb->len = 0;
+                        cb->cap = 0;
+                        free(cb);
+                        nd->rows[r].block = NULL;
+                    }
                 }
                 free(nd->rows);
                 nd->rows = NULL;
@@ -816,6 +849,109 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
         }
     }
 
+    // Commande: note_ins_block <page_id> <row> <kind> [theme] "text"
+    // Used by rewrite_aof snapshots to persist NOTE block rows.
+    else if (strncmp(command_line, "note_ins_block ", 15) == 0) {
+        int page_id = 0;
+        int row_idx = 0;
+        char kind[32];
+        kind[0] = 0;
+        int theme = 0;
+        char text[2048];
+        text[0] = 0;
+
+        // Try callout form first (has theme): note_ins_block <pid> <row> callout <theme> "text"
+        int matched = sscanf(command_line, "note_ins_block %d %d %31s %d \"%2047[^\"]\"", &page_id, &row_idx, kind, &theme, text);
+        if (matched < 4) {
+            // Other blocks: note_ins_block <pid> <row> h1|h2|h3|separator "text"
+            theme = 0;
+            matched = sscanf(command_line, "note_ins_block %d %d %31s \"%2047[^\"]\"", &page_id, &row_idx, kind, text);
+        }
+
+        if (matched >= 3) {
+            if (engine->doc) {
+                for (int i = 0; i < 32; i++) {
+                    if (!engine->doc->pages[i].in_use) continue;
+                    if (engine->doc->pages[i].page_id != (uint32_t)page_id) continue;
+
+                    if (engine->doc->pages[i].type == PAGE_TYPE_NOTE && engine->doc->pages[i].note == NULL) {
+                        (void)doc_page_set_type(engine->doc, (uint32_t)page_id, PAGE_TYPE_NOTE);
+                    }
+
+                    AslanNoteDoc* nd = engine->doc->pages[i].note;
+                    if (!nd) {
+                        success = true;
+                        break;
+                    }
+
+                    // Clamp insert index.
+                    if (row_idx < 0) row_idx = 0;
+                    if (row_idx > nd->row_count) row_idx = nd->row_count;
+
+                    // Grow array.
+                    if (nd->row_count + 1 > nd->row_cap) {
+                        int new_cap = nd->row_cap ? nd->row_cap * 2 : 16;
+                        while (new_cap < nd->row_count + 1) new_cap *= 2;
+                        AslanRow* new_rows = (AslanRow*)realloc(nd->rows, (size_t)new_cap * sizeof(AslanRow));
+                        if (!new_rows) {
+                            success = true;
+                            break;
+                        }
+                        nd->rows = new_rows;
+                        nd->row_cap = new_cap;
+                    }
+
+                    // Shift down.
+                    if (row_idx < nd->row_count) {
+                        memmove(&nd->rows[row_idx + 1], &nd->rows[row_idx], (size_t)(nd->row_count - row_idx) * sizeof(AslanRow));
+                    }
+
+                    AslanRow* r = &nd->rows[row_idx];
+                    memset(r, 0, sizeof(*r));
+
+                    // Determine type.
+                    if (strcmp(kind, "h1") == 0) r->type = ASLAN_ROW_HEADING_1;
+                    else if (strcmp(kind, "h2") == 0) r->type = ASLAN_ROW_HEADING_2;
+                    else if (strcmp(kind, "h3") == 0) r->type = ASLAN_ROW_HEADING_3;
+                    else if (strcmp(kind, "separator") == 0) r->type = ASLAN_ROW_SEPARATOR;
+                    else if (strcmp(kind, "callout") == 0) r->type = ASLAN_ROW_CALLOUT;
+                    else r->type = ASLAN_ROW_TEXT;
+
+                    // Copy text into row storage. For callout, text is stored both in row->chars (for selection/caret v1)
+                    // and in the payload (for future custom layout).
+                    const char* src_txt = text;
+                    size_t n = strlen(src_txt);
+                    r->chars = (char*)malloc(n + 1);
+                    if (r->chars) {
+                        memcpy(r->chars, src_txt, n);
+                        r->chars[n] = 0;
+                        r->len = n;
+                        r->cap = n + 1;
+                    }
+
+                    if (r->type == ASLAN_ROW_CALLOUT) {
+                        AslanCalloutBlock* cb = (AslanCalloutBlock*)calloc(1, sizeof(AslanCalloutBlock));
+                        if (cb) {
+                            cb->theme = (theme < 0) ? ASLAN_CALLOUT_INFO : (AslanCalloutTheme)((theme > 4) ? 4 : theme);
+                            cb->chars = (char*)malloc(n + 1);
+                            if (cb->chars) {
+                                memcpy(cb->chars, src_txt, n);
+                                cb->chars[n] = 0;
+                                cb->len = n;
+                                cb->cap = n + 1;
+                            }
+                            r->block = cb;
+                        }
+                    }
+
+                    nd->row_count++;
+                    success = true;
+                    break;
+                }
+            }
+        }
+    }
+
     // Commande: note_set_ln <page_id> <row> "text"
     else if (strncmp(command_line, "note_set_ln ", 12) == 0) {
         int page_id = 0;
@@ -852,7 +988,16 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
                     }
 
                     AslanRow* r = &nd->rows[row_idx];
-                    if (r->type != ASLAN_ROW_TEXT) r->type = ASLAN_ROW_TEXT;
+                    // If this row is a specialized block (e.g. callout), keep the type.
+                    // We still allow editing its text via note_set_ln because our NOTE editor
+                    // uses row->chars for caret/selection.
+                    if (r->type == ASLAN_ROW_TEXT) {
+                        // ok
+                    } else if (r->type == ASLAN_ROW_CALLOUT || r->type == ASLAN_ROW_HEADING_1 || r->type == ASLAN_ROW_HEADING_2 || r->type == ASLAN_ROW_HEADING_3 || r->type == ASLAN_ROW_SEPARATOR) {
+                        // keep
+                    } else {
+                        r->type = ASLAN_ROW_TEXT;
+                    }
 
                     size_t n = strlen(text);
                     if (n + 1 > r->cap) {
@@ -870,6 +1015,25 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
                     r->chars[n] = '\0';
                     r->len = n;
 
+                    // Mirror text into callout payload when applicable.
+                    if (r->type == ASLAN_ROW_CALLOUT && r->block) {
+                        AslanCalloutBlock* cb = (AslanCalloutBlock*)r->block;
+                        if (n + 1 > cb->cap) {
+                            size_t new_cap = cb->cap ? cb->cap : 32;
+                            while (new_cap < n + 1) new_cap *= 2;
+                            char* new_chars = (char*)realloc(cb->chars, new_cap);
+                            if (new_chars) {
+                                cb->chars = new_chars;
+                                cb->cap = new_cap;
+                            }
+                        }
+                        if (cb->chars && cb->cap >= n + 1) {
+                            memcpy(cb->chars, text, n);
+                            cb->chars[n] = '\0';
+                            cb->len = n;
+                        }
+                    }
+
                     success = true;
                     break;
                 }
@@ -886,7 +1050,9 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
         if (strcmp(block_type_str, "h1") == 0) block_type = ASLAN_ROW_HEADING_1;
         else if (strcmp(block_type_str, "h2") == 0) block_type = ASLAN_ROW_HEADING_2;
         else if (strcmp(block_type_str, "h3") == 0) block_type = ASLAN_ROW_HEADING_3;
-        else if (strcmp(block_type_str, "separator") == 0) block_type = ASLAN_ROW_SEPARATOR;
+    else if (strcmp(block_type_str, "separator") == 0) block_type = ASLAN_ROW_SEPARATOR;
+    else if (strcmp(block_type_str, "callout") == 0) block_type = ASLAN_ROW_CALLOUT;
+    else if (strcmp(block_type_str, "checklist") == 0) block_type = ASLAN_ROW_CHECKLIST;
 
         if (engine->doc) {
             uint32_t pid = doc_page_active_id(engine->doc);
@@ -925,12 +1091,14 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
                 new_row->cap = 0;
                 new_row->block = NULL;
 
-                // For headings and separator, allocate a placeholder text
+                // For specialized blocks, allocate a placeholder text
                 const char* placeholder = "";
                 if (block_type == ASLAN_ROW_HEADING_1) placeholder = "Heading 1";
                 else if (block_type == ASLAN_ROW_HEADING_2) placeholder = "Heading 2";
                 else if (block_type == ASLAN_ROW_HEADING_3) placeholder = "Heading 3";
                 else if (block_type == ASLAN_ROW_SEPARATOR) placeholder = "---";
+                else if (block_type == ASLAN_ROW_CALLOUT) placeholder = "Callout";
+                else if (block_type == ASLAN_ROW_CHECKLIST) placeholder = "";
 
                 size_t n = strlen(placeholder);
                 new_row->chars = (char*)malloc(n + 1);
@@ -941,12 +1109,80 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
                     new_row->cap = n + 1;
                 }
 
+                // Callout payload
+                if (block_type == ASLAN_ROW_CALLOUT) {
+                    AslanCalloutBlock* cb = (AslanCalloutBlock*)calloc(1, sizeof(AslanCalloutBlock));
+                    if (cb) {
+                        cb->theme = ASLAN_CALLOUT_INFO;
+                        cb->chars = (char*)malloc(n + 1);
+                        if (cb->chars) {
+                            memcpy(cb->chars, placeholder, n);
+                            cb->chars[n] = '\0';
+                            cb->len = n;
+                            cb->cap = n + 1;
+                        }
+                        new_row->block = cb;
+                    }
+                }
+
+                // Checklist payload
+                if (block_type == ASLAN_ROW_CHECKLIST) {
+                    AslanChecklistBlock* cl = (AslanChecklistBlock*)calloc(1, sizeof(AslanChecklistBlock));
+                    if (cl) {
+                        cl->checked = 0;
+                        new_row->block = cl;
+                    }
+                }
+
                 nd->row_count++;
                 nd->cursor_row = insert_pos;
                 nd->cursor_col = 0;
 
                 success = true;
                 break;
+            }
+        }
+    }
+
+    // Commande: note_set_callout_theme <page_id> <row> <theme>
+    // theme: 0..4 (Info, Star, Alert, Check, Idea)
+    else if (strncmp(command_line, "note_set_callout_theme ", 23) == 0) {
+        int page_id = 0;
+        int row_idx = 0;
+        int theme = 0;
+        if (sscanf(command_line, "note_set_callout_theme %d %d %d", &page_id, &row_idx, &theme) == 3) {
+            if (engine->doc) {
+                for (int i = 0; i < 32; i++) {
+                    if (!engine->doc->pages[i].in_use) continue;
+                    if (engine->doc->pages[i].page_id != (uint32_t)page_id) continue;
+                    if (engine->doc->pages[i].type != PAGE_TYPE_NOTE) break;
+                    AslanNoteDoc* nd = engine->doc->pages[i].note;
+                    if (!nd) break;
+                    if (row_idx < 0 || row_idx >= nd->row_count) {
+                        success = true;
+                        break;
+                    }
+                    AslanRow* r = &nd->rows[row_idx];
+                    if (r->type != ASLAN_ROW_CALLOUT) {
+                        success = true;
+                        break;
+                    }
+                    AslanCalloutBlock* cb = (AslanCalloutBlock*)r->block;
+                    if (!cb) {
+                        cb = (AslanCalloutBlock*)calloc(1, sizeof(AslanCalloutBlock));
+                        if (cb) {
+                            cb->theme = ASLAN_CALLOUT_INFO;
+                            r->block = cb;
+                        }
+                    }
+                    if (cb) {
+                        if (theme < 0) theme = 0;
+                        if (theme > 4) theme = 4;
+                        cb->theme = (AslanCalloutTheme)theme;
+                    }
+                    success = true;
+                    break;
+                }
             }
         }
     }

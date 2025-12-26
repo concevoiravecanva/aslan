@@ -31,9 +31,11 @@ typedef struct UIHost {
     struct nk_font* font_h1;  // 28pt Bold
     struct nk_font* font_h2;  // 24pt SemiBold
     struct nk_font* font_h3;  // 18pt SemiBold
+    // Icon font (Remix Icon)
+    struct nk_font* font_icons;
     float font_size_px;
     Node* selected_node;
-    lua_State* L; // Ajout du pointeur vers l'état Lua
+    lua_State* L;// Ajout du pointeur vers l'état Lua
     // Small UX feedback for the user (last action/command)
     char status[128];
 
