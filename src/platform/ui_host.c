@@ -1198,6 +1198,31 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
     if (nk_begin(ui->ctx, "Inspector", nk_rect(win_w - 250, 0, 250, win_h),
         NK_WINDOW_BORDER|NK_WINDOW_TITLE)) {
 
+        // NOTE pages: keep the right panel clean and purpose-built.
+        // Requirement: keep Back/Home, remove everything else, and add an "Add blocks" section.
+        int is_note_page = 0;
+        if (engine && engine->doc) {
+            uint32_t apid = doc_page_active_id(engine->doc);
+            for (int i = 0; i < 32; i++) {
+                if (!engine->doc->pages[i].in_use) continue;
+                if (engine->doc->pages[i].page_id != apid) continue;
+                if (engine->doc->pages[i].type == PAGE_TYPE_NOTE) is_note_page = 1;
+                break;
+            }
+        }
+
+        if (is_note_page) {
+            // NOTE Inspector: only "Home" + "Add a block".
+            nk_layout_row_dynamic(ui->ctx, 28, 1);
+            if (nk_button_label(ui->ctx, "Home")) {
+                ui->screen = 0;
+                snprintf(ui->status, sizeof(ui->status), "Home");
+            }
+
+            nk_layout_row_dynamic(ui->ctx, 22, 1);
+            nk_label(ui->ctx, "Add a block", NK_TEXT_LEFT);
+        } else {
+
         nk_layout_row_dynamic(ui->ctx, 28, 1);
         if (nk_button_label(ui->ctx, "Back to Home")) {
             ui->screen = 0;
@@ -1706,6 +1731,7 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             nk_label(ui->ctx, "No selection", NK_TEXT_CENTERED);
             ui->text_edit_inited = 0;
         }
+        } // end of else (non-NOTE pages standard Inspector)
     }
     nk_end(ui->ctx);
 
