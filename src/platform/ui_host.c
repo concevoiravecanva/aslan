@@ -673,6 +673,9 @@ UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L) {
     // Fonts
     ui->font_inter = NULL;
     ui->font_mono = NULL;
+    ui->font_h1 = NULL;
+    ui->font_h2 = NULL;
+    ui->font_h3 = NULL;
     ui->font_size_px = 14.0f;
 
     // Load fonts into Nuklear atlas.
@@ -683,6 +686,11 @@ UIHost* ui_init(SDL_Window* win, SDL_Renderer* renderer, lua_State* L) {
         ui->font_inter = nk_font_atlas_add_from_file(atlas, "assets/fonts/Inter-Regular.ttf", ui->font_size_px, 0);
     // NOTE editor monospace font (ships in repo under assets/).
     ui->font_mono = nk_font_atlas_add_from_file(atlas, "assets/fonts/JetBrains_Mono/static/JetBrainsMono-Regular.ttf", ui->font_size_px, 0);
+        
+        // Heading fonts for NOTE blocks (JetBrains Mono in different weights)
+        ui->font_h3 = nk_font_atlas_add_from_file(atlas, "assets/fonts/JetBrains_Mono/static/JetBrainsMono-Medium.ttf", 18.0f, 0);
+        ui->font_h2 = nk_font_atlas_add_from_file(atlas, "assets/fonts/JetBrains_Mono/static/JetBrainsMono-SemiBold.ttf", 24.0f, 0);
+        ui->font_h1 = nk_font_atlas_add_from_file(atlas, "assets/fonts/JetBrains_Mono/static/JetBrainsMono-Bold.ttf", 28.0f, 0);
     }
     nk_sdl_font_stash_end();
 
@@ -875,6 +883,45 @@ void ui_shutdown(UIHost* ui) {
 void ui_handle_event(UIHost* ui, SDL_Event* evt) {
     (void)ui;
     nk_sdl_handle_event(evt);
+}
+
+// Helper functions for dynamic line layout in NOTE pages
+static float get_line_height(AslanRowType type) {
+    switch (type) {
+        case ASLAN_ROW_HEADING_1: return 34.0f;
+        case ASLAN_ROW_HEADING_2: return 28.0f;
+        case ASLAN_ROW_HEADING_3: return 24.0f;
+        case ASLAN_ROW_SEPARATOR: return 22.0f; // Same as regular text
+        default: return 22.0f; // Regular text
+    }
+}
+
+static float get_line_y_position(AslanNoteDoc* note, int target_row) {
+    float y_pos = 0.0f;
+    for (int i = 0; i < target_row && i < note->row_count; i++) {
+        y_pos += get_line_height(note->rows[i].type);
+    }
+    return y_pos;
+}
+
+static const struct nk_user_font* note_row_font(const UIHost* ui, const struct nk_user_font* fallback, AslanRowType type) {
+    if (!ui) return fallback;
+    switch (type) {
+        case ASLAN_ROW_HEADING_1: return (ui->font_h1 ? &ui->font_h1->handle : fallback);
+        case ASLAN_ROW_HEADING_2: return (ui->font_h2 ? &ui->font_h2->handle : fallback);
+        case ASLAN_ROW_HEADING_3: return (ui->font_h3 ? &ui->font_h3->handle : fallback);
+        default: return fallback;
+    }
+}
+
+static float note_measure_char_w(const struct nk_user_font* font) {
+    float char_w = 8.0f;
+    if (font && font->width) {
+        const char* cell = "M";
+        char_w = font->width(font->userdata, font->height, cell, 1);
+        if (char_w < 1.0f) char_w = 8.0f;
+    }
+    return char_w;
 }
 
 void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
@@ -1221,6 +1268,25 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
 
             nk_layout_row_dynamic(ui->ctx, 22, 1);
             nk_label(ui->ctx, "Add a block", NK_TEXT_LEFT);
+
+            // Block insertion buttons (Antirez-style: simple, direct)
+            nk_layout_row_dynamic(ui->ctx, 28, 1);
+            if (nk_button_label(ui->ctx, "Heading 1 (H1)")) {
+                engine_execute_command(engine, "note_insert_block h1");
+                snprintf(ui->status, sizeof(ui->status), "Inserted H1");
+            }
+            if (nk_button_label(ui->ctx, "Heading 2 (H2)")) {
+                engine_execute_command(engine, "note_insert_block h2");
+                snprintf(ui->status, sizeof(ui->status), "Inserted H2");
+            }
+            if (nk_button_label(ui->ctx, "Heading 3 (H3)")) {
+                engine_execute_command(engine, "note_insert_block h3");
+                snprintf(ui->status, sizeof(ui->status), "Inserted H3");
+            }
+            if (nk_button_label(ui->ctx, "Separator")) {
+                engine_execute_command(engine, "note_insert_block separator");
+                snprintf(ui->status, sizeof(ui->status), "Inserted Separator");
+            }
         } else {
 
         nk_layout_row_dynamic(ui->ctx, 28, 1);
@@ -2159,6 +2225,8 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             const float pad_x = 80.0f;
             const float top_y = 80.0f;
             const float w = (float)win_w - pad_x * 2.0f;
+            const float text_pad_x = 6.0f;
+            const float text_pad_y = 3.0f;
 
             // Clamp scroll so we can't overscroll past the end of the document.
             // Overscroll combined with lack of clipping caused the top lines to look like
@@ -2167,7 +2235,10 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             {
                 float viewport_h = (float)win_h - (top_y - 24.0f);
                 if (viewport_h < 0.0f) viewport_h = 0.0f;
-                float content_h = (float)active_note->row_count * line_h;
+                float content_h = 0.0f;
+                for (int i = 0; i < active_note->row_count; i++) {
+                    content_h += get_line_height(active_note->rows[i].type);
+                }
                 float max_scroll = content_h - viewport_h;
                 if (max_scroll < 0.0f) max_scroll = 0.0f;
                 if (scroll_y > max_scroll) scroll_y = max_scroll;
@@ -2186,13 +2257,8 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             const struct nk_user_font* note_font = ui->ctx->style.font;
             if (ui->font_mono) note_font = &ui->font_mono->handle;
 
-            // Measure a single monospace cell.
-            float char_w = 8.0f;
-            if (note_font && note_font->width) {
-                const char* cell = "M";
-                char_w = note_font->width(note_font->userdata, note_font->height, cell, 1);
-                if (char_w < 1.0f) char_w = 8.0f;
-            }
+            // Base monospace cell width (used when a row falls back to mono).
+            float char_w_mono = note_measure_char_w(note_font);
 
             // Selection (range between cursor and anchor). We draw:
             // 1) normal text in black
@@ -2219,14 +2285,54 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             }
 
             for (int i = 0; i < active_note->row_count; i++) {
-                const char* t = (active_note->rows[i].chars ? active_note->rows[i].chars : "");
+                AslanRow* row = &active_note->rows[i];
+                const char* t = (row->chars ? row->chars : "");
+
+                // Adapt rendering based on block type (Antirez approach: type determines rendering)
+                float row_line_h = line_h;
+                float font_scale = 1.0f;
+                struct nk_color row_txt_col = txt_col;
+                const struct nk_user_font* row_font = note_font;
+
+                // Headings: use dedicated fonts with proper sizes
+                if (row->type == ASLAN_ROW_HEADING_1) {
+                    row_line_h = 34.0f;
+                    font_scale = 1.8f;
+                    row_txt_col = nk_rgb(0, 0, 0);
+                    if (ui->font_h1) row_font = &ui->font_h1->handle;
+                } else if (row->type == ASLAN_ROW_HEADING_2) {
+                    row_line_h = 28.0f;
+                    font_scale = 1.5f;
+                    row_txt_col = nk_rgb(30, 30, 30);
+                    if (ui->font_h2) row_font = &ui->font_h2->handle;
+                } else if (row->type == ASLAN_ROW_HEADING_3) {
+                    row_line_h = 24.0f;
+                    font_scale = 1.2f;
+                    row_txt_col = nk_rgb(60, 60, 60);
+                    if (ui->font_h3) row_font = &ui->font_h3->handle;
+                } else if (row->type == ASLAN_ROW_SEPARATOR) {
+                    // Separator: calculate Y position using helper function
+                    float y_pos = top_y + get_line_y_position(active_note, i) + get_line_height(row->type) * 0.5f - scroll_y;
+                    
+                    // Draw a horizontal line instead of text (50% shorter, centered)
+                    struct nk_command_buffer* canvas = &ui->ctx->overlay;
+                    float line_width = w * 0.5f; // 50% of full width
+                    float line_start_x = pad_x + (w - line_width) * 0.5f; // Center the line
+                    nk_stroke_line(canvas, line_start_x, y_pos, line_start_x + line_width, y_pos, 1.0f, nk_rgb(180, 180, 180));
+                    continue; // Skip text rendering for separator
+                }
+
+                // Calculate Y position using helper function (accumulate row heights for proper spacing)
+                float y_pos = top_y + get_line_y_position(active_note, i) + 3.0f - scroll_y;
+
+                // Render text with the appropriate heading font
                 nk_draw_text(&ui->ctx->overlay,
-                             nk_rect(pad_x + 6.0f, top_y + (float)i * line_h + 3.0f - scroll_y, w - 12.0f, line_h),
+                             nk_rect(pad_x + text_pad_x, y_pos, w - (text_pad_x * 2.0f), row_line_h),
                              t,
                              (int)strlen(t),
-                             note_font,
+                             row_font,
                              nk_rgba(0, 0, 0, 0),
-                             txt_col);
+                             row_txt_col);
 
                 if (sel_active && i >= sel_sr && i <= sel_er) {
                     int line_len = (int)strlen(t);
@@ -2241,11 +2347,14 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                     if (b < a) b = a;
 
                     if (b > a) {
-                        float rx = pad_x + 6.0f + (float)a * char_w;
-                        float ry = top_y + (float)i * line_h + 3.0f - scroll_y;
-                        float rw = (float)(b - a) * char_w;
-                        float rh = note_font ? note_font->height : (line_h - 4.0f);
-                        if (rh > line_h - 4.0f) rh = line_h - 4.0f;
+                        // Selection must use the same font metrics and Y positioning as the text.
+                        float row_char_w = note_measure_char_w(row_font);
+                        float rx = pad_x + text_pad_x + (float)a * row_char_w;
+                        float ry = y_pos;
+                        float rw = (float)(b - a) * row_char_w;
+                        float rh = row_font ? row_font->height : (line_h - 4.0f);
+                        float row_h = get_line_height(row->type);
+                        if (rh > row_h - 4.0f) rh = row_h - 4.0f;
 
                         nk_fill_rect(&ui->ctx->overlay, nk_rect(rx, ry, rw, rh), 2.0f, sel_bg);
 
@@ -2257,10 +2366,10 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
                             memcpy(buf, t + a, (size_t)n);
                             buf[n] = 0;
                             nk_draw_text(&ui->ctx->overlay,
-                                         nk_rect(rx, ry, rw, line_h),
+                                         nk_rect(rx, ry, rw, row_line_h),
                                          buf,
                                          n,
-                                         note_font,
+                                         row_font,
                                          nk_rgba(0, 0, 0, 0),
                                          sel_txt);
                         }
@@ -2269,19 +2378,47 @@ void ui_render(UIHost* ui, Engine* engine, int win_w, int win_h) {
             }
 
             // Caret: fixed-width math (JetBrains Mono) for pixel-perfect alignment.
-            if (active_note->cursor_row >= 0 && active_note->cursor_row < active_note->row_count && note_font && note_font->width) {
+            if (active_note->cursor_row >= 0 && active_note->cursor_row < active_note->row_count) {
+                AslanRow* cursor_row = &active_note->rows[active_note->cursor_row];
+                const struct nk_user_font* cursor_font = note_row_font(ui, note_font, cursor_row->type);
+                float cursor_char_w = (cursor_font == note_font) ? char_w_mono : note_measure_char_w(cursor_font);
+
                 int col = active_note->cursor_col;
                 if (col < 0) col = 0;
 
-                if (char_w < 1.0f) char_w = 8.0f;
+                // Calculate cursor Y position using helper function
+                float cursor_y_offset = get_line_y_position(active_note, active_note->cursor_row);
 
-                float cx0 = pad_x + 6.0f + (float)col * char_w;
-                float cy0 = top_y + (float)active_note->cursor_row * line_h + 3.0f - scroll_y;
-                float caret_h = note_font->height;
-                if (caret_h > line_h - 4.0f) caret_h = line_h - 4.0f;
+                float cy0 = top_y + cursor_y_offset + text_pad_y - scroll_y;
+
+                // Special case: separator isn't editable -> draw a horizontal caret on the separator line.
+                if (cursor_row->type == ASLAN_ROW_SEPARATOR) {
+                    float y_mid = cy0 + get_line_height(cursor_row->type) * 0.5f;
+                    float line_width = w * 0.5f;
+                    float line_start_x = pad_x + (w - line_width) * 0.5f;
+                    nk_stroke_line(&ui->ctx->overlay,
+                                   line_start_x,
+                                   y_mid,
+                                   line_start_x + line_width,
+                                   y_mid,
+                                   2.0f,
+                                   nk_rgb(90, 180, 255));
+                    // No vertical caret for separators.
+                    goto note_caret_done;
+                }
+
+                float cx0 = pad_x + text_pad_x + (float)col * cursor_char_w;
+                
+                // Get the actual height of the cursor row for caret height
+                float cursor_row_height = get_line_height(cursor_row->type);
+                
+                float caret_h = cursor_font ? cursor_font->height : (cursor_row_height - 4.0f);
+                if (caret_h > cursor_row_height - 4.0f) caret_h = cursor_row_height - 4.0f;
                 float cy1 = cy0 + caret_h;
 
                 nk_stroke_line(&ui->ctx->overlay, cx0, cy0, cx0, cy1, 2.0f, nk_rgb(90, 180, 255));
+note_caret_done:
+                (void)0;
             }
 
             // NOTE: this Nuklear integration doesn't expose nk_pop_scissor.

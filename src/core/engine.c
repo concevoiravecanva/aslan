@@ -877,6 +877,80 @@ bool engine_execute_command(Engine* engine, const char* command_line) {
         }
     }
 
+    // Commande: note_insert_block <block_type>
+    // Inserts a specialized block (h1, h2, h3, separator) at the cursor position in the active NOTE page.
+    else if (strncmp(command_line, "note_insert_block ", 18) == 0) {
+        const char* block_type_str = command_line + 18;
+        AslanRowType block_type = ASLAN_ROW_TEXT;
+
+        if (strcmp(block_type_str, "h1") == 0) block_type = ASLAN_ROW_HEADING_1;
+        else if (strcmp(block_type_str, "h2") == 0) block_type = ASLAN_ROW_HEADING_2;
+        else if (strcmp(block_type_str, "h3") == 0) block_type = ASLAN_ROW_HEADING_3;
+        else if (strcmp(block_type_str, "separator") == 0) block_type = ASLAN_ROW_SEPARATOR;
+
+        if (engine->doc) {
+            uint32_t pid = doc_page_active_id(engine->doc);
+            for (int i = 0; i < 32; i++) {
+                if (!engine->doc->pages[i].in_use) continue;
+                if (engine->doc->pages[i].page_id != pid) continue;
+                if (engine->doc->pages[i].type != PAGE_TYPE_NOTE) break;
+
+                AslanNoteDoc* nd = engine->doc->pages[i].note;
+                if (!nd) break;
+
+                // Insert a new row at cursor position
+                int insert_pos = nd->cursor_row;
+                if (insert_pos < 0) insert_pos = 0;
+                if (insert_pos > nd->row_count) insert_pos = nd->row_count;
+
+                // Grow array if needed
+                if (nd->row_count >= nd->row_cap) {
+                    int new_cap = nd->row_cap ? nd->row_cap * 2 : 8;
+                    AslanRow* new_rows = (AslanRow*)realloc(nd->rows, (size_t)new_cap * sizeof(AslanRow));
+                    if (!new_rows) break;
+                    nd->rows = new_rows;
+                    nd->row_cap = new_cap;
+                }
+
+                // Shift rows down
+                for (int j = nd->row_count; j > insert_pos; j--) {
+                    nd->rows[j] = nd->rows[j - 1];
+                }
+
+                // Initialize new block
+                AslanRow* new_row = &nd->rows[insert_pos];
+                new_row->type = block_type;
+                new_row->chars = NULL;
+                new_row->len = 0;
+                new_row->cap = 0;
+                new_row->block = NULL;
+
+                // For headings and separator, allocate a placeholder text
+                const char* placeholder = "";
+                if (block_type == ASLAN_ROW_HEADING_1) placeholder = "Heading 1";
+                else if (block_type == ASLAN_ROW_HEADING_2) placeholder = "Heading 2";
+                else if (block_type == ASLAN_ROW_HEADING_3) placeholder = "Heading 3";
+                else if (block_type == ASLAN_ROW_SEPARATOR) placeholder = "---";
+
+                size_t n = strlen(placeholder);
+                new_row->chars = (char*)malloc(n + 1);
+                if (new_row->chars) {
+                    memcpy(new_row->chars, placeholder, n);
+                    new_row->chars[n] = '\0';
+                    new_row->len = n;
+                    new_row->cap = n + 1;
+                }
+
+                nd->row_count++;
+                nd->cursor_row = insert_pos;
+                nd->cursor_col = 0;
+
+                success = true;
+                break;
+            }
+        }
+    }
+
     // Commande: grid_set <page_id> <row> <col> "text"
     else if (strncmp(command_line, "grid_set ", 9) == 0) {
         int page_id = 0;

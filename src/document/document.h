@@ -20,7 +20,11 @@ union SDL_Event;
 typedef enum {
     ASLAN_ROW_TEXT = 0,
     ASLAN_ROW_GRID = 1,       // reserved
-    ASLAN_ROW_LUA_WIDGET = 2  // reserved
+    ASLAN_ROW_LUA_WIDGET = 2, // reserved
+    ASLAN_ROW_HEADING_1 = 3,  // H1 block (large title)
+    ASLAN_ROW_HEADING_2 = 4,  // H2 block (medium title)
+    ASLAN_ROW_HEADING_3 = 5,  // H3 block (small title)
+    ASLAN_ROW_SEPARATOR = 6   // Visual separator line
 } AslanRowType;
 
 typedef struct {

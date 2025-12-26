@@ -27,6 +27,10 @@ typedef struct UIHost {
     struct nk_font* font_inter;
     // Monospace font for NOTE editor (stable caret + click mapping)
     struct nk_font* font_mono;
+    // Heading fonts for NOTE blocks (H1, H2, H3)
+    struct nk_font* font_h1;  // 28pt Bold
+    struct nk_font* font_h2;  // 24pt SemiBold
+    struct nk_font* font_h3;  // 18pt SemiBold
     float font_size_px;
     Node* selected_node;
     lua_State* L; // Ajout du pointeur vers l'état Lua

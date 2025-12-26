@@ -2,3 +2,29 @@
 clear
 page_create 1 "Page 1"
 page_type 1 note
+note_set_ln 1 0 "Hello"
+note_set_ln 1 1 ""
+note_insert_block h1
+note_set_ln 1 2 ""
+note_set_ln 1 2 "Oui c est moi"
+note_set_ln 1 3 ""
+note_insert_block h2
+note_set_ln 1 4 "Head"
+note_set_ln 1 4 ""
+note_set_ln 1 4 "En effet"
+note_set_ln 1 4 "En effet"
+note_set_ln 1 5 ""
+note_set_ln 1 6 ""
+note_set_ln 1 7 "c est "
+note_set_ln 1 7 "c est ca"
+note_set_ln 1 8 ""
+note_set_ln 1 9 ""
+note_set_ln 1 10 "Encore"
+note_set_ln 1 11 ""
+note_set_ln 1 12 "une "
+note_set_ln 1 12 "une fois"
+note_set_ln 1 13 ""
+note_set_ln 1 14 ""
+note_insert_block h1
+note_set_ln 1 15 "H"
+note_set_ln 1 15 "C est bien"
