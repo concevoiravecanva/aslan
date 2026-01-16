@@ -611,20 +611,17 @@ static void note_row_sync_to_node(AslanRow *r) {
   case ASLAN_ROW_HEADING_1:
     r->node->type = NODE_TYPE_BLOCK_HEADING_1;
     break;
-  case ASLAN_ROW_HEADING_2:
-    r->node->type = NODE_TYPE_BLOCK_HEADING_2;
-    break;
-  case ASLAN_ROW_HEADING_3:
-    r->node->type = NODE_TYPE_BLOCK_HEADING_3;
-    break;
   case ASLAN_ROW_SEPARATOR:
     r->node->type = NODE_TYPE_BLOCK_SEPARATOR;
     break;
-  case ASLAN_ROW_CALLOUT:
-    r->node->type = NODE_TYPE_BLOCK_CALLOUT;
+  case ASLAN_ROW_HIGHLIGHT:
+    r->node->type = NODE_TYPE_BLOCK_TEXT; // Reuses text block
     break;
-  case ASLAN_ROW_CHECKLIST:
-    r->node->type = NODE_TYPE_BLOCK_CHECKLIST;
+  case ASLAN_ROW_GRID:
+    r->node->type = NODE_TYPE_GRID;
+    break;
+  case ASLAN_ROW_EMBED:
+    r->node->type = NODE_TYPE_BLOCK_TEXT; // Reuses for now
     break;
   default:
     break;
@@ -693,83 +690,6 @@ static void note_row_delete_char(AslanRow *r, int at) {
   memmove(r->chars + idx, r->chars + idx + 1, (r->len - idx));
   r->len--;
   note_row_sync_to_node(r);
-}
-
-// Callout text editing helpers (payload owns the editable buffer).
-static void callout_ensure_cap(AslanCalloutBlock *cb, size_t need) {
-  if (!cb)
-    return;
-  if (need <= cb->cap)
-    return;
-  size_t new_cap = cb->cap ? cb->cap : 32;
-  while (new_cap < need)
-    new_cap *= 2;
-  char *new_chars = (char *)realloc(cb->chars, new_cap);
-  if (!new_chars)
-    return;
-  cb->chars = new_chars;
-  cb->cap = new_cap;
-}
-
-static void callout_insert_char(AslanCalloutBlock *cb, int at, char c) {
-  if (!cb)
-    return;
-  if (at < 0)
-    at = 0;
-  if ((size_t)at > cb->len)
-    at = (int)cb->len;
-  callout_ensure_cap(cb, cb->len + 2);
-  if (!cb->chars || cb->cap < cb->len + 2)
-    return;
-  memmove(cb->chars + at + 1, cb->chars + at, (cb->len - (size_t)at) + 1);
-  cb->chars[at] = c;
-  cb->len++;
-}
-
-static void callout_delete_char(AslanCalloutBlock *cb, int at) {
-  if (!cb)
-    return;
-  if (cb->len == 0)
-    return;
-  if (at <= 0)
-    return;
-  if ((size_t)at > cb->len)
-    at = (int)cb->len;
-  size_t idx = (size_t)at - 1;
-  memmove(cb->chars + idx, cb->chars + idx + 1, (cb->len - idx));
-  cb->len--;
-}
-
-static void note_mirror_callout_text_to_row(AslanRow *row) {
-  if (!row)
-    return;
-  if (row->type != ASLAN_ROW_CALLOUT || !row->block)
-    return;
-  AslanCalloutBlock *cb = (AslanCalloutBlock *)row->block;
-  if (!cb)
-    return;
-
-  size_t n = cb->len;
-  if (n + 1 > row->cap) {
-    size_t new_cap = row->cap ? row->cap : 32;
-    while (new_cap < n + 1)
-      new_cap *= 2;
-    char *new_chars = (char *)realloc(row->chars, new_cap);
-    if (!new_chars)
-      return;
-    row->chars = new_chars;
-    row->cap = new_cap;
-  }
-  if (!row->chars)
-    return;
-  if (!cb->chars) {
-    row->chars[0] = '\0';
-    row->len = 0;
-    return;
-  }
-  memcpy(row->chars, cb->chars, n);
-  row->chars[n] = '\0';
-  row->len = n;
 }
 
 void note_insert_line(AslanNoteDoc *doc, int row_idx, const char *text) {
@@ -1317,16 +1237,8 @@ int note_handle_input(AslanNoteDoc *doc, const union SDL_Event *ev) {
       }
       AslanRow *visual_row = &doc->rows[doc->cursor_row];
       if (doc->cursor_col > 0) {
-        if (visual_row->type == ASLAN_ROW_CALLOUT && visual_row->block) {
-          callout_delete_char((AslanCalloutBlock *)visual_row->block,
-                              doc->cursor_col);
-        } else {
-          note_row_delete_char(visual_row, doc->cursor_col);
-        }
+        note_row_delete_char(visual_row, doc->cursor_col);
         doc->cursor_col--;
-
-        // Keep visual row text in sync for rendering/selection logic.
-        note_mirror_callout_text_to_row(visual_row);
 
         // Current row content changed -> mark pending for AOF.
         doc->aof_last_edited_row = doc->cursor_row;
@@ -1356,17 +1268,10 @@ int note_handle_input(AslanNoteDoc *doc, const union SDL_Event *ev) {
         continue;
       if (!isprint(ch) && ch != '\t')
         continue;
-      if (visual_row->type == ASLAN_ROW_CALLOUT && visual_row->block) {
-        callout_insert_char((AslanCalloutBlock *)visual_row->block,
-                            doc->cursor_col, (char)ch);
-      } else {
-        note_row_insert_char(visual_row, doc->cursor_col, (char)ch);
-      }
+      
+      note_row_insert_char(visual_row, doc->cursor_col, (char)ch);
       doc->cursor_col++;
     }
-
-    // Keep visual row text in sync for rendering/selection logic.
-    note_mirror_callout_text_to_row(visual_row);
 
     // Current row content changed -> mark pending for AOF.
     doc->aof_last_edited_row = doc->cursor_row;
@@ -2260,20 +2165,16 @@ void note_insert_row(NotePayload *note, int row_idx, AslanRowType type,
   }
 
   // Initialize type-specific block data
-  if (type == ASLAN_ROW_CALLOUT) {
-    AslanCalloutBlock *cb =
-        (AslanCalloutBlock *)calloc(1, sizeof(AslanCalloutBlock));
-    if (cb) {
-      cb->theme = ASLAN_CALLOUT_INFO;
+  if (type == ASLAN_ROW_GRID) {
+    AslanTableViewBlock *tvb = (AslanTableViewBlock *)calloc(1, sizeof(AslanTableViewBlock));
+    r->block = tvb;
+  } else if (type == ASLAN_ROW_EMBED) {
+    AslanEmbedBlock *eb = (AslanEmbedBlock *)calloc(1, sizeof(AslanEmbedBlock));
+    if (eb) {
+      snprintf(eb->url, sizeof(eb->url), "https://youtube.com");
+      eb->height = 300.0f;
     }
-    r->block = cb;
-  } else if (type == ASLAN_ROW_CHECKLIST) {
-    AslanChecklistBlock *cb =
-        (AslanChecklistBlock *)calloc(1, sizeof(AslanChecklistBlock));
-    if (cb) {
-      cb->checked = 0;
-    }
-    r->block = cb;
+    r->block = eb;
   }
 
   note->row_count++;
@@ -2292,21 +2193,16 @@ void note_set_row_type(NotePayload *note, int row_idx, AslanRowType type) {
 
   r->type = type;
 
-  // Allocate new block data if needed
-  if (type == ASLAN_ROW_CALLOUT && !r->block) {
-    AslanCalloutBlock *cb =
-        (AslanCalloutBlock *)calloc(1, sizeof(AslanCalloutBlock));
-    if (cb) {
-      cb->theme = ASLAN_CALLOUT_INFO;
+  // Initialize new type-specific block data if needed
+  if (type == ASLAN_ROW_GRID && !r->block) {
+    r->block = calloc(1, sizeof(AslanTableViewBlock));
+  } else if (type == ASLAN_ROW_EMBED && !r->block) {
+    AslanEmbedBlock *eb = (AslanEmbedBlock *)calloc(1, sizeof(AslanEmbedBlock));
+    if (eb) {
+      snprintf(eb->url, sizeof(eb->url), "https://youtube.com");
+      eb->height = 300.0f;
     }
-    r->block = cb;
-  } else if (type == ASLAN_ROW_CHECKLIST && !r->block) {
-    AslanChecklistBlock *cb =
-        (AslanChecklistBlock *)calloc(1, sizeof(AslanChecklistBlock));
-    if (cb) {
-      cb->checked = 0;
-    }
-    r->block = cb;
+    r->block = eb;
   }
 }
 

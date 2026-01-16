@@ -15,60 +15,7 @@ double clip_page_total_duration(const AslanClipPage *page);
 // Page type API
 bool doc_page_set_type(Document *doc, uint32_t page_id, PageType type);
 
-// =========================
-// NOTE Callouts (v1)
-// =========================
-static const char *callout_icon_utf8(AslanCalloutTheme t) {
-  // NOTE: Remix Icon uses Unicode Private Use Area glyphs.
-  // These byte sequences must match the RemixIcon font version shipped in
-  // assets.
-  switch (t) {
-  case ASLAN_CALLOUT_INFO:
-    return "\xee\xbe\x91"; // information-line (PUA)
-  case ASLAN_CALLOUT_STAR:
-    return "\xee\xbe\x81"; // star-line (PUA) - chosen default
-  case ASLAN_CALLOUT_ALERT:
-    return "\xee\x90\xac"; // error-warning-line (PUA)
-  case ASLAN_CALLOUT_CHECK:
-    return "\xee\xbd\x9e"; // checkbox-circle-line (PUA) - chosen default
-  case ASLAN_CALLOUT_IDEA:
-    return "\xee\xed\x9a"; // lightbulb-line (PUA)
-  default:
-    return "!";
-  }
-}
-
-static void callout_theme_colors(AslanCalloutTheme t, struct nk_color *out_bg,
-                                 struct nk_color *out_accent) {
-  if (!out_bg || !out_accent)
-    return;
-  switch (t) {
-  case ASLAN_CALLOUT_INFO:
-    *out_bg = nk_rgb(235, 245, 255);
-    *out_accent = nk_rgb(10, 132, 255);
-    break;
-  case ASLAN_CALLOUT_STAR:
-    *out_bg = nk_rgb(255, 251, 235);
-    *out_accent = nk_rgb(245, 158, 11);
-    break;
-  case ASLAN_CALLOUT_ALERT:
-    *out_bg = nk_rgb(254, 242, 242);
-    *out_accent = nk_rgb(239, 68, 68);
-    break;
-  case ASLAN_CALLOUT_CHECK:
-    *out_bg = nk_rgb(240, 253, 244);
-    *out_accent = nk_rgb(34, 197, 94);
-    break;
-  case ASLAN_CALLOUT_IDEA:
-    *out_bg = nk_rgb(245, 243, 255);
-    *out_accent = nk_rgb(168, 85, 247);
-    break;
-  default:
-    *out_bg = nk_rgb(245, 245, 245);
-    *out_accent = nk_rgb(120, 120, 120);
-    break;
-  }
-}
+// Callout functions removed - simplified Note page
 
 // =========================
 // GRID page UI (v1)
@@ -1044,19 +991,17 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 static float get_line_height(AslanRowType type) {
   switch (type) {
   case ASLAN_ROW_HEADING_1:
-    return 34.0f;
-  case ASLAN_ROW_HEADING_2:
-    return 28.0f;
-  case ASLAN_ROW_HEADING_3:
-    return 24.0f;
-  case ASLAN_ROW_SEPARATOR:
-    return 22.0f; // Same as regular text
-  case ASLAN_ROW_CALLOUT:
     return 42.0f;
-  case ASLAN_ROW_CHECKLIST:
-    return 26.0f;
+  case ASLAN_ROW_SEPARATOR:
+    return 24.0f;
+  case ASLAN_ROW_GRID:
+    return 120.0f;  // Table view height
+  case ASLAN_ROW_EMBED:
+    return 320.0f;  // Embed height
+  case ASLAN_ROW_HIGHLIGHT:
+    return 26.0f;  // Same as regular text
   default:
-    return 22.0f; // Regular text
+    return 26.0f; // Regular text
   }
 }
 
@@ -1076,10 +1021,6 @@ note_row_font(const UIHost *ui, const struct nk_user_font *fallback,
   switch (type) {
   case ASLAN_ROW_HEADING_1:
     return (ui->font_h1 ? &ui->font_h1->handle : fallback);
-  case ASLAN_ROW_HEADING_2:
-    return (ui->font_h2 ? &ui->font_h2->handle : fallback);
-  case ASLAN_ROW_HEADING_3:
-    return (ui->font_h3 ? &ui->font_h3->handle : fallback);
   default:
     return fallback;
   }
@@ -1466,13 +1407,10 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     }
   }
 
-  // Panneau Inspecteur à droite
-  if (nk_begin(ui->ctx, "Inspector", nk_rect(win_w - 250, 0, 250, win_h),
-               NK_WINDOW_BORDER | NK_WINDOW_TITLE)) {
-
-    // NOTE pages: keep the right panel clean and purpose-built.
-    // Requirement: keep Back/Home, remove everything else, and add an "Add
-    // blocks" section.
+  // ==========================================================================
+  // SIDEBAR - Modern, clean design
+  // ==========================================================================
+  // Hide sidebar for NOTE pages - they should be distraction-free
     int is_note_page = 0;
     if (engine && engine->doc) {
       uint32_t apid = doc_page_active_id(engine->doc);
@@ -1487,95 +1425,95 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       }
     }
 
+  // For NOTE pages: modern minimalist toolbar
     if (is_note_page) {
-      // NOTE Inspector: only "Home" + "Add a block".
-      nk_layout_row_dynamic(ui->ctx, 28, 1);
+    ui->selected_node = NULL; // Force clear selection to avoid inspector "square"
+    
+    float bar_w = 320.0f;
+    float bar_h = 44.0f;
+    float bar_x = (float)win_w * 0.5f - bar_w * 0.5f; 
+    float bar_y = 12.0f;
+    
+    // Modern floating toolbar
+    if (nk_begin(ui->ctx, "##note_toolbar", nk_rect(bar_x, bar_y, bar_w, bar_h),
+                 NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER)) {
+      
+      nk_layout_row_dynamic(ui->ctx, 32, 6);
+      
+      if (nk_button_label(ui->ctx, "Home")) {
+        ui->screen = 0;
+      }
+      if (nk_button_label(ui->ctx, "H1")) {
+        engine_execute_command(engine, "note_insert_block h1");
+      }
+      if (nk_button_label(ui->ctx, "Sep")) {
+        engine_execute_command(engine, "note_insert_block separator");
+      }
+      if (nk_button_label(ui->ctx, "Table")) {
+        uint32_t new_pid = engine->doc->next_page_id;
+        engine_execute_command(engine, "page_new table");
+        char cmd[64];
+        snprintf(cmd, sizeof(cmd), "note_insert_table_view %u", (unsigned)new_pid);
+        engine_execute_command(engine, cmd);
+      }
+      if (nk_button_label(ui->ctx, "Embed")) {
+        engine_execute_command(engine, "note_insert_block embed");
+      }
+      if (nk_button_label(ui->ctx, "Fluo")) {
+        engine_execute_command(engine, "note_toggle_highlight");
+      }
+    }
+    nk_end(ui->ctx);
+    } else {
+    // Regular sidebar for canvas/other pages
+    if (nk_begin(ui->ctx, "Tools", nk_rect(win_w - 220, 0, 220, win_h),
+                 NK_WINDOW_BORDER | NK_WINDOW_NO_SCROLLBAR)) {
+
+      nk_layout_row_dynamic(ui->ctx, 16, 1);
+      nk_spacing(ui->ctx, 1);
+      
+      // Home button
+      nk_layout_row_dynamic(ui->ctx, 36, 1);
       if (nk_button_label(ui->ctx, "Home")) {
         ui->screen = 0;
         snprintf(ui->status, sizeof(ui->status), "Home");
       }
 
-      nk_layout_row_dynamic(ui->ctx, 22, 1);
-      nk_label(ui->ctx, "Add a block", NK_TEXT_LEFT);
-
-      // Block insertion buttons (Antirez-style: simple, direct)
-      nk_layout_row_dynamic(ui->ctx, 28, 1);
-      if (nk_button_label(ui->ctx, "Heading 1 (H1)")) {
-        engine_execute_command(engine, "note_insert_block h1");
-        snprintf(ui->status, sizeof(ui->status), "Inserted H1");
-      }
-      if (nk_button_label(ui->ctx, "Heading 2 (H2)")) {
-        engine_execute_command(engine, "note_insert_block h2");
-        snprintf(ui->status, sizeof(ui->status), "Inserted H2");
-      }
-      if (nk_button_label(ui->ctx, "Heading 3 (H3)")) {
-        engine_execute_command(engine, "note_insert_block h3");
-        snprintf(ui->status, sizeof(ui->status), "Inserted H3");
-      }
-      if (nk_button_label(ui->ctx, "Separator")) {
-        engine_execute_command(engine, "note_insert_block separator");
-        snprintf(ui->status, sizeof(ui->status), "Inserted Separator");
-      }
-
-      if (nk_button_label(ui->ctx, "Callout (Info)")) {
-        engine_execute_command(engine, "note_insert_block callout");
-        snprintf(ui->status, sizeof(ui->status), "Inserted Callout");
-      }
-
-      if (nk_button_label(ui->ctx, "Checklist")) {
-        engine_execute_command(engine, "note_insert_block checklist");
-        snprintf(ui->status, sizeof(ui->status), "Inserted Checklist");
-      }
-    } else {
-
-      nk_layout_row_dynamic(ui->ctx, 28, 1);
-      if (nk_button_label(ui->ctx, "Back to Home")) {
-        ui->screen = 0;
-        snprintf(ui->status, sizeof(ui->status), "Home");
-      }
-
-      // Section Historique (Undo/Redo/AOF)
-      nk_layout_row_dynamic(ui->ctx, 25, 1);
-      nk_label(ui->ctx, "History", NK_TEXT_LEFT);
-
-      nk_layout_row_dynamic(ui->ctx, 30, 3);
+      nk_layout_row_dynamic(ui->ctx, 12, 1);
+      nk_spacing(ui->ctx, 1);
+      
+      // Section: Actions
+      nk_layout_row_dynamic(ui->ctx, 18, 1);
+      nk_label(ui->ctx, "Actions", NK_TEXT_LEFT);
+      
+      nk_layout_row_dynamic(ui->ctx, 32, 2);
       if (nk_button_label(ui->ctx, "Undo")) {
         engine_execute_command(engine, "undo");
-        snprintf(ui->status, sizeof(ui->status), "Undo");
       }
       if (nk_button_label(ui->ctx, "Redo")) {
         engine_execute_command(engine, "redo");
-        snprintf(ui->status, sizeof(ui->status), "Redo");
-      }
-      if (nk_button_label(ui->ctx, "Compact")) {
-        engine_execute_command(engine, "rewrite_aof");
-        snprintf(ui->status, sizeof(ui->status), "Compacted AOF");
       }
 
-      nk_layout_row_dynamic(ui->ctx, 10, 1); // Spacer
-      nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
+      nk_layout_row_dynamic(ui->ctx, 20, 1);
+      nk_spacing(ui->ctx, 1);
 
-      // Export (always available)
-      nk_layout_row_dynamic(ui->ctx, 25, 1);
+      // Section: Export
+      nk_layout_row_dynamic(ui->ctx, 18, 1);
       nk_label(ui->ctx, "Export", NK_TEXT_LEFT);
 
       nk_layout_row_dynamic(ui->ctx, 32, 1);
-      if (nk_button_label(ui->ctx, "Save As .aslan...")) {
+      if (nk_button_label(ui->ctx, "Save As...")) {
         ui->show_save_aslan_modal = 1;
         if (getcwd(ui->save_aslan_dir, sizeof(ui->save_aslan_dir)) == NULL) {
           snprintf(ui->save_aslan_dir, sizeof(ui->save_aslan_dir), ".");
         }
-        // Keep last filename as-is; ensure a default exists
         if (!ui->save_aslan_name[0])
           snprintf(ui->save_aslan_name, sizeof(ui->save_aslan_name),
                    "document.aslan");
       }
 
-      nk_layout_row_dynamic(ui->ctx, 32, 1);
-      if (nk_button_label(ui->ctx, "Export SVG...")) {
-        // open modal
+      if (nk_button_label(ui->ctx, "Export SVG")) {
         ui->show_export_svg_modal = 1;
-        // keep defaults synced
         if (getcwd(ui->export_svg_dir, sizeof(ui->export_svg_dir)) == NULL) {
           snprintf(ui->export_svg_dir, sizeof(ui->export_svg_dir), ".");
         }
@@ -1583,564 +1521,107 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
                  ui->export_svg_path[0] ? ui->export_svg_path : "preview.svg");
       }
 
-      // Theme quick toggle (AOF-driven)
-      nk_layout_row_dynamic(ui->ctx, 28, 1);
-      if (nk_button_label(ui->ctx, "Toggle Theme (dark/light)")) {
-        const char *cur = (engine && engine->doc)
-                              ? doc_get_global(engine->doc, "theme")
-                              : NULL;
-        const char *next = (cur && strcmp(cur, "dark") == 0) ? "light" : "dark";
-        char cmd[128];
-        snprintf(cmd, sizeof(cmd), "set_global theme \"%s\"", next);
-        engine_execute_command(engine, cmd);
-        snprintf(ui->status, sizeof(ui->status), "Theme: %s", next);
-      }
-
-      // Snap/Grid (AOF-driven globals)
-      nk_layout_row_dynamic(ui->ctx, 10, 1);
-      nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
-
-      nk_layout_row_dynamic(ui->ctx, 25, 1);
-      nk_label(ui->ctx, "Snap & Grid", NK_TEXT_LEFT);
-
-      int snap_enabled = 0;
+      nk_layout_row_dynamic(ui->ctx, 20, 1);
+      nk_spacing(ui->ctx, 1);
+      
+      // Section: View
+      nk_layout_row_dynamic(ui->ctx, 18, 1);
+      nk_label(ui->ctx, "View", NK_TEXT_LEFT);
+      
       int grid_enabled = 0;
-      int snap_step_doc = 10;
-      int grid_step_doc = 10;
+      int snap_enabled = 0;
       if (engine && engine->doc) {
-        const char *se = doc_get_global(engine->doc, "snap.enabled");
-        if (se && (strcmp(se, "1") == 0 || strcasecmp(se, "true") == 0 ||
-                   strcasecmp(se, "yes") == 0))
-          snap_enabled = 1;
         const char *ge = doc_get_global(engine->doc, "grid.enabled");
-        if (ge && (strcmp(ge, "1") == 0 || strcasecmp(ge, "true") == 0 ||
-                   strcasecmp(ge, "yes") == 0))
+        if (ge && (strcmp(ge, "1") == 0 || strcasecmp(ge, "true") == 0))
           grid_enabled = 1;
-        const char *ss = doc_get_global(engine->doc, "snap.step");
-        if (ss) {
-          int v = atoi(ss);
-          if (v >= 1 && v <= 200)
-            snap_step_doc = v;
-        }
-        const char *gs = doc_get_global(engine->doc, "grid.step");
-        if (gs) {
-          int v = atoi(gs);
-          if (v >= 1 && v <= 200)
-            grid_step_doc = v;
-        } else {
-          // default: keep in sync with snap.step if grid.step isn't set
-          grid_step_doc = snap_step_doc;
-        }
-      }
-
-      // IMPORTANT: don't overwrite the user's edits every frame.
-      // We sync from document globals only once (or after a clear/new UI init).
-      if (!ui->snap_grid_steps_inited) {
-        ui->snap_step_edit = snap_step_doc;
-        ui->grid_step_edit = grid_step_doc;
-        ui->snap_grid_steps_inited = 1;
+        const char *se = doc_get_global(engine->doc, "snap.enabled");
+        if (se && (strcmp(se, "1") == 0 || strcasecmp(se, "true") == 0))
+          snap_enabled = 1;
       }
 
       nk_layout_row_dynamic(ui->ctx, 24, 2);
-      if (nk_checkbox_label(ui->ctx, "Snap", &snap_enabled)) {
-        char cmd[128];
-        snprintf(cmd, sizeof(cmd), "set_global snap.enabled \"%d\"",
-                 snap_enabled ? 1 : 0);
-        engine_execute_command(engine, cmd);
-      }
       if (nk_checkbox_label(ui->ctx, "Grid", &grid_enabled)) {
-        char cmd[128];
+        char cmd[64];
         snprintf(cmd, sizeof(cmd), "set_global grid.enabled \"%d\"",
                  grid_enabled ? 1 : 0);
         engine_execute_command(engine, cmd);
       }
-
-      // Steps (separate)
-      nk_layout_row_dynamic(ui->ctx, 24, 1);
-      nk_property_int(ui->ctx, "Snap step", 1, &ui->snap_step_edit, 200, 1, 1);
-      nk_layout_row_dynamic(ui->ctx, 28, 1);
-      if (nk_button_label(ui->ctx, "Apply Snap step")) {
-        char cmd[128];
-        snprintf(cmd, sizeof(cmd), "set_global snap.step \"%d\"",
-                 ui->snap_step_edit);
+      if (nk_checkbox_label(ui->ctx, "Snap", &snap_enabled)) {
+        char cmd[64];
+        snprintf(cmd, sizeof(cmd), "set_global snap.enabled \"%d\"",
+                 snap_enabled ? 1 : 0);
         engine_execute_command(engine, cmd);
-        snprintf(ui->status, sizeof(ui->status), "Snap step: %d",
-                 ui->snap_step_edit);
       }
-
-      nk_layout_row_dynamic(ui->ctx, 24, 1);
-      nk_property_int(ui->ctx, "Grid step", 1, &ui->grid_step_edit, 200, 1, 1);
-      nk_layout_row_dynamic(ui->ctx, 28, 1);
-      if (nk_button_label(ui->ctx, "Apply Grid step")) {
-        char cmd[128];
-        snprintf(cmd, sizeof(cmd), "set_global grid.step \"%d\"",
-                 ui->grid_step_edit);
-        engine_execute_command(engine, cmd);
-        snprintf(ui->status, sizeof(ui->status), "Grid step: %d",
-                 ui->grid_step_edit);
-      }
-
-      // Optional: let user resync from document if they want
-      nk_layout_row_dynamic(ui->ctx, 24, 1);
-      if (nk_button_label(ui->ctx, "Reset steps from document")) {
-        ui->snap_step_edit = snap_step_doc;
-        ui->grid_step_edit = grid_step_doc;
-        snprintf(ui->status, sizeof(ui->status), "Steps reset");
-      }
-
-      // Status line (last action)
-      nk_layout_row_dynamic(ui->ctx, 22, 1);
-      nk_label(ui->ctx, ui->status[0] ? ui->status : "", NK_TEXT_LEFT);
-
-      // Active page view (minimal)
-      if (engine && engine->doc) {
-        uint32_t pid = doc_page_active_id(engine->doc);
-        for (int pi = 0; pi < 32; pi++) {
-          if (!engine->doc->pages[pi].in_use)
-            continue;
-          if (engine->doc->pages[pi].page_id != pid)
-            continue;
-
-          if (engine->doc->pages[pi].type == PAGE_TYPE_GRID) {
-            nk_layout_row_dynamic(ui->ctx, 10, 1);
-            nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
-            nk_layout_row_dynamic(ui->ctx, 20, 1);
-            nk_label(ui->ctx, "Grid", NK_TEXT_LEFT);
-            ui_render_grid_page(ui->ctx, engine,
-                                (uint32_t)engine->doc->pages[pi].page_id,
-                                engine->doc->pages[pi].grid);
-          }
-
-          if (engine->doc->pages[pi].type == PAGE_TYPE_CLIP) {
-            nk_layout_row_dynamic(ui->ctx, 10, 1);
-            nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
-            nk_layout_row_dynamic(ui->ctx, 20, 1);
-            nk_label(ui->ctx, "Clip (Video Editor)", NK_TEXT_LEFT);
-
-            // Ensure clip page exists
-            if (!engine->doc->pages[pi].clip) {
-              doc_page_set_type(engine->doc, engine->doc->pages[pi].page_id,
-                                PAGE_TYPE_CLIP);
-            }
-
-            if (engine->doc->pages[pi].clip) {
-              ui_render_clip_page(ui->ctx, engine,
-                                  (uint32_t)engine->doc->pages[pi].page_id,
-                                  engine->doc->pages[pi].clip);
-            }
-          }
-
-          break;
-        }
-      }
-
-      // Tool mode toggle
-      nk_layout_row_dynamic(ui->ctx, 28, 1);
-      int create_mode = (ui->tool_mode == 1);
-      if (nk_checkbox_label(ui->ctx, "Create Rect (draw)", &create_mode)) {
-        ui->tool_mode = create_mode ? 1 : 0;
-        snprintf(ui->status, sizeof(ui->status),
-                 create_mode ? "Tool: Create Rect" : "Tool: Select");
-        // also inform Lua so script can react immediately
-        lua_getglobal(ui->L, "aslan");
-        if (lua_istable(ui->L, -1)) {
-          lua_getfield(ui->L, -1, "set_tool_mode");
-          if (lua_isfunction(ui->L, -1)) {
-            lua_pushinteger(ui->L, ui->tool_mode);
-            if (lua_pcall(ui->L, 1, 0, 0) != LUA_OK) {
-              lua_pop(ui->L, 1);
-            }
-          } else {
-            lua_pop(ui->L, 1);
-          }
-          lua_pop(ui->L, 1);
-        } else {
-          lua_pop(ui->L, 1);
-        }
-      }
-
-      // Pan tool (hand)
-      nk_layout_row_dynamic(ui->ctx, 28, 1);
-      int pan_mode = (ui->tool_mode == 2);
-      if (nk_checkbox_label(ui->ctx, "Pan (hand)", &pan_mode)) {
-        ui->tool_mode = pan_mode ? 2 : 0;
-        snprintf(ui->status, sizeof(ui->status),
-                 pan_mode ? "Tool: Pan" : "Tool: Select");
-        lua_getglobal(ui->L, "aslan");
-        if (lua_istable(ui->L, -1)) {
-          lua_getfield(ui->L, -1, "set_tool_mode");
-          if (lua_isfunction(ui->L, -1)) {
-            lua_pushinteger(ui->L, ui->tool_mode);
-            if (lua_pcall(ui->L, 1, 0, 0) != LUA_OK) {
-              lua_pop(ui->L, 1);
-            }
-          } else {
-            lua_pop(ui->L, 1);
-          }
-          lua_pop(ui->L, 1);
-        } else {
-          lua_pop(ui->L, 1);
-        }
-      }
-
-      // Section Outils
-      nk_layout_row_dynamic(ui->ctx, 25, 1);
-      nk_label(ui->ctx, "Tools", NK_TEXT_LEFT);
-
-      // Zoom controls (trackpad-friendly)
-      {
-        uint32_t pid =
-            (engine && engine->doc) ? doc_page_active_id(engine->doc) : 0;
-        nk_layout_row_dynamic(ui->ctx, 30, 2);
-        if (nk_button_label(ui->ctx, "Zoom -") && pid) {
-          char cmd[128];
-          // Multiply by ~0.9 (coarse but usable)
-          float z = 1.0f;
-          for (int i = 0; i < 32; i++) {
-            if (engine->doc->pages[i].in_use &&
-                engine->doc->pages[i].page_id == pid) {
-              z = engine->doc->pages[i].view_zoom;
-              break;
-            }
-          }
-          if (z <= 0.0f)
-            z = 1.0f;
-          z *= (1.0f / 1.12f);
-          if (z < 0.10f)
-            z = 0.10f;
-          snprintf(cmd, sizeof(cmd), "page_meta %u viewport.zoom %.4f",
-                   (unsigned)pid, z);
-          engine_execute_command(engine, cmd);
-          snprintf(ui->status, sizeof(ui->status), "Zoom: %.2f", z);
-        }
-        if (nk_button_label(ui->ctx, "Zoom +") && pid) {
-          char cmd[128];
-          float z = 1.0f;
-          for (int i = 0; i < 32; i++) {
-            if (engine->doc->pages[i].in_use &&
-                engine->doc->pages[i].page_id == pid) {
-              z = engine->doc->pages[i].view_zoom;
-              break;
-            }
-          }
-          if (z <= 0.0f)
-            z = 1.0f;
-          z *= 1.12f;
-          if (z > 12.0f)
-            z = 12.0f;
-          snprintf(cmd, sizeof(cmd), "page_meta %u viewport.zoom %.4f",
-                   (unsigned)pid, z);
-          engine_execute_command(engine, cmd);
-          snprintf(ui->status, sizeof(ui->status), "Zoom: %.2f", z);
-        }
-      }
-
-      // Group selection helper (calls Lua tools function) - disabled when <2
-      // selected.
-      {
-        int can_group = 0;
-        if (ui->L) {
-          lua_getglobal(ui->L, "can_group_now");
-          if (lua_isfunction(ui->L, -1)) {
-            if (lua_pcall(ui->L, 0, 1, 0) == LUA_OK) {
-              can_group = lua_toboolean(ui->L, -1);
-              lua_pop(ui->L, 1);
-            } else {
-              lua_pop(ui->L, 1);
-            }
-          } else {
-            lua_pop(ui->L, 1);
-          }
-        }
-        nk_layout_row_dynamic(ui->ctx, 30, 1);
-        if (can_group) {
-          if (nk_button_label(ui->ctx, "Group selection (g)")) {
-            if (ui->L) {
-              lua_getglobal(ui->L, "group_selected");
-              if (lua_isfunction(ui->L, -1)) {
-                if (lua_pcall(ui->L, 0, 0, 0) != LUA_OK) {
-                  lua_pop(ui->L, 1);
-                } else {
-                  snprintf(ui->status, sizeof(ui->status), "Grouped selection");
-                }
-              } else {
-                lua_pop(ui->L, 1);
-              }
-            }
-          }
-        } else {
-          struct nk_color old = ui->ctx->style.text.color;
-          ui->ctx->style.text.color = nk_rgb(140, 140, 140);
-          nk_label(ui->ctx, "Group selection (need 2+)", NK_TEXT_LEFT);
-          ui->ctx->style.text.color = old;
-        }
-      }
-
-      nk_layout_row_dynamic(ui->ctx, 30, 2);
-      if (nk_button_label(ui->ctx, "New Frame")) {
-        engine_execute_command(engine, "frame");
-        snprintf(ui->status, sizeof(ui->status), "New Frame");
-      }
-      if (nk_button_label(ui->ctx, "New Text")) {
-        engine_execute_command(engine, "new_text");
-        snprintf(ui->status, sizeof(ui->status), "New Text");
-      }
-      if (nk_button_label(ui->ctx, "Random Rect")) {
-        scripting_run_file(ui->L, "scripts/create_random.lua");
-        snprintf(ui->status, sizeof(ui->status), "Random Rect");
-      }
-      if (nk_button_label(ui->ctx, "Clear All")) {
-        engine_execute_command(engine, "clear");
-        snprintf(ui->status, sizeof(ui->status), "Cleared");
-      }
-
-      // Layers panel (z-order + visibility)
-      nk_layout_row_dynamic(ui->ctx, 10, 1); // Spacer
-      nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
-
-      nk_layout_row_dynamic(ui->ctx, 25, 1);
-      nk_label(ui->ctx, "Layers", NK_TEXT_LEFT);
-
-      // Layers list (top-most first)
-      {
-        struct nk_style_button btn_style = ui->ctx->style.button;
-        Node *selected = ui->selected_node;
-
-        // List height: keep it compact
-        nk_layout_row_dynamic(ui->ctx, 160, 1);
-        if (nk_group_begin(ui->ctx, "layers_list", NK_WINDOW_BORDER)) {
-          Node *nodes[512];
-          int count = 0;
-          Node *cur = engine->doc && engine->doc->root
-                          ? engine->doc->root->first_child
-                          : NULL;
-          while (cur && count < (int)(sizeof(nodes) / sizeof(nodes[0]))) {
-            nodes[count++] = cur;
-            cur = cur->next_sibling;
-          }
-
-          // Draw from front->back (reverse linked list)
-          for (int i = count - 1; i >= 0; i--) {
-            Node *n = nodes[i];
-            if (!n)
-              continue;
-
-            // highlight selected
-            if (selected && n->id == selected->id) {
-              ui->ctx->style.button.normal =
-                  nk_style_item_color(nk_rgb(60, 100, 160));
-              ui->ctx->style.button.hover =
-                  nk_style_item_color(nk_rgb(70, 110, 180));
-              ui->ctx->style.button.active =
-                  nk_style_item_color(nk_rgb(50, 90, 150));
-            } else {
-              ui->ctx->style.button = btn_style;
-            }
-
-            nk_layout_row_dynamic(ui->ctx, 24, 1);
-            char label[96];
-            snprintf(label, sizeof(label), "%s  (#%u)%s", n->name,
-                     (unsigned)n->id, n->visible ? "" : "  [hidden]");
-            if (nk_button_label(ui->ctx, label)) {
-              char cmd[64];
-              snprintf(cmd, sizeof(cmd), "select %u", (unsigned)n->id);
-              engine_execute_command(engine, cmd);
-              ui->selected_node = engine->ui_host
-                                      ? engine->ui_host->selected_node
-                                      : ui->selected_node;
-              snprintf(ui->status, sizeof(ui->status), "Selected #%u",
-                       (unsigned)n->id);
-            }
-          }
-
-          ui->ctx->style.button = btn_style;
-          nk_group_end(ui->ctx);
-        }
-      }
-
-      // Layer actions (require selection)
-      if (ui->selected_node) {
-        Node *n = ui->selected_node;
-
-        nk_layout_row_dynamic(ui->ctx, 26, 1);
-        int vis = n->visible ? 1 : 0;
-        if (nk_checkbox_label(ui->ctx, "Visible", &vis)) {
-          char cmd[64];
-          snprintf(cmd, sizeof(cmd), "set_visible %u %d", (unsigned)n->id,
-                   vis ? 1 : 0);
-          engine_execute_command(engine, cmd);
-          snprintf(ui->status, sizeof(ui->status), vis ? "Visible" : "Hidden");
-        }
-
-        nk_layout_row_dynamic(ui->ctx, 30, 2);
-        if (nk_button_label(ui->ctx, "Up")) {
-          char cmd[64];
-          snprintf(cmd, sizeof(cmd), "bring_forward %u", (unsigned)n->id);
-          engine_execute_command(engine, cmd);
-          snprintf(ui->status, sizeof(ui->status), "Layer Up");
-        }
-        if (nk_button_label(ui->ctx, "Down")) {
-          char cmd[64];
-          snprintf(cmd, sizeof(cmd), "send_backward %u", (unsigned)n->id);
-          engine_execute_command(engine, cmd);
-          snprintf(ui->status, sizeof(ui->status), "Layer Down");
-        }
-
-        nk_layout_row_dynamic(ui->ctx, 30, 2);
-        if (nk_button_label(ui->ctx, "To Front")) {
-          char cmd[64];
-          snprintf(cmd, sizeof(cmd), "bring_to_front %u", (unsigned)n->id);
-          engine_execute_command(engine, cmd);
-          snprintf(ui->status, sizeof(ui->status), "To Front");
-        }
-        if (nk_button_label(ui->ctx, "To Back")) {
-          char cmd[64];
-          snprintf(cmd, sizeof(cmd), "send_to_back %u", (unsigned)n->id);
-          engine_execute_command(engine, cmd);
-          snprintf(ui->status, sizeof(ui->status), "To Back");
-        }
-      }
-
-      // Globals panel
-      nk_layout_row_dynamic(ui->ctx, 10, 1); // Spacer
-      nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
-
-      nk_layout_row_dynamic(ui->ctx, 25, 1);
-      nk_label(ui->ctx, "Globals", NK_TEXT_LEFT);
-
-      // List existing globals
-      nk_layout_row_dynamic(ui->ctx, 120, 1);
-      if (nk_group_begin(ui->ctx, "globals_list", NK_WINDOW_BORDER)) {
-        if (engine && engine->doc) {
-          for (int i = 0; i < 64; i++) {
-            if (!engine->doc->globals[i].in_use)
-              continue;
-            char row[420];
-            snprintf(row, sizeof(row), "%s = %s", engine->doc->globals[i].key,
-                     engine->doc->globals[i].value);
-            nk_layout_row_dynamic(ui->ctx, 22, 1);
-            if (nk_button_label(ui->ctx, row)) {
-              snprintf(ui->global_key, sizeof(ui->global_key), "%s",
-                       engine->doc->globals[i].key);
-              snprintf(ui->global_value, sizeof(ui->global_value), "%s",
-                       engine->doc->globals[i].value);
-              snprintf(ui->status, sizeof(ui->status), "Edit global: %s",
-                       ui->global_key);
-            }
-          }
-        }
-        nk_group_end(ui->ctx);
-      }
-
-      // Editor
-      nk_layout_row_dynamic(ui->ctx, 20, 1);
-      nk_label(ui->ctx, "Key:", NK_TEXT_LEFT);
-      nk_layout_row_dynamic(ui->ctx, 28, 1);
-      nk_edit_string_zero_terminated(ui->ctx, NK_EDIT_FIELD, ui->global_key,
-                                     (int)sizeof(ui->global_key) - 1,
-                                     nk_filter_default);
-
-      nk_layout_row_dynamic(ui->ctx, 20, 1);
-      nk_label(ui->ctx, "Value:", NK_TEXT_LEFT);
-      nk_layout_row_dynamic(ui->ctx, 28, 1);
-      nk_edit_string_zero_terminated(ui->ctx, NK_EDIT_FIELD, ui->global_value,
-                                     (int)sizeof(ui->global_value) - 1,
-                                     nk_filter_default);
-
-      nk_layout_row_dynamic(ui->ctx, 32, 2);
-      if (nk_button_label(ui->ctx, "Set")) {
-        if (ui->global_key[0]) {
-          char cmd[512];
-          snprintf(cmd, sizeof(cmd), "set_global %s \"%s\"", ui->global_key,
-                   ui->global_value);
-          engine_execute_command(engine, cmd);
-          snprintf(ui->status, sizeof(ui->status), "Set global: %s",
-                   ui->global_key);
-        }
-      }
-      if (nk_button_label(ui->ctx, "Unset")) {
-        if (ui->global_key[0]) {
-          char cmd[256];
-          snprintf(cmd, sizeof(cmd), "unset_global %s", ui->global_key);
-          engine_execute_command(engine, cmd);
-          snprintf(ui->status, sizeof(ui->status), "Unset global: %s",
-                   ui->global_key);
-          ui->global_key[0] = 0;
-          ui->global_value[0] = 0;
-        }
-      }
-
-      nk_layout_row_dynamic(ui->ctx, 10, 1); // Spacer
-      nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
-
-      if (ui->selected_node) {
-        Node *n = ui->selected_node;
-        nk_layout_row_dynamic(ui->ctx, 25, 1);
-        nk_label(ui->ctx, "Node Properties", NK_TEXT_LEFT);
-
-        // Name
-        nk_layout_row_dynamic(ui->ctx, 30, 2);
-        nk_label(ui->ctx, "Name:", NK_TEXT_LEFT);
-        nk_edit_string_zero_terminated(ui->ctx, NK_EDIT_FIELD, n->name, 63,
-                                       nk_filter_default);
-
-        // Position & Size
-        nk_layout_row_dynamic(ui->ctx, 25, 1);
-        nk_property_float(ui->ctx, "#X:", -1000, &n->x, 2000, 1.0f, 1.0f);
-        nk_property_float(ui->ctx, "#Y:", -1000, &n->y, 2000, 1.0f, 1.0f);
-        nk_property_float(ui->ctx, "#W:", 0, &n->width, 2000, 1.0f, 1.0f);
-        nk_property_float(ui->ctx, "#H:", 0, &n->height, 2000, 1.0f, 1.0f);
-
-        // Text editor for TEXT nodes
-        if (n->type == NODE_TYPE_TEXT) {
-          // Initialize text buffer once per selection (and keep user edits
-          // while selected)
-          if (!ui->text_edit_inited) {
-            snprintf(ui->text_edit_buf, sizeof(ui->text_edit_buf), "%s",
-                     n->text);
-            ui->text_edit_inited = 1;
-          }
-
-          nk_layout_row_dynamic(ui->ctx, 10, 1);
-          nk_label(ui->ctx, "---", NK_TEXT_CENTERED);
-
-          nk_layout_row_dynamic(ui->ctx, 20, 1);
-          nk_label(ui->ctx, "Text Content", NK_TEXT_LEFT);
-
-          nk_layout_row_dynamic(ui->ctx, 120, 1);
-          nk_edit_string_zero_terminated(
-              ui->ctx, NK_EDIT_BOX, ui->text_edit_buf,
-              (int)sizeof(ui->text_edit_buf) - 1, nk_filter_default);
-
-          nk_layout_row_dynamic(ui->ctx, 32, 1);
-          if (nk_button_label(ui->ctx, "Apply Text")) {
-            char cmd[2200];
-            // Escape quotes in text
-            char escaped[2100];
-            int j = 0;
-            for (int i = 0;
-                 ui->text_edit_buf[i] && j < (int)sizeof(escaped) - 2; i++) {
-              if (ui->text_edit_buf[i] == '"') {
-                escaped[j++] = '\\';
-              }
-              escaped[j++] = ui->text_edit_buf[i];
-            }
-            escaped[j] = '\0';
-            snprintf(cmd, sizeof(cmd), "set_text %u \"%s\"", (unsigned)n->id,
-                     escaped);
-            engine_execute_command(engine, cmd);
-            snprintf(ui->status, sizeof(ui->status), "Text updated");
-          }
-        }
-
-      } else {
-        nk_layout_row_dynamic(ui->ctx, 30, 1);
-        nk_label(ui->ctx, "No selection", NK_TEXT_CENTERED);
-        ui->text_edit_inited = 0;
-      }
-    } // end of else (non-NOTE pages standard Inspector)
+    }
+    nk_end(ui->ctx);
   }
-  nk_end(ui->ctx);
+
+  // Selection inspector (only for canvas, not note)
+  if (!is_note_page && ui->selected_node) {
+    Node *n = ui->selected_node;
+    float insp_w = 220.0f;
+    float insp_h = 300.0f;
+    float insp_x = (float)win_w - insp_w - 16.0f;
+    float insp_y = (float)win_h - insp_h - 60.0f;
+    
+    if (nk_begin(ui->ctx, "Selection", nk_rect(insp_x, insp_y, insp_w, insp_h),
+                 NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE)) {
+      
+      // Node info
+      char info[128];
+      snprintf(info, sizeof(info), "%s (#%u)", n->name, (unsigned)n->id);
+            nk_layout_row_dynamic(ui->ctx, 20, 1);
+      nk_label(ui->ctx, info, NK_TEXT_LEFT);
+      
+      nk_layout_row_dynamic(ui->ctx, 8, 1);
+      nk_spacing(ui->ctx, 1);
+      
+      // Position
+      nk_layout_row_dynamic(ui->ctx, 18, 1);
+      nk_label(ui->ctx, "Position", NK_TEXT_LEFT);
+      
+      int ix = (int)n->x, iy = (int)n->y;
+      nk_layout_row_dynamic(ui->ctx, 24, 2);
+      nk_property_int(ui->ctx, "X", -9999, &ix, 9999, 1, 1);
+      nk_property_int(ui->ctx, "Y", -9999, &iy, 9999, 1, 1);
+      
+      if (ix != (int)n->x || iy != (int)n->y) {
+          char cmd[128];
+        snprintf(cmd, sizeof(cmd), "move %u %d %d", (unsigned)n->id, ix, iy);
+          engine_execute_command(engine, cmd);
+      }
+      
+      // Size
+      nk_layout_row_dynamic(ui->ctx, 18, 1);
+      nk_label(ui->ctx, "Size", NK_TEXT_LEFT);
+      
+      int iw = (int)n->width, ih = (int)n->height;
+      nk_layout_row_dynamic(ui->ctx, 24, 2);
+      nk_property_int(ui->ctx, "W", 1, &iw, 9999, 1, 1);
+      nk_property_int(ui->ctx, "H", 1, &ih, 9999, 1, 1);
+      
+      if (iw != (int)n->width || ih != (int)n->height) {
+        char cmd[128];
+        snprintf(cmd, sizeof(cmd), "resize %u %d %d", (unsigned)n->id, iw, ih);
+              engine_execute_command(engine, cmd);
+      }
+      
+      nk_layout_row_dynamic(ui->ctx, 12, 1);
+      nk_spacing(ui->ctx, 1);
+      
+      // Delete
+      nk_layout_row_dynamic(ui->ctx, 32, 1);
+      if (nk_button_label(ui->ctx, "Delete")) {
+          char cmd[64];
+        snprintf(cmd, sizeof(cmd), "delete %u", (unsigned)n->id);
+          engine_execute_command(engine, cmd);
+        ui->selected_node = NULL;
+      }
+    }
+    nk_end(ui->ctx);
+  }
+  
+  // Legacy inspector code removed - now using modern sidebar above
 
   // Inline (in-situ) text editing overlay
   // Contract:
@@ -2616,24 +2097,40 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
     struct nk_color col = nk_rgb(235, 235, 235);
 
-    // NOTE page overlay: render each line in a top-to-bottom document layout.
-    // v1: fixed line height + fixed padding; scroll will come next.
+    // ==========================================================================
+    // NOTE PAGE OVERLAY - Notion-style Clean Design
+    // ==========================================================================
+    // Light, minimal, focused on writing. Like a clean sheet of paper.
+    
     if (active_pt == PAGE_TYPE_NOTE && active_note &&
         active_note->row_count > 0) {
-      const float line_h = 22.0f;
-      const float pad_x = 80.0f;
-      const float top_y = 80.0f;
-      const float w = (float)win_w - pad_x * 2.0f;
-      const float text_pad_x = 6.0f;
-      const float text_pad_y = 3.0f;
+      
+      // ========================================================================
+      // NOTION-STYLE LAYOUT (must match renderer.c)
+      // ========================================================================
+      const float margin_left = 96.0f;    // Generous left margin
+      const float margin_right = 96.0f;   // Generous right margin
+      const float top_margin = 72.0f;     // Clean top spacing
+      const float line_h = 26.0f;         // Comfortable line height
+      
+      // Derived dimensions
+      const float content_x = margin_left;
+      const float content_w = (float)win_w - margin_left - margin_right;
+      const float content_top = top_margin;
+      const float text_pad_x = 0.0f;      // No extra padding needed
+      
+      // Legacy compatibility aliases
+      const float pad_x = content_x;
+      const float top_y = top_margin;
+      const float w = content_w;
 
-      // Clamp scroll so we can't overscroll past the end of the document.
-      // Overscroll combined with lack of clipping caused the top lines to look
-      // like they were jumping/disappearing.
+      // ========================================================================
+      // SCROLL HANDLING
+      // ========================================================================
       float scroll_y =
           (active_note->scroll_y > 0.0f) ? active_note->scroll_y : 0.0f;
       {
-        float viewport_h = (float)win_h - (top_y - 24.0f);
+        float viewport_h = (float)win_h - content_top - 48.0f;
         if (viewport_h < 0.0f)
           viewport_h = 0.0f;
         float content_h = 0.0f;
@@ -2648,23 +2145,47 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         active_note->scroll_y = scroll_y;
       }
 
-      struct nk_color txt_col = nk_rgb(0, 0, 0);
-      struct nk_color sel_bg = nk_rgb(10, 132, 255); // macOS selection blue
-      struct nk_color sel_txt = nk_rgb(255, 255, 255);
+      // ========================================================================
+      // NOTION-STYLE COLOR PALETTE (Light Theme)
+      // ========================================================================
+      struct nk_color txt_col = nk_rgb(55, 53, 47);           // Notion's dark text
+      struct nk_color txt_heading = nk_rgb(25, 23, 17);       // Darker for headings
+      struct nk_color sel_bg = nk_rgb(174, 214, 241);         // Soft blue selection
+      struct nk_color sel_txt = nk_rgb(25, 23, 17);           // Dark text on selection
+      struct nk_color cursor_col = nk_rgb(55, 53, 47);        // Dark cursor
+      struct nk_color fluo_bg = nk_rgb(255, 243, 128);        // Canva-style yellow highlight
 
-      // Clip NOTE rendering to the paper panel.
+      // ========================================================================
+      // CLIPPING: Clip text to content area
+      // ========================================================================
       nk_push_scissor(
           &ui->ctx->overlay,
-          nk_rect(pad_x, top_y - 24.0f, w, (float)win_h - (top_y - 24.0f)));
+          nk_rect(0, 0, (float)win_w, (float)win_h));
 
-      // Dedicated font for NOTE (monospace) so caret alignment is
-      // deterministic.
+      // Dedicated font for NOTE (monospace) so caret alignment is deterministic.
       const struct nk_user_font *note_font = ui->ctx->style.font;
       if (ui->font_mono)
         note_font = &ui->font_mono->handle;
 
       // Base monospace cell width (used when a row falls back to mono).
       float char_w_mono = note_measure_char_w(note_font);
+      
+      // ========================================================================
+      // HIGHLIGHTS (Fluo) - Pass 1
+      // ========================================================================
+      float y_fluo = top_y;
+      for (int i = 0; i < active_note->row_count; i++) {
+        float row_h = get_line_height(active_note->rows[i].type);
+        if (active_note->rows[i].type == ASLAN_ROW_HIGHLIGHT) {
+          float py = y_fluo - scroll_y;
+          if (py + row_h >= top_y && py < (float)win_h) {
+            nk_fill_rect(&ui->ctx->overlay, 
+                         nk_rect(pad_x - 4, py + 2, w + 8, row_h - 4), 
+                         4.0f, fluo_bg);
+          }
+        }
+        y_fluo += row_h;
+      }
 
       // Selection (range between cursor and anchor). We draw:
       // 1) normal text in black
@@ -2709,135 +2230,160 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         struct nk_color row_txt_col = txt_col;
         const struct nk_user_font *row_font = note_font;
 
-        // Headings: use dedicated fonts with proper sizes
+        // ======================================================================
+        // HEADINGS: Notion-style typography hierarchy
+        // ======================================================================
         if (row->type == ASLAN_ROW_HEADING_1) {
-          row_line_h = 34.0f;
+          row_line_h = 42.0f;
           font_scale = 1.8f;
-          row_txt_col = nk_rgb(0, 0, 0);
+          row_txt_col = txt_heading;
           if (ui->font_h1)
             row_font = &ui->font_h1->handle;
-        } else if (row->type == ASLAN_ROW_HEADING_2) {
-          row_line_h = 28.0f;
-          font_scale = 1.5f;
-          row_txt_col = nk_rgb(30, 30, 30);
-          if (ui->font_h2)
-            row_font = &ui->font_h2->handle;
-        } else if (row->type == ASLAN_ROW_HEADING_3) {
-          row_line_h = 24.0f;
-          font_scale = 1.2f;
-          row_txt_col = nk_rgb(60, 60, 60);
-          if (ui->font_h3)
-            row_font = &ui->font_h3->handle;
         } else if (row->type == ASLAN_ROW_SEPARATOR) {
-          // Separator: calculate Y position using helper function
+          // Separator: clean horizontal rule (Notion-style)
           float y_pos = top_y + get_line_y_position(active_note, i) +
                         get_line_height(row->type) * 0.5f - scroll_y;
 
-          // Draw a horizontal line instead of text (50% shorter, centered)
           struct nk_command_buffer *canvas = &ui->ctx->overlay;
-          float line_width = w * 0.5f; // 50% of full width
-          float line_start_x =
-              pad_x + (w - line_width) * 0.5f; // Center the line
-          nk_stroke_line(canvas, line_start_x, y_pos, line_start_x + line_width,
-                         y_pos, 1.0f, nk_rgb(180, 180, 180));
-          continue; // Skip text rendering for separator
-        }
-
-        // Callout block: draw custom background, accent bar, icon, then text.
-        if (row->type == ASLAN_ROW_CALLOUT) {
-          AslanCalloutTheme theme = ASLAN_CALLOUT_INFO;
-          if (row->block) {
-            AslanCalloutBlock *cb = (AslanCalloutBlock *)row->block;
-            theme = cb->theme;
-          }
-
-          struct nk_color bg;
-          struct nk_color accent;
-          callout_theme_colors(theme, &bg, &accent);
-
-          float y_pos =
-              top_y + get_line_y_position(active_note, i) + 2.0f - scroll_y;
-          float row_h = get_line_height(row->type);
-
-          // Outer bounds for the callout block.
-          struct nk_rect bounds = nk_rect(pad_x + 0.0f, y_pos, w, row_h - 2.0f);
-          nk_fill_rect(&ui->ctx->overlay, bounds, 8.0f, bg);
-
-          // Left accent bar.
-          struct nk_rect accent_rect =
-              nk_rect(bounds.x, bounds.y, 4.0f, bounds.h);
-          nk_fill_rect(&ui->ctx->overlay, accent_rect, 0.0f, accent);
-
-          // Icon.
-          const struct nk_user_font *icon_font =
-              (ui->font_icons ? &ui->font_icons->handle : note_font);
-          const char *icon = callout_icon_utf8(theme);
-          nk_draw_text(
-              &ui->ctx->overlay,
-              nk_rect(bounds.x + 10.0f, bounds.y + 1.0f, 30.0f, bounds.h), icon,
-              (int)strlen(icon), icon_font, nk_rgba(0, 0, 0, 0), accent);
-
-          // Text.
-          const float text_x = bounds.x + 10.0f + 34.0f;
-          nk_draw_text(&ui->ctx->overlay,
-                       nk_rect(text_x, bounds.y + 2.0f,
-                               bounds.w - (text_x - bounds.x) - 10.0f,
-                               bounds.h),
-                       t, (int)strlen(t), note_font, nk_rgba(0, 0, 0, 0),
-                       nk_rgb(30, 30, 30));
-          // Selection overlay is drawn later using row->chars; keep that logic
-          // unchanged.
+          // Full width, subtle gray line
+          nk_stroke_line(canvas, pad_x, y_pos, pad_x + w, y_pos, 
+                         1.0f, nk_rgb(225, 225, 225));
           continue;
-        }
-
-        // Checklist block: checkbox + text, and strikethrough when checked.
-        if (row->type == ASLAN_ROW_CHECKLIST) {
-          int checked = 0;
-          if (row->block) {
-            AslanChecklistBlock *cl = (AslanChecklistBlock *)row->block;
-            checked = cl->checked ? 1 : 0;
-          }
-
-          float y_pos =
-              top_y + get_line_y_position(active_note, i) + 3.0f - scroll_y;
-          float row_h = get_line_height(row->type);
-
-          // Checkbox bounds (visual only; click handling is in main.c).
-          struct nk_command_buffer *canvas = &ui->ctx->overlay;
-          struct nk_rect cb = nk_rect(pad_x + 6.0f, y_pos + 2.0f, 18.0f, 18.0f);
-          struct nk_color border = nk_rgb(180, 180, 180);
-          struct nk_color fill = nk_rgb(255, 255, 255);
-          nk_fill_rect(canvas, cb, 4.0f, fill);
-          nk_stroke_rect(canvas, cb, 4.0f, 1.0f, border);
-          if (checked) {
-            // Simple check mark (two strokes).
-            struct nk_color c = nk_rgb(34, 197, 94);
-            nk_stroke_line(canvas, cb.x + 4.0f, cb.y + 10.0f, cb.x + 8.0f,
-                           cb.y + 14.0f, 2.0f, c);
-            nk_stroke_line(canvas, cb.x + 8.0f, cb.y + 14.0f, cb.x + 15.0f,
-                           cb.y + 4.0f, 2.0f, c);
-          }
-
-          // Text (muted + strikethrough if checked).
-          const float text_x = pad_x + 6.0f + 26.0f;
-          struct nk_color tcol =
-              checked ? nk_rgb(160, 160, 160) : nk_rgb(30, 30, 30);
-          nk_draw_text(canvas,
-                       nk_rect(text_x, y_pos, w - (text_x - pad_x), row_h), t,
-                       (int)strlen(t), note_font, nk_rgba(0, 0, 0, 0), tcol);
-
-          if (checked && t && t[0]) {
-            float tw = 0.0f;
-            if (note_font && note_font->width) {
-              tw = note_font->width(note_font->userdata, note_font->height, t,
-                                    (int)strlen(t));
+        } else if (row->type == ASLAN_ROW_GRID) {
+          // =================================================================
+          // TABLE VIEW: Embedded view of a Grid page (Notion-style)
+          // =================================================================
+          float y_pos = top_y + get_line_y_position(active_note, i) - scroll_y;
+          float row_h = 120.0f;  // Fixed height for table view
+          
+          AslanTableViewBlock *tvb = (AslanTableViewBlock *)row->block;
+          uint32_t src_page_id = tvb ? tvb->source_page_id : 0;
+          
+          // Find the source Grid page
+          AslanGrid *grid = NULL;
+          const char *grid_name = t;
+          if (engine && engine->doc && src_page_id) {
+            for (int pi = 0; pi < 32; pi++) {
+              if (!engine->doc->pages[pi].in_use)
+                continue;
+              if (engine->doc->pages[pi].page_id == src_page_id) {
+                grid = engine->doc->pages[pi].grid;
+                if (engine->doc->pages[pi].name[0])
+                  grid_name = engine->doc->pages[pi].name;
+                break;
+              }
             }
-            float ly = y_pos + (row_h * 0.5f);
-            nk_stroke_line(canvas, text_x, ly, text_x + tw, ly, 1.5f, tcol);
+          }
+          
+          struct nk_command_buffer *canvas = &ui->ctx->overlay;
+          struct nk_rect bounds = nk_rect(pad_x, y_pos, w, row_h - 4.0f);
+          
+          // Background (very subtle gray)
+          nk_fill_rect(canvas, bounds, 4.0f, nk_rgb(250, 250, 248));
+          nk_stroke_rect(canvas, bounds, 4.0f, 1.0f, nk_rgb(230, 230, 225));
+          
+          // Title bar
+          struct nk_rect title_rect = nk_rect(bounds.x + 8, bounds.y + 4, 
+                                              bounds.w - 16, 22);
+          nk_draw_text(canvas, title_rect, grid_name, (int)strlen(grid_name),
+                       note_font, nk_rgba(0, 0, 0, 0), nk_rgb(100, 100, 100));
+          
+          // Render grid preview if available
+          if (grid && grid->rows > 0 && grid->cols > 0 && grid->data) {
+            float table_y = bounds.y + 28;
+            float table_h = bounds.h - 32;
+            float col_w = (bounds.w - 16) / (float)(grid->cols > 5 ? 5 : grid->cols);
+            int max_rows = (int)(table_h / 20.0f);
+            if (max_rows > grid->rows) max_rows = grid->rows;
+            if (max_rows > 4) max_rows = 4;
+            
+            // Draw header row
+            for (int c = 0; c < grid->cols && c < 5; c++) {
+              const char *cell = grid->data[0][c];
+              if (cell && cell[0]) {
+                struct nk_rect cell_rect = nk_rect(
+                  bounds.x + 8 + c * col_w, table_y,
+                  col_w - 4, 18);
+                nk_draw_text(canvas, cell_rect, cell, 
+                             (int)strlen(cell) > 20 ? 20 : (int)strlen(cell),
+                             note_font, nk_rgba(0, 0, 0, 0), nk_rgb(55, 53, 47));
+              }
+            }
+            
+            // Draw separator line
+            nk_stroke_line(canvas, bounds.x + 8, table_y + 20, 
+                          bounds.x + bounds.w - 8, table_y + 20,
+                          1.0f, nk_rgb(230, 230, 225));
+            
+            // Draw data rows
+            for (int r = 1; r < max_rows && r < grid->rows; r++) {
+              for (int c = 0; c < grid->cols && c < 5; c++) {
+                const char *cell = grid->data[r][c];
+                if (cell && cell[0]) {
+                  struct nk_rect cell_rect = nk_rect(
+                    bounds.x + 8 + c * col_w, table_y + r * 20,
+                    col_w - 4, 18);
+                  nk_draw_text(canvas, cell_rect, cell,
+                               (int)strlen(cell) > 20 ? 20 : (int)strlen(cell),
+                               note_font, nk_rgba(0, 0, 0, 0), 
+                               nk_rgb(100, 100, 100));
+                }
+              }
+            }
+            
+            // Show "..." if more rows
+            if (grid->rows > max_rows) {
+              struct nk_rect more_rect = nk_rect(
+                bounds.x + 8, table_y + max_rows * 20,
+                bounds.w - 16, 18);
+              nk_draw_text(canvas, more_rect, "...", 3,
+                           note_font, nk_rgba(0, 0, 0, 0), 
+                           nk_rgb(150, 150, 150));
+            }
+          } else {
+            // No grid data - show placeholder
+            struct nk_rect empty_rect = nk_rect(bounds.x + 8, bounds.y + 40,
+                                                bounds.w - 16, 20);
+            nk_draw_text(canvas, empty_rect, "(empty table)", 13,
+                         note_font, nk_rgba(0, 0, 0, 0), nk_rgb(180, 180, 180));
           }
 
           continue;
+        } else if (row->type == ASLAN_ROW_EMBED) {
+          // =================================================================
+          // EMBED VIEW (YouTube/Web)
+          // =================================================================
+          float y_pos = top_y + get_line_y_position(active_note, i) - scroll_y;
+          float row_h = get_line_height(row->type);
+
+          AslanEmbedBlock *eb = (AslanEmbedBlock *)row->block;
+          const char *url = eb ? eb->url : "(no url)";
+          
+          struct nk_command_buffer *canvas = &ui->ctx->overlay;
+          struct nk_rect bounds = nk_rect(pad_x, y_pos, w, row_h - 10.0f);
+          
+          // Outer container
+          nk_fill_rect(canvas, bounds, 8.0f, nk_rgb(30, 30, 30)); // Video black
+          
+          // YouTube-like play button in the middle
+          float cx = bounds.x + bounds.w * 0.5f;
+          float cy = bounds.y + bounds.h * 0.5f;
+          nk_fill_rect(canvas, nk_rect(cx - 30, cy - 20, 60, 40), 10.0f, nk_rgb(255, 0, 0));
+          
+          // Triangle (play)
+          nk_stroke_line(canvas, cx - 10, cy - 10, cx - 10, cy + 10, 2.0f, nk_rgb(255, 255, 255));
+          nk_stroke_line(canvas, cx - 10, cy - 10, cx + 15, cy, 2.0f, nk_rgb(255, 255, 255));
+          nk_stroke_line(canvas, cx - 10, cy + 10, cx + 15, cy, 2.0f, nk_rgb(255, 255, 255));
+          
+          // URL label at bottom
+          struct nk_rect url_rect = nk_rect(bounds.x + 10, bounds.y + bounds.h - 30, bounds.w - 20, 20);
+          nk_draw_text(canvas, url_rect, url, (int)strlen(url), note_font, nk_rgba(0,0,0,0), nk_rgb(200, 200, 200));
+
+          continue;
         }
+
+        // Highlight rows render as regular text but with Fluo background (Pass 1)
+        // (Handled below in regular text rendering)
 
         // Calculate Y position using helper function (accumulate row heights
         // for proper spacing)
@@ -2900,7 +2446,9 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         }
       }
 
-      // Caret: fixed-width math (JetBrains Mono) for pixel-perfect alignment.
+      // ========================================================================
+      // CARET: Clean thin cursor (Notion-style)
+      // ========================================================================
       if (active_note->cursor_row >= 0 &&
           active_note->cursor_row < active_note->row_count) {
         AslanRow *cursor_row = &active_note->rows[active_note->cursor_row];
@@ -2914,45 +2462,31 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         if (col < 0)
           col = 0;
 
-        // Calculate cursor Y position using helper function
         float cursor_y_offset =
             get_line_y_position(active_note, active_note->cursor_row);
 
-        float cy0 = top_y + cursor_y_offset + text_pad_y - scroll_y;
+        float cy0 = top_y + cursor_y_offset + 4.0f - scroll_y;
 
-        // Special case: separator isn't editable -> draw a horizontal caret on
-        // the separator line.
+        // Special case: separator line
         if (cursor_row->type == ASLAN_ROW_SEPARATOR) {
-          float y_mid = cy0 + get_line_height(cursor_row->type) * 0.5f;
-          float line_width = w * 0.5f;
-          float line_start_x = pad_x + (w - line_width) * 0.5f;
-          nk_stroke_line(&ui->ctx->overlay, line_start_x, y_mid,
-                         line_start_x + line_width, y_mid, 2.0f,
-                         nk_rgb(90, 180, 255));
-          // No vertical caret for separators.
-          goto note_caret_done;
+          goto note_caret_done;  // No cursor on separators
         }
 
         float cx0 = pad_x + text_pad_x + (float)col * cursor_char_w;
 
-        // Get the actual height of the cursor row for caret height
         float cursor_row_height = get_line_height(cursor_row->type);
-
         float caret_h =
-            cursor_font ? cursor_font->height : (cursor_row_height - 4.0f);
-        if (caret_h > cursor_row_height - 4.0f)
-          caret_h = cursor_row_height - 4.0f;
+            cursor_font ? cursor_font->height : (cursor_row_height - 6.0f);
+        if (caret_h > cursor_row_height - 6.0f)
+          caret_h = cursor_row_height - 6.0f;
         float cy1 = cy0 + caret_h;
 
-        nk_stroke_line(&ui->ctx->overlay, cx0, cy0, cx0, cy1, 2.0f,
-                       nk_rgb(90, 180, 255));
+        // Draw thin caret line (1px for clean look)
+        nk_stroke_line(&ui->ctx->overlay, cx0, cy0, cx0, cy1, 1.5f, cursor_col);
+        
       note_caret_done:
         (void)0;
       }
-
-      // NOTE: this Nuklear integration doesn't expose nk_pop_scissor.
-      // Leaving the scissor as-is is OK because other UI code will set scissor
-      // again for subsequent commands.
     }
 
     for (Node *n = engine->doc->root->first_child; n; n = n->next_sibling) {

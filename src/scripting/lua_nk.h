@@ -12,4 +12,7 @@ int luaopen_nk(lua_State *L);
 // Sets the Nuklear context to be used for subsequent 'nk' calls from Lua
 void scripting_nk_set_context(struct nk_context *ctx);
 
+// Sets the SDL renderer for custom drawing operations
+void scripting_nk_set_renderer(SDL_Renderer *renderer);
+
 #endif

@@ -137,41 +137,30 @@ typedef struct Node {
 // =========================
 typedef enum {
   ASLAN_ROW_TEXT = 0,
-  ASLAN_ROW_GRID = 1,       // reserved for embedded grid
-  ASLAN_ROW_LUA_WIDGET = 2, // reserved for scripted widgets
+  ASLAN_ROW_GRID = 1,       // Embedded grid view
+  ASLAN_ROW_LUA_WIDGET = 2, // Scripted widgets
   ASLAN_ROW_HEADING_1 = 3,
-  ASLAN_ROW_HEADING_2 = 4,
-  ASLAN_ROW_HEADING_3 = 5,
   ASLAN_ROW_SEPARATOR = 6,
-  ASLAN_ROW_CALLOUT = 7,
-  ASLAN_ROW_CHECKLIST = 8
+  ASLAN_ROW_EMBED = 9,      // YouTube/Web embed
+  ASLAN_ROW_HIGHLIGHT = 10  // Highlighted text row
 } AslanRowType;
 
-typedef enum {
-  ASLAN_CALLOUT_INFO = 0,
-  ASLAN_CALLOUT_STAR = 1,
-  ASLAN_CALLOUT_ALERT = 2,
-  ASLAN_CALLOUT_CHECK = 3,
-  ASLAN_CALLOUT_IDEA = 4
-} AslanCalloutTheme;
+typedef struct {
+  uint32_t source_page_id;
+  int collapsed;
+} AslanTableViewBlock;
 
 typedef struct {
-  char *chars;
-  size_t len;
-  size_t cap;
-  AslanCalloutTheme theme;
-} AslanCalloutBlock;
-
-typedef struct {
-  int checked; // 0/1
-} AslanChecklistBlock;
+  char url[512];
+  float height;
+} AslanEmbedBlock;
 
 typedef struct {
   AslanRowType type;
   char *chars;
   size_t len;
   size_t cap;
-  void *block; // AslanCalloutBlock* or AslanChecklistBlock*
+  void *block; // AslanTableViewBlock*, AslanEmbedBlock*, etc.
 
   // Unified Nodes: Link to a child node in the tree (for embedded content)
   struct Node *node;

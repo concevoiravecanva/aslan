@@ -372,29 +372,32 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
                 continue;
               if (engine->doc->pages[pi].type == PAGE_TYPE_NOTE &&
                   engine->doc->pages[pi].note) {
-                // Note area: screen space, x: 80 to width-80, y: 80 to height
-                const float pad_x = 80.0f;
-                const float top_y = 80.0f;
-                const float text_x = pad_x + 6.0f;
+                // Notion-style layout constants (must match renderer.c and ui_host.c)
+                const float margin_left = 96.0f;     // Left margin
+                const float margin_right = 96.0f;    // Right margin
+                const float top_margin = 72.0f;      // Top margin
+                
+                const float content_x = margin_left;
+                const float top_y = top_margin;
 
-                // IMPORTANT: match the actual blue gutter drawn in
-                // renderer_draw_note_doc(): SDL_Rect gutter = { srect.x - 14, w
-                // = 12 } where srect.x = pad_x.
-                const float gutter_x0 = pad_x - 14.0f;
-                const float gutter_x1 = gutter_x0 + 12.0f;
-
-                // Note paper region (same as before)
-                if (mx >= gutter_x0 && mx <= 1024.0f - pad_x && my >= top_y) {
+                // Note content region
+                int win_h_local = 768;
+                if (renderer) win_h_local = renderer->height;
+                int win_w_local = 1024;
+                if (renderer) win_w_local = renderer->width;
+                
+                if (mx >= content_x && mx <= (float)win_w_local - margin_right && 
+                    my >= top_y) {
                   AslanNoteDoc *nd = engine->doc->pages[pi].note;
                   float scroll_y = nd->scroll_y;
                   int row = note_pick_row_from_y(nd, top_y, scroll_y, my);
                   (void)((row < nd->row_count) ? nd->rows[row].chars : "");
 
-                  // Decide gutter click based on the actual blue rectangle.
-                  bool clicked_gutter = (mx >= gutter_x0 && mx < gutter_x1);
+                  // No gutter in Notion-style layout
+                  bool clicked_gutter = false;
 
-                  // Match the same left origin used by NOTE overlay text.
-                  float rel_x = mx - text_x;
+                  // Match the same left origin used by NOTE overlay text
+                  float rel_x = mx - content_x;
                   const struct nk_user_font *saved_font = ui->ctx->style.font;
                   if (ui->font_mono)
                     ui->ctx->style.font = &ui->font_mono->handle;
@@ -503,23 +506,29 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
                 continue;
               if (engine->doc->pages[pi].type == PAGE_TYPE_NOTE &&
                   engine->doc->pages[pi].note) {
-                const float pad_x = 80.0f;
-                const float top_y = 80.0f;
+                // Notion-style layout (must match renderer.c and ui_host.c)
+                const float margin_left = 96.0f;
+                const float margin_right = 96.0f;
+                const float top_margin = 72.0f;
+                
+                const float content_x = margin_left;
+                const float top_y = top_margin;
+                
                 AslanNoteDoc *nd = engine->doc->pages[pi].note;
                 float scroll_y = nd->scroll_y;
-
-                const float text_x = pad_x + 6.0f;
-                const float gutter_x0 = pad_x - 14.0f;
-                const float gutter_x1 = gutter_x0 + 12.0f;
+                
+                int win_w_local = 1024;
+                if (renderer) win_w_local = renderer->width;
 
                 // Consider drag active only in note region.
-                if (mx >= gutter_x0 && mx <= 1024.0f - pad_x && my >= top_y) {
+                if (mx >= content_x && mx <= (float)win_w_local - margin_right && 
+                    my >= top_y) {
                   int row = note_pick_row_from_y(nd, top_y, scroll_y, my);
 
                   int col = 0;
-                  bool in_gutter = (mx >= gutter_x0 && mx < gutter_x1);
+                  bool in_gutter = false;  // No gutter in Notion-style
                   if (!note_drag_from_gutter && !in_gutter) {
-                    float rel_x = mx - text_x;
+                    float rel_x = mx - content_x;
                     const struct nk_user_font *saved_font = ui->ctx->style.font;
                     if (ui->font_mono)
                       ui->ctx->style.font = &ui->font_mono->handle;

@@ -329,6 +329,11 @@ static void draw_node_recursive(Renderer* r, Node* node, float vx, float vy, flo
     draw_node_recursive(r, node->next_sibling, vx, vy, vz, nk_ctx);
 }
 
+// =============================================================================
+// NOTE PAGE RENDERER - Notion-style clean design
+// =============================================================================
+// Philosophy: Clean, minimal, focused. Light background, elegant typography.
+
 static void renderer_draw_note_doc(Renderer* r, const Document* doc, int page_index) {
     if (!r || !doc) return;
     if (page_index < 0 || page_index >= 32) return;
@@ -336,46 +341,56 @@ static void renderer_draw_note_doc(Renderer* r, const Document* doc, int page_in
     const AslanNoteDoc* nd = doc->pages[page_index].note;
     if (!nd) return;
 
-    // Notes are a TOP-TO-BOTTOM document (Notion-like), NOT a pan/zoom canvas.
-    // So we draw in SCREEN space and ignore viewport.* entirely.
-
-    // Antirez-style v1: fixed line height, no font metrics yet.
-    const float line_h = 22.0f;
-    const float pad_x = 80.0f;
-    const float top_y = 80.0f;
-    const float w = (float)r->width - pad_x * 2.0f;
+    // ==========================================================================
+    // NOTION-STYLE LAYOUT
+    // ==========================================================================
+    const float margin_left = 96.0f;    // Generous left margin
+    const float margin_right = 96.0f;   // Generous right margin
+    const float top_margin = 72.0f;     // Clean top spacing
+    
+    // Colors - Clean light theme (Notion-inspired)
+    const SDL_Color bg_page = {255, 255, 255, 255};       // Pure white background
+    const SDL_Color color_fluo = {255, 243, 128, 180};    // Canva-style highlight (yellow)
+    
     const float scroll_y = (nd->scroll_y > 0.0f) ? nd->scroll_y : 0.0f;
 
-    // Draw a subtle paper panel so it's obvious this is an editor area.
-    SDL_Rect paper = { (int)pad_x, (int)(top_y - 24.0f), (int)w, r->height - (int)(top_y - 24.0f) };
-    SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 14);
-    SDL_RenderFillRect(r->sdl_renderer, &paper);
-    SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 26);
-    SDL_RenderDrawRect(r->sdl_renderer, &paper);
-
+    // ==========================================================================
+    // BACKGROUND: Clean white page
+    // ==========================================================================
+    SDL_Rect page_area = { 0, 0, r->width, r->height };
+    SDL_SetRenderDrawColor(r->sdl_renderer, bg_page.r, bg_page.g, bg_page.b, bg_page.a);
+    SDL_RenderFillRect(r->sdl_renderer, &page_area);
+    
+    // ==========================================================================
+    // HIGHLIGHTS (Fluo)
+    // ==========================================================================
+    float y_acc = top_margin;
     for (int i = 0; i < nd->row_count; i++) {
-    SDL_Rect srect;
-    srect.x = (int)pad_x;
-    srect.y = (int)(top_y + (float)i * line_h - scroll_y);
-    srect.w = (int)w;
-    srect.h = (int)(line_h - 2.0f);
-
-        // Background strip
-        SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 24);
-        SDL_RenderFillRect(r->sdl_renderer, &srect);
-
-        // Cursor highlight
-        if (i == nd->cursor_row) {
-            SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 60);
-            SDL_RenderFillRect(r->sdl_renderer, &srect);
+        float h = 26.0f;
+        AslanRowType rt = nd->rows[i].type;
+        if (rt == ASLAN_ROW_HEADING_1) h = 42.0f;
+        else if (rt == ASLAN_ROW_SEPARATOR) h = 24.0f;
+        else if (rt == ASLAN_ROW_GRID) h = 120.0f;
+        else if (rt == ASLAN_ROW_EMBED) h = 320.0f;
+        
+        if (rt == ASLAN_ROW_HIGHLIGHT) {
+            SDL_Rect highlight_rect = { 
+                (int)margin_left - 4, 
+                (int)(y_acc - scroll_y + 2), 
+                (int)(r->width - margin_left - margin_right + 8), 
+                (int)h - 4 
+            };
+            SDL_SetRenderDrawBlendMode(r->sdl_renderer, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(r->sdl_renderer, color_fluo.r, color_fluo.g, color_fluo.b, color_fluo.a);
+            SDL_RenderFillRect(r->sdl_renderer, &highlight_rect);
         }
-
-    // Left gutter (click target for full-line selection) - DISABLED
-    // SDL_Rect gutter = { srect.x - 14, srect.y, 12, srect.h };
-    //     SDL_SetRenderDrawColor(r->sdl_renderer, 90, 180, 255, (i == nd->cursor_row) ? 200 : 120);
-    //     SDL_RenderFillRect(r->sdl_renderer, &gutter);
-
+        y_acc += h;
     }
+
+    // Current line highlight removed for cleaner look
+    (void)y_acc;
+    (void)margin_left;
+    (void)margin_right;
 }
 
 void renderer_draw_document(Renderer* r, const Document* doc, struct nk_context* nk_ctx) {

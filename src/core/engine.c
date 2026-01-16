@@ -171,24 +171,24 @@ void engine_serialize_note(const AslanNoteDoc *doc, uint32_t page_id,
     } else if (r->type == ASLAN_ROW_HEADING_1) {
       fprintf(fp, "note_ins_block %u %d h1 \"%s\"\n", (unsigned)page_id, i,
               escaped);
-    } else if (r->type == ASLAN_ROW_HEADING_2) {
-      fprintf(fp, "note_ins_block %u %d h2 \"%s\"\n", (unsigned)page_id, i,
-              escaped);
-    } else if (r->type == ASLAN_ROW_HEADING_3) {
-      fprintf(fp, "note_ins_block %u %d h3 \"%s\"\n", (unsigned)page_id, i,
-              escaped);
     } else if (r->type == ASLAN_ROW_SEPARATOR) {
       fprintf(fp, "note_ins_block %u %d separator \"%s\"\n", (unsigned)page_id,
               i, escaped);
-    } else if (r->type == ASLAN_ROW_CALLOUT) {
-      // Theme defaults to INFO if missing.
-      int theme = 0;
+    } else if (r->type == ASLAN_ROW_HIGHLIGHT) {
+      fprintf(fp, "note_ins_block %u %d highlight \"%s\"\n", (unsigned)page_id,
+              i, escaped);
+    } else if (r->type == ASLAN_ROW_GRID) {
       if (r->block) {
-        const AslanCalloutBlock *cb = (const AslanCalloutBlock *)r->block;
-        theme = (int)cb->theme;
+        const AslanTableViewBlock *tvb = (const AslanTableViewBlock *)r->block;
+        fprintf(fp, "note_ins_block %u %d table_view %u \"%s\"\n", (unsigned)page_id,
+                i, (unsigned)tvb->source_page_id, escaped);
       }
-      fprintf(fp, "note_ins_block %u %d callout %d \"%s\"\n", (unsigned)page_id,
-              i, theme, escaped);
+    } else if (r->type == ASLAN_ROW_EMBED) {
+      if (r->block) {
+        const AslanEmbedBlock *eb = (const AslanEmbedBlock *)r->block;
+        fprintf(fp, "note_ins_block %u %d embed \"%s\" \"%s\"\n", (unsigned)page_id,
+                i, eb->url, escaped);
+      }
     }
   }
 }
@@ -987,9 +987,7 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
           for (int r = 0; r < nd->row_count; r++) {
             free(nd->rows[r].chars);
             if (nd->rows[r].block) {
-              AslanCalloutBlock *cb = (AslanCalloutBlock *)nd->rows[r].block;
-              free(cb->chars);
-              free(cb);
+              free(nd->rows[r].block);
             }
           }
           free(nd->rows);
@@ -1081,25 +1079,28 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
         r->chars = strdup(text ? text : "");
         r->len = strlen(r->chars);
         r->cap = r->len + 1;
+        r->block = NULL;
 
-        if (strcmp(kind_str, "h1") == 0)
+        if (strcmp(kind_str, "h1") == 0) {
           r->type = ASLAN_ROW_HEADING_1;
-        else if (strcmp(kind_str, "h2") == 0)
-          r->type = ASLAN_ROW_HEADING_2;
-        else if (strcmp(kind_str, "h3") == 0)
-          r->type = ASLAN_ROW_HEADING_3;
-        else if (strcmp(kind_str, "separator") == 0)
+        } else if (strcmp(kind_str, "separator") == 0) {
           r->type = ASLAN_ROW_SEPARATOR;
-        else if (strcmp(kind_str, "callout") == 0) {
-          r->type = ASLAN_ROW_CALLOUT;
-          AslanCalloutBlock *cb =
-              (AslanCalloutBlock *)calloc(1, sizeof(AslanCalloutBlock));
-          if (cb) {
-            cb->theme = (AslanCalloutTheme)theme;
-            cb->chars = strdup(text ? text : "");
-            cb->len = strlen(cb->chars);
-            cb->cap = cb->len + 1;
-            r->block = cb;
+        } else if (strcmp(kind_str, "highlight") == 0) {
+          r->type = ASLAN_ROW_HIGHLIGHT;
+        } else if (strcmp(kind_str, "table_view") == 0 && cmd.argc >= 5) {
+          r->type = ASLAN_ROW_GRID;
+          AslanTableViewBlock *tvb = calloc(1, sizeof(AslanTableViewBlock));
+          if (tvb) {
+            tvb->source_page_id = (uint32_t)atoi(cmd.argv[4]);
+            r->block = tvb;
+          }
+        } else if (strcmp(kind_str, "embed") == 0 && cmd.argc >= 5) {
+          r->type = ASLAN_ROW_EMBED;
+          AslanEmbedBlock *eb = calloc(1, sizeof(AslanEmbedBlock));
+          if (eb) {
+            snprintf(eb->url, sizeof(eb->url), "%s", cmd.argv[4]);
+            eb->height = 300.0f;
+            r->block = eb;
           }
         } else {
           r->type = ASLAN_ROW_TEXT;
@@ -1155,18 +1156,6 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
         r->chars[n] = '\0';
         r->len = (int)n;
 
-        // Mirror to callout if needed
-        if (r->type == ASLAN_ROW_CALLOUT && r->block) {
-          AslanCalloutBlock *cb = (AslanCalloutBlock *)r->block;
-          if (n + 1 > (size_t)cb->cap) {
-            cb->chars = (char *)realloc(cb->chars, n + 1);
-            cb->cap = (int)n + 1;
-          }
-          memcpy(cb->chars, text, n);
-          cb->chars[n] = '\0';
-          cb->len = (int)n;
-        }
-
         success = true;
         break;
       }
@@ -1182,16 +1171,12 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
 
     if (strcmp(block_type_str, "h1") == 0)
       block_type = ASLAN_ROW_HEADING_1;
-    else if (strcmp(block_type_str, "h2") == 0)
-      block_type = ASLAN_ROW_HEADING_2;
-    else if (strcmp(block_type_str, "h3") == 0)
-      block_type = ASLAN_ROW_HEADING_3;
     else if (strcmp(block_type_str, "separator") == 0)
       block_type = ASLAN_ROW_SEPARATOR;
-    else if (strcmp(block_type_str, "callout") == 0)
-      block_type = ASLAN_ROW_CALLOUT;
-    else if (strcmp(block_type_str, "checklist") == 0)
-      block_type = ASLAN_ROW_CHECKLIST;
+    else if (strcmp(block_type_str, "embed") == 0)
+      block_type = ASLAN_ROW_EMBED;
+    else if (strcmp(block_type_str, "highlight") == 0)
+      block_type = ASLAN_ROW_HIGHLIGHT;
 
     if (engine->doc) {
       uint32_t pid = doc_page_active_id(engine->doc);
@@ -1238,20 +1223,11 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
         new_row->cap = 0;
         new_row->block = NULL;
 
-        // For specialized blocks, allocate a placeholder text
+        // For specialized blocks - empty by default so user can type directly
         const char *placeholder = "";
-        if (block_type == ASLAN_ROW_HEADING_1)
-          placeholder = "Heading 1";
-        else if (block_type == ASLAN_ROW_HEADING_2)
-          placeholder = "Heading 2";
-        else if (block_type == ASLAN_ROW_HEADING_3)
-          placeholder = "Heading 3";
-        else if (block_type == ASLAN_ROW_SEPARATOR)
+        // Only separator has fixed content
+        if (block_type == ASLAN_ROW_SEPARATOR)
           placeholder = "---";
-        else if (block_type == ASLAN_ROW_CALLOUT)
-          placeholder = "Callout";
-        else if (block_type == ASLAN_ROW_CHECKLIST)
-          placeholder = "";
 
         size_t n = strlen(placeholder);
         new_row->chars = (char *)malloc(n + 1);
@@ -1262,31 +1238,17 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
           new_row->cap = n + 1;
         }
 
-        // Callout payload
-        if (block_type == ASLAN_ROW_CALLOUT) {
-          AslanCalloutBlock *cb =
-              (AslanCalloutBlock *)calloc(1, sizeof(AslanCalloutBlock));
-          if (cb) {
-            cb->theme = ASLAN_CALLOUT_INFO;
-            cb->chars = (char *)malloc(n + 1);
-            if (cb->chars) {
-              memcpy(cb->chars, placeholder, n);
-              cb->chars[n] = '\0';
-              cb->len = n;
-              cb->cap = n + 1;
-            }
-            new_row->block = cb;
+        // Initialize type-specific block data
+        if (block_type == ASLAN_ROW_GRID) {
+          AslanTableViewBlock *tvb = (AslanTableViewBlock *)calloc(1, sizeof(AslanTableViewBlock));
+          new_row->block = tvb;
+        } else if (block_type == ASLAN_ROW_EMBED) {
+          AslanEmbedBlock *eb = (AslanEmbedBlock *)calloc(1, sizeof(AslanEmbedBlock));
+          if (eb) {
+            snprintf(eb->url, sizeof(eb->url), "https://youtube.com");
+            eb->height = 300.0f;
           }
-        }
-
-        // Checklist payload
-        if (block_type == ASLAN_ROW_CHECKLIST) {
-          AslanChecklistBlock *cl =
-              (AslanChecklistBlock *)calloc(1, sizeof(AslanChecklistBlock));
-          if (cl) {
-            cl->checked = 0;
-            new_row->block = cl;
-          }
+          new_row->block = eb;
         }
 
         nd->row_count++;
@@ -1299,52 +1261,155 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
     }
   }
 
-  // Commande: note_set_callout_theme <page_id> <row> <theme>
-  // theme: 0..4 (Info, Star, Alert, Check, Idea)
-  else if (strncmp(command_line, "note_set_callout_theme ", 23) == 0) {
-    int page_id = 0;
-    int row_idx = 0;
-    int theme = 0;
-    if (sscanf(command_line, "note_set_callout_theme %d %d %d", &page_id,
-               &row_idx, &theme) == 3) {
+  // Commande: note_insert_table_view <source_page_id>
+  // Inserts a linked table view from another Grid page into the current Note
+  else if (strncmp(command_line, "note_insert_table_view ", 23) == 0) {
+    uint32_t source_page_id = 0;
+    if (sscanf(command_line, "note_insert_table_view %u", &source_page_id) == 1) {
       if (engine->doc) {
+        uint32_t pid = doc_page_active_id(engine->doc);
+        
+        // Verify source page exists and is a Grid
+        int source_valid = 0;
+        AslanGrid *source_grid = NULL;
+        const char *source_name = NULL;
         for (int i = 0; i < 32; i++) {
           if (!engine->doc->pages[i].in_use)
             continue;
-          if (engine->doc->pages[i].page_id != (uint32_t)page_id)
-            continue;
-          if (engine->doc->pages[i].type != PAGE_TYPE_NOTE)
-            break;
-          AslanNoteDoc *nd = engine->doc->pages[i].note;
-          if (!nd)
-            break;
-          if (row_idx < 0 || row_idx >= nd->row_count) {
-            success = true;
+          if (engine->doc->pages[i].page_id == source_page_id) {
+            if (engine->doc->pages[i].type == PAGE_TYPE_GRID ||
+                engine->doc->pages[i].type == PAGE_TYPE_TABLE) {
+              source_valid = 1;
+              source_grid = engine->doc->pages[i].grid;
+              source_name = engine->doc->pages[i].name;
+            }
             break;
           }
-          AslanRow *r = &nd->rows[row_idx];
-          if (r->type != ASLAN_ROW_CALLOUT) {
+        }
+        
+        if (source_valid) {
+          for (int i = 0; i < 32; i++) {
+            if (!engine->doc->pages[i].in_use)
+              continue;
+            if (engine->doc->pages[i].page_id != pid)
+              continue;
+            if (engine->doc->pages[i].type != PAGE_TYPE_NOTE)
+              break;
+
+            AslanNoteDoc *nd = engine->doc->pages[i].note;
+            if (!nd)
+              break;
+
+            // Insert a new row at cursor position
+            int insert_pos = nd->cursor_row;
+            if (insert_pos < 0)
+              insert_pos = 0;
+            if (insert_pos > nd->row_count)
+              insert_pos = nd->row_count;
+
+            // Grow array if needed
+            if (nd->row_count >= nd->row_cap) {
+              int new_cap = nd->row_cap ? nd->row_cap * 2 : 8;
+              AslanRow *new_rows =
+                  (AslanRow *)realloc(nd->rows, (size_t)new_cap * sizeof(AslanRow));
+              if (!new_rows)
+                break;
+              nd->rows = new_rows;
+              nd->row_cap = new_cap;
+            }
+
+            // Shift rows down
+            for (int j = nd->row_count; j > insert_pos; j--) {
+              nd->rows[j] = nd->rows[j - 1];
+            }
+
+            // Initialize table view row
+            AslanRow *new_row = &nd->rows[insert_pos];
+            new_row->type = ASLAN_ROW_GRID;
+            
+            // Set display name (table name or "Table")
+            const char *label = source_name && source_name[0] ? source_name : "Table";
+            size_t n = strlen(label);
+            new_row->chars = (char *)malloc(n + 1);
+            if (new_row->chars) {
+              memcpy(new_row->chars, label, n);
+              new_row->chars[n] = '\0';
+              new_row->len = n;
+              new_row->cap = n + 1;
+            }
+            
+            // Create table view block
+            AslanTableViewBlock *tvb =
+                (AslanTableViewBlock *)calloc(1, sizeof(AslanTableViewBlock));
+            if (tvb) {
+              tvb->source_page_id = source_page_id;
+              tvb->collapsed = 0;
+              new_row->block = tvb;
+            }
+
+            nd->row_count++;
+            nd->cursor_row = insert_pos + 1;
+            nd->cursor_col = 0;
+
             success = true;
+            engine_emit_command(engine, command_line);
             break;
           }
-          AslanCalloutBlock *cb = (AslanCalloutBlock *)r->block;
-          if (!cb) {
-            cb = (AslanCalloutBlock *)calloc(1, sizeof(AslanCalloutBlock));
-            if (cb) {
-              cb->theme = ASLAN_CALLOUT_INFO;
-              r->block = cb;
+        }
+      }
+    }
+  }
+
+  // Handle Embed block initialization
+  else if (strncmp(command_line, "note_insert_block embed", 23) == 0) {
+    // This is already partially handled by the generic note_insert_block
+    // but we need to allocate the payload.
+    // The generic block above inserts the row. We find it and add the payload.
+    if (engine->doc) {
+      uint32_t pid = doc_page_active_id(engine->doc);
+      for (int i = 0; i < 32; i++) {
+        if (!engine->doc->pages[i].in_use || engine->doc->pages[i].page_id != pid)
+          continue;
+        if (engine->doc->pages[i].type != PAGE_TYPE_NOTE)
+          break;
+        AslanNoteDoc *nd = engine->doc->pages[i].note;
+        if (nd && nd->cursor_row >= 0 && nd->cursor_row < nd->row_count) {
+          AslanRow *row = &nd->rows[nd->cursor_row];
+          if (row->type == ASLAN_ROW_EMBED && !row->block) {
+            AslanEmbedBlock *eb = (AslanEmbedBlock *)calloc(1, sizeof(AslanEmbedBlock));
+            if (eb) {
+              snprintf(eb->url, sizeof(eb->url), "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+              eb->height = 300.0f;
+              row->block = eb;
             }
           }
-          if (cb) {
-            if (theme < 0)
-              theme = 0;
-            if (theme > 4)
-              theme = 4;
-            cb->theme = (AslanCalloutTheme)theme;
-          }
-          success = true;
-          break;
         }
+        break;
+      }
+    }
+  }
+
+  // Commande: note_toggle_highlight
+  // Toggles highlight state for the current row
+  else if (strcmp(verb, "note_toggle_highlight") == 0) {
+    if (engine->doc) {
+      uint32_t pid = doc_page_active_id(engine->doc);
+      for (int i = 0; i < 32; i++) {
+        if (!engine->doc->pages[i].in_use || engine->doc->pages[i].page_id != pid)
+          continue;
+        if (engine->doc->pages[i].type != PAGE_TYPE_NOTE)
+          break;
+        AslanNoteDoc *nd = engine->doc->pages[i].note;
+        if (nd && nd->cursor_row >= 0 && nd->cursor_row < nd->row_count) {
+          AslanRow *row = &nd->rows[nd->cursor_row];
+          if (row->type == ASLAN_ROW_TEXT)
+            row->type = ASLAN_ROW_HIGHLIGHT;
+          else if (row->type == ASLAN_ROW_HIGHLIGHT)
+            row->type = ASLAN_ROW_TEXT;
+          success = true;
+          engine_emit_command(engine, command_line);
+        }
+        break;
       }
     }
   }
@@ -1952,16 +2017,14 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
         AslanRowType rt = ASLAN_ROW_TEXT;
         if (strcmp(type_str, "h1") == 0)
           rt = ASLAN_ROW_HEADING_1;
-        else if (strcmp(type_str, "h2") == 0)
-          rt = ASLAN_ROW_HEADING_2;
-        else if (strcmp(type_str, "h3") == 0)
-          rt = ASLAN_ROW_HEADING_3;
         else if (strcmp(type_str, "separator") == 0)
           rt = ASLAN_ROW_SEPARATOR;
-        else if (strcmp(type_str, "callout") == 0)
-          rt = ASLAN_ROW_CALLOUT;
-        else if (strcmp(type_str, "checklist") == 0)
-          rt = ASLAN_ROW_CHECKLIST;
+        else if (strcmp(type_str, "highlight") == 0)
+          rt = ASLAN_ROW_HIGHLIGHT;
+        else if (strcmp(type_str, "table_view") == 0)
+          rt = ASLAN_ROW_GRID;
+        else if (strcmp(type_str, "embed") == 0)
+          rt = ASLAN_ROW_EMBED;
 
         if (row_idx >= np->row_count) {
           note_insert_row(np, row_idx, rt, text);
