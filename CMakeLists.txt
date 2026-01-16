@@ -11,6 +11,7 @@ option(ASLAN_NO_LUA "Build without Lua support" OFF)
 set(SOURCES
     src/main.c
     src/document/document.c
+    src/document/spatial_index.c
     src/platform/platform.c
     src/scripting/lua_host.c
 )

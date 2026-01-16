@@ -6,37 +6,50 @@ LUA_INC = -I/opt/homebrew/include/lua5.4
 LUA_LIB = -L/opt/homebrew/lib -llua
 
 # Paths for SDL2 (macOS Homebrew)
-SDL_INC = -I/opt/homebrew/include
+SDL_INC = -I/opt/homebrew/include/SDL2
 SDL_LIB = -L/opt/homebrew/lib -lSDL2
 
+CORE_SRC = src/document/document.c \
+           src/document/spatial_index.c \
+           src/scripting/lua_host.c \
+           src/scripting/lua_nk.c \
+           src/platform/platform.c \
+           src/platform/renderer.c \
+           src/platform/ui_host.c \
+           src/platform/recents.c \
+           src/core/engine.c
+
 SRC = src/main.c \
-      src/document/document.c \
-      src/scripting/lua_host.c \
-      src/platform/platform.c \
-      src/platform/renderer.c \
-      src/platform/ui_host.c \
-      src/platform/recents.c \
-      src/core/engine.c
+      $(CORE_SRC)
 
 OBJ = $(SRC:.c=.o)
-TARGET = aslan
+CORE_OBJ = $(CORE_SRC:.c=.o)
 
-# Default target tries to build with Lua
+TARGET = aslan
+TEST_TARGET = aslan_tests
+TEST_SRC = src/tests/engine_smoke_test.c
+TEST_OBJ = $(TEST_SRC:.c=.o)
+
 all: $(TARGET)
 
 $(TARGET): $(OBJ)
 	$(CC) $(OBJ) -o $(TARGET) $(LUA_LIB) $(SDL_LIB) -lm
 
-# Target to build without Lua (if libraries are missing)
 no_lua: CFLAGS += -DNO_LUA
 no_lua: $(OBJ)
 	$(CC) $(OBJ) -o $(TARGET) $(SDL_LIB)
+
+$(TEST_TARGET): $(CORE_OBJ) $(TEST_OBJ)
+	$(CC) $(CORE_OBJ) $(TEST_OBJ) -o $(TEST_TARGET) $(LUA_LIB) $(SDL_LIB) -lm
+
+test: $(TEST_TARGET)
+	./$(TEST_TARGET)
 
 %.o: %.c
 	$(CC) $(CFLAGS) $(LUA_INC) $(SDL_INC) -c $< -o $@
 
 clean:
-	rm -f $(OBJ) $(TARGET)
+	rm -f $(OBJ) $(CORE_OBJ) $(TEST_OBJ) $(TARGET) $(TEST_TARGET)
 
 run: $(TARGET)
 	./$(TARGET)

@@ -186,23 +186,48 @@ static void draw_node_recursive(Renderer* r, Node* node, float vx, float vy, flo
     }
 
     if (node->type == NODE_TYPE_RECT) {
-    SDL_FRect wrect = { node->x, node->y, node->width, node->height };
-    SDL_Rect rect;
-    world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
-        
-        // Couleur basée sur l'ID pour le prototype
+        SDL_FRect wrect = { node->x, node->y, node->width, node->height };
+        SDL_Rect rect;
+        world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
+
         int color_seed = node->id * 12345;
         Uint8 red = (color_seed & 0xFF0000) >> 16;
         Uint8 green = (color_seed & 0x00FF00) >> 8;
         Uint8 blue = (color_seed & 0x0000FF);
 
-        // Dessin du rectangle plein
         SDL_SetRenderDrawColor(r->sdl_renderer, red, green, blue, 255);
         SDL_RenderFillRect(r->sdl_renderer, &rect);
-        
-        // Bordure
+
         SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 255);
         SDL_RenderDrawRect(r->sdl_renderer, &rect);
+    }
+
+    if (node->type == NODE_TYPE_IMAGE) {
+        SDL_FRect wrect = { node->x, node->y, node->width, node->height };
+        SDL_Rect rect;
+        world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
+
+        SDL_Texture* tex = NULL;
+        SDL_Surface* surface = NULL;
+
+        if (node->text[0] != 0) {
+            surface = SDL_LoadBMP(node->text);
+            if (surface) {
+                tex = SDL_CreateTextureFromSurface(r->sdl_renderer, surface);
+            }
+        }
+
+        if (tex) {
+            SDL_RenderCopy(r->sdl_renderer, tex, NULL, &rect);
+        } else {
+            SDL_SetRenderDrawColor(r->sdl_renderer, 40, 40, 40, 255);
+            SDL_RenderFillRect(r->sdl_renderer, &rect);
+            SDL_SetRenderDrawColor(r->sdl_renderer, 200, 200, 200, 255);
+            SDL_RenderDrawRect(r->sdl_renderer, &rect);
+        }
+
+        if (tex) SDL_DestroyTexture(tex);
+        if (surface) SDL_FreeSurface(surface);
     }
 
     if (node->type == NODE_TYPE_TEXT) {

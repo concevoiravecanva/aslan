@@ -10,13 +10,22 @@ do
     aslan.log("[GRID] active_page=" .. tostring(pid) .. " type=" .. tostring(pt) .. " A1=" .. tostring(v))
 end
 
+-- SDL: KMOD_LSHIFT=0x0001, KMOD_RSHIFT=0x0002, KMOD_SHIFT=(L|R)=0x0003
+local KMOD_SHIFT = 0x0003
+local KMOD_CTRL  = 0x0040
+local KMOD_ALT   = 0x0100
+local KMOD_GUI   = 0x0400 -- Command on macOS
+
 local dragged_node_id = nil
+local multi_selection = {} -- Set of selected IDs: { [id] = true }
 local drag_mode = "none" -- "move" or "resize"
 local resize_corner = nil -- "tl"|"tr"|"bl"|"br"
 local offset_x = 0
 local offset_y = 0
 local offset_w = 0
 local offset_h = 0
+local drag_start_mx = 0
+local drag_start_my = 0
 
 -- Dernière géométrie calculée pendant le drag (commit au mouse_up en une seule commande AOF)
 local pending_x = nil
@@ -152,6 +161,110 @@ function on_mouse_wheel(delta, mx)
     aslan.set_page_meta(pid, "viewport.y", vy)
 end
 
+-- Helper: Manage multi-selection
+local function clear_selection()
+    multi_selection = {}
+    aslan.log("selection: cleared")
+end
+
+local function is_selected(id)
+    return multi_selection[id] == true
+end
+
+local function selection_snapshot()
+    local ids = {}
+    for id, _ in pairs(multi_selection) do
+        ids[#ids + 1] = tostring(id)
+    end
+    table.sort(ids)
+    return "{" .. table.concat(ids, ",") .. "}"
+end
+
+local function select_add(id)
+    if not id then return end
+    multi_selection[id] = true
+    aslan.log("selection: add " .. tostring(id) .. " -> " .. selection_snapshot())
+end
+
+local function select_toggle(id)
+    if not id then return end
+    if multi_selection[id] then
+        multi_selection[id] = nil
+    else
+        multi_selection[id] = true
+    end
+    aslan.log("selection: toggle " .. tostring(id) .. " -> " .. selection_snapshot())
+end
+
+local function selection_count()
+    local c = 0
+    for _ in pairs(multi_selection) do c = c + 1 end
+    return c
+end
+
+function group_selected()
+    local count = selection_count()
+    aslan.log("group_selected: count=" .. tostring(count))
+    if count < 2 then
+        aslan.log("Need at least 2 items to group.")
+        return
+    end
+
+    -- Calculate bounding box
+    local min_x, min_y = 100000, 100000
+    local max_x, max_y = -100000, -100000
+
+    for id, _ in pairs(multi_selection) do
+        local r_x, r_y, r_w, r_h = aslan.get_node_rect(id)
+        if r_x then
+            if r_x < min_x then min_x = r_x end
+            if r_y < min_y then min_y = r_y end
+            if r_x + r_w > max_x then max_x = r_x + r_w end
+            if r_y + r_h > max_y then max_y = r_y + r_h end
+        end
+    end
+    
+    local padding = 10
+    min_x = min_x - padding
+    min_y = min_y - padding
+    local w = max_x - min_x + padding * 2
+    local h = max_y - min_y + padding * 2
+    
+    -- Create group
+    local gid = aslan.create_group(min_x, min_y, w, h)
+    if gid then
+        aslan.log("Created Group " .. gid)
+        -- Make the visual group box non-intrusive for now (logical grouping only).
+        aslan.execute(string.format("set_visible %u 0", gid))
+        for id, _ in pairs(multi_selection) do
+            aslan.group_attach(gid, id)
+        end
+        clear_selection()
+        select_add(gid)
+        aslan.execute("select " .. gid)
+    end
+end
+
+function can_group_now()
+    return selection_count() >= 2
+end
+
+function get_multi_selection_ids()
+    local ids = {}
+    for id, _ in pairs(multi_selection) do
+        ids[#ids + 1] = id
+    end
+    table.sort(ids)
+    return ids
+end
+
+function on_key_down(key, mods)
+    -- 'g' is 103
+    if key == 103 then
+        group_selected()
+    end
+end
+
 function on_mouse_down(x, y)
     -- Pan tool: drag camera
     if current_tool_mode() == TOOL_PAN then
@@ -166,19 +279,14 @@ function on_mouse_down(x, y)
 
         pan_active = true
         pan_pid = pid
-    -- Pan anti-jitter note:
-    -- - main.c converts mouse to WORLD coords for most tools.
-    -- - but for camera panning, if we use WORLD deltas while also updating the camera,
-    --   the world coords can "move under the cursor" frame-to-frame (feedback loop).
-    -- - so we compute deltas in SCREEN pixels and convert using the zoom captured at pan start.
-    pan_start_mx = x
-    pan_start_my = y
-    pan_start_sx = aslan.get_mouse_x() or 0
-    pan_start_sy = aslan.get_mouse_y() or 0
-    pan_start_vx = aslan.get_page_meta(pid, "viewport.x") or 0
-    pan_start_vy = aslan.get_page_meta(pid, "viewport.y") or 0
-    pan_start_vz = aslan.get_page_meta(pid, "viewport.zoom") or 1.0
-    if pan_start_vz == 0 then pan_start_vz = 1.0 end
+        pan_start_mx = x
+        pan_start_my = y
+        pan_start_sx = aslan.get_mouse_x() or 0
+        pan_start_sy = aslan.get_mouse_y() or 0
+        pan_start_vx = aslan.get_page_meta(pid, "viewport.x") or 0
+        pan_start_vy = aslan.get_page_meta(pid, "viewport.y") or 0
+        pan_start_vz = aslan.get_page_meta(pid, "viewport.zoom") or 1.0
+        if pan_start_vz == 0 then pan_start_vz = 1.0 end
         return
     end
 
@@ -187,35 +295,49 @@ function on_mouse_down(x, y)
         draw_active = true
         draw_start_x = x
         draw_start_y = y
-
-    -- Preview disabled for now (was causing accidental duplicates).
-    draw_preview_id = nil
+        draw_preview_id = nil
         return
     end
 
-    dragged_node_id = aslan.get_node_at(x, y)
+    local clicked_id = aslan.get_node_at(x, y)
+    local mods = aslan.get_key_mods and aslan.get_key_mods() or 0
+    local shift = (mods & KMOD_SHIFT) ~= 0
+    
+    dragged_node_id = clicked_id
+    
+    if clicked_id then
+        if is_selected(clicked_id) and shift then
+            select_toggle(clicked_id)
+        else
+            select_add(clicked_id)
+        end
+        aslan.execute("select " .. clicked_id)
+    else
+        if not shift then
+            clear_selection()
+            aslan.execute("select 0")
+        end
+        dragged_node_id = nil
+    end
+
     if dragged_node_id then
-        -- On informe le moteur C de la sélection pour l'affichage des gizmos
-        aslan.execute(string.format("select %d", dragged_node_id))
-
+        -- Only allow resize if single selection
+        local can_resize = (selection_count() == 1)
+        
         local nx, ny, nw, nh = aslan.get_node_rect(dragged_node_id)
-
-        -- Les poignées sont dans chaque coin, *à l'intérieur*, taille ~18px (doit matcher renderer.c)
         local handle = 18
-
         local in_tl = (x >= nx and x <= nx + handle and y >= ny and y <= ny + handle)
         local in_tr = (x >= nx + nw - handle and x <= nx + nw and y >= ny and y <= ny + handle)
         local in_bl = (x >= nx and x <= nx + handle and y >= ny + nh - handle and y <= ny + nh)
         local in_br = (x >= nx + nw - handle and x <= nx + nw and y >= ny + nh - handle and y <= ny + nh)
 
-        if in_tl or in_tr or in_bl or in_br then
+        if can_resize and (in_tl or in_tr or in_bl or in_br) then
             drag_mode = "resize"
             if in_tl then resize_corner = "tl"
             elseif in_tr then resize_corner = "tr"
             elseif in_bl then resize_corner = "bl"
             else resize_corner = "br" end
 
-            -- Pour éviter les sauts: on garde l'offset entre la souris et le coin "actif"
             if resize_corner == "tl" then
                 offset_x = x - nx
                 offset_y = y - ny
@@ -229,7 +351,6 @@ function on_mouse_down(x, y)
                 offset_x = x - (nx + nw)
                 offset_y = y - (ny + nh)
             end
-
             aslan.log("Lua resizing node: " .. dragged_node_id .. " corner=" .. resize_corner)
         else
             drag_mode = "move"
@@ -238,9 +359,6 @@ function on_mouse_down(x, y)
             offset_y = y - ny
             aslan.log("Lua dragging node: " .. dragged_node_id)
         end
-
-    -- Initialiser le pending state sur la géométrie courante
-    pending_x, pending_y, pending_w, pending_h = nx, ny, nw, nh
     end
 end
 
@@ -346,7 +464,6 @@ function on_mouse_up(x, y)
         return
     end
 
-    -- Commit draw-rect
     if draw_active then
         draw_active = false
         local rx, ry, rw, rh = rect_from_points(draw_start_x, draw_start_y, x, y)
@@ -360,14 +477,9 @@ function on_mouse_up(x, y)
             return
         end
 
-        -- Create committed rect (this logs a single create_rect line)
-        aslan.execute(string.format("new_rect %f %f %f %f", rx, ry, rw, rh))
-        local new_id = aslan.get_selected_id()
-        if new_id then
-            aslan.execute(string.format("select %d", new_id))
-        end
+        aslan.create_frame(rx, ry, rw, rh)
 
-    draw_preview_id = nil
+        draw_preview_id = nil
         return
     end
 

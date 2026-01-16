@@ -1,7 +1,1 @@
 -- Session started --
-clear
-page_create 1 "Page 1"
-page_type 1 note
-note_insert_block checklist
-note_set_ln 1 0 "ssslslls"
-note_set_ln 1 1 "smlls"
