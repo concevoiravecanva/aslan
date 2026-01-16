@@ -236,6 +236,7 @@ uint32_t doc_page_create(Document *doc, const char *name);
 uint32_t doc_page_create_with_id(Document *doc, uint32_t page_id,
                                  const char *name);
 uint32_t doc_page_active_id(const Document *doc);
+const char *doc_page_name(const Document *doc, uint32_t page_id);
 void doc_page_activate(Document *doc, uint32_t page_id);
 Node *doc_page_root(Document *doc, uint32_t page_id);
 

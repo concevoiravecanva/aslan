@@ -1,1 +1,9 @@
 -- Session started --
+page_create 1 "Page 1"
+page_type 1 space
+page_meta 1 viewport.x 0
+page_meta 1 viewport.y 0
+page_meta 1 viewport.zoom 1.0
+create_rect 1 Frame1 -352.000000 -149.000000 328.000000 153.000000
+set_rect 1 -352.000000 -149.000000 450.000000 235.000000
+set_rect 1 -352.000000 -141.000000 255.000000 227.000000

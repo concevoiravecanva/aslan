@@ -1787,12 +1787,16 @@ static Node *find_node_at_recursive(Node *node, float x, float y) {
   if (!node)
     return NULL;
 
-  // On cherche d'abord dans les enfants (pour avoir le nœud le plus
-  // "au-dessus")
+  // On cherche d'abord dans le frère suivant (qui est dessiné APRES dans le
+  // parcours, donc potentiellement "au-dessus" dans l'ordre d'affichage standard
+  // si on suivait un ordre d'ajout simple, mais ici l'ordre récursif est inverse).
+  // En fait, dans Aslan, le dernier enfant ajouté est le premier de la liste
+  // (LIFO), donc il est "au-dessus".
   Node *found = find_node_at_recursive(node->next_sibling, x, y);
   if (found)
     return found;
 
+  // On cherche ensuite dans les enfants (qui sont toujours au-dessus du parent)
   found = find_node_at_recursive(node->first_child, x, y);
   if (found)
     return found;
@@ -1811,23 +1815,9 @@ static Node *find_node_at_recursive(Node *node, float x, float y) {
 Node *doc_find_node_at(Document *doc, float x, float y) {
   if (!doc || !doc->root)
     return NULL;
-  // This function operates in WORLD coordinates.
-  // Screen->world conversion should be done at the call-site (where window
-  // center is known).
 
-  // Antirez-style optimization: Use spatial index first.
-  uint32_t pid = doc_page_active_id(doc);
-  for (int i = 0; i < 32; i++) {
-    if (doc->pages[i].in_use && doc->pages[i].page_id == pid) {
-      if (doc->pages[i].spatial_index) {
-        Node *found = spatial_index_find_at(doc->pages[i].spatial_index, x, y);
-        if (found)
-          return found;
-      }
-      break;
-    }
-  }
-
+  // Fallback to recursive search only (Spatial Index is currently disabled or
+  // heuristic-only)
   return find_node_at_recursive(doc->root->first_child, x, y);
 }
 

@@ -17,8 +17,10 @@ struct SpatialIndex {
 };
 
 static uint32_t hash_coords(int cx, int cy) {
-  // Standard spatial hashing constants
-  return (uint32_t)(((cx * 73856093) ^ (cy * 19349663)) % BUCKETS_COUNT);
+  // Use unsigned arithmetic to avoid undefined behavior with signed overflows
+  // and to ensure the result is always positive before the modulo.
+  uint32_t h = ((uint32_t)cx * 73856093) ^ ((uint32_t)cy * 19349663);
+  return h % BUCKETS_COUNT;
 }
 
 struct SpatialIndex *spatial_index_create(int cell_size) {
