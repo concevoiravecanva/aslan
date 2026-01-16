@@ -235,6 +235,96 @@ static void draw_node_recursive(Renderer* r, Node* node, float vx, float vy, flo
         // without requiring a current Nuklear window during the SDL renderer pass.
     }
 
+    // --- Unified Node Types (Phase 1) ---
+
+    if (node->type == NODE_TYPE_FRAME || node->type == NODE_TYPE_GROUP) {
+        // Frames and groups are containers: draw a subtle outline
+        SDL_FRect wrect = { node->x, node->y, node->width, node->height };
+        SDL_Rect rect;
+        world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
+
+        // Subtle fill for frames
+        if (node->type == NODE_TYPE_FRAME) {
+            SDL_SetRenderDrawColor(r->sdl_renderer, 60, 60, 80, 40);
+            SDL_RenderFillRect(r->sdl_renderer, &rect);
+        }
+
+        // Dashed outline (simulated with corner markers)
+        SDL_SetRenderDrawColor(r->sdl_renderer, 100, 150, 200, 180);
+        SDL_RenderDrawRect(r->sdl_renderer, &rect);
+    }
+
+    if (node->type == NODE_TYPE_NOTE) {
+        // Note nodes are rendered as a paper-like card
+        SDL_FRect wrect = { node->x, node->y, node->width, node->height };
+        SDL_Rect rect;
+        world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
+
+        // Paper background
+        SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 240, 255);
+        SDL_RenderFillRect(r->sdl_renderer, &rect);
+
+        // Subtle shadow effect (offset rectangle)
+        SDL_Rect shadow = { rect.x + 2, rect.y + 2, rect.w, rect.h };
+        SDL_SetRenderDrawColor(r->sdl_renderer, 0, 0, 0, 30);
+        SDL_RenderFillRect(r->sdl_renderer, &shadow);
+
+        // Border
+        SDL_SetRenderDrawColor(r->sdl_renderer, 200, 180, 150, 255);
+        SDL_RenderDrawRect(r->sdl_renderer, &rect);
+    }
+
+    if (node->type == NODE_TYPE_GRID) {
+        // Grid nodes are rendered as a spreadsheet-like card
+        SDL_FRect wrect = { node->x, node->y, node->width, node->height };
+        SDL_Rect rect;
+        world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
+
+        // Background
+        SDL_SetRenderDrawColor(r->sdl_renderer, 245, 250, 255, 255);
+        SDL_RenderFillRect(r->sdl_renderer, &rect);
+
+        // Grid lines (simple preview)
+        SDL_SetRenderDrawColor(r->sdl_renderer, 200, 210, 220, 200);
+        int grid_step = 20;
+        for (int gx = rect.x; gx < rect.x + rect.w; gx += grid_step) {
+            SDL_RenderDrawLine(r->sdl_renderer, gx, rect.y, gx, rect.y + rect.h);
+        }
+        for (int gy = rect.y; gy < rect.y + rect.h; gy += grid_step) {
+            SDL_RenderDrawLine(r->sdl_renderer, rect.x, gy, rect.x + rect.w, gy);
+        }
+
+        // Border
+        SDL_SetRenderDrawColor(r->sdl_renderer, 100, 130, 180, 255);
+        SDL_RenderDrawRect(r->sdl_renderer, &rect);
+    }
+
+    if (node->type == NODE_TYPE_CLIP) {
+        // Clip nodes are rendered as a film-strip-like card
+        SDL_FRect wrect = { node->x, node->y, node->width, node->height };
+        SDL_Rect rect;
+        world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
+
+        // Dark background (video preview area)
+        SDL_SetRenderDrawColor(r->sdl_renderer, 30, 30, 35, 255);
+        SDL_RenderFillRect(r->sdl_renderer, &rect);
+
+        // Film sprocket holes on sides
+        SDL_SetRenderDrawColor(r->sdl_renderer, 50, 50, 55, 255);
+        int hole_size = 6;
+        int hole_spacing = 14;
+        for (int hy = rect.y + 10; hy < rect.y + rect.h - 10; hy += hole_spacing) {
+            SDL_Rect hole_l = { rect.x + 3, hy, hole_size, hole_size };
+            SDL_Rect hole_r = { rect.x + rect.w - hole_size - 3, hy, hole_size, hole_size };
+            SDL_RenderFillRect(r->sdl_renderer, &hole_l);
+            SDL_RenderFillRect(r->sdl_renderer, &hole_r);
+        }
+
+        // Border
+        SDL_SetRenderDrawColor(r->sdl_renderer, 80, 100, 140, 255);
+        SDL_RenderDrawRect(r->sdl_renderer, &rect);
+    }
+
     draw_node_recursive(r, node->first_child, vx, vy, vz, nk_ctx);
     draw_node_recursive(r, node->next_sibling, vx, vy, vz, nk_ctx);
 }

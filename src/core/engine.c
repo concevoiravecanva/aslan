@@ -1858,6 +1858,170 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
     }
   }
 
+  // ==========================================================================
+  // UNIFIED NODE COMMANDS (Phase 1 completion)
+  // ==========================================================================
+
+  // Commande: create_note <id> <name> <x> <y> <w> <h>
+  else if (strcmp(verb, "create_note") == 0 && cmd.argc >= 7) {
+    uint32_t nid = (uint32_t)atoi(cmd.argv[1]);
+    const char *node_name = cmd.argv[2];
+    float nx = (float)atof(cmd.argv[3]);
+    float ny = (float)atof(cmd.argv[4]);
+    float nw = (float)atof(cmd.argv[5]);
+    float nh = (float)atof(cmd.argv[6]);
+
+    if (nid > 0 && !doc_find_node_by_id(engine->doc, nid)) {
+      Node *node = doc_create_note_node(engine->doc, node_name, nx, ny, nw, nh);
+      if (node) {
+        node->id = nid;
+        if (engine->doc->next_node_id <= nid)
+          engine->doc->next_node_id = nid + 1;
+        doc_add_child(engine->doc->root, node);
+        success = true;
+      }
+    }
+  }
+
+  // Commande: create_grid <id> <name> <x> <y> <w> <h> <rows> <cols>
+  else if (strcmp(verb, "create_grid") == 0 && cmd.argc >= 9) {
+    uint32_t nid = (uint32_t)atoi(cmd.argv[1]);
+    const char *node_name = cmd.argv[2];
+    float nx = (float)atof(cmd.argv[3]);
+    float ny = (float)atof(cmd.argv[4]);
+    float nw = (float)atof(cmd.argv[5]);
+    float nh = (float)atof(cmd.argv[6]);
+    int rows = atoi(cmd.argv[7]);
+    int cols = atoi(cmd.argv[8]);
+
+    if (nid > 0 && !doc_find_node_by_id(engine->doc, nid)) {
+      Node *node =
+          doc_create_grid_node(engine->doc, node_name, nx, ny, nw, nh, rows, cols);
+      if (node) {
+        node->id = nid;
+        if (engine->doc->next_node_id <= nid)
+          engine->doc->next_node_id = nid + 1;
+        doc_add_child(engine->doc->root, node);
+        success = true;
+      }
+    }
+  }
+
+  // Commande: create_clip <id> <name> <x> <y> <w> <h>
+  else if (strcmp(verb, "create_clip") == 0 && cmd.argc >= 7) {
+    uint32_t nid = (uint32_t)atoi(cmd.argv[1]);
+    const char *node_name = cmd.argv[2];
+    float nx = (float)atof(cmd.argv[3]);
+    float ny = (float)atof(cmd.argv[4]);
+    float nw = (float)atof(cmd.argv[5]);
+    float nh = (float)atof(cmd.argv[6]);
+
+    if (nid > 0 && !doc_find_node_by_id(engine->doc, nid)) {
+      Node *node = doc_create_clip_node(engine->doc, node_name, nx, ny, nw, nh);
+      if (node) {
+        node->id = nid;
+        if (engine->doc->next_node_id <= nid)
+          engine->doc->next_node_id = nid + 1;
+        doc_add_child(engine->doc->root, node);
+        success = true;
+      }
+    }
+  }
+
+  // Commande: delete <id>
+  else if (strcmp(verb, "delete") == 0 && cmd.argc >= 2) {
+    uint32_t nid = (uint32_t)atoi(cmd.argv[1]);
+    if (nid > 0) {
+      success = doc_delete_node(engine->doc, nid);
+      if (success)
+        engine_emit_command(engine, command_line);
+    }
+  }
+
+  // Commande: note_row <node_id> <row_idx> <type> "<text>"
+  else if (strcmp(verb, "note_row") == 0 && cmd.argc >= 4) {
+    uint32_t nid = (uint32_t)atoi(cmd.argv[1]);
+    int row_idx = atoi(cmd.argv[2]);
+    const char *type_str = cmd.argv[3];
+    const char *text = (cmd.argc >= 5) ? cmd.argv[4] : "";
+
+    Node *node = doc_find_node_by_id(engine->doc, nid);
+    if (node && node->type == NODE_TYPE_NOTE) {
+      NotePayload *np = node_get_note_payload(node);
+      if (np) {
+        AslanRowType rt = ASLAN_ROW_TEXT;
+        if (strcmp(type_str, "h1") == 0)
+          rt = ASLAN_ROW_HEADING_1;
+        else if (strcmp(type_str, "h2") == 0)
+          rt = ASLAN_ROW_HEADING_2;
+        else if (strcmp(type_str, "h3") == 0)
+          rt = ASLAN_ROW_HEADING_3;
+        else if (strcmp(type_str, "separator") == 0)
+          rt = ASLAN_ROW_SEPARATOR;
+        else if (strcmp(type_str, "callout") == 0)
+          rt = ASLAN_ROW_CALLOUT;
+        else if (strcmp(type_str, "checklist") == 0)
+          rt = ASLAN_ROW_CHECKLIST;
+
+        if (row_idx >= np->row_count) {
+          note_insert_row(np, row_idx, rt, text);
+        } else {
+          note_set_row_type(np, row_idx, rt);
+          note_set_row_text(np, row_idx, text);
+        }
+        success = true;
+      }
+    }
+  }
+
+  // Commande: grid_cell <node_id> <row> <col> "<text>"
+  else if (strcmp(verb, "grid_cell") == 0 && cmd.argc >= 5) {
+    uint32_t nid = (uint32_t)atoi(cmd.argv[1]);
+    int row = atoi(cmd.argv[2]);
+    int col = atoi(cmd.argv[3]);
+    const char *text = cmd.argv[4];
+
+    Node *node = doc_find_node_by_id(engine->doc, nid);
+    if (node && node->type == NODE_TYPE_GRID) {
+      GridPayload *gp = node_get_grid_payload(node);
+      if (gp) {
+        grid_set_cell(gp, row, col, text);
+        success = true;
+      }
+    }
+  }
+
+  // Commande: clip_add <node_id> "<path>"
+  else if (strcmp(verb, "clip_add") == 0 && cmd.argc >= 3) {
+    uint32_t nid = (uint32_t)atoi(cmd.argv[1]);
+    const char *path = cmd.argv[2];
+
+    Node *node = doc_find_node_by_id(engine->doc, nid);
+    if (node && node->type == NODE_TYPE_CLIP) {
+      ClipPayload *cp = node_get_clip_payload(node);
+      if (cp) {
+        int idx = clip_add(cp, path);
+        success = (idx >= 0);
+      }
+    }
+  }
+
+  // Commande: clip_set <node_id> <clip_idx> <start_time> <end_time>
+  else if (strcmp(verb, "clip_set") == 0 && cmd.argc >= 5) {
+    uint32_t nid = (uint32_t)atoi(cmd.argv[1]);
+    int clip_idx = atoi(cmd.argv[2]);
+    double start = atof(cmd.argv[3]);
+    double end = atof(cmd.argv[4]);
+
+    Node *node = doc_find_node_by_id(engine->doc, nid);
+    if (node && node->type == NODE_TYPE_CLIP) {
+      ClipPayload *cp = node_get_clip_payload(node);
+      if (cp) {
+        success = clip_set_range(cp, clip_idx, start, end);
+      }
+    }
+  }
+
   // Commande: set_visible <id> <0|1>
   else if (sscanf(command_line, "set_visible %d %d", &id, &value) == 2) {
     if (id > 0) {
@@ -1913,11 +2077,22 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
     Node *node = doc_find_node_by_id(engine->doc, pid);
     if (node) {
       float ox = node->x, oy = node->y, ow = node->width, oh = node->height;
-      node->x = (float)atof(cmd.argv[2]);
-      node->y = (float)atof(cmd.argv[3]);
+      float nx = (float)atof(cmd.argv[2]);
+      float ny = (float)atof(cmd.argv[3]);
+      float dx = nx - ox;
+      float dy = ny - oy;
+
+      node->x = nx;
+      node->y = ny;
       node->width = (float)atof(cmd.argv[4]);
       node->height = (float)atof(cmd.argv[5]);
       doc_node_sync_spatial_index(engine->doc, node, ox, oy, ow, oh);
+
+      // Propagate position change to children for groups/frames
+      if ((dx != 0.0f || dy != 0.0f) && node_is_group(node)) {
+        translate_group_children(node, dx, dy);
+      }
+
       success = true;
 
       if (engine->history_file) {
