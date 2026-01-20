@@ -1,23 +1,7 @@
 -- Session started --
 page_create 1 "Page 1"
 page_type 1 note
-note_set_ln 1 0 "R"
-note_set_ln 1 0 "Rest"
-note_set_ln 1 1 ""
-note_set_ln 1 2 "pdjkpfjl[sflfs"
-note_set_ln 1 3 "sfknllflnln,fs"
-note_set_ln 1 3 "sfknllflnln,fs"
-note_set_ln 1 4 "sflfn;sf;"
-note_set_ln 1 4 "sflfn;sf;"
-note_set_ln 1 5 "snk;fmlsfl;m"
-note_set_ln 1 6 ""
-note_set_ln 1 7 ""
-note_set_ln 1 9 "R"
-note_set_ln 1 9 "R"
-note_set_ln 1 10 ""
-note_set_ln 1 11 "R"
-note_set_ln 1 11 "Rdididi"
-note_set_ln 1 11 "Rdididi"
-note_set_ln 1 12 ""
-note_toggle_highlight
-note_toggle_highlight
+note_set_ln 1 0 "4555"
+note_set_ln 1 0 "4555"
+note_set_ln 1 1 "vkhbj nnll"
+note_set_ln 1 1 "vkhbj nnll"

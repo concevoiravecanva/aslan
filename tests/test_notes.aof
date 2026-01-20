@@ -1,0 +1,147 @@
+-- ============================================================================
+-- ASLAN NOTE TESTS - AOF Test Suite
+-- ============================================================================
+-- This file contains test scenarios for NOTE page features
+-- Each test creates a specific state that should render correctly
+-- ============================================================================
+
+-- Test 1: Basic Text Rows
+-- ============================================================================
+page_create 1 "Test: Basic Text"
+page_type 1 note
+note_ins_ln 1 0 "Line 1: Normal text"
+note_ins_ln 1 1 "Line 2: More normal text"
+note_ins_ln 1 2 "Line 3: Even more text"
+
+-- Expected Result:
+-- ✅ 3 lines of text should be visible
+-- ✅ Text should be black on white background
+-- ✅ Lines should be 26px apart
+
+
+-- Test 2: Heading 1
+-- ============================================================================
+page_create 2 "Test: Heading"
+page_type 2 note
+note_ins_block 2 0 h1 "This is a Big Heading"
+note_ins_ln 2 1 "Normal text after heading"
+
+-- Expected Result:
+-- ✅ Heading should be bigger (1.8x) and darker
+-- ✅ Heading line height should be 42px
+-- ✅ Normal text below should be standard size
+
+
+-- Test 3: Separator
+-- ============================================================================
+page_create 3 "Test: Separator"
+page_type 3 note
+note_ins_ln 3 0 "Text above separator"
+note_ins_block 3 1 separator "---"
+note_ins_ln 3 2 "Text below separator"
+
+-- Expected Result:
+-- ✅ Horizontal line visible between texts
+-- ✅ Line should be subtle gray (225, 225, 225)
+-- ✅ Line should span full content width
+
+
+-- Test 4: Highlight (Fluo) - BUGGY
+-- ============================================================================
+page_create 4 "Test: Highlight"
+page_type 4 note
+note_ins_ln 4 0 "Normal text"
+note_ins_block 4 1 highlight "This text should be highlighted yellow"
+note_ins_ln 4 2 "Normal text again"
+
+-- Expected Result:
+-- ✅ Middle line should have yellow background (255, 243, 128)
+-- ✅ Background should extend full width
+-- ✅ Text should remain readable (black on yellow)
+
+-- Known Bug:
+-- ❌ Highlight might not show
+-- ❌ Background might be wrong size
+
+
+-- Test 5: Table Embed - BUGGY
+-- ============================================================================
+page_create 5 "Source Table"
+page_type 5 grid
+grid_set 5 0 0 "Name"
+grid_set 5 0 1 "Age"
+grid_set 5 1 0 "Alice"
+grid_set 5 1 1 "30"
+grid_set 5 2 0 "Bob"
+grid_set 5 2 1 "25"
+
+page_create 6 "Test: Table Embed"
+page_type 6 note
+note_ins_ln 6 0 "Text before table"
+note_ins_block 6 1 table_view 5 "My Table"
+note_ins_ln 6 2 "Text after table"
+
+-- Expected Result:
+-- ✅ Table should render inline with preview
+-- ✅ Table should show header + 2-4 rows
+-- ✅ Table should have subtle gray background
+-- ✅ Table title "My Table" should be visible
+
+-- Known Bug:
+-- ❌ Table might not show (blank space)
+-- ❌ Grid data might not be found
+-- ❌ Rendering might crash
+
+
+-- Test 6: Web Embed - BUGGY
+-- ============================================================================
+page_create 7 "Test: Web Embed"
+page_type 7 note
+note_ins_ln 7 0 "Check out this video:"
+note_ins_block 7 1 embed "https://www.youtube.com/watch?v=dQw4w9WgXcQ" "Cool Video"
+note_ins_ln 7 2 "Pretty cool, right?"
+
+-- Expected Result:
+-- ✅ Embed block should show URL
+-- ✅ Height should be ~320px
+-- ✅ Should have border/background
+
+-- Known Bug:
+-- ❌ Might show blank
+-- ❌ URL might not render
+-- ❌ Height might be wrong
+
+
+-- Test 7: Mixed Content (Stress Test)
+-- ============================================================================
+page_create 8 "Test: Mixed"
+page_type 8 note
+note_ins_block 8 0 h1 "Project Overview"
+note_ins_ln 8 1 "This is a complex note with multiple block types."
+note_ins_block 8 2 separator "---"
+note_ins_block 8 3 highlight "Important: Read this carefully"
+note_ins_ln 8 4 "Task list:"
+note_ins_ln 8 5 "- Task 1"
+note_ins_ln 8 6 "- Task 2"
+note_ins_block 8 7 table_view 5 "Team Data"
+
+-- Expected Result:
+-- ✅ All blocks should render in order
+-- ✅ No overlapping
+-- ✅ Proper spacing between blocks
+
+-- Known Issues:
+-- ❌ Some blocks might overlap
+-- ❌ Spacing might be inconsistent
+-- ❌ Table might push other content
+
+
+-- ============================================================================
+-- END OF TESTS
+-- ============================================================================
+-- To use these tests:
+-- 1. Clear current document: Clear in Aslan
+-- 2. Load test file: Not yet implemented - need import command
+-- 3. Navigate through pages 1-8 to see each test
+-- 4. Check "Expected Result" vs actual rendering
+-- ============================================================================
