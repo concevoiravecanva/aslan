@@ -96,6 +96,14 @@ typedef struct UIHost {
   int inline_edit_inited;
   int inline_edit_wants_focus;
   int inline_edit_dirty;
+  
+  // NOTE input: Force capture input after toolbar button click
+  // This bypasses nk_item_is_any_active() check for a few frames
+  int note_force_input;
+  
+  // FLUO: Current color selection (0=off, 1=yellow, 2=blue, 3=green)
+  // Cycles: 0 → 1 → 2 → 3 → 0 → ...
+  int fluo_color_index;
 } UIHost;
 
 UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L);

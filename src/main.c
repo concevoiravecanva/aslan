@@ -88,25 +88,22 @@ static int note_pick_col_from_x(struct nk_context *ctx, float rel_x) {
   return col;
 }
 
-// NOTE pages now have variable-height blocks (H1/H2/H3/Callout).
-// Keep input picking consistent with renderer/UI overlay by accumulating
-// per-row heights.
+// NOTE pages - Variable height blocks (modern spacing)
+// Must match get_line_height() in ui_host.c
 static float note_row_height(AslanRowType type) {
   switch (type) {
   case ASLAN_ROW_HEADING_1:
-    return 34.0f;
-  case ASLAN_ROW_HEADING_2:
-    return 28.0f;
-  case ASLAN_ROW_HEADING_3:
-    return 24.0f;
-  case ASLAN_ROW_CALLOUT:
-    return 42.0f;
-  case ASLAN_ROW_CHECKLIST:
-    return 26.0f;
+    return 56.0f;  // Large, prominent headings
   case ASLAN_ROW_SEPARATOR:
-    return 22.0f;
+    return 32.0f;  // Breathing room
+  case ASLAN_ROW_GRID:
+    return 50.0f;  // Simplified placeholder
+  case ASLAN_ROW_EMBED:
+    return 50.0f;  // Simplified placeholder
+  case ASLAN_ROW_HIGHLIGHT:
+    return 28.0f;  // Same as text with highlight background
   default:
-    return 22.0f;
+    return 28.0f;  // Regular text (increased from 22px for comfort)
   }
 }
 
@@ -280,10 +277,10 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
         }
       }
 
-      // Notes input: when a NOTE page is active, consume keyboard/text input
-      // (Kilo-like navigation + text input) before Lua tool routing.
-      if (engine && engine->doc && !nk_item_is_any_active(ui->ctx) &&
-          (!ui || ui->editing_node_id == 0)) {
+      // Notes input: when a NOTE page is active, ALWAYS capture keyboard/text input
+      // This is the Kilo-style approach: the note editor owns all text input.
+      // Only exception: if we're inline editing a canvas TEXT node.
+      if (engine && engine->doc && (!ui || ui->editing_node_id == 0)) {
         uint32_t pid = doc_page_active_id(engine->doc);
         for (int pi = 0; pi < 32; pi++) {
           if (!engine->doc->pages[pi].in_use)
@@ -298,6 +295,8 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
             SDL_StartTextInput();
 
           if (engine->doc->pages[pi].note) {
+            // CRITICAL: For NOTE pages, ALWAYS route text input to the note
+            // Don't check nk_item_is_any_active() - toolbar buttons should NOT block typing
             if (e.type == SDL_KEYDOWN || e.type == SDL_TEXTINPUT) {
               AslanNoteDoc *nd = engine->doc->pages[pi].note;
               int before_row = nd->cursor_row;
@@ -486,6 +485,7 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
             note_drag_selecting = false;
             note_drag_from_gutter = false;
             note_mouse_captured_by_note = false;
+            
           }
 
           // If the NOTE captured the mouse, don't forward mouse-up to tools.
@@ -644,6 +644,11 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
     int ww, wh;
     SDL_GetWindowSize(renderer->window, &ww, &wh);
     ui_render(ui, engine, ww, wh);
+
+    // Decrement note_force_input flag (allows typing after toolbar button click)
+    if (ui && ui->note_force_input > 0) {
+      ui->note_force_input--;
+    }
 
     renderer_end(renderer);
 

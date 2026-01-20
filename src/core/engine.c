@@ -1222,6 +1222,7 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
         new_row->len = 0;
         new_row->cap = 0;
         new_row->block = NULL;
+        new_row->node = NULL;
 
         // For specialized blocks - empty by default so user can type directly
         const char *placeholder = "";
@@ -1230,12 +1231,14 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
           placeholder = "---";
 
         size_t n = strlen(placeholder);
-        new_row->chars = (char *)malloc(n + 1);
+        // Allocate with extra space for growth (avoid immediate realloc)
+        size_t initial_cap = (n < 64) ? 64 : n + 1;
+        new_row->chars = (char *)malloc(initial_cap);
         if (new_row->chars) {
           memcpy(new_row->chars, placeholder, n);
           new_row->chars[n] = '\0';
           new_row->len = n;
-          new_row->cap = n + 1;
+          new_row->cap = initial_cap;
         }
 
         // Initialize type-specific block data
@@ -1252,8 +1255,21 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
         }
 
         nd->row_count++;
-        nd->cursor_row = insert_pos;
-        nd->cursor_col = 0;
+        
+        // Position cursor at end of text (for H1, at position 0 since empty)
+        // For SEPARATOR, move to next line since it's non-editable
+        if (block_type == ASLAN_ROW_SEPARATOR) {
+          // Insert a new empty line after separator for user to continue typing
+          if (insert_pos + 1 >= nd->row_count) {
+            note_insert_line(nd, insert_pos + 1, "");
+          }
+          nd->cursor_row = insert_pos + 1;
+          nd->cursor_col = 0;
+        } else {
+          // For H1, HIGHLIGHT, etc. - position cursor at end of current text
+          nd->cursor_row = insert_pos;
+          nd->cursor_col = (int)nd->rows[insert_pos].len;
+        }
 
         success = true;
         break;
@@ -1390,7 +1406,7 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
   }
 
   // Commande: note_toggle_highlight
-  // Toggles highlight state for the current row
+  // Toggles highlight state for selected rows, or current row if no selection
   else if (strcmp(verb, "note_toggle_highlight") == 0) {
     if (engine->doc) {
       uint32_t pid = doc_page_active_id(engine->doc);
@@ -1400,15 +1416,41 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
         if (engine->doc->pages[i].type != PAGE_TYPE_NOTE)
           break;
         AslanNoteDoc *nd = engine->doc->pages[i].note;
-        if (nd && nd->cursor_row >= 0 && nd->cursor_row < nd->row_count) {
-          AslanRow *row = &nd->rows[nd->cursor_row];
+        if (!nd) break;
+        
+        // Determine range: if selection active, use selection; otherwise, current row
+        int start_row = nd->cursor_row;
+        int end_row = nd->cursor_row;
+        
+        if (nd->is_selecting) {
+          start_row = nd->anchor_row;
+          end_row = nd->cursor_row;
+          if (start_row > end_row) {
+            int tmp = start_row;
+            start_row = end_row;
+            end_row = tmp;
+          }
+        }
+        
+        // Clamp to valid range
+        if (start_row < 0) start_row = 0;
+        if (end_row >= nd->row_count) end_row = nd->row_count - 1;
+        if (start_row > end_row) break;
+        
+        // Toggle highlight for all rows in range
+        for (int r = start_row; r <= end_row; r++) {
+          AslanRow *row = &nd->rows[r];
           if (row->type == ASLAN_ROW_TEXT)
             row->type = ASLAN_ROW_HIGHLIGHT;
           else if (row->type == ASLAN_ROW_HIGHLIGHT)
             row->type = ASLAN_ROW_TEXT;
-          success = true;
-          engine_emit_command(engine, command_line);
         }
+        
+        // Clear selection after applying highlight
+        nd->is_selecting = false;
+        
+        success = true;
+        engine_emit_command(engine, command_line);
         break;
       }
     }

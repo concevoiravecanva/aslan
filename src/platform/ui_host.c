@@ -991,13 +991,13 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 static float get_line_height(AslanRowType type) {
   switch (type) {
   case ASLAN_ROW_HEADING_1:
-    return 42.0f;
+    return 56.0f;  // Larger, more prominent headings
   case ASLAN_ROW_SEPARATOR:
-    return 24.0f;
+    return 32.0f;  // More breathing room
   case ASLAN_ROW_GRID:
-    return 120.0f;  // Table view height
+    return 50.0f;  // Simplified placeholder (reduced from 120px)
   case ASLAN_ROW_EMBED:
-    return 320.0f;  // Embed height
+    return 50.0f;  // Simplified placeholder (reduced from 320px)
   case ASLAN_ROW_HIGHLIGHT:
     return 26.0f;  // Same as regular text
   default:
@@ -1434,34 +1434,109 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     float bar_x = (float)win_w * 0.5f - bar_w * 0.5f; 
     float bar_y = 12.0f;
     
-    // Modern floating toolbar
+    // Modern floating toolbar (minimalist - only essential buttons)
     if (nk_begin(ui->ctx, "##note_toolbar", nk_rect(bar_x, bar_y, bar_w, bar_h),
                  NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER)) {
       
-      nk_layout_row_dynamic(ui->ctx, 32, 6);
+      nk_layout_row_dynamic(ui->ctx, 32, 4);  // 4 buttons only
       
       if (nk_button_label(ui->ctx, "Home")) {
         ui->screen = 0;
       }
       if (nk_button_label(ui->ctx, "H1")) {
         engine_execute_command(engine, "note_insert_block h1");
+        // CRITICAL: Force note to capture input for next few frames
+        // This bypasses nk_item_is_any_active() check in main.c
+        ui->note_force_input = 5;  // 5 frames should be enough
+        if (!SDL_IsTextInputActive()) {
+          SDL_StartTextInput();
+        }
       }
       if (nk_button_label(ui->ctx, "Sep")) {
         engine_execute_command(engine, "note_insert_block separator");
+        ui->note_force_input = 5;
+        if (!SDL_IsTextInputActive()) {
+          SDL_StartTextInput();
+        }
       }
-      if (nk_button_label(ui->ctx, "Table")) {
-        uint32_t new_pid = engine->doc->next_page_id;
-        engine_execute_command(engine, "page_new table");
-        char cmd[64];
-        snprintf(cmd, sizeof(cmd), "note_insert_table_view %u", (unsigned)new_pid);
-        engine_execute_command(engine, cmd);
+      // Fluo button: Cycles through colors (Yellow → Blue → Green → Off)
+      // Simple full-line highlighting (stable, works with existing documents)
+      {
+        // Define fluo colors for button
+        struct nk_color fluo_btn_colors[4] = {
+          nk_rgb(80, 80, 80),     // 0 = Off (gray)
+          nk_rgb(255, 230, 50),   // 1 = Yellow
+          nk_rgb(100, 200, 255),  // 2 = Blue  
+          nk_rgb(100, 255, 130)   // 3 = Green
+        };
+        
+        // Style button with current color
+        struct nk_style_button fluo_style = ui->ctx->style.button;
+        int idx = ui->fluo_color_index;
+        if (idx < 0 || idx > 3) idx = 0;
+        
+        if (idx > 0) {
+          // Active color - show colored button
+          fluo_style.normal = nk_style_item_color(fluo_btn_colors[idx]);
+          fluo_style.hover = nk_style_item_color(nk_rgb(
+            (fluo_btn_colors[idx].r + 20) > 255 ? 255 : fluo_btn_colors[idx].r + 20,
+            (fluo_btn_colors[idx].g + 20) > 255 ? 255 : fluo_btn_colors[idx].g + 20,
+            (fluo_btn_colors[idx].b + 20) > 255 ? 255 : fluo_btn_colors[idx].b + 20
+          ));
+          fluo_style.active = fluo_style.normal;
+          fluo_style.text_normal = nk_rgb(0, 0, 0);
+          fluo_style.text_hover = nk_rgb(0, 0, 0);
+          fluo_style.text_active = nk_rgb(0, 0, 0);
+        }
+        
+        if (nk_button_label_styled(ui->ctx, &fluo_style, "Fluo")) {
+          // Cycle to next color: 0 → 1 → 2 → 3 → 0
+          ui->fluo_color_index = (ui->fluo_color_index + 1) % 4;
+          
+          // Apply color to current line or selected lines
+          if (engine && engine->doc) {
+            uint32_t pid = doc_page_active_id(engine->doc);
+            for (int pi = 0; pi < 32; pi++) {
+              if (!engine->doc->pages[pi].in_use) continue;
+              if (engine->doc->pages[pi].page_id != pid) continue;
+              if (engine->doc->pages[pi].type != PAGE_TYPE_NOTE) break;
+              
+              AslanNoteDoc *nd = engine->doc->pages[pi].note;
+              if (nd && nd->rows) {
+                // Check if there's a selection
+                bool has_selection = nd->is_selecting || 
+                                     (nd->anchor_row != nd->cursor_row);
+                
+                int start_row = nd->cursor_row;
+                int end_row = nd->cursor_row;
+                
+                if (has_selection) {
+                  start_row = nd->anchor_row;
+                  end_row = nd->cursor_row;
+                  if (start_row > end_row) { int t = start_row; start_row = end_row; end_row = t; }
+                }
+                
+                // Clamp
+                if (start_row < 0) start_row = 0;
+                if (end_row >= nd->row_count) end_row = nd->row_count - 1;
+                
+                // Apply highlight color to each row
+                for (int r = start_row; r <= end_row; r++) {
+                  AslanRow *row = &nd->rows[r];
+                  row->highlight_color = ui->fluo_color_index;
+                }
+                
+                // Clear selection after applying
+                nd->is_selecting = false;
+              }
+              break;
+            }
+          }
+        }
       }
-      if (nk_button_label(ui->ctx, "Embed")) {
-        engine_execute_command(engine, "note_insert_block embed");
-      }
-      if (nk_button_label(ui->ctx, "Fluo")) {
-        engine_execute_command(engine, "note_toggle_highlight");
-      }
+      
+      // TABLE and EMBED buttons REMOVED - Not in MVP
+      // Focus on simple, working features (Antirez philosophy)
     }
     nk_end(ui->ctx);
     } else {
@@ -2103,15 +2178,15 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     // Light, minimal, focused on writing. Like a clean sheet of paper.
     
     if (active_pt == PAGE_TYPE_NOTE && active_note &&
-        active_note->row_count > 0) {
+        active_note->rows && active_note->row_count > 0) {
       
       // ========================================================================
-      // NOTION-STYLE LAYOUT (must match renderer.c)
+      // MODERN LAYOUT (must match renderer.c)
       // ========================================================================
-      const float margin_left = 96.0f;    // Generous left margin
-      const float margin_right = 96.0f;   // Generous right margin
-      const float top_margin = 72.0f;     // Clean top spacing
-      const float line_h = 26.0f;         // Comfortable line height
+      const float margin_left = 120.0f;   // Extra generous left margin (Apple style)
+      const float margin_right = 120.0f;  // Symmetric margins
+      const float top_margin = 80.0f;     // Breathing room at top
+      const float line_h = 28.0f;         // Comfortable line height (increased)
       
       // Derived dimensions
       const float content_x = margin_left;
@@ -2146,14 +2221,13 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       }
 
       // ========================================================================
-      // NOTION-STYLE COLOR PALETTE (Light Theme)
+      // MODERN COLOR PALETTE (2024 Apple Notes / Notion inspired)
       // ========================================================================
-      struct nk_color txt_col = nk_rgb(55, 53, 47);           // Notion's dark text
-      struct nk_color txt_heading = nk_rgb(25, 23, 17);       // Darker for headings
-      struct nk_color sel_bg = nk_rgb(174, 214, 241);         // Soft blue selection
-      struct nk_color sel_txt = nk_rgb(25, 23, 17);           // Dark text on selection
-      struct nk_color cursor_col = nk_rgb(55, 53, 47);        // Dark cursor
-      struct nk_color fluo_bg = nk_rgb(255, 243, 128);        // Canva-style yellow highlight
+      struct nk_color txt_col = nk_rgb(45, 45, 45);           // Softer black (easier on eyes)
+      struct nk_color txt_heading = nk_rgb(20, 20, 20);       // Strong black for headings
+      struct nk_color sel_bg = nk_rgb(200, 230, 255);         // Soft blue selection (Apple style)
+      struct nk_color sel_txt = nk_rgb(20, 20, 20);           // Dark text on selection
+      struct nk_color cursor_col = nk_rgb(0, 122, 255);       // iOS blue cursor
 
       // ========================================================================
       // CLIPPING: Clip text to content area
@@ -2171,19 +2245,76 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       float char_w_mono = note_measure_char_w(note_font);
       
       // ========================================================================
-      // HIGHLIGHTS (Fluo) - Pass 1
+      // HIGHLIGHTS (Fluo) - PER-LINE with MULTI-COLOR (stable, simple)
       // ========================================================================
+      // Define colors for each highlight type (0=none, 1=yellow, 2=blue, 3=green)
+      struct nk_color fluo_colors_main[4] = {
+        nk_rgba(0, 0, 0, 0),        // 0 = none
+        nk_rgba(255, 230, 50, 180), // 1 = yellow
+        nk_rgba(100, 200, 255, 180),// 2 = blue
+        nk_rgba(100, 255, 130, 180) // 3 = green
+      };
+      struct nk_color fluo_colors_shadow[4] = {
+        nk_rgba(0, 0, 0, 0),        // 0 = none
+        nk_rgba(220, 180, 30, 200), // 1 = yellow shadow
+        nk_rgba(60, 150, 220, 200), // 2 = blue shadow
+        nk_rgba(60, 200, 90, 200)   // 3 = green shadow
+      };
+      struct nk_color fluo_colors_light[4] = {
+        nk_rgba(0, 0, 0, 0),         // 0 = none
+        nk_rgba(255, 250, 150, 150), // 1 = yellow light
+        nk_rgba(180, 230, 255, 150), // 2 = blue light
+        nk_rgba(180, 255, 200, 150)  // 3 = green light
+      };
+      
       float y_fluo = top_y;
       for (int i = 0; i < active_note->row_count; i++) {
         float row_h = get_line_height(active_note->rows[i].type);
-        if (active_note->rows[i].type == ASLAN_ROW_HIGHLIGHT) {
-          float py = y_fluo - scroll_y;
-          if (py + row_h >= top_y && py < (float)win_h) {
-            nk_fill_rect(&ui->ctx->overlay, 
-                         nk_rect(pad_x - 4, py + 2, w + 8, row_h - 4), 
-                         4.0f, fluo_bg);
-          }
+        AslanRow *row = &active_note->rows[i];
+        float py = y_fluo - scroll_y;
+        
+        // Check for highlight_color (new system: 1=yellow, 2=blue, 3=green)
+        int cidx = row->highlight_color;
+        if (cidx < 0 || cidx > 3) cidx = 0;
+        
+        // Also check old ASLAN_ROW_HIGHLIGHT type for backwards compatibility
+        if (row->type == ASLAN_ROW_HIGHLIGHT && cidx == 0) {
+          cidx = 1;  // Default to yellow for old highlights
         }
+        
+        // Draw highlight if any color is set
+        if (cidx > 0 && py + row_h >= top_y && py < (float)win_h) {
+          const char *text = (row->chars && row->len > 0) ? row->chars : "";
+          int text_len = (row->chars) ? (int)row->len : 0;
+          
+          float text_width = 50.0f;  // Default minimum
+          if (note_font && note_font->width && text_len > 0) {
+            text_width = note_font->width(note_font->userdata, note_font->height, text, text_len);
+          }
+          text_width += 12.0f;
+          if (text_width < 20.0f) text_width = 20.0f;
+          if (text_width > w) text_width = w;
+          
+          // MARKER EFFECT: Multiple layers for realistic look
+          float marker_h = row_h * 0.65f;  // 65% of line height
+          float marker_y = py + (row_h - marker_h) * 0.4f;  // Slightly above center
+          
+          // Layer 1: Main marker color
+          nk_fill_rect(&ui->ctx->overlay, 
+                       nk_rect(pad_x - 2, marker_y, text_width, marker_h), 
+                       0.0f, fluo_colors_main[cidx]);
+          
+          // Layer 2: Bottom shadow (darker edge)
+          nk_fill_rect(&ui->ctx->overlay,
+                       nk_rect(pad_x - 2, marker_y + marker_h - 3, text_width, 3),
+                       0.0f, fluo_colors_shadow[cidx]);
+          
+          // Layer 3: Top highlight (lighter edge)
+          nk_fill_rect(&ui->ctx->overlay,
+                       nk_rect(pad_x - 2, marker_y, text_width, 2),
+                       0.0f, fluo_colors_light[cidx]);
+        }
+        
         y_fluo += row_h;
       }
 
@@ -2231,159 +2362,36 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         const struct nk_user_font *row_font = note_font;
 
         // ======================================================================
-        // HEADINGS: Notion-style typography hierarchy
+        // HEADINGS: Modern typography hierarchy
         // ======================================================================
         if (row->type == ASLAN_ROW_HEADING_1) {
-          row_line_h = 42.0f;
-          font_scale = 1.8f;
+          row_line_h = 56.0f;  // Larger headings for better hierarchy
+          font_scale = 2.0f;   // More prominent
           row_txt_col = txt_heading;
           if (ui->font_h1)
             row_font = &ui->font_h1->handle;
         } else if (row->type == ASLAN_ROW_SEPARATOR) {
-          // Separator: clean horizontal rule (Notion-style)
+          // Separator: clean horizontal rule (minimal, Apple Notes style)
           float y_pos = top_y + get_line_y_position(active_note, i) +
                         get_line_height(row->type) * 0.5f - scroll_y;
 
           struct nk_command_buffer *canvas = &ui->ctx->overlay;
-          // Full width, subtle gray line
+          // Subtle, thin gray line
           nk_stroke_line(canvas, pad_x, y_pos, pad_x + w, y_pos, 
-                         1.0f, nk_rgb(225, 225, 225));
+                         1.0f, nk_rgb(220, 220, 220));
           continue;
-        } else if (row->type == ASLAN_ROW_GRID) {
-          // =================================================================
-          // TABLE VIEW: Embedded view of a Grid page (Notion-style)
-          // =================================================================
-          float y_pos = top_y + get_line_y_position(active_note, i) - scroll_y;
-          float row_h = 120.0f;  // Fixed height for table view
-          
-          AslanTableViewBlock *tvb = (AslanTableViewBlock *)row->block;
-          uint32_t src_page_id = tvb ? tvb->source_page_id : 0;
-          
-          // Find the source Grid page
-          AslanGrid *grid = NULL;
-          const char *grid_name = t;
-          if (engine && engine->doc && src_page_id) {
-            for (int pi = 0; pi < 32; pi++) {
-              if (!engine->doc->pages[pi].in_use)
-                continue;
-              if (engine->doc->pages[pi].page_id == src_page_id) {
-                grid = engine->doc->pages[pi].grid;
-                if (engine->doc->pages[pi].name[0])
-                  grid_name = engine->doc->pages[pi].name;
-                break;
-              }
-            }
-          }
-          
-          struct nk_command_buffer *canvas = &ui->ctx->overlay;
-          struct nk_rect bounds = nk_rect(pad_x, y_pos, w, row_h - 4.0f);
-          
-          // Background (very subtle gray)
-          nk_fill_rect(canvas, bounds, 4.0f, nk_rgb(250, 250, 248));
-          nk_stroke_rect(canvas, bounds, 4.0f, 1.0f, nk_rgb(230, 230, 225));
-          
-          // Title bar
-          struct nk_rect title_rect = nk_rect(bounds.x + 8, bounds.y + 4, 
-                                              bounds.w - 16, 22);
-          nk_draw_text(canvas, title_rect, grid_name, (int)strlen(grid_name),
-                       note_font, nk_rgba(0, 0, 0, 0), nk_rgb(100, 100, 100));
-          
-          // Render grid preview if available
-          if (grid && grid->rows > 0 && grid->cols > 0 && grid->data) {
-            float table_y = bounds.y + 28;
-            float table_h = bounds.h - 32;
-            float col_w = (bounds.w - 16) / (float)(grid->cols > 5 ? 5 : grid->cols);
-            int max_rows = (int)(table_h / 20.0f);
-            if (max_rows > grid->rows) max_rows = grid->rows;
-            if (max_rows > 4) max_rows = 4;
-            
-            // Draw header row
-            for (int c = 0; c < grid->cols && c < 5; c++) {
-              const char *cell = grid->data[0][c];
-              if (cell && cell[0]) {
-                struct nk_rect cell_rect = nk_rect(
-                  bounds.x + 8 + c * col_w, table_y,
-                  col_w - 4, 18);
-                nk_draw_text(canvas, cell_rect, cell, 
-                             (int)strlen(cell) > 20 ? 20 : (int)strlen(cell),
-                             note_font, nk_rgba(0, 0, 0, 0), nk_rgb(55, 53, 47));
-              }
-            }
-            
-            // Draw separator line
-            nk_stroke_line(canvas, bounds.x + 8, table_y + 20, 
-                          bounds.x + bounds.w - 8, table_y + 20,
-                          1.0f, nk_rgb(230, 230, 225));
-            
-            // Draw data rows
-            for (int r = 1; r < max_rows && r < grid->rows; r++) {
-              for (int c = 0; c < grid->cols && c < 5; c++) {
-                const char *cell = grid->data[r][c];
-                if (cell && cell[0]) {
-                  struct nk_rect cell_rect = nk_rect(
-                    bounds.x + 8 + c * col_w, table_y + r * 20,
-                    col_w - 4, 18);
-                  nk_draw_text(canvas, cell_rect, cell,
-                               (int)strlen(cell) > 20 ? 20 : (int)strlen(cell),
-                               note_font, nk_rgba(0, 0, 0, 0), 
-                               nk_rgb(100, 100, 100));
-                }
-              }
-            }
-            
-            // Show "..." if more rows
-            if (grid->rows > max_rows) {
-              struct nk_rect more_rect = nk_rect(
-                bounds.x + 8, table_y + max_rows * 20,
-                bounds.w - 16, 18);
-              nk_draw_text(canvas, more_rect, "...", 3,
-                           note_font, nk_rgba(0, 0, 0, 0), 
-                           nk_rgb(150, 150, 150));
-            }
-          } else {
-            // No grid data - show placeholder
-            struct nk_rect empty_rect = nk_rect(bounds.x + 8, bounds.y + 40,
-                                                bounds.w - 16, 20);
-            nk_draw_text(canvas, empty_rect, "(empty table)", 13,
-                         note_font, nk_rgba(0, 0, 0, 0), nk_rgb(180, 180, 180));
-          }
-
-          continue;
-        } else if (row->type == ASLAN_ROW_EMBED) {
-          // =================================================================
-          // EMBED VIEW (YouTube/Web)
-          // =================================================================
-          float y_pos = top_y + get_line_y_position(active_note, i) - scroll_y;
-          float row_h = get_line_height(row->type);
-
-          AslanEmbedBlock *eb = (AslanEmbedBlock *)row->block;
-          const char *url = eb ? eb->url : "(no url)";
-          
-          struct nk_command_buffer *canvas = &ui->ctx->overlay;
-          struct nk_rect bounds = nk_rect(pad_x, y_pos, w, row_h - 10.0f);
-          
-          // Outer container
-          nk_fill_rect(canvas, bounds, 8.0f, nk_rgb(30, 30, 30)); // Video black
-          
-          // YouTube-like play button in the middle
-          float cx = bounds.x + bounds.w * 0.5f;
-          float cy = bounds.y + bounds.h * 0.5f;
-          nk_fill_rect(canvas, nk_rect(cx - 30, cy - 20, 60, 40), 10.0f, nk_rgb(255, 0, 0));
-          
-          // Triangle (play)
-          nk_stroke_line(canvas, cx - 10, cy - 10, cx - 10, cy + 10, 2.0f, nk_rgb(255, 255, 255));
-          nk_stroke_line(canvas, cx - 10, cy - 10, cx + 15, cy, 2.0f, nk_rgb(255, 255, 255));
-          nk_stroke_line(canvas, cx - 10, cy + 10, cx + 15, cy, 2.0f, nk_rgb(255, 255, 255));
-          
-          // URL label at bottom
-          struct nk_rect url_rect = nk_rect(bounds.x + 10, bounds.y + bounds.h - 30, bounds.w - 20, 20);
-          nk_draw_text(canvas, url_rect, url, (int)strlen(url), note_font, nk_rgba(0,0,0,0), nk_rgb(200, 200, 200));
-
+        } else if (row->type == ASLAN_ROW_GRID || row->type == ASLAN_ROW_EMBED) {
+          // GRID and EMBED completely removed from MVP
+          // These types should not exist in the document anymore
+          // If they do (from old files), just skip rendering them silently
           continue;
         }
-
-        // Highlight rows render as regular text but with Fluo background (Pass 1)
-        // (Handled below in regular text rendering)
+        
+        // ======================================================================
+        // TEXT RENDERING: For TEXT and HIGHLIGHT types
+        // ======================================================================
+        // Highlight rows get yellow background (rendered in Pass 1 above)
+        // Here we just render the text content
 
         // Calculate Y position using helper function (accumulate row heights
         // for proper spacing)

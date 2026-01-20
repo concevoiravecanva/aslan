@@ -164,6 +164,9 @@ typedef struct {
 
   // Unified Nodes: Link to a child node in the tree (for embedded content)
   struct Node *node;
+  
+  // Highlight color (0=none, 1=yellow, 2=blue, 3=green)
+  int highlight_color;
 } AslanRow;
 
 // Note payload structure (stored in Node->payload for NODE_TYPE_NOTE)

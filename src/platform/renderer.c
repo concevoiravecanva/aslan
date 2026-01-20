@@ -330,9 +330,11 @@ static void draw_node_recursive(Renderer* r, Node* node, float vx, float vy, flo
 }
 
 // =============================================================================
-// NOTE PAGE RENDERER - Notion-style clean design
+// NOTE PAGE RENDERER - Modern Apple Notes / Notion style
 // =============================================================================
-// Philosophy: Clean, minimal, focused. Light background, elegant typography.
+// Philosophy: Clean, minimal, focused. Beautiful typography, generous whitespace.
+// Inspired by: Apple Notes, Notion, Canva Notes
+// Antirez principle: Simple, elegant, fast.
 
 static void renderer_draw_note_doc(Renderer* r, const Document* doc, int page_index) {
     if (!r || !doc) return;
@@ -342,55 +344,96 @@ static void renderer_draw_note_doc(Renderer* r, const Document* doc, int page_in
     if (!nd) return;
 
     // ==========================================================================
-    // NOTION-STYLE LAYOUT
+    // MODERN LAYOUT - Apple Notes inspired
     // ==========================================================================
-    const float margin_left = 96.0f;    // Generous left margin
-    const float margin_right = 96.0f;   // Generous right margin
-    const float top_margin = 72.0f;     // Clean top spacing
+    const float margin_left = 120.0f;   // Extra generous left margin (Apple style)
+    const float margin_right = 120.0f;  // Symmetric margins
+    const float top_margin = 80.0f;     // Breathing room at top
     
-    // Colors - Clean light theme (Notion-inspired)
-    const SDL_Color bg_page = {255, 255, 255, 255};       // Pure white background
-    const SDL_Color color_fluo = {255, 243, 128, 180};    // Canva-style highlight (yellow)
+    // Modern Color Palette (2024 style)
+    // Inspired by Apple Notes, Notion, Linear
+    const SDL_Color bg_page = {252, 252, 250, 255};       // Warm white (not pure #FFFFFF)
+    // Marker-style highlight: Semi-transparent, like real fluorescent marker
+    const SDL_Color color_fluo = {255, 230, 50, 180};     // Yellow marker (semi-transparent for realistic look)
     
     const float scroll_y = (nd->scroll_y > 0.0f) ? nd->scroll_y : 0.0f;
 
     // ==========================================================================
-    // BACKGROUND: Clean white page
+    // BACKGROUND: Warm, inviting page
     // ==========================================================================
     SDL_Rect page_area = { 0, 0, r->width, r->height };
     SDL_SetRenderDrawColor(r->sdl_renderer, bg_page.r, bg_page.g, bg_page.b, bg_page.a);
     SDL_RenderFillRect(r->sdl_renderer, &page_area);
     
     // ==========================================================================
-    // HIGHLIGHTS (Fluo)
+    // HIGHLIGHTS (Fluo) - Full opacity, vibrant
     // ==========================================================================
     float y_acc = top_margin;
     for (int i = 0; i < nd->row_count; i++) {
-        float h = 26.0f;
+        // Calculate line height based on type
+        float h = 28.0f;  // Default text height (increased from 26px)
         AslanRowType rt = nd->rows[i].type;
-        if (rt == ASLAN_ROW_HEADING_1) h = 42.0f;
-        else if (rt == ASLAN_ROW_SEPARATOR) h = 24.0f;
-        else if (rt == ASLAN_ROW_GRID) h = 120.0f;
-        else if (rt == ASLAN_ROW_EMBED) h = 320.0f;
         
-        if (rt == ASLAN_ROW_HIGHLIGHT) {
-            SDL_Rect highlight_rect = { 
-                (int)margin_left - 4, 
-                (int)(y_acc - scroll_y + 2), 
-                (int)(r->width - margin_left - margin_right + 8), 
-                (int)h - 4 
-            };
-            SDL_SetRenderDrawBlendMode(r->sdl_renderer, SDL_BLENDMODE_BLEND);
-            SDL_SetRenderDrawColor(r->sdl_renderer, color_fluo.r, color_fluo.g, color_fluo.b, color_fluo.a);
-            SDL_RenderFillRect(r->sdl_renderer, &highlight_rect);
+        if (rt == ASLAN_ROW_HEADING_1) {
+            h = 56.0f;  // Larger, more prominent headings
+        } else if (rt == ASLAN_ROW_SEPARATOR) {
+            h = 32.0f;  // More space around separators
         }
+        
+        // Draw highlight background for marked rows (MARKER-STYLE: realistic fluorescent)
+        if (rt == ASLAN_ROW_HIGHLIGHT) {
+            // Calculate text width (approximate with monospace assumption)
+            const char* text = nd->rows[i].chars ? nd->rows[i].chars : "";
+            size_t text_len = strlen(text);
+            // Approximate: 8px per char (monospace), plus padding
+            float text_width = (float)text_len * 8.5f + 12.0f;
+            
+            // Don't make it wider than available space
+            float max_width = r->width - margin_left - margin_right;
+            if (text_width > max_width) text_width = max_width;
+            if (text_width < 20.0f) text_width = 20.0f;  // Minimum width
+            
+            SDL_SetRenderDrawBlendMode(r->sdl_renderer, SDL_BLENDMODE_BLEND);
+            
+            // MARKER EFFECT: Multiple layers for realistic look
+            // Layer 1: Main highlight (slightly taller, offset up)
+            float marker_h = h * 0.65f;  // 65% of line height (like real marker)
+            float marker_y = y_acc - scroll_y + (h - marker_h) * 0.4f;  // Slightly above center
+            
+            SDL_Rect main_rect = { 
+                (int)(margin_left - 2),
+                (int)marker_y, 
+                (int)text_width, 
+                (int)marker_h
+            };
+            SDL_SetRenderDrawColor(r->sdl_renderer, color_fluo.r, color_fluo.g, color_fluo.b, color_fluo.a);
+            SDL_RenderFillRect(r->sdl_renderer, &main_rect);
+            
+            // Layer 2: Darker edge at bottom (marker shadow effect)
+            SDL_Rect shadow_rect = {
+                (int)(margin_left - 2),
+                (int)(marker_y + marker_h - 3),
+                (int)text_width,
+                3
+            };
+            SDL_SetRenderDrawColor(r->sdl_renderer, 255, 210, 30, 100);  // Darker yellow
+            SDL_RenderFillRect(r->sdl_renderer, &shadow_rect);
+            
+            // Layer 3: Lighter top edge (marker highlight)
+            SDL_Rect top_rect = {
+                (int)(margin_left - 2),
+                (int)marker_y,
+                (int)text_width,
+                2
+            };
+            SDL_SetRenderDrawColor(r->sdl_renderer, 255, 245, 150, 150);  // Lighter yellow
+            SDL_RenderFillRect(r->sdl_renderer, &top_rect);
+        }
+        
         y_acc += h;
     }
 
-    // Current line highlight removed for cleaner look
-    (void)y_acc;
-    (void)margin_left;
-    (void)margin_right;
+    // Clean, minimal - no extra decorations
 }
 
 void renderer_draw_document(Renderer* r, const Document* doc, struct nk_context* nk_ctx) {

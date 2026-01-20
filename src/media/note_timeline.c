@@ -570,9 +570,7 @@ SectionDisplayInfo timeline_sync_get_section_info(const TimelineSync *sync,
     if (note && section->row_index < note->row_count) {
       AslanRow *row = &note->rows[section->row_index];
       info.text = row->chars;
-      info.is_heading = (row->type == ASLAN_ROW_HEADING_1 ||
-                         row->type == ASLAN_ROW_HEADING_2 ||
-                         row->type == ASLAN_ROW_HEADING_3);
+      info.is_heading = (row->type == ASLAN_ROW_HEADING_1);  // Only H1 for now (MVP)
     }
   }
 
