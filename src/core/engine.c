@@ -180,14 +180,14 @@ void engine_serialize_note(const AslanNoteDoc *doc, uint32_t page_id,
     } else if (r->type == ASLAN_ROW_GRID) {
       if (r->block) {
         const AslanTableViewBlock *tvb = (const AslanTableViewBlock *)r->block;
-        fprintf(fp, "note_ins_block %u %d table_view %u \"%s\"\n", (unsigned)page_id,
-                i, (unsigned)tvb->source_page_id, escaped);
+        fprintf(fp, "note_ins_block %u %d table_view %u \"%s\"\n",
+                (unsigned)page_id, i, (unsigned)tvb->source_page_id, escaped);
       }
     } else if (r->type == ASLAN_ROW_EMBED) {
       if (r->block) {
         const AslanEmbedBlock *eb = (const AslanEmbedBlock *)r->block;
-        fprintf(fp, "note_ins_block %u %d embed \"%s\" \"%s\"\n", (unsigned)page_id,
-                i, eb->url, escaped);
+        fprintf(fp, "note_ins_block %u %d embed \"%s\" \"%s\"\n",
+                (unsigned)page_id, i, eb->url, escaped);
       }
     }
   }
@@ -1243,10 +1243,12 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
 
         // Initialize type-specific block data
         if (block_type == ASLAN_ROW_GRID) {
-          AslanTableViewBlock *tvb = (AslanTableViewBlock *)calloc(1, sizeof(AslanTableViewBlock));
+          AslanTableViewBlock *tvb =
+              (AslanTableViewBlock *)calloc(1, sizeof(AslanTableViewBlock));
           new_row->block = tvb;
         } else if (block_type == ASLAN_ROW_EMBED) {
-          AslanEmbedBlock *eb = (AslanEmbedBlock *)calloc(1, sizeof(AslanEmbedBlock));
+          AslanEmbedBlock *eb =
+              (AslanEmbedBlock *)calloc(1, sizeof(AslanEmbedBlock));
           if (eb) {
             snprintf(eb->url, sizeof(eb->url), "https://youtube.com");
             eb->height = 300.0f;
@@ -1255,7 +1257,7 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
         }
 
         nd->row_count++;
-        
+
         // Position cursor at end of text (for H1, at position 0 since empty)
         // For SEPARATOR, move to next line since it's non-editable
         if (block_type == ASLAN_ROW_SEPARATOR) {
@@ -1281,10 +1283,11 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
   // Inserts a linked table view from another Grid page into the current Note
   else if (strncmp(command_line, "note_insert_table_view ", 23) == 0) {
     uint32_t source_page_id = 0;
-    if (sscanf(command_line, "note_insert_table_view %u", &source_page_id) == 1) {
+    if (sscanf(command_line, "note_insert_table_view %u", &source_page_id) ==
+        1) {
       if (engine->doc) {
         uint32_t pid = doc_page_active_id(engine->doc);
-        
+
         // Verify source page exists and is a Grid
         int source_valid = 0;
         AslanGrid *source_grid = NULL;
@@ -1302,7 +1305,7 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
             break;
           }
         }
-        
+
         if (source_valid) {
           for (int i = 0; i < 32; i++) {
             if (!engine->doc->pages[i].in_use)
@@ -1326,8 +1329,8 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
             // Grow array if needed
             if (nd->row_count >= nd->row_cap) {
               int new_cap = nd->row_cap ? nd->row_cap * 2 : 8;
-              AslanRow *new_rows =
-                  (AslanRow *)realloc(nd->rows, (size_t)new_cap * sizeof(AslanRow));
+              AslanRow *new_rows = (AslanRow *)realloc(
+                  nd->rows, (size_t)new_cap * sizeof(AslanRow));
               if (!new_rows)
                 break;
               nd->rows = new_rows;
@@ -1342,9 +1345,10 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
             // Initialize table view row
             AslanRow *new_row = &nd->rows[insert_pos];
             new_row->type = ASLAN_ROW_GRID;
-            
+
             // Set display name (table name or "Table")
-            const char *label = source_name && source_name[0] ? source_name : "Table";
+            const char *label =
+                source_name && source_name[0] ? source_name : "Table";
             size_t n = strlen(label);
             new_row->chars = (char *)malloc(n + 1);
             if (new_row->chars) {
@@ -1353,7 +1357,7 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
               new_row->len = n;
               new_row->cap = n + 1;
             }
-            
+
             // Create table view block
             AslanTableViewBlock *tvb =
                 (AslanTableViewBlock *)calloc(1, sizeof(AslanTableViewBlock));
@@ -1384,7 +1388,8 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
     if (engine->doc) {
       uint32_t pid = doc_page_active_id(engine->doc);
       for (int i = 0; i < 32; i++) {
-        if (!engine->doc->pages[i].in_use || engine->doc->pages[i].page_id != pid)
+        if (!engine->doc->pages[i].in_use ||
+            engine->doc->pages[i].page_id != pid)
           continue;
         if (engine->doc->pages[i].type != PAGE_TYPE_NOTE)
           break;
@@ -1392,9 +1397,11 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
         if (nd && nd->cursor_row >= 0 && nd->cursor_row < nd->row_count) {
           AslanRow *row = &nd->rows[nd->cursor_row];
           if (row->type == ASLAN_ROW_EMBED && !row->block) {
-            AslanEmbedBlock *eb = (AslanEmbedBlock *)calloc(1, sizeof(AslanEmbedBlock));
+            AslanEmbedBlock *eb =
+                (AslanEmbedBlock *)calloc(1, sizeof(AslanEmbedBlock));
             if (eb) {
-              snprintf(eb->url, sizeof(eb->url), "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+              snprintf(eb->url, sizeof(eb->url),
+                       "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
               eb->height = 300.0f;
               row->block = eb;
             }
@@ -1411,17 +1418,20 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
     if (engine->doc) {
       uint32_t pid = doc_page_active_id(engine->doc);
       for (int i = 0; i < 32; i++) {
-        if (!engine->doc->pages[i].in_use || engine->doc->pages[i].page_id != pid)
+        if (!engine->doc->pages[i].in_use ||
+            engine->doc->pages[i].page_id != pid)
           continue;
         if (engine->doc->pages[i].type != PAGE_TYPE_NOTE)
           break;
         AslanNoteDoc *nd = engine->doc->pages[i].note;
-        if (!nd) break;
-        
-        // Determine range: if selection active, use selection; otherwise, current row
+        if (!nd)
+          break;
+
+        // Determine range: if selection active, use selection; otherwise,
+        // current row
         int start_row = nd->cursor_row;
         int end_row = nd->cursor_row;
-        
+
         if (nd->is_selecting) {
           start_row = nd->anchor_row;
           end_row = nd->cursor_row;
@@ -1431,12 +1441,15 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
             end_row = tmp;
           }
         }
-        
+
         // Clamp to valid range
-        if (start_row < 0) start_row = 0;
-        if (end_row >= nd->row_count) end_row = nd->row_count - 1;
-        if (start_row > end_row) break;
-        
+        if (start_row < 0)
+          start_row = 0;
+        if (end_row >= nd->row_count)
+          end_row = nd->row_count - 1;
+        if (start_row > end_row)
+          break;
+
         // Toggle highlight for all rows in range
         for (int r = start_row; r <= end_row; r++) {
           AslanRow *row = &nd->rows[r];
@@ -1445,10 +1458,10 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
           else if (row->type == ASLAN_ROW_HIGHLIGHT)
             row->type = ASLAN_ROW_TEXT;
         }
-        
+
         // Clear selection after applying highlight
         nd->is_selecting = false;
-        
+
         success = true;
         engine_emit_command(engine, command_line);
         break;
@@ -2002,8 +2015,8 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
     int cols = atoi(cmd.argv[8]);
 
     if (nid > 0 && !doc_find_node_by_id(engine->doc, nid)) {
-      Node *node =
-          doc_create_grid_node(engine->doc, node_name, nx, ny, nw, nh, rows, cols);
+      Node *node = doc_create_grid_node(engine->doc, node_name, nx, ny, nw, nh,
+                                        rows, cols);
       if (node) {
         node->id = nid;
         if (engine->doc->next_node_id <= nid)

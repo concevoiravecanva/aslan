@@ -775,7 +775,7 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
         24.0f, 0);
     ui->font_h1 = nk_font_atlas_add_from_file(
         atlas, "assets/fonts/JetBrains_Mono/static/JetBrainsMono-Bold.ttf",
-        28.0f, 0);
+        36.0f, 0);
   }
   nk_sdl_font_stash_end();
 
@@ -991,15 +991,15 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 static float get_line_height(AslanRowType type) {
   switch (type) {
   case ASLAN_ROW_HEADING_1:
-    return 56.0f;  // Larger, more prominent headings
+    return 56.0f; // Larger, more prominent headings
   case ASLAN_ROW_SEPARATOR:
-    return 32.0f;  // More breathing room
+    return 32.0f; // More breathing room
   case ASLAN_ROW_GRID:
-    return 50.0f;  // Simplified placeholder (reduced from 120px)
+    return 50.0f; // Simplified placeholder (reduced from 120px)
   case ASLAN_ROW_EMBED:
-    return 50.0f;  // Simplified placeholder (reduced from 320px)
+    return 50.0f; // Simplified placeholder (reduced from 320px)
   case ASLAN_ROW_HIGHLIGHT:
-    return 26.0f;  // Same as regular text
+    return 26.0f; // Same as regular text
   default:
     return 26.0f; // Regular text
   }
@@ -1048,9 +1048,11 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   }
 
   // Theme for Inspector UI only (read from globals)
-  const char *theme =
-      (engine && engine->doc) ? doc_get_global(engine->doc, "theme") : NULL;
-  if (theme && strcmp(theme, "dark") == 0)
+  const char *theme = NULL;
+  if (engine && engine->doc) {
+    theme = doc_get_global(engine->doc, "theme");
+  }
+  if (theme && ((uintptr_t)theme > 0x1000) && strcmp(theme, "dark") == 0)
     ui_apply_theme_dark(ui->ctx);
   else
     ui_apply_theme_light(ui->ctx);
@@ -1411,35 +1413,36 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   // SIDEBAR - Modern, clean design
   // ==========================================================================
   // Hide sidebar for NOTE pages - they should be distraction-free
-    int is_note_page = 0;
-    if (engine && engine->doc) {
-      uint32_t apid = doc_page_active_id(engine->doc);
-      for (int i = 0; i < 32; i++) {
-        if (!engine->doc->pages[i].in_use)
-          continue;
-        if (engine->doc->pages[i].page_id != apid)
-          continue;
-        if (engine->doc->pages[i].type == PAGE_TYPE_NOTE)
-          is_note_page = 1;
-        break;
-      }
+  int is_note_page = 0;
+  if (engine && engine->doc) {
+    uint32_t apid = doc_page_active_id(engine->doc);
+    for (int i = 0; i < 32; i++) {
+      if (!engine->doc->pages[i].in_use)
+        continue;
+      if (engine->doc->pages[i].page_id != apid)
+        continue;
+      if (engine->doc->pages[i].type == PAGE_TYPE_NOTE)
+        is_note_page = 1;
+      break;
     }
+  }
 
   // For NOTE pages: modern minimalist toolbar
-    if (is_note_page) {
-    ui->selected_node = NULL; // Force clear selection to avoid inspector "square"
-    
+  if (is_note_page) {
+    ui->selected_node =
+        NULL; // Force clear selection to avoid inspector "square"
+
     float bar_w = 320.0f;
     float bar_h = 44.0f;
-    float bar_x = (float)win_w * 0.5f - bar_w * 0.5f; 
+    float bar_x = (float)win_w * 0.5f - bar_w * 0.5f;
     float bar_y = 12.0f;
-    
+
     // Modern floating toolbar (minimalist - only essential buttons)
     if (nk_begin(ui->ctx, "##note_toolbar", nk_rect(bar_x, bar_y, bar_w, bar_h),
                  NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER)) {
-      
-      nk_layout_row_dynamic(ui->ctx, 32, 4);  // 4 buttons only
-      
+
+      nk_layout_row_dynamic(ui->ctx, 32, 4); // 4 buttons only
+
       if (nk_button_label(ui->ctx, "Home")) {
         ui->screen = 0;
       }
@@ -1447,7 +1450,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         engine_execute_command(engine, "note_insert_block h1");
         // CRITICAL: Force note to capture input for next few frames
         // This bypasses nk_item_is_any_active() check in main.c
-        ui->note_force_input = 5;  // 5 frames should be enough
+        ui->note_force_input = 5; // 5 frames should be enough
         if (!SDL_IsTextInputActive()) {
           SDL_StartTextInput();
         }
@@ -1464,68 +1467,81 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       {
         // Define fluo colors for button
         struct nk_color fluo_btn_colors[4] = {
-          nk_rgb(80, 80, 80),     // 0 = Off (gray)
-          nk_rgb(255, 230, 50),   // 1 = Yellow
-          nk_rgb(100, 200, 255),  // 2 = Blue  
-          nk_rgb(100, 255, 130)   // 3 = Green
+            nk_rgb(80, 80, 80),    // 0 = Off (gray)
+            nk_rgb(255, 235, 100), // 1 = Yellow (warmer)
+            nk_rgb(160, 220, 255), // 2 = Blue (softer)
+            nk_rgb(180, 255, 180)  // 3 = Green (pastel)
         };
-        
+
         // Style button with current color
         struct nk_style_button fluo_style = ui->ctx->style.button;
         int idx = ui->fluo_color_index;
-        if (idx < 0 || idx > 3) idx = 0;
-        
+        if (idx < 0 || idx > 3)
+          idx = 0;
+
         if (idx > 0) {
           // Active color - show colored button
           fluo_style.normal = nk_style_item_color(fluo_btn_colors[idx]);
           fluo_style.hover = nk_style_item_color(nk_rgb(
-            (fluo_btn_colors[idx].r + 20) > 255 ? 255 : fluo_btn_colors[idx].r + 20,
-            (fluo_btn_colors[idx].g + 20) > 255 ? 255 : fluo_btn_colors[idx].g + 20,
-            (fluo_btn_colors[idx].b + 20) > 255 ? 255 : fluo_btn_colors[idx].b + 20
-          ));
+              (fluo_btn_colors[idx].r + 20) > 255 ? 255
+                                                  : fluo_btn_colors[idx].r + 20,
+              (fluo_btn_colors[idx].g + 20) > 255 ? 255
+                                                  : fluo_btn_colors[idx].g + 20,
+              (fluo_btn_colors[idx].b + 20) > 255
+                  ? 255
+                  : fluo_btn_colors[idx].b + 20));
           fluo_style.active = fluo_style.normal;
           fluo_style.text_normal = nk_rgb(0, 0, 0);
           fluo_style.text_hover = nk_rgb(0, 0, 0);
           fluo_style.text_active = nk_rgb(0, 0, 0);
         }
-        
+
         if (nk_button_label_styled(ui->ctx, &fluo_style, "Fluo")) {
           // Cycle to next color: 0 → 1 → 2 → 3 → 0
           ui->fluo_color_index = (ui->fluo_color_index + 1) % 4;
-          
+
           // Apply color to current line or selected lines
           if (engine && engine->doc) {
             uint32_t pid = doc_page_active_id(engine->doc);
             for (int pi = 0; pi < 32; pi++) {
-              if (!engine->doc->pages[pi].in_use) continue;
-              if (engine->doc->pages[pi].page_id != pid) continue;
-              if (engine->doc->pages[pi].type != PAGE_TYPE_NOTE) break;
-              
+              if (!engine->doc->pages[pi].in_use)
+                continue;
+              if (engine->doc->pages[pi].page_id != pid)
+                continue;
+              if (engine->doc->pages[pi].type != PAGE_TYPE_NOTE)
+                break;
+
               AslanNoteDoc *nd = engine->doc->pages[pi].note;
               if (nd && nd->rows) {
                 // Check if there's a selection
-                bool has_selection = nd->is_selecting || 
-                                     (nd->anchor_row != nd->cursor_row);
-                
+                bool has_selection =
+                    nd->is_selecting || (nd->anchor_row != nd->cursor_row);
+
                 int start_row = nd->cursor_row;
                 int end_row = nd->cursor_row;
-                
+
                 if (has_selection) {
                   start_row = nd->anchor_row;
                   end_row = nd->cursor_row;
-                  if (start_row > end_row) { int t = start_row; start_row = end_row; end_row = t; }
+                  if (start_row > end_row) {
+                    int t = start_row;
+                    start_row = end_row;
+                    end_row = t;
+                  }
                 }
-                
+
                 // Clamp
-                if (start_row < 0) start_row = 0;
-                if (end_row >= nd->row_count) end_row = nd->row_count - 1;
-                
+                if (start_row < 0)
+                  start_row = 0;
+                if (end_row >= nd->row_count)
+                  end_row = nd->row_count - 1;
+
                 // Apply highlight color to each row
                 for (int r = start_row; r <= end_row; r++) {
                   AslanRow *row = &nd->rows[r];
                   row->highlight_color = ui->fluo_color_index;
                 }
-                
+
                 // Clear selection after applying
                 nd->is_selecting = false;
               }
@@ -1534,19 +1550,19 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
           }
         }
       }
-      
+
       // TABLE and EMBED buttons REMOVED - Not in MVP
       // Focus on simple, working features (Antirez philosophy)
     }
     nk_end(ui->ctx);
-    } else {
+  } else {
     // Regular sidebar for canvas/other pages
     if (nk_begin(ui->ctx, "Tools", nk_rect(win_w - 220, 0, 220, win_h),
                  NK_WINDOW_BORDER | NK_WINDOW_NO_SCROLLBAR)) {
 
       nk_layout_row_dynamic(ui->ctx, 16, 1);
       nk_spacing(ui->ctx, 1);
-      
+
       // Home button
       nk_layout_row_dynamic(ui->ctx, 36, 1);
       if (nk_button_label(ui->ctx, "Home")) {
@@ -1556,11 +1572,11 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
       nk_layout_row_dynamic(ui->ctx, 12, 1);
       nk_spacing(ui->ctx, 1);
-      
+
       // Section: Actions
       nk_layout_row_dynamic(ui->ctx, 18, 1);
       nk_label(ui->ctx, "Actions", NK_TEXT_LEFT);
-      
+
       nk_layout_row_dynamic(ui->ctx, 32, 2);
       if (nk_button_label(ui->ctx, "Undo")) {
         engine_execute_command(engine, "undo");
@@ -1598,11 +1614,11 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
       nk_layout_row_dynamic(ui->ctx, 20, 1);
       nk_spacing(ui->ctx, 1);
-      
+
       // Section: View
       nk_layout_row_dynamic(ui->ctx, 18, 1);
       nk_label(ui->ctx, "View", NK_TEXT_LEFT);
-      
+
       int grid_enabled = 0;
       int snap_enabled = 0;
       if (engine && engine->doc) {
@@ -1638,64 +1654,64 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     float insp_h = 300.0f;
     float insp_x = (float)win_w - insp_w - 16.0f;
     float insp_y = (float)win_h - insp_h - 60.0f;
-    
+
     if (nk_begin(ui->ctx, "Selection", nk_rect(insp_x, insp_y, insp_w, insp_h),
                  NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE)) {
-      
+
       // Node info
       char info[128];
       snprintf(info, sizeof(info), "%s (#%u)", n->name, (unsigned)n->id);
-            nk_layout_row_dynamic(ui->ctx, 20, 1);
+      nk_layout_row_dynamic(ui->ctx, 20, 1);
       nk_label(ui->ctx, info, NK_TEXT_LEFT);
-      
+
       nk_layout_row_dynamic(ui->ctx, 8, 1);
       nk_spacing(ui->ctx, 1);
-      
+
       // Position
       nk_layout_row_dynamic(ui->ctx, 18, 1);
       nk_label(ui->ctx, "Position", NK_TEXT_LEFT);
-      
+
       int ix = (int)n->x, iy = (int)n->y;
       nk_layout_row_dynamic(ui->ctx, 24, 2);
       nk_property_int(ui->ctx, "X", -9999, &ix, 9999, 1, 1);
       nk_property_int(ui->ctx, "Y", -9999, &iy, 9999, 1, 1);
-      
+
       if (ix != (int)n->x || iy != (int)n->y) {
-          char cmd[128];
+        char cmd[128];
         snprintf(cmd, sizeof(cmd), "move %u %d %d", (unsigned)n->id, ix, iy);
-          engine_execute_command(engine, cmd);
+        engine_execute_command(engine, cmd);
       }
-      
+
       // Size
       nk_layout_row_dynamic(ui->ctx, 18, 1);
       nk_label(ui->ctx, "Size", NK_TEXT_LEFT);
-      
+
       int iw = (int)n->width, ih = (int)n->height;
       nk_layout_row_dynamic(ui->ctx, 24, 2);
       nk_property_int(ui->ctx, "W", 1, &iw, 9999, 1, 1);
       nk_property_int(ui->ctx, "H", 1, &ih, 9999, 1, 1);
-      
+
       if (iw != (int)n->width || ih != (int)n->height) {
         char cmd[128];
         snprintf(cmd, sizeof(cmd), "resize %u %d %d", (unsigned)n->id, iw, ih);
-              engine_execute_command(engine, cmd);
+        engine_execute_command(engine, cmd);
       }
-      
+
       nk_layout_row_dynamic(ui->ctx, 12, 1);
       nk_spacing(ui->ctx, 1);
-      
+
       // Delete
       nk_layout_row_dynamic(ui->ctx, 32, 1);
       if (nk_button_label(ui->ctx, "Delete")) {
-          char cmd[64];
+        char cmd[64];
         snprintf(cmd, sizeof(cmd), "delete %u", (unsigned)n->id);
-          engine_execute_command(engine, cmd);
+        engine_execute_command(engine, cmd);
         ui->selected_node = NULL;
       }
     }
     nk_end(ui->ctx);
   }
-  
+
   // Legacy inspector code removed - now using modern sidebar above
 
   // Inline (in-situ) text editing overlay
@@ -1855,8 +1871,12 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         ui->new_page_orientation = 0; // Portrait
         ui->new_page_width_mm = 210.0f;
         ui->new_page_height_mm = 297.0f;
-        snprintf(ui->new_page_name, sizeof(ui->new_page_name), "Page %d",
-                 engine->doc->page_count + 1);
+        if (engine && engine->doc) {
+          snprintf(ui->new_page_name, sizeof(ui->new_page_name), "Page %d",
+                   engine->doc->page_count + 1);
+        } else {
+          snprintf(ui->new_page_name, sizeof(ui->new_page_name), "Page 1");
+        }
       }
 
       if (engine && engine->doc) {
@@ -2022,11 +2042,8 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       if (nk_option_label(ui->ctx, "Page (Fixed)", ui->new_page_type_idx == 1))
         ui->new_page_type_idx = 1;
 
-      nk_layout_row_dynamic(ui->ctx, 28, 3);
-      if (nk_option_label(ui->ctx, "Note (TBD)", ui->new_page_type_idx == 2))
+      if (nk_option_label(ui->ctx, "Note", ui->new_page_type_idx == 2))
         ui->new_page_type_idx = 2;
-      if (nk_option_label(ui->ctx, "Clip (TBD)", ui->new_page_type_idx == 3))
-        ui->new_page_type_idx = 3;
       if (nk_option_label(ui->ctx, "Grid (Table)", ui->new_page_type_idx == 4))
         ui->new_page_type_idx = 4;
 
@@ -2176,24 +2193,30 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     // NOTE PAGE OVERLAY - Notion-style Clean Design
     // ==========================================================================
     // Light, minimal, focused on writing. Like a clean sheet of paper.
-    
-    if (active_pt == PAGE_TYPE_NOTE && active_note &&
-        active_note->rows && active_note->row_count > 0) {
-      
+
+    if (active_pt == PAGE_TYPE_NOTE && active_note && active_note->rows &&
+        active_note->row_count > 0) {
+
       // ========================================================================
       // MODERN LAYOUT (must match renderer.c)
       // ========================================================================
-      const float margin_left = 120.0f;   // Extra generous left margin (Apple style)
-      const float margin_right = 120.0f;  // Symmetric margins
-      const float top_margin = 80.0f;     // Breathing room at top
-      const float line_h = 28.0f;         // Comfortable line height (increased)
-      
+      const float max_content_w = 800.0f;
+      float content_w = (float)win_w * 0.8f;
+      if (content_w > max_content_w)
+        content_w = max_content_w;
+
+      float margin_left = ((float)win_w - content_w) * 0.5f;
+      if (margin_left < 40.0f)
+        margin_left = 40.0f; // Minimum margin
+
+      const float top_margin = 80.0f; // Breathing room at top
+      const float line_h = 30.0f;     // Comfortable line height (slightly more)
+
       // Derived dimensions
       const float content_x = margin_left;
-      const float content_w = (float)win_w - margin_left - margin_right;
       const float content_top = top_margin;
-      const float text_pad_x = 0.0f;      // No extra padding needed
-      
+      const float text_pad_x = 0.0f; // No extra padding needed
+
       // Legacy compatibility aliases
       const float pad_x = content_x;
       const float top_y = top_margin;
@@ -2223,98 +2246,108 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       // ========================================================================
       // MODERN COLOR PALETTE (2024 Apple Notes / Notion inspired)
       // ========================================================================
-      struct nk_color txt_col = nk_rgb(45, 45, 45);           // Softer black (easier on eyes)
-      struct nk_color txt_heading = nk_rgb(20, 20, 20);       // Strong black for headings
-      struct nk_color sel_bg = nk_rgb(200, 230, 255);         // Soft blue selection (Apple style)
-      struct nk_color sel_txt = nk_rgb(20, 20, 20);           // Dark text on selection
-      struct nk_color cursor_col = nk_rgb(0, 122, 255);       // iOS blue cursor
+      struct nk_color txt_col =
+          nk_rgb(45, 45, 45); // Softer black (easier on eyes)
+      struct nk_color txt_heading =
+          nk_rgb(20, 20, 20); // Strong black for headings
+      struct nk_color sel_bg =
+          nk_rgb(200, 230, 255); // Soft blue selection (Apple style)
+      struct nk_color sel_txt = nk_rgb(20, 20, 20); // Dark text on selection
+      struct nk_color cursor_col = nk_rgb(0, 122, 255); // iOS blue cursor
 
       // ========================================================================
       // CLIPPING: Clip text to content area
       // ========================================================================
-      nk_push_scissor(
-          &ui->ctx->overlay,
-          nk_rect(0, 0, (float)win_w, (float)win_h));
+      nk_push_scissor(&ui->ctx->overlay,
+                      nk_rect(0, 0, (float)win_w, (float)win_h));
 
-      // Dedicated font for NOTE (monospace) so caret alignment is deterministic.
+      // Dedicated font for NOTE (monospace) so caret alignment is
+      // deterministic.
       const struct nk_user_font *note_font = ui->ctx->style.font;
       if (ui->font_mono)
         note_font = &ui->font_mono->handle;
 
       // Base monospace cell width (used when a row falls back to mono).
       float char_w_mono = note_measure_char_w(note_font);
-      
+
       // ========================================================================
       // HIGHLIGHTS (Fluo) - PER-LINE with MULTI-COLOR (stable, simple)
       // ========================================================================
-      // Define colors for each highlight type (0=none, 1=yellow, 2=blue, 3=green)
+      // Define colors for each highlight type (0=none, 1=yellow, 2=blue,
+      // 3=green)
       struct nk_color fluo_colors_main[4] = {
-        nk_rgba(0, 0, 0, 0),        // 0 = none
-        nk_rgba(255, 230, 50, 180), // 1 = yellow
-        nk_rgba(100, 200, 255, 180),// 2 = blue
-        nk_rgba(100, 255, 130, 180) // 3 = green
+          nk_rgba(0, 0, 0, 0),         // 0 = none
+          nk_rgba(255, 235, 100, 160), // 1 = yellow (warmer)
+          nk_rgba(160, 220, 255, 160), // 2 = blue (softer)
+          nk_rgba(180, 255, 180, 160)  // 3 = green (pastel)
       };
       struct nk_color fluo_colors_shadow[4] = {
-        nk_rgba(0, 0, 0, 0),        // 0 = none
-        nk_rgba(220, 180, 30, 200), // 1 = yellow shadow
-        nk_rgba(60, 150, 220, 200), // 2 = blue shadow
-        nk_rgba(60, 200, 90, 200)   // 3 = green shadow
+          nk_rgba(0, 0, 0, 0),         // 0 = none
+          nk_rgba(235, 200, 50, 180),  // 1 = yellow shadow
+          nk_rgba(120, 180, 235, 180), // 2 = blue shadow
+          nk_rgba(140, 230, 140, 180)  // 3 = green shadow
       };
       struct nk_color fluo_colors_light[4] = {
-        nk_rgba(0, 0, 0, 0),         // 0 = none
-        nk_rgba(255, 250, 150, 150), // 1 = yellow light
-        nk_rgba(180, 230, 255, 150), // 2 = blue light
-        nk_rgba(180, 255, 200, 150)  // 3 = green light
+          nk_rgba(0, 0, 0, 0),         // 0 = none
+          nk_rgba(255, 255, 200, 140), // 1 = yellow light
+          nk_rgba(220, 240, 255, 140), // 2 = blue light
+          nk_rgba(220, 255, 220, 140)  // 3 = green light
       };
-      
+
       float y_fluo = top_y;
       for (int i = 0; i < active_note->row_count; i++) {
         float row_h = get_line_height(active_note->rows[i].type);
         AslanRow *row = &active_note->rows[i];
         float py = y_fluo - scroll_y;
-        
+
         // Check for highlight_color (new system: 1=yellow, 2=blue, 3=green)
         int cidx = row->highlight_color;
-        if (cidx < 0 || cidx > 3) cidx = 0;
-        
+        if (cidx < 0 || cidx > 3)
+          cidx = 0;
+
         // Also check old ASLAN_ROW_HIGHLIGHT type for backwards compatibility
         if (row->type == ASLAN_ROW_HIGHLIGHT && cidx == 0) {
-          cidx = 1;  // Default to yellow for old highlights
+          cidx = 1; // Default to yellow for old highlights
         }
-        
+
         // Draw highlight if any color is set
         if (cidx > 0 && py + row_h >= top_y && py < (float)win_h) {
           const char *text = (row->chars && row->len > 0) ? row->chars : "";
           int text_len = (row->chars) ? (int)row->len : 0;
-          
-          float text_width = 50.0f;  // Default minimum
+
+          float text_width = 50.0f; // Default minimum
           if (note_font && note_font->width && text_len > 0) {
-            text_width = note_font->width(note_font->userdata, note_font->height, text, text_len);
+            text_width = note_font->width(note_font->userdata,
+                                          note_font->height, text, text_len);
           }
           text_width += 12.0f;
-          if (text_width < 20.0f) text_width = 20.0f;
-          if (text_width > w) text_width = w;
-          
+          if (text_width < 20.0f)
+            text_width = 20.0f;
+          if (text_width > w)
+            text_width = w;
+
           // MARKER EFFECT: Multiple layers for realistic look
-          float marker_h = row_h * 0.65f;  // 65% of line height
-          float marker_y = py + (row_h - marker_h) * 0.4f;  // Slightly above center
-          
+          float marker_h = row_h * 0.65f; // 65% of line height
+          float marker_y =
+              py + (row_h - marker_h) * 0.4f; // Slightly above center
+
           // Layer 1: Main marker color
-          nk_fill_rect(&ui->ctx->overlay, 
-                       nk_rect(pad_x - 2, marker_y, text_width, marker_h), 
-                       0.0f, fluo_colors_main[cidx]);
-          
-          // Layer 2: Bottom shadow (darker edge)
           nk_fill_rect(&ui->ctx->overlay,
-                       nk_rect(pad_x - 2, marker_y + marker_h - 3, text_width, 3),
-                       0.0f, fluo_colors_shadow[cidx]);
-          
+                       nk_rect(pad_x - 2, marker_y, text_width, marker_h), 0.0f,
+                       fluo_colors_main[cidx]);
+
+          // Layer 2: Bottom shadow (darker edge)
+          nk_fill_rect(
+              &ui->ctx->overlay,
+              nk_rect(pad_x - 2, marker_y + marker_h - 3, text_width, 3), 0.0f,
+              fluo_colors_shadow[cidx]);
+
           // Layer 3: Top highlight (lighter edge)
           nk_fill_rect(&ui->ctx->overlay,
-                       nk_rect(pad_x - 2, marker_y, text_width, 2),
-                       0.0f, fluo_colors_light[cidx]);
+                       nk_rect(pad_x - 2, marker_y, text_width, 2), 0.0f,
+                       fluo_colors_light[cidx]);
         }
-        
+
         y_fluo += row_h;
       }
 
@@ -2357,7 +2390,6 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         // Adapt rendering based on block type (Antirez approach: type
         // determines rendering)
         float row_line_h = line_h;
-        float font_scale = 1.0f;
         struct nk_color row_txt_col = txt_col;
         const struct nk_user_font *row_font = note_font;
 
@@ -2365,8 +2397,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         // HEADINGS: Modern typography hierarchy
         // ======================================================================
         if (row->type == ASLAN_ROW_HEADING_1) {
-          row_line_h = 56.0f;  // Larger headings for better hierarchy
-          font_scale = 2.0f;   // More prominent
+          row_line_h = 64.0f; // Even more prominent
           row_txt_col = txt_heading;
           if (ui->font_h1)
             row_font = &ui->font_h1->handle;
@@ -2377,16 +2408,17 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
           struct nk_command_buffer *canvas = &ui->ctx->overlay;
           // Subtle, thin gray line
-          nk_stroke_line(canvas, pad_x, y_pos, pad_x + w, y_pos, 
-                         1.0f, nk_rgb(220, 220, 220));
+          nk_stroke_line(canvas, pad_x, y_pos, pad_x + w, y_pos, 1.0f,
+                         nk_rgb(220, 220, 220));
           continue;
-        } else if (row->type == ASLAN_ROW_GRID || row->type == ASLAN_ROW_EMBED) {
+        } else if (row->type == ASLAN_ROW_GRID ||
+                   row->type == ASLAN_ROW_EMBED) {
           // GRID and EMBED completely removed from MVP
           // These types should not exist in the document anymore
           // If they do (from old files), just skip rendering them silently
           continue;
         }
-        
+
         // ======================================================================
         // TEXT RENDERING: For TEXT and HIGHLIGHT types
         // ======================================================================
@@ -2399,13 +2431,33 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
             top_y + get_line_y_position(active_note, i) + 3.0f - scroll_y;
 
         // Render text with the appropriate heading font
-        nk_draw_text(&ui->ctx->overlay,
-                     nk_rect(pad_x + text_pad_x, y_pos, w - (text_pad_x * 2.0f),
-                             row_line_h),
-                     t, (int)strlen(t), row_font, nk_rgba(0, 0, 0, 0),
-                     row_txt_col);
+        int t_len = 0;
+        if ((uintptr_t)t > 0x1000) {
+          t_len = (int)strlen(t);
+        }
+        if (t_len > 0) {
+          nk_draw_text(&ui->ctx->overlay,
+                       nk_rect(pad_x + text_pad_x, y_pos,
+                               w - (text_pad_x * 2.0f), row_line_h),
+                       t, t_len, row_font, nk_rgba(0, 0, 0, 0), row_txt_col);
+        } else if (i == 0 && row->type == ASLAN_ROW_HEADING_1) {
+          // Placeholder for empty title
+          nk_draw_text(&ui->ctx->overlay,
+                       nk_rect(pad_x + text_pad_x, y_pos,
+                               w - (text_pad_x * 2.0f), row_line_h),
+                       "Untitled", 8, row_font, nk_rgba(0, 0, 0, 0),
+                       nk_rgb(200, 200, 200));
+        } else if (i == 1 && row->type == ASLAN_ROW_TEXT &&
+                   active_note->row_count > 0) {
+          // Subtle placeholder for start of note
+          nk_draw_text(&ui->ctx->overlay,
+                       nk_rect(pad_x + text_pad_x, y_pos,
+                               w - (text_pad_x * 2.0f), row_line_h),
+                       "Start writing...", 16, row_font, nk_rgba(0, 0, 0, 0),
+                       nk_rgb(220, 220, 220));
+        }
 
-        if (sel_active && i >= sel_sr && i <= sel_er) {
+        if (sel_active && i >= sel_sr && i <= sel_er && (uintptr_t)t > 0x1000) {
           int line_len = (int)strlen(t);
           int a = 0;
           int b = line_len;
@@ -2477,7 +2529,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
         // Special case: separator line
         if (cursor_row->type == ASLAN_ROW_SEPARATOR) {
-          goto note_caret_done;  // No cursor on separators
+          goto note_caret_done; // No cursor on separators
         }
 
         float cx0 = pad_x + text_pad_x + (float)col * cursor_char_w;
@@ -2491,7 +2543,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
         // Draw thin caret line (1px for clean look)
         nk_stroke_line(&ui->ctx->overlay, cx0, cy0, cx0, cy1, 1.5f, cursor_col);
-        
+
       note_caret_done:
         (void)0;
       }
@@ -2513,10 +2565,13 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         sh = 1;
 
       const char *txt = (n->text[0] ? n->text : "Text");
-      nk_draw_text(&ui->ctx->overlay,
-                   nk_rect(sx + 6.0f, sy + 6.0f, sw - 12.0f, sh - 12.0f), txt,
-                   (int)strlen(txt), ui->ctx->style.font, nk_rgba(0, 0, 0, 0),
-                   col);
+      // Extra safety: only use txt if it looks like a valid pointer
+      if ((uintptr_t)txt > 0x1000) {
+        int txt_len = (int)strlen(txt);
+        nk_draw_text(&ui->ctx->overlay,
+                     nk_rect(sx + 6.0f, sy + 6.0f, sw - 12.0f, sh - 12.0f), txt,
+                     txt_len, ui->ctx->style.font, nk_rgba(0, 0, 0, 0), col);
+      }
     }
 
     nk_finish_buffer(ui->ctx, &ui->ctx->overlay);

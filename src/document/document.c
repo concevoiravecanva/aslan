@@ -509,15 +509,14 @@ static Node *make_root_node(void) {
 }
 
 Document *doc_create(void) {
-  Document *doc = (Document *)malloc(sizeof(Document));
+  Document *doc = (Document *)calloc(1, sizeof(Document));
   if (!doc)
     return NULL;
 
   doc->next_node_id = 1;
   memset(doc->filepath, 0, sizeof(doc->filepath));
 
-  // Pages defaults
-  memset(doc->pages, 0, sizeof(doc->pages));
+  // Pages defaults already zeroed by calloc
   doc->page_count = 0;
   doc->next_page_id = 1;
   doc->active_page_id = 0;
@@ -528,7 +527,7 @@ Document *doc_create(void) {
   doc->root = make_root_node();
 
   // Document meta defaults
-  memset(doc->doc_type, 0, sizeof(doc->doc_type));
+  // Document meta defaults already zeroed by calloc
   strncpy(doc->doc_type, "canvas2d", sizeof(doc->doc_type) - 1);
   doc->doc_width = 800;
   doc->doc_height = 600;
@@ -1268,7 +1267,7 @@ int note_handle_input(AslanNoteDoc *doc, const union SDL_Event *ev) {
         continue;
       if (!isprint(ch) && ch != '\t')
         continue;
-      
+
       note_row_insert_char(visual_row, doc->cursor_col, (char)ch);
       doc->cursor_col++;
     }
@@ -1693,10 +1692,10 @@ static Node *find_node_at_recursive(Node *node, float x, float y) {
     return NULL;
 
   // On cherche d'abord dans le frère suivant (qui est dessiné APRES dans le
-  // parcours, donc potentiellement "au-dessus" dans l'ordre d'affichage standard
-  // si on suivait un ordre d'ajout simple, mais ici l'ordre récursif est inverse).
-  // En fait, dans Aslan, le dernier enfant ajouté est le premier de la liste
-  // (LIFO), donc il est "au-dessus".
+  // parcours, donc potentiellement "au-dessus" dans l'ordre d'affichage
+  // standard si on suivait un ordre d'ajout simple, mais ici l'ordre récursif
+  // est inverse). En fait, dans Aslan, le dernier enfant ajouté est le premier
+  // de la liste (LIFO), donc il est "au-dessus".
   Node *found = find_node_at_recursive(node->next_sibling, x, y);
   if (found)
     return found;
@@ -2166,7 +2165,8 @@ void note_insert_row(NotePayload *note, int row_idx, AslanRowType type,
 
   // Initialize type-specific block data
   if (type == ASLAN_ROW_GRID) {
-    AslanTableViewBlock *tvb = (AslanTableViewBlock *)calloc(1, sizeof(AslanTableViewBlock));
+    AslanTableViewBlock *tvb =
+        (AslanTableViewBlock *)calloc(1, sizeof(AslanTableViewBlock));
     r->block = tvb;
   } else if (type == ASLAN_ROW_EMBED) {
     AslanEmbedBlock *eb = (AslanEmbedBlock *)calloc(1, sizeof(AslanEmbedBlock));

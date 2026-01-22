@@ -93,17 +93,17 @@ static int note_pick_col_from_x(struct nk_context *ctx, float rel_x) {
 static float note_row_height(AslanRowType type) {
   switch (type) {
   case ASLAN_ROW_HEADING_1:
-    return 56.0f;  // Large, prominent headings
+    return 56.0f; // Large, prominent headings
   case ASLAN_ROW_SEPARATOR:
-    return 32.0f;  // Breathing room
+    return 32.0f; // Breathing room
   case ASLAN_ROW_GRID:
-    return 50.0f;  // Simplified placeholder
+    return 50.0f; // Simplified placeholder
   case ASLAN_ROW_EMBED:
-    return 50.0f;  // Simplified placeholder
+    return 50.0f; // Simplified placeholder
   case ASLAN_ROW_HIGHLIGHT:
-    return 28.0f;  // Same as text with highlight background
+    return 28.0f; // Same as text with highlight background
   default:
-    return 28.0f;  // Regular text (increased from 22px for comfort)
+    return 28.0f; // Regular text (increased from 22px for comfort)
   }
 }
 
@@ -230,9 +230,6 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
       // NOTE pages: use mouse wheel for vertical scroll (Notion-like).
       // Consume wheel here so it doesn't become zoom/pan in Lua tools.
       if (engine && engine->doc && e.type == SDL_MOUSEWHEEL) {
-        bool note_captures_mouse = false;
-        uint32_t note_pid = 0;
-        AslanNoteDoc *note_doc = NULL;
         uint32_t pid = doc_page_active_id(engine->doc);
         for (int pi = 0; pi < 32; pi++) {
           if (!engine->doc->pages[pi].in_use)
@@ -277,9 +274,9 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
         }
       }
 
-      // Notes input: when a NOTE page is active, ALWAYS capture keyboard/text input
-      // This is the Kilo-style approach: the note editor owns all text input.
-      // Only exception: if we're inline editing a canvas TEXT node.
+      // Notes input: when a NOTE page is active, ALWAYS capture keyboard/text
+      // input This is the Kilo-style approach: the note editor owns all text
+      // input. Only exception: if we're inline editing a canvas TEXT node.
       if (engine && engine->doc && (!ui || ui->editing_node_id == 0)) {
         uint32_t pid = doc_page_active_id(engine->doc);
         for (int pi = 0; pi < 32; pi++) {
@@ -296,7 +293,8 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
 
           if (engine->doc->pages[pi].note) {
             // CRITICAL: For NOTE pages, ALWAYS route text input to the note
-            // Don't check nk_item_is_any_active() - toolbar buttons should NOT block typing
+            // Don't check nk_item_is_any_active() - toolbar buttons should NOT
+            // block typing
             if (e.type == SDL_KEYDOWN || e.type == SDL_TEXTINPUT) {
               AslanNoteDoc *nd = engine->doc->pages[pi].note;
               int before_row = nd->cursor_row;
@@ -371,22 +369,23 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
                 continue;
               if (engine->doc->pages[pi].type == PAGE_TYPE_NOTE &&
                   engine->doc->pages[pi].note) {
-                // Notion-style layout constants (must match renderer.c and ui_host.c)
-                const float margin_left = 96.0f;     // Left margin
-                const float margin_right = 96.0f;    // Right margin
-                const float top_margin = 72.0f;      // Top margin
-                
+                // Notion-style layout constants (must match renderer.c and
+                // ui_host.c)
+                const float margin_left = 96.0f;  // Left margin
+                const float margin_right = 96.0f; // Right margin
+                const float top_margin = 72.0f;   // Top margin
+
                 const float content_x = margin_left;
                 const float top_y = top_margin;
 
                 // Note content region
-                int win_h_local = 768;
-                if (renderer) win_h_local = renderer->height;
                 int win_w_local = 1024;
-                if (renderer) win_w_local = renderer->width;
-                
-                if (mx >= content_x && mx <= (float)win_w_local - margin_right && 
-                    my >= top_y) {
+                if (renderer) {
+                  win_w_local = renderer->width;
+                }
+
+                if (mx >= content_x &&
+                    mx <= (float)win_w_local - margin_right && my >= top_y) {
                   AslanNoteDoc *nd = engine->doc->pages[pi].note;
                   float scroll_y = nd->scroll_y;
                   int row = note_pick_row_from_y(nd, top_y, scroll_y, my);
@@ -485,7 +484,6 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
             note_drag_selecting = false;
             note_drag_from_gutter = false;
             note_mouse_captured_by_note = false;
-            
           }
 
           // If the NOTE captured the mouse, don't forward mouse-up to tools.
@@ -510,23 +508,24 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
                 const float margin_left = 96.0f;
                 const float margin_right = 96.0f;
                 const float top_margin = 72.0f;
-                
+
                 const float content_x = margin_left;
                 const float top_y = top_margin;
-                
+
                 AslanNoteDoc *nd = engine->doc->pages[pi].note;
                 float scroll_y = nd->scroll_y;
-                
+
                 int win_w_local = 1024;
-                if (renderer) win_w_local = renderer->width;
+                if (renderer)
+                  win_w_local = renderer->width;
 
                 // Consider drag active only in note region.
-                if (mx >= content_x && mx <= (float)win_w_local - margin_right && 
-                    my >= top_y) {
+                if (mx >= content_x &&
+                    mx <= (float)win_w_local - margin_right && my >= top_y) {
                   int row = note_pick_row_from_y(nd, top_y, scroll_y, my);
 
                   int col = 0;
-                  bool in_gutter = false;  // No gutter in Notion-style
+                  bool in_gutter = false; // No gutter in Notion-style
                   if (!note_drag_from_gutter && !in_gutter) {
                     float rel_x = mx - content_x;
                     const struct nk_user_font *saved_font = ui->ctx->style.font;
@@ -645,7 +644,8 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
     SDL_GetWindowSize(renderer->window, &ww, &wh);
     ui_render(ui, engine, ww, wh);
 
-    // Decrement note_force_input flag (allows typing after toolbar button click)
+    // Decrement note_force_input flag (allows typing after toolbar button
+    // click)
     if (ui && ui->note_force_input > 0) {
       ui->note_force_input--;
     }
