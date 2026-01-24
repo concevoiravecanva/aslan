@@ -150,22 +150,24 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 // Remix Icon Codepoints (subset)
 // -----------------------------------------------------------------------------
 
-#define ICON_TEXT "\xEE\x86\xA5"      // ri-text
-#define ICON_H1 "\xEE\x8C\x99"        // ri-h-1
-#define ICON_H2 "\xEE\x8C\x9A"        // ri-h-2
-#define ICON_SEPARATOR "\xEE\x96\xAC" // ri-separator
-#define ICON_CODE "\xEE\x86\xA8"      // ri-code-line
-#define ICON_TABLE "\xEE\x98\x82"     // ri-table-2
-#define ICON_CANVAS "\xEE\x85\x96"    // ri-artboard-2-line
-#define ICON_DESIGN "\xEE\x8D\xB8"    // ri-layout-4-line
-#define ICON_VIDEO "\xEE\x99\x97"     // ri-video-line
-#define ICON_CALLOUT "\xEE\x88\x97"   // ri-chat-quote-line
-#define ICON_CHECKLIST "\xEE\x86\x8E" // ri-checkbox-line
-#define ICON_ADD "\xEE\x85\x85"       // ri-add-line
-#define ICON_DELETE "\xEE\x87\x98"    // ri-delete-bin-line
-#define ICON_PLAY "\xEE\x8F\x90"      // ri-play-line
-#define ICON_PAUSE "\xEE\x8F\x8B"     // ri-pause-line
-#define ICON_EXPAND "\xEE\x85\x99"    // ri-arrow-down-s-line
-#define ICON_COLLAPSE "\xEE\x85\xA9"  // ri-arrow-up-s-line
+#define ICON_TEXT "\xEE\xB4\x8F"      // ri-file-text-line
+#define ICON_H1 "\xEE\xB7\xA6"        // ri-h-1
+#define ICON_H2 "\xEE\xB7\xA7"        // ri-h-2 (Approx, guessed +1)
+#define ICON_SEPARATOR "\xEF\x83\x9E" // ri-separator
+#define ICON_CODE "\xEE\xBA\xA9"      // ri-code-line
+#define ICON_TABLE "\xEF\x87\x9A"     // ri-table-2
+#define ICON_CANVAS "\xEE\xA9\xBA"    // ri-artboard-2-line
+#define ICON_DESIGN "\xEE\xBA\x83"    // ri-layout-4-line
+#define ICON_VIDEO "\xEF\x8A\x82"     // ri-video-line
+#define ICON_CALLOUT "\xEE\xAD\xAB"   // ri-chat-quote-line
+#define ICON_CHECKLIST "\xEE\xAE\x85" // ri-checkbox-line
+#define ICON_ADD "\xEE\xA8\x93"       // ri-add-line
+#define ICON_DELETE "\xEE\xB0\xAA"    // ri-delete-bin-line
+#define ICON_PLAY "\xEF\x80\x8B"      // ri-play-line
+#define ICON_PAUSE "\xEE\xBF\x98"     // ri-pause-line
+#define ICON_EXPAND "\xEE\xA9\x8B"    // ri-arrow-down-s-line
+#define ICON_COLLAPSE "\xEE\xA9\xB8"  // ri-arrow-up-s-line
+#define ICON_HOME "\xEE\xB8\x9D"      // ri-home-4-line
+#define ICON_LUA "\xEF\x87\xB6"       // ri-terminal-box-line
 
 #endif // UI_HOST_H

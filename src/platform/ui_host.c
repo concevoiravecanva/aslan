@@ -50,15 +50,65 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
     return NULL;
   }
 
+  FILE *log = fopen("ui_debug.log", "w");
+  if (log) {
+    fprintf(log, "UI Init started\n");
+    fflush(log);
+  }
+
   // Load fonts
   nk_sdl_font_stash_begin(&ui->atlas);
 
-  // Try to load custom fonts, fall back to default
-  ui->font_inter = nk_font_atlas_add_default(ui->atlas, 16.0f, NULL);
-  ui->font_mono = nk_font_atlas_add_default(ui->atlas, 15.0f, NULL);
-  ui->font_h1 = nk_font_atlas_add_default(ui->atlas, 28.0f, NULL);
-  ui->font_h2 = nk_font_atlas_add_default(ui->atlas, 24.0f, NULL);
-  ui->font_h3 = nk_font_atlas_add_default(ui->atlas, 18.0f, NULL);
+  // Font paths
+  const char *inter_path = "assets/fonts/Inter-Regular.ttf";
+  const char *mono_path =
+      "assets/fonts/JetBrains_Mono/JetBrainsMono-VariableFont_wght.ttf";
+  const char *icons_path = "assets/remixicon.ttf";
+
+  // Load Inter font for UI
+  ui->font_inter =
+      nk_font_atlas_add_from_file(ui->atlas, inter_path, 16.0f, NULL);
+  if (!ui->font_inter) {
+    ui->font_inter = nk_font_atlas_add_default(ui->atlas, 16.0f, NULL);
+  }
+
+  // Load JetBrains Mono for text blocks
+  ui->font_mono =
+      nk_font_atlas_add_from_file(ui->atlas, mono_path, 15.0f, NULL);
+  if (!ui->font_mono) {
+    ui->font_mono = nk_font_atlas_add_default(ui->atlas, 15.0f, NULL);
+  }
+
+  // Load heading fonts (Inter at different sizes)
+  ui->font_h1 = nk_font_atlas_add_from_file(ui->atlas, inter_path, 28.0f, NULL);
+  if (!ui->font_h1)
+    ui->font_h1 = nk_font_atlas_add_default(ui->atlas, 28.0f, NULL);
+
+  ui->font_h2 = nk_font_atlas_add_from_file(ui->atlas, inter_path, 22.0f, NULL);
+  if (!ui->font_h2)
+    ui->font_h2 = nk_font_atlas_add_default(ui->atlas, 22.0f, NULL);
+
+  ui->font_h3 = nk_font_atlas_add_from_file(ui->atlas, inter_path, 18.0f, NULL);
+  if (!ui->font_h3)
+    ui->font_h3 = nk_font_atlas_add_default(ui->atlas, 18.0f, NULL);
+
+  // Load RemixIcon font for icons (Unicode range 0xE000-0xF8FF)
+  static const nk_rune icons_range[] = {0xE000, 0xF8FF, 0};
+  struct nk_font_config icons_cfg = nk_font_config(20.0f);
+  icons_cfg.range = icons_range;
+  icons_cfg.merge_mode = nk_false;
+  ui->font_icons =
+      nk_font_atlas_add_from_file(ui->atlas, icons_path, 20.0f, &icons_cfg);
+  if (log) {
+    fprintf(log, "Font Inter: %p\n", (void *)ui->font_inter);
+    fprintf(log, "Font Mono: %p\n", (void *)ui->font_mono);
+    fprintf(log, "Font Icons: %p (path: %s)\n", (void *)ui->font_icons,
+            icons_path);
+    if (!ui->font_icons) {
+      fprintf(log, "ERROR: Failed to load icons!\n");
+    }
+    fclose(log);
+  }
 
   nk_sdl_font_stash_end();
 
@@ -113,6 +163,19 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 // Top Bar - Block Insertion Menu
 // -----------------------------------------------------------------------------
 
+// Helper for icon buttons
+static int ui_icon_button(UIHost *ui, const char *icon) {
+  struct nk_context *ctx = ui->ctx;
+  int ret = 0;
+  if (ui->font_icons)
+    nk_style_set_font(ctx, &ui->font_icons->handle);
+  if (nk_button_label(ctx, icon))
+    ret = 1;
+  if (ui->font_inter)
+    nk_style_set_font(ctx, &ui->font_inter->handle);
+  return ret;
+}
+
 void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
                        int win_w) {
   if (!ui || !engine || !ctx)
@@ -125,13 +188,21 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
   if (nk_begin(ctx, "TopBar", nk_rect(0, 0, (float)win_w, bar_h),
                NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
 
-    nk_layout_row_static(ctx, btn_h, (int)btn_w, 12);
+    nk_layout_row_static(ctx, btn_h, (int)btn_w, 14);
 
     Page *page = doc_page_get_active(engine->doc);
     uint32_t page_id = page ? page->id : 0;
 
-    // Text block
-    if (nk_button_label(ctx, "T")) {
+    // Home button (icon)
+    if (ui_icon_button(ui, ICON_HOME)) {
+      ui->screen = 0;
+    }
+
+    // Spacer
+    nk_spacing(ctx, 1);
+
+    // Text block (icon)
+    if (ui_icon_button(ui, ICON_TEXT)) {
       if (page) {
         Block *b = block_create(page, BLOCK_TEXT);
         if (b) {
@@ -143,7 +214,7 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     }
 
-    // H1 block
+    // H1 block (keep text)
     if (nk_button_label(ctx, "H1")) {
       if (page) {
         Block *b = block_create(page, BLOCK_HEADING_1);
@@ -156,8 +227,8 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     }
 
-    // Separator
-    if (nk_button_label(ctx, "--")) {
+    // Separator (icon)
+    if (ui_icon_button(ui, ICON_SEPARATOR)) {
       if (page) {
         Block *b = block_create(page, BLOCK_SEPARATOR);
         if (b) {
@@ -170,8 +241,8 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     }
 
-    // Lua script
-    if (nk_button_label(ctx, "Lua")) {
+    // Lua script (icon)
+    if (ui_icon_button(ui, ICON_LUA)) {
       if (page) {
         Block *b = block_create(page, BLOCK_LUA);
         if (b) {
@@ -184,8 +255,8 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     }
 
-    // Table
-    if (nk_button_label(ctx, "Tab")) {
+    // Table (icon)
+    if (ui_icon_button(ui, ICON_TABLE)) {
       if (page) {
         Block *b = block_create(page, BLOCK_TABLE);
         if (b) {
@@ -199,8 +270,8 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     }
 
-    // Canvas
-    if (nk_button_label(ctx, "Can")) {
+    // Canvas (icon)
+    if (ui_icon_button(ui, ICON_CANVAS)) {
       if (page) {
         Block *b = block_create(page, BLOCK_CANVAS);
         if (b) {
@@ -214,8 +285,8 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     }
 
-    // Design
-    if (nk_button_label(ctx, "Des")) {
+    // Design (icon)
+    if (ui_icon_button(ui, ICON_DESIGN)) {
       if (page) {
         Block *b = block_create(page, BLOCK_DESIGN);
         if (b) {
@@ -229,8 +300,8 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     }
 
-    // Video
-    if (nk_button_label(ctx, "Vid")) {
+    // Video (icon)
+    if (ui_icon_button(ui, ICON_VIDEO)) {
       if (page) {
         Block *b = block_create(page, BLOCK_VIDEO);
         if (b) {
@@ -244,8 +315,8 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     }
 
-    // Callout
-    if (nk_button_label(ctx, "!")) {
+    // Callout (icon)
+    if (ui_icon_button(ui, ICON_CALLOUT)) {
       if (page) {
         Block *b = block_create(page, BLOCK_CALLOUT);
         if (b) {
@@ -258,8 +329,8 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     }
 
-    // Checklist
-    if (nk_button_label(ctx, "[]")) {
+    // Checklist (icon)
+    if (ui_icon_button(ui, ICON_CHECKLIST)) {
       if (page) {
         Block *b = block_create(page, BLOCK_CHECKLIST);
         if (b) {
@@ -348,7 +419,7 @@ void ui_render_bottom_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
     }
 
     // Home button
-    if (nk_button_label(ctx, "Home")) {
+    if (ui_icon_button(ui, ICON_HOME)) {
       ui->screen = 0;
     }
   }
@@ -686,14 +757,19 @@ void ui_render_block_lua(UIHost *ui, Engine *engine, struct nk_context *ctx,
   }
 
   // Run button
-  nk_layout_row_static(ctx, 24.0f, 60, 2);
-  if (nk_button_label(ctx, "Run")) {
+  nk_layout_row_static(ctx, 24.0f, 32, 2);
+  if (ui_icon_button(ui, ICON_PLAY)) {
     if (ui->L) {
       block_lua_execute(block, ui->L);
     }
   }
-  if (nk_button_label(ctx, "Clear")) {
+  if (ui_icon_button(ui, ICON_DELETE)) {
     block_lua_clear_output(block);
+  }
+
+  // Restore mono font for output
+  if (ui->font_mono) {
+    nk_style_set_font(ctx, &ui->font_mono->handle);
   }
 
   // Output
@@ -897,7 +973,9 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   }
 
   // Bottom bar
-  ui_render_bottom_bar(ui, engine, ctx, win_w, win_h);
+  if (ui->screen != 0) {
+    ui_render_bottom_bar(ui, engine, ctx, win_w, win_h);
+  }
 
   // Render Nuklear
   nk_sdl_render(NK_ANTI_ALIASING_ON);
