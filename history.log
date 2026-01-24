@@ -33,3 +33,19 @@ block_text 1 1 "New Note"
 block_text 1 2 "Start writing here..."
 block_text 2 1 "New Note"
 block_text 2 2 "Start writing here..."
+-- Session started --
+block_text 1 1 "New Note"
+block_text 1 2 "Start writing here..."
+block_text 2 1 "New Note 2"
+block_text 3 1 "New Note 3"
+block_text 4 1 "New Note 4"
+block_text 5 1 "New Note 5"
+-- Session started --
+block_text 1 1 "New Note"
+block_text 1 2 "Start writing here..."
+-- Session started --
+block_text 1 1 "New Note"
+block_text 1 2 "Start writing here..."
+-- Session started --
+block_text 1 1 "New Note"
+block_text 1 2 "Start writing here..."

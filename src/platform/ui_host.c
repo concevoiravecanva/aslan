@@ -314,34 +314,6 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
       }
     }
-
-    // Callout (icon)
-    if (ui_icon_button(ui, ICON_CALLOUT)) {
-      if (page) {
-        Block *b = block_create(page, BLOCK_CALLOUT);
-        if (b) {
-          page_append_block(page, b);
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u callout", page_id,
-                   b->id);
-          engine_execute_command(engine, cmd);
-        }
-      }
-    }
-
-    // Checklist (icon)
-    if (ui_icon_button(ui, ICON_CHECKLIST)) {
-      if (page) {
-        Block *b = block_create(page, BLOCK_CHECKLIST);
-        if (b) {
-          page_append_block(page, b);
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u checklist", page_id,
-                   b->id);
-          engine_execute_command(engine, cmd);
-        }
-      }
-    }
   }
   nk_end(ctx);
 }
@@ -429,6 +401,30 @@ void ui_render_bottom_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
 // -----------------------------------------------------------------------------
 // Block Renderers
 // -----------------------------------------------------------------------------
+
+static void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx,
+                                    Block *block) {
+  int is_expanded = (ui->expanded_block_id == block->id);
+
+  // Right-aligned button for both states
+  nk_layout_row_template_begin(ctx, 28.0f);
+  nk_layout_row_template_push_dynamic(ctx);       // Spacer
+  nk_layout_row_template_push_static(ctx, 30.0f); // Button
+  nk_layout_row_template_end(ctx);
+
+  // First slot is empty (spacer)
+  nk_spacing(ctx, 1);
+
+  if (is_expanded) {
+    if (ui_icon_button(ui, ICON_FULLSCREEN_EXIT)) {
+      ui->expanded_block_id = 0;
+    }
+  } else {
+    if (ui_icon_button(ui, ICON_FULLSCREEN)) {
+      ui->expanded_block_id = block->id;
+    }
+  }
+}
 
 void ui_render_block_text(UIHost *ui, struct nk_context *ctx, Block *block,
                           float width) {
@@ -530,6 +526,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
   const float row_h = 26.0f;
   const float col_w = 120.0f;
 
+  ui_render_expand_toggle(ui, ctx, block);
+
   for (int r = 0; r < td->rows; r++) {
     nk_layout_row_static(ctx, row_h, (int)col_w, td->cols);
 
@@ -555,7 +553,13 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
   if (!block || block->type != BLOCK_CANVAS)
     return;
 
-  const float canvas_h = 300.0f;
+  ui_render_expand_toggle(ui, ctx, block);
+
+  float canvas_h = 300.0f;
+  if (ui->expanded_block_id == block->id) {
+    canvas_h = nk_window_get_height(ctx) - 40.0f;
+  }
+
   nk_layout_row_dynamic(ctx, canvas_h, 1);
 
   struct nk_rect bounds = nk_widget_bounds(ctx);
@@ -617,6 +621,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     return;
 
   DesignData *dd = &block->data.design;
+
+  ui_render_expand_toggle(ui, ctx, block);
+
   float scale = width / (float)dd->width;
   if (scale > 1.0f)
     scale = 1.0f;
@@ -624,6 +631,10 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
   float display_h = (float)dd->height * scale;
   if (display_h > 400.0f)
     display_h = 400.0f;
+
+  if (ui->expanded_block_id == block->id) {
+    display_h = nk_window_get_height(ctx) - 40.0f;
+  }
 
   nk_layout_row_dynamic(ctx, display_h, 1);
 
@@ -674,7 +685,14 @@ void ui_render_block_video(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   VideoData *vd = &block->data.video;
 
-  nk_layout_row_dynamic(ctx, 200.0f, 1);
+  ui_render_expand_toggle(ui, ctx, block);
+
+  float height = 200.0f;
+  if (ui->expanded_block_id == block->id) {
+    height = nk_window_get_height(ctx) - 40.0f;
+  }
+
+  nk_layout_row_dynamic(ctx, height, 1);
 
   struct nk_rect bounds = nk_widget_bounds(ctx);
   struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
@@ -785,92 +803,6 @@ void ui_render_block_lua(UIHost *ui, Engine *engine, struct nk_context *ctx,
   }
 }
 
-void ui_render_block_callout(UIHost *ui, struct nk_context *ctx, Block *block,
-                             float width) {
-  if (!block || block->type != BLOCK_CALLOUT)
-    return;
-
-  nk_layout_row_dynamic(ctx, 60.0f, 1);
-
-  struct nk_rect bounds = nk_widget_bounds(ctx);
-  struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-
-  // Theme colors
-  struct nk_color bg, border;
-  switch (block->data.callout.theme) {
-  case CALLOUT_ALERT:
-    bg = nk_rgb(80, 40, 40);
-    border = nk_rgb(200, 80, 80);
-    break;
-  case CALLOUT_STAR:
-    bg = nk_rgb(80, 70, 30);
-    border = nk_rgb(200, 180, 80);
-    break;
-  case CALLOUT_CHECK:
-    bg = nk_rgb(30, 70, 50);
-    border = nk_rgb(80, 180, 120);
-    break;
-  case CALLOUT_IDEA:
-    bg = nk_rgb(50, 50, 80);
-    border = nk_rgb(140, 140, 220);
-    break;
-  default:
-    bg = nk_rgb(40, 50, 60);
-    border = nk_rgb(80, 140, 200);
-    break;
-  }
-
-  nk_fill_rect(canvas, bounds, 4.0f, bg);
-  nk_stroke_rect(canvas, bounds, 4.0f, 2.0f, border);
-
-  // Text
-  char buf[1024];
-  strncpy(buf, block->text ? block->text : "", sizeof(buf) - 1);
-  buf[sizeof(buf) - 1] = '\0';
-
-  nk_layout_row_dynamic(ctx, 40.0f, 1);
-  nk_flags flags = NK_EDIT_FIELD;
-  nk_edit_string_zero_terminated(ctx, flags, buf, (int)sizeof(buf) - 1,
-                                 nk_filter_default);
-
-  if (strcmp(buf, block->text ? block->text : "") != 0) {
-    block_set_text(block, buf);
-  }
-}
-
-void ui_render_block_checklist(UIHost *ui, Engine *engine,
-                               struct nk_context *ctx, Block *block,
-                               float width) {
-  if (!block || block->type != BLOCK_CHECKLIST)
-    return;
-
-  nk_layout_row_static(ctx, 24.0f, 24, 1);
-
-  // Checkbox
-  int checked = block->data.checklist.is_checked ? 1 : 0;
-  if (nk_checkbox_label(ctx, "", &checked)) {
-    block->data.checklist.is_checked = checked != 0;
-  }
-
-  // Text
-  nk_layout_row_dynamic(ctx, 24.0f, 1);
-
-  char buf[512];
-  strncpy(buf, block->text ? block->text : "", sizeof(buf) - 1);
-  buf[sizeof(buf) - 1] = '\0';
-
-  struct nk_color text_color =
-      block->data.checklist.is_checked ? COLOR_TEXT_DIM : COLOR_TEXT;
-
-  nk_flags flags = NK_EDIT_FIELD;
-  nk_edit_string_zero_terminated(ctx, flags, buf, (int)sizeof(buf) - 1,
-                                 nk_filter_default);
-
-  if (strcmp(buf, block->text ? block->text : "") != 0) {
-    block_set_text(block, buf);
-  }
-}
-
 // -----------------------------------------------------------------------------
 // Block Dispatcher
 // -----------------------------------------------------------------------------
@@ -911,12 +843,6 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
   case BLOCK_VIDEO:
     ui_render_block_video(ui, engine, ctx, block, width);
     break;
-  case BLOCK_CALLOUT:
-    ui_render_block_callout(ui, ctx, block, width);
-    break;
-  case BLOCK_CHECKLIST:
-    ui_render_block_checklist(ui, engine, ctx, block, width);
-    break;
   default:
     break;
   }
@@ -934,14 +860,29 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
   // Note: nk_input_begin/end is called in main.c's event loop
 
-  // Top bar (only in editor)
-  if (ui->screen == 1) {
+  // Top bar (only in editor and not expanded)
+  if (ui->screen == 1 && ui->expanded_block_id == 0) {
     ui_render_top_bar(ui, engine, ctx, win_w);
   }
 
   // Home or Content area
   if (ui->screen == 0) {
     ui_render_home(ui, engine, ctx, win_w, win_h);
+  } else if (ui->expanded_block_id != 0) {
+    // Expanded block view
+    if (nk_begin(ctx, "ContentFull", nk_rect(0, 0, (float)win_w, (float)win_h),
+                 NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
+      Page *page = doc_page_get_active(engine->doc);
+      if (page) {
+        Block *block = page_find_block_by_id(page, ui->expanded_block_id);
+        if (block) {
+          ui_render_block(ui, engine, ctx, page, block, (float)win_w);
+        } else {
+          ui->expanded_block_id = 0; // Block not found/deleted
+        }
+      }
+    }
+    nk_end(ctx);
   } else {
     const float top_h = 40.0f;
     const float bottom_h = 36.0f;
@@ -973,7 +914,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   }
 
   // Bottom bar
-  if (ui->screen != 0) {
+  if (ui->screen != 0 && ui->expanded_block_id == 0) {
     ui_render_bottom_bar(ui, engine, ctx, win_w, win_h);
   }
 

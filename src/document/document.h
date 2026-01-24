@@ -40,9 +40,8 @@ typedef enum {
   BLOCK_TABLE,     // Notion-style table with views
   BLOCK_CANVAS,    // Infinite canvas (Miro-style)
   BLOCK_DESIGN,    // Finite design surface (Canva-style)
-  BLOCK_VIDEO,     // Video montage/preview
-  BLOCK_CALLOUT,   // Info/warning box
-  BLOCK_CHECKLIST, // Checkbox item
+
+  BLOCK_VIDEO = 10,
   BLOCK_COUNT
 } BlockType;
 
@@ -52,15 +51,6 @@ typedef enum {
   TABLE_VIEW_LIST,      // Vertical list
   TABLE_VIEW_BOARD      // Kanban-style board
 } TableViewMode;
-
-// Callout themes
-typedef enum {
-  CALLOUT_INFO = 0,
-  CALLOUT_ALERT,
-  CALLOUT_STAR,
-  CALLOUT_CHECK,
-  CALLOUT_IDEA
-} CalloutTheme;
 
 // =============================================================================
 // NODE TYPES (for Canvas/Design embedded content)
@@ -176,16 +166,6 @@ typedef struct {
   bool is_running;
 } LuaData;
 
-// --- Callout Block Data ---
-typedef struct {
-  CalloutTheme theme;
-} CalloutData;
-
-// --- Checklist Block Data ---
-typedef struct {
-  bool is_checked;
-} ChecklistData;
-
 // =============================================================================
 // BLOCK STRUCTURE (Unified)
 // =============================================================================
@@ -206,8 +186,6 @@ typedef struct Block {
     DesignData design;
     VideoData video;
     LuaData lua;
-    CalloutData callout;
-    ChecklistData checklist;
   } data;
 
   // View state

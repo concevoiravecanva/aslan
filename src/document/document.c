@@ -14,22 +14,29 @@
 // -----------------------------------------------------------------------------
 
 static char *aslan_strdup(const char *s) {
-    if (!s) s = "";
-    size_t n = strlen(s);
-    char *out = (char *)malloc(n + 1);
-    if (!out) return NULL;
-    memcpy(out, s, n);
-    out[n] = '\0';
-    return out;
+  if (!s)
+    s = "";
+  size_t n = strlen(s);
+  char *out = (char *)malloc(n + 1);
+  if (!out)
+    return NULL;
+  memcpy(out, s, n);
+  out[n] = '\0';
+  return out;
 }
 
 static void safe_strcpy(char *dst, const char *src, size_t dst_size) {
-    if (!dst || dst_size == 0) return;
-    if (!src) { dst[0] = '\0'; return; }
-    size_t len = strlen(src);
-    if (len >= dst_size) len = dst_size - 1;
-    memcpy(dst, src, len);
-    dst[len] = '\0';
+  if (!dst || dst_size == 0)
+    return;
+  if (!src) {
+    dst[0] = '\0';
+    return;
+  }
+  size_t len = strlen(src);
+  if (len >= dst_size)
+    len = dst_size - 1;
+  memcpy(dst, src, len);
+  dst[len] = '\0';
 }
 
 // -----------------------------------------------------------------------------
@@ -37,64 +44,101 @@ static void safe_strcpy(char *dst, const char *src, size_t dst_size) {
 // -----------------------------------------------------------------------------
 
 const char *block_type_to_string(BlockType type) {
-    switch (type) {
-        case BLOCK_TEXT:      return "text";
-        case BLOCK_HEADING_1: return "h1";
-        case BLOCK_HEADING_2: return "h2";
-        case BLOCK_HEADING_3: return "h3";
-        case BLOCK_SEPARATOR: return "separator";
-        case BLOCK_LUA:       return "lua";
-        case BLOCK_TABLE:     return "table";
-        case BLOCK_CANVAS:    return "canvas";
-        case BLOCK_DESIGN:    return "design";
-        case BLOCK_VIDEO:     return "video";
-        case BLOCK_CALLOUT:   return "callout";
-        case BLOCK_CHECKLIST: return "checklist";
-        default:              return "unknown";
-    }
+  switch (type) {
+  case BLOCK_TEXT:
+    return "text";
+  case BLOCK_HEADING_1:
+    return "h1";
+  case BLOCK_HEADING_2:
+    return "h2";
+  case BLOCK_HEADING_3:
+    return "h3";
+  case BLOCK_SEPARATOR:
+    return "separator";
+  case BLOCK_LUA:
+    return "lua";
+  case BLOCK_TABLE:
+    return "table";
+  case BLOCK_CANVAS:
+    return "canvas";
+  case BLOCK_DESIGN:
+    return "design";
+  case BLOCK_VIDEO:
+    return "video";
+  default:
+    return "unknown";
+  }
 }
 
 BlockType block_type_from_string(const char *str) {
-    if (!str) return BLOCK_TEXT;
-    if (strcmp(str, "text") == 0)      return BLOCK_TEXT;
-    if (strcmp(str, "h1") == 0)        return BLOCK_HEADING_1;
-    if (strcmp(str, "h2") == 0)        return BLOCK_HEADING_2;
-    if (strcmp(str, "h3") == 0)        return BLOCK_HEADING_3;
-    if (strcmp(str, "separator") == 0) return BLOCK_SEPARATOR;
-    if (strcmp(str, "lua") == 0)       return BLOCK_LUA;
-    if (strcmp(str, "table") == 0)     return BLOCK_TABLE;
-    if (strcmp(str, "canvas") == 0)    return BLOCK_CANVAS;
-    if (strcmp(str, "design") == 0)    return BLOCK_DESIGN;
-    if (strcmp(str, "video") == 0)     return BLOCK_VIDEO;
-    if (strcmp(str, "callout") == 0)   return BLOCK_CALLOUT;
-    if (strcmp(str, "checklist") == 0) return BLOCK_CHECKLIST;
+  if (!str)
     return BLOCK_TEXT;
+  if (strcmp(str, "text") == 0)
+    return BLOCK_TEXT;
+  if (strcmp(str, "h1") == 0)
+    return BLOCK_HEADING_1;
+  if (strcmp(str, "h2") == 0)
+    return BLOCK_HEADING_2;
+  if (strcmp(str, "h3") == 0)
+    return BLOCK_HEADING_3;
+  if (strcmp(str, "separator") == 0)
+    return BLOCK_SEPARATOR;
+  if (strcmp(str, "lua") == 0)
+    return BLOCK_LUA;
+  if (strcmp(str, "table") == 0)
+    return BLOCK_TABLE;
+  if (strcmp(str, "canvas") == 0)
+    return BLOCK_CANVAS;
+  if (strcmp(str, "design") == 0)
+    return BLOCK_DESIGN;
+  if (strcmp(str, "design") == 0)
+    return BLOCK_DESIGN;
+  if (strcmp(str, "video") == 0)
+    return BLOCK_VIDEO;
+  return BLOCK_TEXT;
 }
 
 const char *node_type_to_string(NodeType type) {
-    switch (type) {
-        case NODE_TYPE_ROOT:    return "root";
-        case NODE_TYPE_RECT:    return "rect";
-        case NODE_TYPE_TEXT:    return "text";
-        case NODE_TYPE_IMAGE:   return "image";
-        case NODE_TYPE_FRAME:   return "frame";
-        case NODE_TYPE_GROUP:   return "group";
-        case NODE_TYPE_LINE:    return "line";
-        case NODE_TYPE_ELLIPSE: return "ellipse";
-        default:                return "unknown";
-    }
+  switch (type) {
+  case NODE_TYPE_ROOT:
+    return "root";
+  case NODE_TYPE_RECT:
+    return "rect";
+  case NODE_TYPE_TEXT:
+    return "text";
+  case NODE_TYPE_IMAGE:
+    return "image";
+  case NODE_TYPE_FRAME:
+    return "frame";
+  case NODE_TYPE_GROUP:
+    return "group";
+  case NODE_TYPE_LINE:
+    return "line";
+  case NODE_TYPE_ELLIPSE:
+    return "ellipse";
+  default:
+    return "unknown";
+  }
 }
 
 NodeType node_type_from_string(const char *str) {
-    if (!str) return NODE_TYPE_ROOT;
-    if (strcmp(str, "rect") == 0)    return NODE_TYPE_RECT;
-    if (strcmp(str, "text") == 0)    return NODE_TYPE_TEXT;
-    if (strcmp(str, "image") == 0)   return NODE_TYPE_IMAGE;
-    if (strcmp(str, "frame") == 0)   return NODE_TYPE_FRAME;
-    if (strcmp(str, "group") == 0)   return NODE_TYPE_GROUP;
-    if (strcmp(str, "line") == 0)    return NODE_TYPE_LINE;
-    if (strcmp(str, "ellipse") == 0) return NODE_TYPE_ELLIPSE;
+  if (!str)
     return NODE_TYPE_ROOT;
+  if (strcmp(str, "rect") == 0)
+    return NODE_TYPE_RECT;
+  if (strcmp(str, "text") == 0)
+    return NODE_TYPE_TEXT;
+  if (strcmp(str, "image") == 0)
+    return NODE_TYPE_IMAGE;
+  if (strcmp(str, "frame") == 0)
+    return NODE_TYPE_FRAME;
+  if (strcmp(str, "group") == 0)
+    return NODE_TYPE_GROUP;
+  if (strcmp(str, "line") == 0)
+    return NODE_TYPE_LINE;
+  if (strcmp(str, "ellipse") == 0)
+    return NODE_TYPE_ELLIPSE;
+  return NODE_TYPE_ROOT;
 }
 
 // -----------------------------------------------------------------------------
@@ -102,43 +146,46 @@ NodeType node_type_from_string(const char *str) {
 // -----------------------------------------------------------------------------
 
 Document *doc_create(void) {
-    Document *doc = (Document *)calloc(1, sizeof(Document));
-    if (!doc) return NULL;
+  Document *doc = (Document *)calloc(1, sizeof(Document));
+  if (!doc)
+    return NULL;
 
-    doc->next_page_id = 1;
-    doc->page_count = 0;
-    doc->active_page_idx = -1;
-    doc->doc_width = 800;
-    doc->doc_height = 600;
+  doc->next_page_id = 1;
+  doc->page_count = 0;
+  doc->active_page_idx = -1;
+  doc->doc_width = 800;
+  doc->doc_height = 600;
 
-    return doc;
+  return doc;
 }
 
 void doc_destroy(Document *doc) {
-    if (!doc) return;
+  if (!doc)
+    return;
 
-    // Destroy all pages
-    for (int i = 0; i < 32; i++) {
-        if (doc->pages[i].in_use) {
-            // Destroy all blocks in the page
-            Block *b = doc->pages[i].first_block;
-            while (b) {
-                Block *next = b->next;
-                block_destroy(b);
-                b = next;
-            }
-            doc->pages[i].first_block = NULL;
-            doc->pages[i].last_block = NULL;
-            doc->pages[i].in_use = 0;
-        }
+  // Destroy all pages
+  for (int i = 0; i < 32; i++) {
+    if (doc->pages[i].in_use) {
+      // Destroy all blocks in the page
+      Block *b = doc->pages[i].first_block;
+      while (b) {
+        Block *next = b->next;
+        block_destroy(b);
+        b = next;
+      }
+      doc->pages[i].first_block = NULL;
+      doc->pages[i].last_block = NULL;
+      doc->pages[i].in_use = 0;
     }
+  }
 
-    free(doc);
+  free(doc);
 }
 
 void doc_set_title(Document *doc, const char *title) {
-    if (!doc) return;
-    safe_strcpy(doc->title, title, sizeof(doc->title));
+  if (!doc)
+    return;
+  safe_strcpy(doc->title, title, sizeof(doc->title));
 }
 
 // -----------------------------------------------------------------------------
@@ -146,60 +193,68 @@ void doc_set_title(Document *doc, const char *title) {
 // -----------------------------------------------------------------------------
 
 static int global_find_index(const Document *doc, const char *key) {
-    if (!doc || !key || !key[0]) return -1;
-    for (int i = 0; i < 64; i++) {
-        if (doc->globals[i].in_use && strcmp(doc->globals[i].key, key) == 0) {
-            return i;
-        }
-    }
+  if (!doc || !key || !key[0])
     return -1;
+  for (int i = 0; i < 64; i++) {
+    if (doc->globals[i].in_use && strcmp(doc->globals[i].key, key) == 0) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 static int global_find_free(const Document *doc) {
-    if (!doc) return -1;
-    for (int i = 0; i < 64; i++) {
-        if (!doc->globals[i].in_use) return i;
-    }
+  if (!doc)
     return -1;
+  for (int i = 0; i < 64; i++) {
+    if (!doc->globals[i].in_use)
+      return i;
+  }
+  return -1;
 }
 
 bool doc_set_global(Document *doc, const char *key, const char *value) {
-    if (!doc || !key || !key[0] || !value) return false;
+  if (!doc || !key || !key[0] || !value)
+    return false;
 
-    int idx = global_find_index(doc, key);
-    if (idx < 0) {
-        idx = global_find_free(doc);
-        if (idx < 0) return false;
-        safe_strcpy(doc->globals[idx].key, key, sizeof(doc->globals[idx].key));
-        doc->globals[idx].in_use = 1;
-    }
+  int idx = global_find_index(doc, key);
+  if (idx < 0) {
+    idx = global_find_free(doc);
+    if (idx < 0)
+      return false;
+    safe_strcpy(doc->globals[idx].key, key, sizeof(doc->globals[idx].key));
+    doc->globals[idx].in_use = 1;
+  }
 
-    safe_strcpy(doc->globals[idx].value, value, sizeof(doc->globals[idx].value));
-    return true;
+  safe_strcpy(doc->globals[idx].value, value, sizeof(doc->globals[idx].value));
+  return true;
 }
 
 const char *doc_get_global(const Document *doc, const char *key) {
-    int idx = global_find_index(doc, key);
-    if (idx < 0) return NULL;
-    return doc->globals[idx].value;
+  int idx = global_find_index(doc, key);
+  if (idx < 0)
+    return NULL;
+  return doc->globals[idx].value;
 }
 
 bool doc_unset_global(Document *doc, const char *key) {
-    int idx = global_find_index(doc, key);
-    if (idx < 0) return false;
-    doc->globals[idx].in_use = 0;
-    doc->globals[idx].key[0] = '\0';
-    doc->globals[idx].value[0] = '\0';
-    return true;
+  int idx = global_find_index(doc, key);
+  if (idx < 0)
+    return false;
+  doc->globals[idx].in_use = 0;
+  doc->globals[idx].key[0] = '\0';
+  doc->globals[idx].value[0] = '\0';
+  return true;
 }
 
 void doc_globals_iterate(const Document *doc, doc_global_iter_fn fn, void *ud) {
-    if (!doc || !fn) return;
-    for (int i = 0; i < 64; i++) {
-        if (doc->globals[i].in_use) {
-            fn(doc->globals[i].key, doc->globals[i].value, ud);
-        }
+  if (!doc || !fn)
+    return;
+  for (int i = 0; i < 64; i++) {
+    if (doc->globals[i].in_use) {
+      fn(doc->globals[i].key, doc->globals[i].value, ud);
     }
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -207,161 +262,176 @@ void doc_globals_iterate(const Document *doc, doc_global_iter_fn fn, void *ud) {
 // -----------------------------------------------------------------------------
 
 static int page_find_free_slot(const Document *doc) {
-    if (!doc) return -1;
-    for (int i = 0; i < 32; i++) {
-        if (!doc->pages[i].in_use) return i;
-    }
+  if (!doc)
     return -1;
+  for (int i = 0; i < 32; i++) {
+    if (!doc->pages[i].in_use)
+      return i;
+  }
+  return -1;
 }
 
 static int page_find_by_id(const Document *doc, uint32_t page_id) {
-    if (!doc || page_id == 0) return -1;
-    for (int i = 0; i < 32; i++) {
-        if (doc->pages[i].in_use && doc->pages[i].id == page_id) {
-            return i;
-        }
-    }
+  if (!doc || page_id == 0)
     return -1;
+  for (int i = 0; i < 32; i++) {
+    if (doc->pages[i].in_use && doc->pages[i].id == page_id) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 Page *doc_page_create(Document *doc, const char *name) {
-    if (!doc) return NULL;
+  if (!doc)
+    return NULL;
 
-    int slot = page_find_free_slot(doc);
-    if (slot < 0) return NULL;
+  int slot = page_find_free_slot(doc);
+  if (slot < 0)
+    return NULL;
 
-    Page *page = &doc->pages[slot];
-    memset(page, 0, sizeof(Page));
+  Page *page = &doc->pages[slot];
+  memset(page, 0, sizeof(Page));
 
-    page->id = doc->next_page_id++;
-    page->in_use = 1;
-    page->next_block_id = 1;
+  page->id = doc->next_page_id++;
+  page->in_use = 1;
+  page->next_block_id = 1;
 
-    if (name && name[0]) {
-        safe_strcpy(page->name, name, sizeof(page->name));
-    } else {
-        snprintf(page->name, sizeof(page->name), "Page %d", doc->page_count + 1);
-    }
+  if (name && name[0]) {
+    safe_strcpy(page->name, name, sizeof(page->name));
+  } else {
+    snprintf(page->name, sizeof(page->name), "Page %d", doc->page_count + 1);
+  }
 
-    doc->page_count++;
+  doc->page_count++;
 
-    // Auto-activate if first page
-    if (doc->active_page_idx < 0) {
-        doc->active_page_idx = slot;
-    }
+  // Auto-activate if first page
+  if (doc->active_page_idx < 0) {
+    doc->active_page_idx = slot;
+  }
 
-    return page;
+  return page;
 }
 
 Page *doc_page_create_with_id(Document *doc, uint32_t id, const char *name) {
-    if (!doc || id == 0) return NULL;
+  if (!doc || id == 0)
+    return NULL;
 
-    // Check if ID already exists
-    if (page_find_by_id(doc, id) >= 0) return NULL;
+  // Check if ID already exists
+  if (page_find_by_id(doc, id) >= 0)
+    return NULL;
 
-    int slot = page_find_free_slot(doc);
-    if (slot < 0) return NULL;
+  int slot = page_find_free_slot(doc);
+  if (slot < 0)
+    return NULL;
 
-    Page *page = &doc->pages[slot];
-    memset(page, 0, sizeof(Page));
+  Page *page = &doc->pages[slot];
+  memset(page, 0, sizeof(Page));
 
-    page->id = id;
-    page->in_use = 1;
-    page->next_block_id = 1;
+  page->id = id;
+  page->in_use = 1;
+  page->next_block_id = 1;
 
-    if (name && name[0]) {
-        safe_strcpy(page->name, name, sizeof(page->name));
-    } else {
-        snprintf(page->name, sizeof(page->name), "Page %u", id);
-    }
+  if (name && name[0]) {
+    safe_strcpy(page->name, name, sizeof(page->name));
+  } else {
+    snprintf(page->name, sizeof(page->name), "Page %u", id);
+  }
 
-    // Update next_page_id if needed
-    if (id >= doc->next_page_id) {
-        doc->next_page_id = id + 1;
-    }
+  // Update next_page_id if needed
+  if (id >= doc->next_page_id) {
+    doc->next_page_id = id + 1;
+  }
 
-    doc->page_count++;
+  doc->page_count++;
 
-    if (doc->active_page_idx < 0) {
-        doc->active_page_idx = slot;
-    }
+  if (doc->active_page_idx < 0) {
+    doc->active_page_idx = slot;
+  }
 
-    return page;
+  return page;
 }
 
 Page *doc_page_get(Document *doc, uint32_t page_id) {
-    int idx = page_find_by_id(doc, page_id);
-    if (idx < 0) return NULL;
-    return &doc->pages[idx];
+  int idx = page_find_by_id(doc, page_id);
+  if (idx < 0)
+    return NULL;
+  return &doc->pages[idx];
 }
 
 Page *doc_page_get_active(Document *doc) {
-    if (!doc || doc->active_page_idx < 0) return NULL;
-    return &doc->pages[doc->active_page_idx];
+  if (!doc || doc->active_page_idx < 0)
+    return NULL;
+  return &doc->pages[doc->active_page_idx];
 }
 
 Page *doc_page_get_by_index(Document *doc, int index) {
-    if (!doc || index < 0 || index >= 32) return NULL;
-    if (!doc->pages[index].in_use) return NULL;
-    return &doc->pages[index];
+  if (!doc || index < 0 || index >= 32)
+    return NULL;
+  if (!doc->pages[index].in_use)
+    return NULL;
+  return &doc->pages[index];
 }
 
 bool doc_page_delete(Document *doc, uint32_t page_id) {
-    int idx = page_find_by_id(doc, page_id);
-    if (idx < 0) return false;
+  int idx = page_find_by_id(doc, page_id);
+  if (idx < 0)
+    return false;
 
-    Page *page = &doc->pages[idx];
+  Page *page = &doc->pages[idx];
 
-    // Destroy all blocks
-    Block *b = page->first_block;
-    while (b) {
-        Block *next = b->next;
-        block_destroy(b);
-        b = next;
+  // Destroy all blocks
+  Block *b = page->first_block;
+  while (b) {
+    Block *next = b->next;
+    block_destroy(b);
+    b = next;
+  }
+
+  page->in_use = 0;
+  page->first_block = NULL;
+  page->last_block = NULL;
+  doc->page_count--;
+
+  // Update active page if needed
+  if (doc->active_page_idx == idx) {
+    doc->active_page_idx = -1;
+    for (int i = 0; i < 32; i++) {
+      if (doc->pages[i].in_use) {
+        doc->active_page_idx = i;
+        break;
+      }
     }
+  }
 
-    page->in_use = 0;
-    page->first_block = NULL;
-    page->last_block = NULL;
-    doc->page_count--;
-
-    // Update active page if needed
-    if (doc->active_page_idx == idx) {
-        doc->active_page_idx = -1;
-        for (int i = 0; i < 32; i++) {
-            if (doc->pages[i].in_use) {
-                doc->active_page_idx = i;
-                break;
-            }
-        }
-    }
-
-    return true;
+  return true;
 }
 
 bool doc_page_rename(Document *doc, uint32_t page_id, const char *name) {
-    Page *page = doc_page_get(doc, page_id);
-    if (!page || !name) return false;
-    safe_strcpy(page->name, name, sizeof(page->name));
-    return true;
+  Page *page = doc_page_get(doc, page_id);
+  if (!page || !name)
+    return false;
+  safe_strcpy(page->name, name, sizeof(page->name));
+  return true;
 }
 
 void doc_page_activate(Document *doc, uint32_t page_id) {
-    int idx = page_find_by_id(doc, page_id);
-    if (idx >= 0) {
-        doc->active_page_idx = idx;
-    }
+  int idx = page_find_by_id(doc, page_id);
+  if (idx >= 0) {
+    doc->active_page_idx = idx;
+  }
 }
 
 void doc_page_activate_by_index(Document *doc, int index) {
-    if (!doc || index < 0 || index >= 32) return;
-    if (doc->pages[index].in_use) {
-        doc->active_page_idx = index;
-    }
+  if (!doc || index < 0 || index >= 32)
+    return;
+  if (doc->pages[index].in_use) {
+    doc->active_page_idx = index;
+  }
 }
 
 int doc_page_get_index(const Document *doc, uint32_t page_id) {
-    return page_find_by_id(doc, page_id);
+  return page_find_by_id(doc, page_id);
 }
 
 // -----------------------------------------------------------------------------
@@ -369,81 +439,86 @@ int doc_page_get_index(const Document *doc, uint32_t page_id) {
 // -----------------------------------------------------------------------------
 
 Block *block_create(Page *page, BlockType type) {
-    if (!page) return NULL;
+  if (!page)
+    return NULL;
 
-    Block *block = (Block *)calloc(1, sizeof(Block));
-    if (!block) return NULL;
+  Block *block = (Block *)calloc(1, sizeof(Block));
+  if (!block)
+    return NULL;
 
-    block->id = page->next_block_id++;
-    block->type = type;
-    block->is_collapsed = false;
-    block->is_focused = false;
-    block->height = 0.0f;
-    block->highlight_color = 0;
-    block->cursor_pos = 0;
-    block->selection_start = -1;
-    block->selection_end = -1;
+  block->id = page->next_block_id++;
+  block->type = type;
+  block->is_collapsed = false;
+  block->is_focused = false;
+  block->height = 0.0f;
+  block->highlight_color = 0;
+  block->cursor_pos = 0;
+  block->selection_start = -1;
+  block->selection_end = -1;
 
-    // Initialize text buffer
-    block->text_cap = 64;
-    block->text = (char *)calloc(block->text_cap, 1);
-    block->text_len = 0;
+  // Initialize text buffer
+  block->text_cap = 64;
+  block->text = (char *)calloc(block->text_cap, 1);
+  block->text_len = 0;
 
-    return block;
+  return block;
 }
 
 Block *block_create_with_id(Page *page, uint32_t id, BlockType type) {
-    if (!page) return NULL;
+  if (!page)
+    return NULL;
 
-    Block *block = (Block *)calloc(1, sizeof(Block));
-    if (!block) return NULL;
+  Block *block = (Block *)calloc(1, sizeof(Block));
+  if (!block)
+    return NULL;
 
-    block->id = id;
-    block->type = type;
-    block->is_collapsed = false;
-    block->is_focused = false;
+  block->id = id;
+  block->type = type;
+  block->is_collapsed = false;
+  block->is_focused = false;
 
-    // Initialize text buffer
-    block->text_cap = 64;
-    block->text = (char *)calloc(block->text_cap, 1);
-    block->text_len = 0;
+  // Initialize text buffer
+  block->text_cap = 64;
+  block->text = (char *)calloc(block->text_cap, 1);
+  block->text_len = 0;
 
-    // Update page's next_block_id if needed
-    if (id >= page->next_block_id) {
-        page->next_block_id = id + 1;
-    }
+  // Update page's next_block_id if needed
+  if (id >= page->next_block_id) {
+    page->next_block_id = id + 1;
+  }
 
-    return block;
+  return block;
 }
 
 void block_destroy(Block *block) {
-    if (!block) return;
+  if (!block)
+    return;
 
-    // Free text buffer
-    free(block->text);
+  // Free text buffer
+  free(block->text);
 
-    // Free type-specific data
-    switch (block->type) {
-        case BLOCK_TABLE:
-            block_table_destroy(block);
-            break;
-        case BLOCK_CANVAS:
-            block_canvas_destroy(block);
-            break;
-        case BLOCK_DESIGN:
-            block_design_destroy(block);
-            break;
-        case BLOCK_VIDEO:
-            block_video_destroy(block);
-            break;
-        case BLOCK_LUA:
-            block_lua_destroy(block);
-            break;
-        default:
-            break;
-    }
+  // Free type-specific data
+  switch (block->type) {
+  case BLOCK_TABLE:
+    block_table_destroy(block);
+    break;
+  case BLOCK_CANVAS:
+    block_canvas_destroy(block);
+    break;
+  case BLOCK_DESIGN:
+    block_design_destroy(block);
+    break;
+  case BLOCK_VIDEO:
+    block_video_destroy(block);
+    break;
+  case BLOCK_LUA:
+    block_lua_destroy(block);
+    break;
+  default:
+    break;
+  }
 
-    free(block);
+  free(block);
 }
 
 // -----------------------------------------------------------------------------
@@ -451,156 +526,165 @@ void block_destroy(Block *block) {
 // -----------------------------------------------------------------------------
 
 void page_append_block(Page *page, Block *block) {
-    if (!page || !block) return;
+  if (!page || !block)
+    return;
 
-    block->prev = page->last_block;
-    block->next = NULL;
+  block->prev = page->last_block;
+  block->next = NULL;
 
-    if (page->last_block) {
-        page->last_block->next = block;
-    } else {
-        page->first_block = block;
-    }
-    page->last_block = block;
-    page->block_count++;
+  if (page->last_block) {
+    page->last_block->next = block;
+  } else {
+    page->first_block = block;
+  }
+  page->last_block = block;
+  page->block_count++;
 }
 
 void page_prepend_block(Page *page, Block *block) {
-    if (!page || !block) return;
+  if (!page || !block)
+    return;
 
-    block->prev = NULL;
-    block->next = page->first_block;
+  block->prev = NULL;
+  block->next = page->first_block;
 
-    if (page->first_block) {
-        page->first_block->prev = block;
-    } else {
-        page->last_block = block;
-    }
-    page->first_block = block;
-    page->block_count++;
+  if (page->first_block) {
+    page->first_block->prev = block;
+  } else {
+    page->last_block = block;
+  }
+  page->first_block = block;
+  page->block_count++;
 }
 
 void page_insert_block_after(Page *page, Block *after, Block *block) {
-    if (!page || !block) return;
+  if (!page || !block)
+    return;
 
-    if (!after) {
-        page_prepend_block(page, block);
-        return;
-    }
+  if (!after) {
+    page_prepend_block(page, block);
+    return;
+  }
 
-    block->prev = after;
-    block->next = after->next;
+  block->prev = after;
+  block->next = after->next;
 
-    if (after->next) {
-        after->next->prev = block;
-    } else {
-        page->last_block = block;
-    }
-    after->next = block;
-    page->block_count++;
+  if (after->next) {
+    after->next->prev = block;
+  } else {
+    page->last_block = block;
+  }
+  after->next = block;
+  page->block_count++;
 }
 
 void page_insert_block_before(Page *page, Block *before, Block *block) {
-    if (!page || !block) return;
+  if (!page || !block)
+    return;
 
-    if (!before) {
-        page_append_block(page, block);
-        return;
-    }
+  if (!before) {
+    page_append_block(page, block);
+    return;
+  }
 
-    block->next = before;
-    block->prev = before->prev;
+  block->next = before;
+  block->prev = before->prev;
 
-    if (before->prev) {
-        before->prev->next = block;
-    } else {
-        page->first_block = block;
-    }
-    before->prev = block;
-    page->block_count++;
+  if (before->prev) {
+    before->prev->next = block;
+  } else {
+    page->first_block = block;
+  }
+  before->prev = block;
+  page->block_count++;
 }
 
 void page_remove_block(Page *page, Block *block) {
-    if (!page || !block) return;
+  if (!page || !block)
+    return;
 
-    if (block->prev) {
-        block->prev->next = block->next;
-    } else {
-        page->first_block = block->next;
-    }
+  if (block->prev) {
+    block->prev->next = block->next;
+  } else {
+    page->first_block = block->next;
+  }
 
-    if (block->next) {
-        block->next->prev = block->prev;
-    } else {
-        page->last_block = block->prev;
-    }
+  if (block->next) {
+    block->next->prev = block->prev;
+  } else {
+    page->last_block = block->prev;
+  }
 
-    block->prev = NULL;
-    block->next = NULL;
-    page->block_count--;
+  block->prev = NULL;
+  block->next = NULL;
+  page->block_count--;
 
-    if (page->focused_block == block) {
-        page->focused_block = NULL;
-    }
+  if (page->focused_block == block) {
+    page->focused_block = NULL;
+  }
 }
 
 void page_move_block_up(Page *page, Block *block) {
-    if (!page || !block || !block->prev) return;
+  if (!page || !block || !block->prev)
+    return;
 
-    Block *prev = block->prev;
+  Block *prev = block->prev;
 
-    // Remove block from current position
-    if (block->next) {
-        block->next->prev = prev;
-    } else {
-        page->last_block = prev;
-    }
-    prev->next = block->next;
+  // Remove block from current position
+  if (block->next) {
+    block->next->prev = prev;
+  } else {
+    page->last_block = prev;
+  }
+  prev->next = block->next;
 
-    // Insert before prev
-    block->prev = prev->prev;
-    block->next = prev;
-    prev->prev = block;
+  // Insert before prev
+  block->prev = prev->prev;
+  block->next = prev;
+  prev->prev = block;
 
-    if (block->prev) {
-        block->prev->next = block;
-    } else {
-        page->first_block = block;
-    }
+  if (block->prev) {
+    block->prev->next = block;
+  } else {
+    page->first_block = block;
+  }
 }
 
 void page_move_block_down(Page *page, Block *block) {
-    if (!page || !block || !block->next) return;
+  if (!page || !block || !block->next)
+    return;
 
-    Block *next = block->next;
+  Block *next = block->next;
 
-    // Remove block from current position
-    if (block->prev) {
-        block->prev->next = next;
-    } else {
-        page->first_block = next;
-    }
-    next->prev = block->prev;
+  // Remove block from current position
+  if (block->prev) {
+    block->prev->next = next;
+  } else {
+    page->first_block = next;
+  }
+  next->prev = block->prev;
 
-    // Insert after next
-    block->next = next->next;
-    block->prev = next;
-    next->next = block;
+  // Insert after next
+  block->next = next->next;
+  block->prev = next;
+  next->next = block;
 
-    if (block->next) {
-        block->next->prev = block;
-    } else {
-        page->last_block = block;
-    }
+  if (block->next) {
+    block->next->prev = block;
+  } else {
+    page->last_block = block;
+  }
 }
 
 Block *page_find_block_by_id(Page *page, uint32_t block_id) {
-    if (!page) return NULL;
-
-    for (Block *b = page->first_block; b; b = b->next) {
-        if (b->id == block_id) return b;
-    }
+  if (!page)
     return NULL;
+
+  for (Block *b = page->first_block; b; b = b->next) {
+    if (b->id == block_id)
+      return b;
+  }
+  return NULL;
 }
 
 // -----------------------------------------------------------------------------
@@ -608,95 +692,121 @@ Block *page_find_block_by_id(Page *page, uint32_t block_id) {
 // -----------------------------------------------------------------------------
 
 void block_set_text(Block *block, const char *text) {
-    if (!block) return;
+  if (!block)
+    return;
 
-    size_t len = text ? strlen(text) : 0;
+  size_t len = text ? strlen(text) : 0;
 
-    if (len >= block->text_cap) {
-        size_t new_cap = len + 64;
-        char *new_text = (char *)realloc(block->text, new_cap);
-        if (!new_text) return;
-        block->text = new_text;
-        block->text_cap = new_cap;
-    }
+  if (len >= block->text_cap) {
+    size_t new_cap = len + 64;
+    char *new_text = (char *)realloc(block->text, new_cap);
+    if (!new_text)
+      return;
+    block->text = new_text;
+    block->text_cap = new_cap;
+  }
 
-    if (text) {
-        memcpy(block->text, text, len);
-    }
-    block->text[len] = '\0';
-    block->text_len = len;
+  if (text) {
+    memcpy(block->text, text, len);
+  }
+  block->text[len] = '\0';
+  block->text_len = len;
 }
 
 void block_append_text(Block *block, const char *text) {
-    if (!block || !text) return;
+  if (!block || !text)
+    return;
 
-    size_t add_len = strlen(text);
-    size_t new_len = block->text_len + add_len;
+  size_t add_len = strlen(text);
+  size_t new_len = block->text_len + add_len;
 
-    if (new_len >= block->text_cap) {
-        size_t new_cap = new_len + 64;
-        char *new_text = (char *)realloc(block->text, new_cap);
-        if (!new_text) return;
-        block->text = new_text;
-        block->text_cap = new_cap;
-    }
+  if (new_len >= block->text_cap) {
+    size_t new_cap = new_len + 64;
+    char *new_text = (char *)realloc(block->text, new_cap);
+    if (!new_text)
+      return;
+    block->text = new_text;
+    block->text_cap = new_cap;
+  }
 
-    memcpy(block->text + block->text_len, text, add_len);
-    block->text_len = new_len;
-    block->text[new_len] = '\0';
+  memcpy(block->text + block->text_len, text, add_len);
+  block->text_len = new_len;
+  block->text[new_len] = '\0';
 }
 
 void block_insert_char(Block *block, int pos, char c) {
-    if (!block) return;
-    if (pos < 0) pos = 0;
-    if ((size_t)pos > block->text_len) pos = (int)block->text_len;
+  if (!block)
+    return;
+  if (pos < 0)
+    pos = 0;
+  if ((size_t)pos > block->text_len)
+    pos = (int)block->text_len;
 
-    if (block->text_len + 2 > block->text_cap) {
-        size_t new_cap = block->text_cap * 2;
-        if (new_cap < 128) new_cap = 128;
-        char *new_text = (char *)realloc(block->text, new_cap);
-        if (!new_text) return;
-        block->text = new_text;
-        block->text_cap = new_cap;
-    }
+  if (block->text_len + 2 > block->text_cap) {
+    size_t new_cap = block->text_cap * 2;
+    if (new_cap < 128)
+      new_cap = 128;
+    char *new_text = (char *)realloc(block->text, new_cap);
+    if (!new_text)
+      return;
+    block->text = new_text;
+    block->text_cap = new_cap;
+  }
 
-    memmove(block->text + pos + 1, block->text + pos, block->text_len - pos + 1);
-    block->text[pos] = c;
-    block->text_len++;
+  memmove(block->text + pos + 1, block->text + pos, block->text_len - pos + 1);
+  block->text[pos] = c;
+  block->text_len++;
 }
 
 void block_delete_char(Block *block, int pos) {
-    if (!block || block->text_len == 0) return;
-    if (pos < 0 || (size_t)pos >= block->text_len) return;
+  if (!block || block->text_len == 0)
+    return;
+  if (pos < 0 || (size_t)pos >= block->text_len)
+    return;
 
-    memmove(block->text + pos, block->text + pos + 1, block->text_len - pos);
-    block->text_len--;
+  memmove(block->text + pos, block->text + pos + 1, block->text_len - pos);
+  block->text_len--;
 }
 
 void block_delete_range(Block *block, int start, int end) {
-    if (!block || start >= end) return;
-    if (start < 0) start = 0;
-    if ((size_t)end > block->text_len) end = (int)block->text_len;
+  if (!block || start >= end)
+    return;
+  if (start < 0)
+    start = 0;
+  if ((size_t)end > block->text_len)
+    end = (int)block->text_len;
 
-    size_t remove_len = end - start;
-    memmove(block->text + start, block->text + end, block->text_len - end + 1);
-    block->text_len -= remove_len;
+  size_t remove_len = end - start;
+  memmove(block->text + start, block->text + end, block->text_len - end + 1);
+  block->text_len -= remove_len;
 }
 
 void block_convert_to(Block *block, BlockType new_type) {
-    if (!block || block->type == new_type) return;
+  if (!block || block->type == new_type)
+    return;
 
-    // Clean up old type-specific data
-    switch (block->type) {
-        case BLOCK_TABLE:  block_table_destroy(block);  break;
-        case BLOCK_CANVAS: block_canvas_destroy(block); break;
-        case BLOCK_DESIGN: block_design_destroy(block); break;
-        case BLOCK_VIDEO:  block_video_destroy(block);  break;
-        case BLOCK_LUA:    block_lua_destroy(block);    break;
-        default: break;
-    }
+  // Clean up old type-specific data
+  switch (block->type) {
+  case BLOCK_TABLE:
+    block_table_destroy(block);
+    break;
+  case BLOCK_CANVAS:
+    block_canvas_destroy(block);
+    break;
+  case BLOCK_DESIGN:
+    block_design_destroy(block);
+    break;
+  case BLOCK_VIDEO:
+    block_video_destroy(block);
+    break;
+  case BLOCK_LUA:
+    block_lua_destroy(block);
+    break;
+  default:
+    break;
+  }
 
-    block->type = new_type;
+  block->type = new_type;
 }
 
 // -----------------------------------------------------------------------------
@@ -704,221 +814,247 @@ void block_convert_to(Block *block, BlockType new_type) {
 // -----------------------------------------------------------------------------
 
 void block_table_init(Block *block, int rows, int cols) {
-    if (!block || block->type != BLOCK_TABLE) return;
-    if (rows < 1) rows = 1;
-    if (cols < 1) cols = 1;
+  if (!block || block->type != BLOCK_TABLE)
+    return;
+  if (rows < 1)
+    rows = 1;
+  if (cols < 1)
+    cols = 1;
 
-    TableData *td = &block->data.table;
+  TableData *td = &block->data.table;
 
-    // Free existing data
-    if (td->cells) {
-        for (int i = 0; i < td->rows * td->cols; i++) {
-            free(td->cells[i]);
-        }
-        free(td->cells);
+  // Free existing data
+  if (td->cells) {
+    for (int i = 0; i < td->rows * td->cols; i++) {
+      free(td->cells[i]);
     }
-    free(td->col_widths);
+    free(td->cells);
+  }
+  free(td->col_widths);
 
-    // Allocate new data
-    td->rows = rows;
-    td->cols = cols;
-    td->cells = (char **)calloc(rows * cols, sizeof(char *));
-    td->col_widths = (int *)calloc(cols, sizeof(int));
+  // Allocate new data
+  td->rows = rows;
+  td->cols = cols;
+  td->cells = (char **)calloc(rows * cols, sizeof(char *));
+  td->col_widths = (int *)calloc(cols, sizeof(int));
 
-    for (int i = 0; i < cols; i++) {
-        td->col_widths[i] = 120;
-    }
+  for (int i = 0; i < cols; i++) {
+    td->col_widths[i] = 120;
+  }
 
-    td->active_row = 0;
-    td->active_col = 0;
-    td->view_mode = TABLE_VIEW_TABLE;
+  td->active_row = 0;
+  td->active_col = 0;
+  td->view_mode = TABLE_VIEW_TABLE;
 }
 
 void block_table_destroy(Block *block) {
-    if (!block) return;
+  if (!block)
+    return;
 
-    TableData *td = &block->data.table;
-    if (td->cells) {
-        for (int i = 0; i < td->rows * td->cols; i++) {
-            free(td->cells[i]);
-        }
-        free(td->cells);
-        td->cells = NULL;
+  TableData *td = &block->data.table;
+  if (td->cells) {
+    for (int i = 0; i < td->rows * td->cols; i++) {
+      free(td->cells[i]);
     }
-    free(td->col_widths);
-    td->col_widths = NULL;
-    td->rows = 0;
-    td->cols = 0;
+    free(td->cells);
+    td->cells = NULL;
+  }
+  free(td->col_widths);
+  td->col_widths = NULL;
+  td->rows = 0;
+  td->cols = 0;
 }
 
 void block_table_set_cell(Block *block, int row, int col, const char *text) {
-    if (!block || block->type != BLOCK_TABLE) return;
+  if (!block || block->type != BLOCK_TABLE)
+    return;
 
-    TableData *td = &block->data.table;
-    if (row < 0 || row >= td->rows || col < 0 || col >= td->cols) return;
-    if (!td->cells) return;
+  TableData *td = &block->data.table;
+  if (row < 0 || row >= td->rows || col < 0 || col >= td->cols)
+    return;
+  if (!td->cells)
+    return;
 
-    int idx = row * td->cols + col;
-    free(td->cells[idx]);
-    td->cells[idx] = aslan_strdup(text);
+  int idx = row * td->cols + col;
+  free(td->cells[idx]);
+  td->cells[idx] = aslan_strdup(text);
 }
 
 const char *block_table_get_cell(const Block *block, int row, int col) {
-    if (!block || block->type != BLOCK_TABLE) return NULL;
+  if (!block || block->type != BLOCK_TABLE)
+    return NULL;
 
-    const TableData *td = &block->data.table;
-    if (row < 0 || row >= td->rows || col < 0 || col >= td->cols) return NULL;
-    if (!td->cells) return NULL;
+  const TableData *td = &block->data.table;
+  if (row < 0 || row >= td->rows || col < 0 || col >= td->cols)
+    return NULL;
+  if (!td->cells)
+    return NULL;
 
-    return td->cells[row * td->cols + col];
+  return td->cells[row * td->cols + col];
 }
 
 void block_table_insert_row(Block *block, int row_idx) {
-    if (!block || block->type != BLOCK_TABLE) return;
+  if (!block || block->type != BLOCK_TABLE)
+    return;
 
-    TableData *td = &block->data.table;
-    if (row_idx < 0) row_idx = 0;
-    if (row_idx > td->rows) row_idx = td->rows;
+  TableData *td = &block->data.table;
+  if (row_idx < 0)
+    row_idx = 0;
+  if (row_idx > td->rows)
+    row_idx = td->rows;
 
-    int new_rows = td->rows + 1;
-    char **new_cells = (char **)calloc(new_rows * td->cols, sizeof(char *));
-    if (!new_cells) return;
+  int new_rows = td->rows + 1;
+  char **new_cells = (char **)calloc(new_rows * td->cols, sizeof(char *));
+  if (!new_cells)
+    return;
 
-    // Copy cells before insertion point
-    for (int r = 0; r < row_idx; r++) {
-        for (int c = 0; c < td->cols; c++) {
-            new_cells[r * td->cols + c] = td->cells[r * td->cols + c];
-        }
+  // Copy cells before insertion point
+  for (int r = 0; r < row_idx; r++) {
+    for (int c = 0; c < td->cols; c++) {
+      new_cells[r * td->cols + c] = td->cells[r * td->cols + c];
     }
+  }
 
-    // New row is already NULL (calloc)
+  // New row is already NULL (calloc)
 
-    // Copy cells after insertion point
-    for (int r = row_idx; r < td->rows; r++) {
-        for (int c = 0; c < td->cols; c++) {
-            new_cells[(r + 1) * td->cols + c] = td->cells[r * td->cols + c];
-        }
+  // Copy cells after insertion point
+  for (int r = row_idx; r < td->rows; r++) {
+    for (int c = 0; c < td->cols; c++) {
+      new_cells[(r + 1) * td->cols + c] = td->cells[r * td->cols + c];
     }
+  }
 
-    free(td->cells);
-    td->cells = new_cells;
-    td->rows = new_rows;
+  free(td->cells);
+  td->cells = new_cells;
+  td->rows = new_rows;
 }
 
 void block_table_insert_col(Block *block, int col_idx) {
-    if (!block || block->type != BLOCK_TABLE) return;
+  if (!block || block->type != BLOCK_TABLE)
+    return;
 
-    TableData *td = &block->data.table;
-    if (col_idx < 0) col_idx = 0;
-    if (col_idx > td->cols) col_idx = td->cols;
+  TableData *td = &block->data.table;
+  if (col_idx < 0)
+    col_idx = 0;
+  if (col_idx > td->cols)
+    col_idx = td->cols;
 
-    int new_cols = td->cols + 1;
-    char **new_cells = (char **)calloc(td->rows * new_cols, sizeof(char *));
-    int *new_widths = (int *)calloc(new_cols, sizeof(int));
-    if (!new_cells || !new_widths) {
-        free(new_cells);
-        free(new_widths);
-        return;
-    }
+  int new_cols = td->cols + 1;
+  char **new_cells = (char **)calloc(td->rows * new_cols, sizeof(char *));
+  int *new_widths = (int *)calloc(new_cols, sizeof(int));
+  if (!new_cells || !new_widths) {
+    free(new_cells);
+    free(new_widths);
+    return;
+  }
 
-    // Copy cells
-    for (int r = 0; r < td->rows; r++) {
-        for (int c = 0; c < col_idx; c++) {
-            new_cells[r * new_cols + c] = td->cells[r * td->cols + c];
-        }
-        // New column is NULL
-        for (int c = col_idx; c < td->cols; c++) {
-            new_cells[r * new_cols + c + 1] = td->cells[r * td->cols + c];
-        }
-    }
-
-    // Copy column widths
+  // Copy cells
+  for (int r = 0; r < td->rows; r++) {
     for (int c = 0; c < col_idx; c++) {
-        new_widths[c] = td->col_widths[c];
+      new_cells[r * new_cols + c] = td->cells[r * td->cols + c];
     }
-    new_widths[col_idx] = 120;
+    // New column is NULL
     for (int c = col_idx; c < td->cols; c++) {
-        new_widths[c + 1] = td->col_widths[c];
+      new_cells[r * new_cols + c + 1] = td->cells[r * td->cols + c];
     }
+  }
 
-    free(td->cells);
-    free(td->col_widths);
-    td->cells = new_cells;
-    td->col_widths = new_widths;
-    td->cols = new_cols;
+  // Copy column widths
+  for (int c = 0; c < col_idx; c++) {
+    new_widths[c] = td->col_widths[c];
+  }
+  new_widths[col_idx] = 120;
+  for (int c = col_idx; c < td->cols; c++) {
+    new_widths[c + 1] = td->col_widths[c];
+  }
+
+  free(td->cells);
+  free(td->col_widths);
+  td->cells = new_cells;
+  td->col_widths = new_widths;
+  td->cols = new_cols;
 }
 
 void block_table_delete_row(Block *block, int row_idx) {
-    if (!block || block->type != BLOCK_TABLE) return;
+  if (!block || block->type != BLOCK_TABLE)
+    return;
 
-    TableData *td = &block->data.table;
-    if (td->rows <= 1) return;  // Keep at least one row
-    if (row_idx < 0 || row_idx >= td->rows) return;
+  TableData *td = &block->data.table;
+  if (td->rows <= 1)
+    return; // Keep at least one row
+  if (row_idx < 0 || row_idx >= td->rows)
+    return;
 
-    // Free cells in deleted row
+  // Free cells in deleted row
+  for (int c = 0; c < td->cols; c++) {
+    free(td->cells[row_idx * td->cols + c]);
+  }
+
+  // Shift rows up
+  for (int r = row_idx; r < td->rows - 1; r++) {
     for (int c = 0; c < td->cols; c++) {
-        free(td->cells[row_idx * td->cols + c]);
+      td->cells[r * td->cols + c] = td->cells[(r + 1) * td->cols + c];
     }
+  }
 
-    // Shift rows up
-    for (int r = row_idx; r < td->rows - 1; r++) {
-        for (int c = 0; c < td->cols; c++) {
-            td->cells[r * td->cols + c] = td->cells[(r + 1) * td->cols + c];
-        }
-    }
+  td->rows--;
 
-    td->rows--;
-
-    // Reallocate to save memory (optional)
-    char **new_cells = (char **)realloc(td->cells, td->rows * td->cols * sizeof(char *));
-    if (new_cells) td->cells = new_cells;
+  // Reallocate to save memory (optional)
+  char **new_cells =
+      (char **)realloc(td->cells, td->rows * td->cols * sizeof(char *));
+  if (new_cells)
+    td->cells = new_cells;
 }
 
 void block_table_delete_col(Block *block, int col_idx) {
-    if (!block || block->type != BLOCK_TABLE) return;
+  if (!block || block->type != BLOCK_TABLE)
+    return;
 
-    TableData *td = &block->data.table;
-    if (td->cols <= 1) return;  // Keep at least one column
-    if (col_idx < 0 || col_idx >= td->cols) return;
+  TableData *td = &block->data.table;
+  if (td->cols <= 1)
+    return; // Keep at least one column
+  if (col_idx < 0 || col_idx >= td->cols)
+    return;
 
-    int new_cols = td->cols - 1;
-    char **new_cells = (char **)calloc(td->rows * new_cols, sizeof(char *));
-    int *new_widths = (int *)calloc(new_cols, sizeof(int));
-    if (!new_cells || !new_widths) {
-        free(new_cells);
-        free(new_widths);
-        return;
-    }
+  int new_cols = td->cols - 1;
+  char **new_cells = (char **)calloc(td->rows * new_cols, sizeof(char *));
+  int *new_widths = (int *)calloc(new_cols, sizeof(int));
+  if (!new_cells || !new_widths) {
+    free(new_cells);
+    free(new_widths);
+    return;
+  }
 
-    for (int r = 0; r < td->rows; r++) {
-        int dst_c = 0;
-        for (int c = 0; c < td->cols; c++) {
-            if (c == col_idx) {
-                free(td->cells[r * td->cols + c]);
-            } else {
-                new_cells[r * new_cols + dst_c] = td->cells[r * td->cols + c];
-                dst_c++;
-            }
-        }
-    }
-
+  for (int r = 0; r < td->rows; r++) {
     int dst_c = 0;
     for (int c = 0; c < td->cols; c++) {
-        if (c != col_idx) {
-            new_widths[dst_c++] = td->col_widths[c];
-        }
+      if (c == col_idx) {
+        free(td->cells[r * td->cols + c]);
+      } else {
+        new_cells[r * new_cols + dst_c] = td->cells[r * td->cols + c];
+        dst_c++;
+      }
     }
+  }
 
-    free(td->cells);
-    free(td->col_widths);
-    td->cells = new_cells;
-    td->col_widths = new_widths;
-    td->cols = new_cols;
+  int dst_c = 0;
+  for (int c = 0; c < td->cols; c++) {
+    if (c != col_idx) {
+      new_widths[dst_c++] = td->col_widths[c];
+    }
+  }
+
+  free(td->cells);
+  free(td->col_widths);
+  td->cells = new_cells;
+  td->col_widths = new_widths;
+  td->cols = new_cols;
 }
 
 void block_table_set_view(Block *block, TableViewMode mode) {
-    if (!block || block->type != BLOCK_TABLE) return;
-    block->data.table.view_mode = mode;
+  if (!block || block->type != BLOCK_TABLE)
+    return;
+  block->data.table.view_mode = mode;
 }
 
 // -----------------------------------------------------------------------------
@@ -926,131 +1062,147 @@ void block_table_set_view(Block *block, TableViewMode mode) {
 // -----------------------------------------------------------------------------
 
 Node *node_create(uint32_t id, NodeType type, const char *name) {
-    Node *node = (Node *)calloc(1, sizeof(Node));
-    if (!node) return NULL;
+  Node *node = (Node *)calloc(1, sizeof(Node));
+  if (!node)
+    return NULL;
 
-    node->id = id;
-    node->type = type;
-    node->visible = 1;
-    node->locked = 0;
-    node->fill_color = 0xFFFFFFFF;
-    node->stroke_color = 0x000000FF;
-    node->stroke_width = 1.0f;
-    node->width = 100.0f;
-    node->height = 100.0f;
+  node->id = id;
+  node->type = type;
+  node->visible = 1;
+  node->locked = 0;
+  node->fill_color = 0xFFFFFFFF;
+  node->stroke_color = 0x000000FF;
+  node->stroke_width = 1.0f;
+  node->width = 100.0f;
+  node->height = 100.0f;
 
-    if (name) {
-        safe_strcpy(node->name, name, sizeof(node->name));
-    }
+  if (name) {
+    safe_strcpy(node->name, name, sizeof(node->name));
+  }
 
-    return node;
+  return node;
 }
 
 void node_destroy(Node *node) {
-    if (!node) return;
-    free(node);
+  if (!node)
+    return;
+  free(node);
 }
 
 void node_destroy_tree(Node *node) {
-    if (!node) return;
+  if (!node)
+    return;
 
-    node_destroy_tree(node->first_child);
-    node_destroy_tree(node->next_sibling);
-    node_destroy(node);
+  node_destroy_tree(node->first_child);
+  node_destroy_tree(node->next_sibling);
+  node_destroy(node);
 }
 
 void node_add_child(Node *parent, Node *child) {
-    if (!parent || !child) return;
+  if (!parent || !child)
+    return;
 
-    child->parent = parent;
-    child->next_sibling = NULL;
+  child->parent = parent;
+  child->next_sibling = NULL;
 
-    if (!parent->first_child) {
-        parent->first_child = child;
-    } else {
-        Node *cur = parent->first_child;
-        while (cur->next_sibling) {
-            cur = cur->next_sibling;
-        }
-        cur->next_sibling = child;
+  if (!parent->first_child) {
+    parent->first_child = child;
+  } else {
+    Node *cur = parent->first_child;
+    while (cur->next_sibling) {
+      cur = cur->next_sibling;
     }
+    cur->next_sibling = child;
+  }
 }
 
 void node_remove_from_parent(Node *node) {
-    if (!node || !node->parent) return;
+  if (!node || !node->parent)
+    return;
 
-    Node *parent = node->parent;
+  Node *parent = node->parent;
 
-    if (parent->first_child == node) {
-        parent->first_child = node->next_sibling;
-    } else {
-        Node *cur = parent->first_child;
-        while (cur && cur->next_sibling != node) {
-            cur = cur->next_sibling;
-        }
-        if (cur) {
-            cur->next_sibling = node->next_sibling;
-        }
+  if (parent->first_child == node) {
+    parent->first_child = node->next_sibling;
+  } else {
+    Node *cur = parent->first_child;
+    while (cur && cur->next_sibling != node) {
+      cur = cur->next_sibling;
     }
+    if (cur) {
+      cur->next_sibling = node->next_sibling;
+    }
+  }
 
-    node->parent = NULL;
-    node->next_sibling = NULL;
+  node->parent = NULL;
+  node->next_sibling = NULL;
 }
 
 void node_set_position(Node *node, float x, float y) {
-    if (!node) return;
-    node->x = x;
-    node->y = y;
+  if (!node)
+    return;
+  node->x = x;
+  node->y = y;
 }
 
 void node_set_size(Node *node, float w, float h) {
-    if (!node) return;
-    node->width = w;
-    node->height = h;
+  if (!node)
+    return;
+  node->width = w;
+  node->height = h;
 }
 
 void node_set_text(Node *node, const char *text) {
-    if (!node) return;
-    safe_strcpy(node->text, text, sizeof(node->text));
+  if (!node)
+    return;
+  safe_strcpy(node->text, text, sizeof(node->text));
 }
 
 void node_set_fill_color(Node *node, uint32_t rgba) {
-    if (!node) return;
-    node->fill_color = rgba;
+  if (!node)
+    return;
+  node->fill_color = rgba;
 }
 
 void node_set_stroke(Node *node, uint32_t rgba, float width) {
-    if (!node) return;
-    node->stroke_color = rgba;
-    node->stroke_width = width;
+  if (!node)
+    return;
+  node->stroke_color = rgba;
+  node->stroke_width = width;
 }
 
 void node_bring_to_front(Node *node) {
-    if (!node || !node->parent) return;
+  if (!node || !node->parent)
+    return;
 
-    Node *parent = node->parent;
+  Node *parent = node->parent;
 
-    // Already last?
-    Node *cur = parent->first_child;
-    if (!cur) return;
-    while (cur->next_sibling) cur = cur->next_sibling;
-    if (cur == node) return;
+  // Already last?
+  Node *cur = parent->first_child;
+  if (!cur)
+    return;
+  while (cur->next_sibling)
+    cur = cur->next_sibling;
+  if (cur == node)
+    return;
 
-    // Remove and append
-    node_remove_from_parent(node);
-    node_add_child(parent, node);
+  // Remove and append
+  node_remove_from_parent(node);
+  node_add_child(parent, node);
 }
 
 void node_send_to_back(Node *node) {
-    if (!node || !node->parent) return;
+  if (!node || !node->parent)
+    return;
 
-    Node *parent = node->parent;
-    if (parent->first_child == node) return;
+  Node *parent = node->parent;
+  if (parent->first_child == node)
+    return;
 
-    node_remove_from_parent(node);
-    node->next_sibling = parent->first_child;
-    parent->first_child = node;
-    node->parent = parent;
+  node_remove_from_parent(node);
+  node->next_sibling = parent->first_child;
+  parent->first_child = node;
+  node->parent = parent;
 }
 
 // -----------------------------------------------------------------------------
@@ -1058,110 +1210,127 @@ void node_send_to_back(Node *node) {
 // -----------------------------------------------------------------------------
 
 void block_canvas_init(Block *block) {
-    if (!block || block->type != BLOCK_CANVAS) return;
+  if (!block || block->type != BLOCK_CANVAS)
+    return;
 
-    CanvasData *cd = &block->data.canvas;
+  CanvasData *cd = &block->data.canvas;
 
-    cd->root = node_create(0, NODE_TYPE_ROOT, "CanvasRoot");
-    cd->next_node_id = 1;
-    cd->view_x = 0.0f;
-    cd->view_y = 0.0f;
-    cd->zoom = 1.0f;
-    cd->index = NULL;  // spatial_index_create(128) if needed
+  cd->root = node_create(0, NODE_TYPE_ROOT, "CanvasRoot");
+  cd->next_node_id = 1;
+  cd->view_x = 0.0f;
+  cd->view_y = 0.0f;
+  cd->zoom = 1.0f;
+  cd->index = NULL; // spatial_index_create(128) if needed
 }
 
 void block_canvas_destroy(Block *block) {
-    if (!block) return;
+  if (!block)
+    return;
 
-    CanvasData *cd = &block->data.canvas;
+  CanvasData *cd = &block->data.canvas;
 
-    if (cd->root) {
-        node_destroy_tree(cd->root);
-        cd->root = NULL;
-    }
+  if (cd->root) {
+    node_destroy_tree(cd->root);
+    cd->root = NULL;
+  }
 
-    if (cd->index) {
-        spatial_index_destroy(cd->index);
-        cd->index = NULL;
-    }
+  if (cd->index) {
+    spatial_index_destroy(cd->index);
+    cd->index = NULL;
+  }
 }
 
 static Node *find_node_recursive(Node *node, uint32_t id) {
-    if (!node) return NULL;
-    if (node->id == id) return node;
+  if (!node)
+    return NULL;
+  if (node->id == id)
+    return node;
 
-    Node *found = find_node_recursive(node->first_child, id);
-    if (found) return found;
+  Node *found = find_node_recursive(node->first_child, id);
+  if (found)
+    return found;
 
-    return find_node_recursive(node->next_sibling, id);
+  return find_node_recursive(node->next_sibling, id);
 }
 
 Node *block_canvas_create_node(Block *block, NodeType type, const char *name) {
-    if (!block || block->type != BLOCK_CANVAS) return NULL;
+  if (!block || block->type != BLOCK_CANVAS)
+    return NULL;
 
-    CanvasData *cd = &block->data.canvas;
-    if (!cd->root) return NULL;
+  CanvasData *cd = &block->data.canvas;
+  if (!cd->root)
+    return NULL;
 
-    Node *node = node_create(cd->next_node_id++, type, name);
-    if (!node) return NULL;
+  Node *node = node_create(cd->next_node_id++, type, name);
+  if (!node)
+    return NULL;
 
-    node_add_child(cd->root, node);
-    return node;
+  node_add_child(cd->root, node);
+  return node;
 }
 
 Node *block_canvas_find_node(Block *block, uint32_t node_id) {
-    if (!block || block->type != BLOCK_CANVAS) return NULL;
+  if (!block || block->type != BLOCK_CANVAS)
+    return NULL;
 
-    CanvasData *cd = &block->data.canvas;
-    return find_node_recursive(cd->root, node_id);
+  CanvasData *cd = &block->data.canvas;
+  return find_node_recursive(cd->root, node_id);
 }
 
 static Node *find_node_at_recursive(Node *node, float x, float y) {
-    if (!node) return NULL;
-
-    Node *found = find_node_at_recursive(node->next_sibling, x, y);
-    if (found) return found;
-
-    found = find_node_at_recursive(node->first_child, x, y);
-    if (found) return found;
-
-    if (node->type != NODE_TYPE_ROOT && node->visible) {
-        if (x >= node->x && x <= node->x + node->width &&
-            y >= node->y && y <= node->y + node->height) {
-            return node;
-        }
-    }
-
+  if (!node)
     return NULL;
+
+  Node *found = find_node_at_recursive(node->next_sibling, x, y);
+  if (found)
+    return found;
+
+  found = find_node_at_recursive(node->first_child, x, y);
+  if (found)
+    return found;
+
+  if (node->type != NODE_TYPE_ROOT && node->visible) {
+    if (x >= node->x && x <= node->x + node->width && y >= node->y &&
+        y <= node->y + node->height) {
+      return node;
+    }
+  }
+
+  return NULL;
 }
 
 Node *block_canvas_find_node_at(Block *block, float x, float y) {
-    if (!block || block->type != BLOCK_CANVAS) return NULL;
+  if (!block || block->type != BLOCK_CANVAS)
+    return NULL;
 
-    CanvasData *cd = &block->data.canvas;
-    if (!cd->root) return NULL;
+  CanvasData *cd = &block->data.canvas;
+  if (!cd->root)
+    return NULL;
 
-    return find_node_at_recursive(cd->root->first_child, x, y);
+  return find_node_at_recursive(cd->root->first_child, x, y);
 }
 
 bool block_canvas_delete_node(Block *block, uint32_t node_id) {
-    if (!block || block->type != BLOCK_CANVAS) return false;
+  if (!block || block->type != BLOCK_CANVAS)
+    return false;
 
-    Node *node = block_canvas_find_node(block, node_id);
-    if (!node || node->type == NODE_TYPE_ROOT) return false;
+  Node *node = block_canvas_find_node(block, node_id);
+  if (!node || node->type == NODE_TYPE_ROOT)
+    return false;
 
-    node_remove_from_parent(node);
-    node_destroy_tree(node);
-    return true;
+  node_remove_from_parent(node);
+  node_destroy_tree(node);
+  return true;
 }
 
 void block_canvas_set_view(Block *block, float x, float y, float zoom) {
-    if (!block || block->type != BLOCK_CANVAS) return;
+  if (!block || block->type != BLOCK_CANVAS)
+    return;
 
-    CanvasData *cd = &block->data.canvas;
-    cd->view_x = x;
-    cd->view_y = y;
-    cd->zoom = zoom;
+  CanvasData *cd = &block->data.canvas;
+  cd->view_x = x;
+  cd->view_y = y;
+  cd->zoom = zoom;
 }
 
 // -----------------------------------------------------------------------------
@@ -1169,71 +1338,81 @@ void block_canvas_set_view(Block *block, float x, float y, float zoom) {
 // -----------------------------------------------------------------------------
 
 void block_design_init(Block *block, int width, int height) {
-    if (!block || block->type != BLOCK_DESIGN) return;
+  if (!block || block->type != BLOCK_DESIGN)
+    return;
 
-    DesignData *dd = &block->data.design;
+  DesignData *dd = &block->data.design;
 
-    dd->root = node_create(0, NODE_TYPE_ROOT, "DesignRoot");
-    dd->next_node_id = 1;
-    dd->width = width > 0 ? width : 800;
-    dd->height = height > 0 ? height : 600;
-    dd->zoom = 1.0f;
-    dd->bg_color = 0xFFFFFFFF;
+  dd->root = node_create(0, NODE_TYPE_ROOT, "DesignRoot");
+  dd->next_node_id = 1;
+  dd->width = width > 0 ? width : 800;
+  dd->height = height > 0 ? height : 600;
+  dd->zoom = 1.0f;
+  dd->bg_color = 0xFFFFFFFF;
 }
 
 void block_design_destroy(Block *block) {
-    if (!block) return;
+  if (!block)
+    return;
 
-    DesignData *dd = &block->data.design;
+  DesignData *dd = &block->data.design;
 
-    if (dd->root) {
-        node_destroy_tree(dd->root);
-        dd->root = NULL;
-    }
+  if (dd->root) {
+    node_destroy_tree(dd->root);
+    dd->root = NULL;
+  }
 }
 
 Node *block_design_create_node(Block *block, NodeType type, const char *name) {
-    if (!block || block->type != BLOCK_DESIGN) return NULL;
+  if (!block || block->type != BLOCK_DESIGN)
+    return NULL;
 
-    DesignData *dd = &block->data.design;
-    if (!dd->root) return NULL;
+  DesignData *dd = &block->data.design;
+  if (!dd->root)
+    return NULL;
 
-    Node *node = node_create(dd->next_node_id++, type, name);
-    if (!node) return NULL;
+  Node *node = node_create(dd->next_node_id++, type, name);
+  if (!node)
+    return NULL;
 
-    node_add_child(dd->root, node);
-    return node;
+  node_add_child(dd->root, node);
+  return node;
 }
 
 Node *block_design_find_node(Block *block, uint32_t node_id) {
-    if (!block || block->type != BLOCK_DESIGN) return NULL;
+  if (!block || block->type != BLOCK_DESIGN)
+    return NULL;
 
-    DesignData *dd = &block->data.design;
-    return find_node_recursive(dd->root, node_id);
+  DesignData *dd = &block->data.design;
+  return find_node_recursive(dd->root, node_id);
 }
 
 bool block_design_delete_node(Block *block, uint32_t node_id) {
-    if (!block || block->type != BLOCK_DESIGN) return false;
+  if (!block || block->type != BLOCK_DESIGN)
+    return false;
 
-    Node *node = block_design_find_node(block, node_id);
-    if (!node || node->type == NODE_TYPE_ROOT) return false;
+  Node *node = block_design_find_node(block, node_id);
+  if (!node || node->type == NODE_TYPE_ROOT)
+    return false;
 
-    node_remove_from_parent(node);
-    node_destroy_tree(node);
-    return true;
+  node_remove_from_parent(node);
+  node_destroy_tree(node);
+  return true;
 }
 
 void block_design_set_size(Block *block, int width, int height) {
-    if (!block || block->type != BLOCK_DESIGN) return;
+  if (!block || block->type != BLOCK_DESIGN)
+    return;
 
-    block->data.design.width = width;
-    block->data.design.height = height;
+  block->data.design.width = width;
+  block->data.design.height = height;
 }
 
 void block_design_set_bg_color(Block *block, uint32_t color) {
-    if (!block || block->type != BLOCK_DESIGN) return;
+  if (!block || block->type != BLOCK_DESIGN)
+    return;
 
-    block->data.design.bg_color = color;
+  block->data.design.bg_color = color;
 }
 
 // -----------------------------------------------------------------------------
@@ -1241,123 +1420,144 @@ void block_design_set_bg_color(Block *block, uint32_t color) {
 // -----------------------------------------------------------------------------
 
 void block_video_init(Block *block) {
-    if (!block || block->type != BLOCK_VIDEO) return;
+  if (!block || block->type != BLOCK_VIDEO)
+    return;
 
-    VideoData *vd = &block->data.video;
-    vd->clips = NULL;
-    vd->clip_count = 0;
-    vd->clip_cap = 0;
-    vd->active_index = -1;
-    vd->playhead = 0.0;
-    vd->is_playing = false;
-    vd->is_fullscreen = false;
+  VideoData *vd = &block->data.video;
+  vd->clips = NULL;
+  vd->clip_count = 0;
+  vd->clip_cap = 0;
+  vd->active_index = -1;
+  vd->playhead = 0.0;
+  vd->is_playing = false;
+  vd->is_fullscreen = false;
 }
 
 void block_video_destroy(Block *block) {
-    if (!block) return;
+  if (!block)
+    return;
 
-    VideoData *vd = &block->data.video;
-    free(vd->clips);
-    vd->clips = NULL;
-    vd->clip_count = 0;
-    vd->clip_cap = 0;
+  VideoData *vd = &block->data.video;
+  free(vd->clips);
+  vd->clips = NULL;
+  vd->clip_count = 0;
+  vd->clip_cap = 0;
 }
 
 int block_video_add_clip(Block *block, const char *path) {
-    if (!block || block->type != BLOCK_VIDEO) return -1;
+  if (!block || block->type != BLOCK_VIDEO)
+    return -1;
 
-    VideoData *vd = &block->data.video;
+  VideoData *vd = &block->data.video;
 
-    if (vd->clip_count >= vd->clip_cap) {
-        int new_cap = vd->clip_cap < 8 ? 8 : vd->clip_cap * 2;
-        VideoClip *new_clips = (VideoClip *)realloc(vd->clips, new_cap * sizeof(VideoClip));
-        if (!new_clips) return -1;
-        vd->clips = new_clips;
-        vd->clip_cap = new_cap;
-    }
+  if (vd->clip_count >= vd->clip_cap) {
+    int new_cap = vd->clip_cap < 8 ? 8 : vd->clip_cap * 2;
+    VideoClip *new_clips =
+        (VideoClip *)realloc(vd->clips, new_cap * sizeof(VideoClip));
+    if (!new_clips)
+      return -1;
+    vd->clips = new_clips;
+    vd->clip_cap = new_cap;
+  }
 
-    int idx = vd->clip_count;
-    VideoClip *clip = &vd->clips[idx];
-    memset(clip, 0, sizeof(VideoClip));
+  int idx = vd->clip_count;
+  VideoClip *clip = &vd->clips[idx];
+  memset(clip, 0, sizeof(VideoClip));
 
-    if (path) {
-        safe_strcpy(clip->source_path, path, sizeof(clip->source_path));
-    }
-    clip->start_time = 0.0;
-    clip->end_time = 10.0;
-    clip->is_selected = false;
+  if (path) {
+    safe_strcpy(clip->source_path, path, sizeof(clip->source_path));
+  }
+  clip->start_time = 0.0;
+  clip->end_time = 10.0;
+  clip->is_selected = false;
 
-    vd->clip_count++;
-    return idx;
+  vd->clip_count++;
+  return idx;
 }
 
 bool block_video_delete_clip(Block *block, int index) {
-    if (!block || block->type != BLOCK_VIDEO) return false;
+  if (!block || block->type != BLOCK_VIDEO)
+    return false;
 
-    VideoData *vd = &block->data.video;
-    if (index < 0 || index >= vd->clip_count) return false;
+  VideoData *vd = &block->data.video;
+  if (index < 0 || index >= vd->clip_count)
+    return false;
 
-    for (int i = index; i < vd->clip_count - 1; i++) {
-        vd->clips[i] = vd->clips[i + 1];
-    }
-    vd->clip_count--;
+  for (int i = index; i < vd->clip_count - 1; i++) {
+    vd->clips[i] = vd->clips[i + 1];
+  }
+  vd->clip_count--;
 
-    if (vd->active_index >= vd->clip_count) {
-        vd->active_index = vd->clip_count - 1;
-    }
+  if (vd->active_index >= vd->clip_count) {
+    vd->active_index = vd->clip_count - 1;
+  }
 
-    return true;
+  return true;
 }
 
-bool block_video_set_clip_range(Block *block, int index, double start, double end) {
-    if (!block || block->type != BLOCK_VIDEO) return false;
+bool block_video_set_clip_range(Block *block, int index, double start,
+                                double end) {
+  if (!block || block->type != BLOCK_VIDEO)
+    return false;
 
-    VideoData *vd = &block->data.video;
-    if (index < 0 || index >= vd->clip_count) return false;
+  VideoData *vd = &block->data.video;
+  if (index < 0 || index >= vd->clip_count)
+    return false;
 
-    if (start < 0.0) start = 0.0;
-    if (end < start) end = start;
+  if (start < 0.0)
+    start = 0.0;
+  if (end < start)
+    end = start;
 
-    vd->clips[index].start_time = start;
-    vd->clips[index].end_time = end;
-    return true;
+  vd->clips[index].start_time = start;
+  vd->clips[index].end_time = end;
+  return true;
 }
 
-bool block_video_set_clip_comment(Block *block, int index, const char *comment) {
-    if (!block || block->type != BLOCK_VIDEO) return false;
+bool block_video_set_clip_comment(Block *block, int index,
+                                  const char *comment) {
+  if (!block || block->type != BLOCK_VIDEO)
+    return false;
 
-    VideoData *vd = &block->data.video;
-    if (index < 0 || index >= vd->clip_count) return false;
+  VideoData *vd = &block->data.video;
+  if (index < 0 || index >= vd->clip_count)
+    return false;
 
-    safe_strcpy(vd->clips[index].comment, comment, sizeof(vd->clips[index].comment));
-    return true;
+  safe_strcpy(vd->clips[index].comment, comment,
+              sizeof(vd->clips[index].comment));
+  return true;
 }
 
 double block_video_total_duration(const Block *block) {
-    if (!block || block->type != BLOCK_VIDEO) return 0.0;
+  if (!block || block->type != BLOCK_VIDEO)
+    return 0.0;
 
-    const VideoData *vd = &block->data.video;
-    double total = 0.0;
-    for (int i = 0; i < vd->clip_count; i++) {
-        double dur = vd->clips[i].end_time - vd->clips[i].start_time;
-        if (dur > 0.0) total += dur;
-    }
-    return total;
+  const VideoData *vd = &block->data.video;
+  double total = 0.0;
+  for (int i = 0; i < vd->clip_count; i++) {
+    double dur = vd->clips[i].end_time - vd->clips[i].start_time;
+    if (dur > 0.0)
+      total += dur;
+  }
+  return total;
 }
 
 void block_video_set_playhead(Block *block, double time) {
-    if (!block || block->type != BLOCK_VIDEO) return;
-    block->data.video.playhead = time;
+  if (!block || block->type != BLOCK_VIDEO)
+    return;
+  block->data.video.playhead = time;
 }
 
 void block_video_toggle_play(Block *block) {
-    if (!block || block->type != BLOCK_VIDEO) return;
-    block->data.video.is_playing = !block->data.video.is_playing;
+  if (!block || block->type != BLOCK_VIDEO)
+    return;
+  block->data.video.is_playing = !block->data.video.is_playing;
 }
 
 void block_video_toggle_fullscreen(Block *block) {
-    if (!block || block->type != BLOCK_VIDEO) return;
-    block->data.video.is_fullscreen = !block->data.video.is_fullscreen;
+  if (!block || block->type != BLOCK_VIDEO)
+    return;
+  block->data.video.is_fullscreen = !block->data.video.is_fullscreen;
 }
 
 // -----------------------------------------------------------------------------
@@ -1365,71 +1565,77 @@ void block_video_toggle_fullscreen(Block *block) {
 // -----------------------------------------------------------------------------
 
 void block_lua_init(Block *block) {
-    if (!block || block->type != BLOCK_LUA) return;
+  if (!block || block->type != BLOCK_LUA)
+    return;
 
-    LuaData *ld = &block->data.lua;
-    ld->code = NULL;
-    ld->code_len = 0;
-    ld->code_cap = 0;
-    ld->output = NULL;
-    ld->output_len = 0;
-    ld->has_error = false;
-    ld->is_running = false;
+  LuaData *ld = &block->data.lua;
+  ld->code = NULL;
+  ld->code_len = 0;
+  ld->code_cap = 0;
+  ld->output = NULL;
+  ld->output_len = 0;
+  ld->has_error = false;
+  ld->is_running = false;
 }
 
 void block_lua_destroy(Block *block) {
-    if (!block) return;
+  if (!block)
+    return;
 
-    LuaData *ld = &block->data.lua;
-    free(ld->code);
-    free(ld->output);
-    ld->code = NULL;
-    ld->output = NULL;
+  LuaData *ld = &block->data.lua;
+  free(ld->code);
+  free(ld->output);
+  ld->code = NULL;
+  ld->output = NULL;
 }
 
 void block_lua_set_code(Block *block, const char *code) {
-    if (!block || block->type != BLOCK_LUA) return;
+  if (!block || block->type != BLOCK_LUA)
+    return;
 
-    LuaData *ld = &block->data.lua;
+  LuaData *ld = &block->data.lua;
 
-    size_t len = code ? strlen(code) : 0;
+  size_t len = code ? strlen(code) : 0;
 
-    if (len >= ld->code_cap) {
-        size_t new_cap = len + 256;
-        char *new_code = (char *)realloc(ld->code, new_cap);
-        if (!new_code) return;
-        ld->code = new_code;
-        ld->code_cap = new_cap;
-    }
+  if (len >= ld->code_cap) {
+    size_t new_cap = len + 256;
+    char *new_code = (char *)realloc(ld->code, new_cap);
+    if (!new_code)
+      return;
+    ld->code = new_code;
+    ld->code_cap = new_cap;
+  }
 
-    if (code) {
-        memcpy(ld->code, code, len);
-    }
-    ld->code[len] = '\0';
-    ld->code_len = len;
+  if (code) {
+    memcpy(ld->code, code, len);
+  }
+  ld->code[len] = '\0';
+  ld->code_len = len;
 }
 
 void block_lua_execute(Block *block, struct lua_State *L) {
-    if (!block || block->type != BLOCK_LUA || !L) return;
+  if (!block || block->type != BLOCK_LUA || !L)
+    return;
 
-    // Lua execution would go here
-    // For now, just set a placeholder output
-    LuaData *ld = &block->data.lua;
+  // Lua execution would go here
+  // For now, just set a placeholder output
+  LuaData *ld = &block->data.lua;
 
-    free(ld->output);
-    ld->output = aslan_strdup("[Execution pending - Lua integration required]");
-    ld->output_len = strlen(ld->output);
-    ld->has_error = false;
+  free(ld->output);
+  ld->output = aslan_strdup("[Execution pending - Lua integration required]");
+  ld->output_len = strlen(ld->output);
+  ld->has_error = false;
 }
 
 void block_lua_clear_output(Block *block) {
-    if (!block || block->type != BLOCK_LUA) return;
+  if (!block || block->type != BLOCK_LUA)
+    return;
 
-    LuaData *ld = &block->data.lua;
-    free(ld->output);
-    ld->output = NULL;
-    ld->output_len = 0;
-    ld->has_error = false;
+  LuaData *ld = &block->data.lua;
+  free(ld->output);
+  ld->output = NULL;
+  ld->output_len = 0;
+  ld->has_error = false;
 }
 
 // -----------------------------------------------------------------------------
@@ -1437,237 +1643,242 @@ void block_lua_clear_output(Block *block) {
 // -----------------------------------------------------------------------------
 
 static void escape_string(FILE *fp, const char *str) {
-    if (!str) { fprintf(fp, "\"\""); return; }
+  if (!str) {
+    fprintf(fp, "\"\"");
+    return;
+  }
 
-    fprintf(fp, "\"");
-    for (const char *p = str; *p; p++) {
-        if (*p == '"') fprintf(fp, "\\\"");
-        else if (*p == '\\') fprintf(fp, "\\\\");
-        else if (*p == '\n') fprintf(fp, "\\n");
-        else if (*p == '\r') fprintf(fp, "\\r");
-        else if (*p == '\t') fprintf(fp, "\\t");
-        else fputc(*p, fp);
-    }
-    fprintf(fp, "\"");
+  fprintf(fp, "\"");
+  for (const char *p = str; *p; p++) {
+    if (*p == '"')
+      fprintf(fp, "\\\"");
+    else if (*p == '\\')
+      fprintf(fp, "\\\\");
+    else if (*p == '\n')
+      fprintf(fp, "\\n");
+    else if (*p == '\r')
+      fprintf(fp, "\\r");
+    else if (*p == '\t')
+      fprintf(fp, "\\t");
+    else
+      fputc(*p, fp);
+  }
+  fprintf(fp, "\"");
 }
 
 static void save_node_recursive(FILE *fp, uint32_t page_id, uint32_t block_id,
-                                 const char *prefix, Node *node) {
-    if (!node || node->type == NODE_TYPE_ROOT) return;
+                                const char *prefix, Node *node) {
+  if (!node || node->type == NODE_TYPE_ROOT)
+    return;
 
-    // Create node
-    fprintf(fp, "%s_node %u %u create %u %s ", prefix, page_id, block_id,
-            node->id, node_type_to_string(node->type));
-    escape_string(fp, node->name);
+  // Create node
+  fprintf(fp, "%s_node %u %u create %u %s ", prefix, page_id, block_id,
+          node->id, node_type_to_string(node->type));
+  escape_string(fp, node->name);
+  fprintf(fp, "\n");
+
+  // Position and size
+  fprintf(fp, "%s_node %u %u move %u %.2f %.2f\n", prefix, page_id, block_id,
+          node->id, node->x, node->y);
+  fprintf(fp, "%s_node %u %u resize %u %.2f %.2f\n", prefix, page_id, block_id,
+          node->id, node->width, node->height);
+
+  // Colors
+  fprintf(fp, "%s_node %u %u fill %u %u\n", prefix, page_id, block_id, node->id,
+          node->fill_color);
+  fprintf(fp, "%s_node %u %u stroke %u %u %.2f\n", prefix, page_id, block_id,
+          node->id, node->stroke_color, node->stroke_width);
+
+  // Text content
+  if (node->text[0]) {
+    fprintf(fp, "%s_node %u %u text %u ", prefix, page_id, block_id, node->id);
+    escape_string(fp, node->text);
     fprintf(fp, "\n");
+  }
 
-    // Position and size
-    fprintf(fp, "%s_node %u %u move %u %.2f %.2f\n", prefix, page_id, block_id,
-            node->id, node->x, node->y);
-    fprintf(fp, "%s_node %u %u resize %u %.2f %.2f\n", prefix, page_id, block_id,
-            node->id, node->width, node->height);
-
-    // Colors
-    fprintf(fp, "%s_node %u %u fill %u %u\n", prefix, page_id, block_id,
-            node->id, node->fill_color);
-    fprintf(fp, "%s_node %u %u stroke %u %u %.2f\n", prefix, page_id, block_id,
-            node->id, node->stroke_color, node->stroke_width);
-
-    // Text content
-    if (node->text[0]) {
-        fprintf(fp, "%s_node %u %u text %u ", prefix, page_id, block_id, node->id);
-        escape_string(fp, node->text);
-        fprintf(fp, "\n");
-    }
-
-    // Recurse to children and siblings
-    for (Node *child = node->first_child; child; child = child->next_sibling) {
-        save_node_recursive(fp, page_id, block_id, prefix, child);
-    }
+  // Recurse to children and siblings
+  for (Node *child = node->first_child; child; child = child->next_sibling) {
+    save_node_recursive(fp, page_id, block_id, prefix, child);
+  }
 }
 
 void doc_save_aof(const Document *doc, FILE *fp) {
-    if (!doc || !fp) return;
+  if (!doc || !fp)
+    return;
 
-    fprintf(fp, "-- aslan_aof:3 --\n");
+  fprintf(fp, "-- aslan_aof:3 --\n");
 
-    // Document title
-    if (doc->title[0]) {
-        fprintf(fp, "doc_title ");
-        escape_string(fp, doc->title);
-        fprintf(fp, "\n");
+  // Document title
+  if (doc->title[0]) {
+    fprintf(fp, "doc_title ");
+    escape_string(fp, doc->title);
+    fprintf(fp, "\n");
+  }
+
+  // Globals
+  for (int i = 0; i < 64; i++) {
+    if (doc->globals[i].in_use) {
+      fprintf(fp, "set_global %s ", doc->globals[i].key);
+      escape_string(fp, doc->globals[i].value);
+      fprintf(fp, "\n");
     }
+  }
 
-    // Globals
-    for (int i = 0; i < 64; i++) {
-        if (doc->globals[i].in_use) {
-            fprintf(fp, "set_global %s ", doc->globals[i].key);
-            escape_string(fp, doc->globals[i].value);
+  // Pages and blocks
+  for (int pi = 0; pi < 32; pi++) {
+    const Page *page = &doc->pages[pi];
+    if (!page->in_use)
+      continue;
+
+    // Create page
+    fprintf(fp, "page_create %u ", page->id);
+    escape_string(fp, page->name);
+    fprintf(fp, "\n");
+
+    // Blocks
+    for (Block *b = page->first_block; b; b = b->next) {
+      // Create block
+      fprintf(fp, "block_create %u %u %s\n", page->id, b->id,
+              block_type_to_string(b->type));
+
+      // Text content
+      if (b->text && b->text_len > 0) {
+        fprintf(fp, "block_text %u %u ", page->id, b->id);
+        escape_string(fp, b->text);
+        fprintf(fp, "\n");
+      }
+
+      // Collapse state
+      if (b->is_collapsed) {
+        fprintf(fp, "block_collapse %u %u 1\n", page->id, b->id);
+      }
+
+      // Highlight
+      if (b->highlight_color > 0) {
+        fprintf(fp, "block_highlight %u %u %d\n", page->id, b->id,
+                b->highlight_color);
+      }
+
+      // Type-specific data
+      switch (b->type) {
+      case BLOCK_TABLE: {
+        const TableData *td = &b->data.table;
+        fprintf(fp, "block_table_init %u %u %d %d\n", page->id, b->id, td->rows,
+                td->cols);
+        fprintf(fp, "block_table_view %u %u %s\n", page->id, b->id,
+                td->view_mode == TABLE_VIEW_LIST    ? "list"
+                : td->view_mode == TABLE_VIEW_BOARD ? "board"
+                                                    : "table");
+        for (int r = 0; r < td->rows; r++) {
+          for (int c = 0; c < td->cols; c++) {
+            const char *cell = td->cells ? td->cells[r * td->cols + c] : NULL;
+            if (cell && cell[0]) {
+              fprintf(fp, "block_table_cell %u %u %d %d ", page->id, b->id, r,
+                      c);
+              escape_string(fp, cell);
+              fprintf(fp, "\n");
+            }
+          }
+        }
+        break;
+      }
+      case BLOCK_CANVAS: {
+        const CanvasData *cd = &b->data.canvas;
+        fprintf(fp, "block_canvas_view %u %u %.2f %.2f %.2f\n", page->id, b->id,
+                cd->view_x, cd->view_y, cd->zoom);
+        if (cd->root) {
+          for (Node *n = cd->root->first_child; n; n = n->next_sibling) {
+            save_node_recursive(fp, page->id, b->id, "block_canvas", n);
+          }
+        }
+        break;
+      }
+      case BLOCK_DESIGN: {
+        const DesignData *dd = &b->data.design;
+        fprintf(fp, "block_design_init %u %u %d %d\n", page->id, b->id,
+                dd->width, dd->height);
+        fprintf(fp, "block_design_bg %u %u %u\n", page->id, b->id,
+                dd->bg_color);
+        if (dd->root) {
+          for (Node *n = dd->root->first_child; n; n = n->next_sibling) {
+            save_node_recursive(fp, page->id, b->id, "block_design", n);
+          }
+        }
+        break;
+      }
+      case BLOCK_VIDEO: {
+        const VideoData *vd = &b->data.video;
+        for (int i = 0; i < vd->clip_count; i++) {
+          const VideoClip *clip = &vd->clips[i];
+          fprintf(fp, "block_video_clip_add %u %u ", page->id, b->id);
+          escape_string(fp, clip->source_path);
+          fprintf(fp, "\n");
+          fprintf(fp, "block_video_clip_range %u %u %d %.3f %.3f\n", page->id,
+                  b->id, i, clip->start_time, clip->end_time);
+          if (clip->comment[0]) {
+            fprintf(fp, "block_video_clip_comment %u %u %d ", page->id, b->id,
+                    i);
+            escape_string(fp, clip->comment);
             fprintf(fp, "\n");
+          }
         }
-    }
-
-    // Pages and blocks
-    for (int pi = 0; pi < 32; pi++) {
-        const Page *page = &doc->pages[pi];
-        if (!page->in_use) continue;
-
-        // Create page
-        fprintf(fp, "page_create %u ", page->id);
-        escape_string(fp, page->name);
-        fprintf(fp, "\n");
-
-        // Blocks
-        for (Block *b = page->first_block; b; b = b->next) {
-            // Create block
-            fprintf(fp, "block_create %u %u %s\n", page->id, b->id,
-                    block_type_to_string(b->type));
-
-            // Text content
-            if (b->text && b->text_len > 0) {
-                fprintf(fp, "block_text %u %u ", page->id, b->id);
-                escape_string(fp, b->text);
-                fprintf(fp, "\n");
-            }
-
-            // Collapse state
-            if (b->is_collapsed) {
-                fprintf(fp, "block_collapse %u %u 1\n", page->id, b->id);
-            }
-
-            // Highlight
-            if (b->highlight_color > 0) {
-                fprintf(fp, "block_highlight %u %u %d\n", page->id, b->id,
-                        b->highlight_color);
-            }
-
-            // Type-specific data
-            switch (b->type) {
-                case BLOCK_TABLE: {
-                    const TableData *td = &b->data.table;
-                    fprintf(fp, "block_table_init %u %u %d %d\n", page->id, b->id,
-                            td->rows, td->cols);
-                    fprintf(fp, "block_table_view %u %u %s\n", page->id, b->id,
-                            td->view_mode == TABLE_VIEW_LIST ? "list" :
-                            td->view_mode == TABLE_VIEW_BOARD ? "board" : "table");
-                    for (int r = 0; r < td->rows; r++) {
-                        for (int c = 0; c < td->cols; c++) {
-                            const char *cell = td->cells ? td->cells[r * td->cols + c] : NULL;
-                            if (cell && cell[0]) {
-                                fprintf(fp, "block_table_cell %u %u %d %d ",
-                                        page->id, b->id, r, c);
-                                escape_string(fp, cell);
-                                fprintf(fp, "\n");
-                            }
-                        }
-                    }
-                    break;
-                }
-                case BLOCK_CANVAS: {
-                    const CanvasData *cd = &b->data.canvas;
-                    fprintf(fp, "block_canvas_view %u %u %.2f %.2f %.2f\n",
-                            page->id, b->id, cd->view_x, cd->view_y, cd->zoom);
-                    if (cd->root) {
-                        for (Node *n = cd->root->first_child; n; n = n->next_sibling) {
-                            save_node_recursive(fp, page->id, b->id, "block_canvas", n);
-                        }
-                    }
-                    break;
-                }
-                case BLOCK_DESIGN: {
-                    const DesignData *dd = &b->data.design;
-                    fprintf(fp, "block_design_init %u %u %d %d\n",
-                            page->id, b->id, dd->width, dd->height);
-                    fprintf(fp, "block_design_bg %u %u %u\n",
-                            page->id, b->id, dd->bg_color);
-                    if (dd->root) {
-                        for (Node *n = dd->root->first_child; n; n = n->next_sibling) {
-                            save_node_recursive(fp, page->id, b->id, "block_design", n);
-                        }
-                    }
-                    break;
-                }
-                case BLOCK_VIDEO: {
-                    const VideoData *vd = &b->data.video;
-                    for (int i = 0; i < vd->clip_count; i++) {
-                        const VideoClip *clip = &vd->clips[i];
-                        fprintf(fp, "block_video_clip_add %u %u ", page->id, b->id);
-                        escape_string(fp, clip->source_path);
-                        fprintf(fp, "\n");
-                        fprintf(fp, "block_video_clip_range %u %u %d %.3f %.3f\n",
-                                page->id, b->id, i, clip->start_time, clip->end_time);
-                        if (clip->comment[0]) {
-                            fprintf(fp, "block_video_clip_comment %u %u %d ",
-                                    page->id, b->id, i);
-                            escape_string(fp, clip->comment);
-                            fprintf(fp, "\n");
-                        }
-                    }
-                    break;
-                }
-                case BLOCK_LUA: {
-                    const LuaData *ld = &b->data.lua;
-                    if (ld->code && ld->code_len > 0) {
-                        fprintf(fp, "block_lua_code %u %u ", page->id, b->id);
-                        escape_string(fp, ld->code);
-                        fprintf(fp, "\n");
-                    }
-                    break;
-                }
-                case BLOCK_CALLOUT:
-                    fprintf(fp, "block_callout_theme %u %u %s\n", page->id, b->id,
-                            b->data.callout.theme == CALLOUT_ALERT ? "alert" :
-                            b->data.callout.theme == CALLOUT_STAR ? "star" :
-                            b->data.callout.theme == CALLOUT_CHECK ? "check" :
-                            b->data.callout.theme == CALLOUT_IDEA ? "idea" : "info");
-                    break;
-                case BLOCK_CHECKLIST:
-                    if (b->data.checklist.is_checked) {
-                        fprintf(fp, "block_checklist_toggle %u %u\n", page->id, b->id);
-                    }
-                    break;
-                default:
-                    break;
-            }
+        break;
+      }
+      case BLOCK_LUA: {
+        const LuaData *ld = &b->data.lua;
+        if (ld->code && ld->code_len > 0) {
+          fprintf(fp, "block_lua_code %u %u ", page->id, b->id);
+          escape_string(fp, ld->code);
+          fprintf(fp, "\n");
         }
+        break;
+      }
+      default:
+        break;
+      }
     }
+  }
 
-    // Active page
-    if (doc->active_page_idx >= 0 && doc->pages[doc->active_page_idx].in_use) {
-        fprintf(fp, "page_activate %u\n", doc->pages[doc->active_page_idx].id);
-    }
+  // Active page
+  if (doc->active_page_idx >= 0 && doc->pages[doc->active_page_idx].in_use) {
+    fprintf(fp, "page_activate %u\n", doc->pages[doc->active_page_idx].id);
+  }
 }
 
 void doc_load_aof(Document *doc, FILE *fp) {
-    // AOF loading is complex - placeholder for now
-    // Would parse line by line and execute commands
-    (void)doc;
-    (void)fp;
+  // AOF loading is complex - placeholder for now
+  // Would parse line by line and execute commands
+  (void)doc;
+  (void)fp;
 }
 
 void doc_save_snapshot(const Document *doc, const char *filepath) {
-    if (!doc || !filepath) return;
+  if (!doc || !filepath)
+    return;
 
-    FILE *fp = fopen(filepath, "w");
-    if (!fp) return;
+  FILE *fp = fopen(filepath, "w");
+  if (!fp)
+    return;
 
-    doc_save_aof(doc, fp);
-    fclose(fp);
+  doc_save_aof(doc, fp);
+  fclose(fp);
 }
 
 Document *doc_load_snapshot(const char *filepath) {
-    if (!filepath) return NULL;
+  if (!filepath)
+    return NULL;
 
-    FILE *fp = fopen(filepath, "r");
-    if (!fp) return NULL;
+  FILE *fp = fopen(filepath, "r");
+  if (!fp)
+    return NULL;
 
-    Document *doc = doc_create();
-    if (doc) {
-        doc_load_aof(doc, fp);
-    }
+  Document *doc = doc_create();
+  if (doc) {
+    doc_load_aof(doc, fp);
+  }
 
-    fclose(fp);
-    return doc;
+  fclose(fp);
+  return doc;
 }
 
 // -----------------------------------------------------------------------------
@@ -1675,24 +1886,27 @@ Document *doc_load_snapshot(const char *filepath) {
 // -----------------------------------------------------------------------------
 
 void doc_export_svg(const Document *doc, const char *filepath) {
-    if (!doc || !filepath) return;
+  if (!doc || !filepath)
+    return;
 
-    FILE *f = fopen(filepath, "w");
-    if (!f) return;
+  FILE *f = fopen(filepath, "w");
+  if (!f)
+    return;
 
-    fprintf(f, "<?xml version='1.0' encoding='UTF-8'?>\n");
-    fprintf(f, "<svg width='%d' height='%d' xmlns='http://www.w3.org/2000/svg'>\n",
-            doc->doc_width, doc->doc_height);
-    fprintf(f, "  <rect width='100%%' height='100%%' fill='#ffffff'/>\n");
-    fprintf(f, "  <text x='20' y='40' font-family='sans-serif' font-size='16'>");
-    fprintf(f, "ASLAN Document Export</text>\n");
-    fprintf(f, "</svg>\n");
+  fprintf(f, "<?xml version='1.0' encoding='UTF-8'?>\n");
+  fprintf(f,
+          "<svg width='%d' height='%d' xmlns='http://www.w3.org/2000/svg'>\n",
+          doc->doc_width, doc->doc_height);
+  fprintf(f, "  <rect width='100%%' height='100%%' fill='#ffffff'/>\n");
+  fprintf(f, "  <text x='20' y='40' font-family='sans-serif' font-size='16'>");
+  fprintf(f, "ASLAN Document Export</text>\n");
+  fprintf(f, "</svg>\n");
 
-    fclose(f);
+  fclose(f);
 }
 
 void doc_export_pdf(const Document *doc, const char *filepath) {
-    // PDF export would require a library - placeholder
-    (void)doc;
-    (void)filepath;
+  // PDF export would require a library - placeholder
+  (void)doc;
+  (void)filepath;
 }

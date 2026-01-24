@@ -66,7 +66,8 @@ typedef struct UIHost {
   char save_path[256];
 
   // Block editing state
-  uint32_t editing_block_id; // Block being edited (0=none)
+  uint32_t editing_block_id;  // Block being edited (0=none)
+  uint32_t expanded_block_id; // Block currently in full-screen mode (0=none)
   int editing_cursor_pos;
   int text_input_active;
 
@@ -82,9 +83,6 @@ typedef struct UIHost {
   // Block insertion menu
   int show_insert_menu;
   float insert_menu_x, insert_menu_y;
-
-  // Highlight color (0=none, 1=yellow, 2=blue, 3=green)
-  int fluo_color_index;
 
   // Recent documents
   Recents recents;
@@ -128,11 +126,6 @@ void ui_render_block_video(UIHost *ui, Engine *engine, struct nk_context *ctx,
                            Block *block, float width);
 void ui_render_block_lua(UIHost *ui, Engine *engine, struct nk_context *ctx,
                          Block *block, float width);
-void ui_render_block_callout(UIHost *ui, struct nk_context *ctx, Block *block,
-                             float width);
-void ui_render_block_checklist(UIHost *ui, Engine *engine,
-                               struct nk_context *ctx, Block *block,
-                               float width);
 
 // -----------------------------------------------------------------------------
 // UI Components
@@ -159,15 +152,16 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_CANVAS "\xEE\xA9\xBA"    // ri-artboard-2-line
 #define ICON_DESIGN "\xEE\xBA\x83"    // ri-layout-4-line
 #define ICON_VIDEO "\xEF\x8A\x82"     // ri-video-line
-#define ICON_CALLOUT "\xEE\xAD\xAB"   // ri-chat-quote-line
-#define ICON_CHECKLIST "\xEE\xAE\x85" // ri-checkbox-line
-#define ICON_ADD "\xEE\xA8\x93"       // ri-add-line
-#define ICON_DELETE "\xEE\xB0\xAA"    // ri-delete-bin-line
-#define ICON_PLAY "\xEF\x80\x8B"      // ri-play-line
-#define ICON_PAUSE "\xEE\xBF\x98"     // ri-pause-line
-#define ICON_EXPAND "\xEE\xA9\x8B"    // ri-arrow-down-s-line
-#define ICON_COLLAPSE "\xEE\xA9\xB8"  // ri-arrow-up-s-line
-#define ICON_HOME "\xEE\xB8\x9D"      // ri-home-4-line
-#define ICON_LUA "\xEF\x87\xB6"       // ri-terminal-box-line
+
+#define ICON_ADD "\xEE\xA8\x93"             // ri-add-line
+#define ICON_DELETE "\xEE\xB0\xAA"          // ri-delete-bin-line
+#define ICON_PLAY "\xEF\x80\x8B"            // ri-play-line
+#define ICON_PAUSE "\xEE\xBF\x98"           // ri-pause-line
+#define ICON_EXPAND "\xEE\xA9\x8B"          // ri-arrow-down-s-line
+#define ICON_COLLAPSE "\xEE\xA9\xB8"        // ri-arrow-up-s-line
+#define ICON_HOME "\xEE\xB8\x9D"            // ri-home-4-line
+#define ICON_LUA "\xEF\x87\xB6"             // ri-terminal-box-line
+#define ICON_FULLSCREEN "\xEE\xB6\x9C"      // ri-fullscreen-line
+#define ICON_FULLSCREEN_EXIT "\xEE\xB6\x9A" // ri-fullscreen-exit-line
 
 #endif // UI_HOST_H
