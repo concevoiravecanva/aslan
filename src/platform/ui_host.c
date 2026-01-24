@@ -7,6 +7,7 @@
 #include "ui_host.h"
 #include "../scripting/lua_host.h"
 #include <SDL.h>
+#include <math.h>
 #include <stdlib.h>
 
 // Nuklear SDL renderer backend (external)
@@ -156,7 +157,112 @@ void ui_shutdown(UIHost *ui) {
 void ui_handle_event(UIHost *ui, SDL_Event *evt) {
   if (!ui || !evt)
     return;
+
+  // Pass to Nuklear first
   nk_sdl_handle_event(evt);
+
+  // Track mouse position
+  if (evt->type == SDL_MOUSEMOTION) {
+    ui->mouse_x = (float)evt->motion.x;
+    ui->mouse_y = (float)evt->motion.y;
+
+    // Handle canvas panning
+    if (ui->canvas_state.is_panning) {
+      float dx = ui->mouse_x - ui->canvas_state.pan_start_x;
+      float dy = ui->mouse_y - ui->canvas_state.pan_start_y;
+
+      // Move camera (inverse direction of mouse movement)
+      ui->canvas_state.cam_x = ui->canvas_state.cam_start_x - dx / ui->canvas_state.zoom;
+      ui->canvas_state.cam_y = ui->canvas_state.cam_start_y - dy / ui->canvas_state.zoom;
+    }
+  }
+
+  // Track mouse buttons
+  if (evt->type == SDL_MOUSEBUTTONDOWN) {
+    if (evt->button.button == SDL_BUTTON_LEFT)
+      ui->mouse_buttons |= 1;
+    if (evt->button.button == SDL_BUTTON_MIDDLE)
+      ui->mouse_buttons |= 2;
+    if (evt->button.button == SDL_BUTTON_RIGHT)
+      ui->mouse_buttons |= 4;
+
+    // Start panning with middle mouse button
+    if (evt->button.button == SDL_BUTTON_MIDDLE) {
+      ui->canvas_state.is_panning = 1;
+      ui->canvas_state.pan_start_x = ui->mouse_x;
+      ui->canvas_state.pan_start_y = ui->mouse_y;
+      ui->canvas_state.cam_start_x = ui->canvas_state.cam_x;
+      ui->canvas_state.cam_start_y = ui->canvas_state.cam_y;
+    }
+
+    // Start panning with space + left click
+    if (evt->button.button == SDL_BUTTON_LEFT && ui->canvas_state.space_held) {
+      ui->canvas_state.is_panning = 1;
+      ui->canvas_state.pan_start_x = ui->mouse_x;
+      ui->canvas_state.pan_start_y = ui->mouse_y;
+      ui->canvas_state.cam_start_x = ui->canvas_state.cam_x;
+      ui->canvas_state.cam_start_y = ui->canvas_state.cam_y;
+    }
+  }
+
+  if (evt->type == SDL_MOUSEBUTTONUP) {
+    if (evt->button.button == SDL_BUTTON_LEFT) {
+      ui->mouse_buttons &= ~1;
+      if (ui->canvas_state.space_held) {
+        ui->canvas_state.is_panning = 0;
+      }
+    }
+    if (evt->button.button == SDL_BUTTON_MIDDLE) {
+      ui->mouse_buttons &= ~2;
+      ui->canvas_state.is_panning = 0;
+    }
+    if (evt->button.button == SDL_BUTTON_RIGHT)
+      ui->mouse_buttons &= ~4;
+  }
+
+  // Track spacebar for pan mode
+  if (evt->type == SDL_KEYDOWN && evt->key.keysym.sym == SDLK_SPACE) {
+    ui->canvas_state.space_held = 1;
+  }
+  if (evt->type == SDL_KEYUP && evt->key.keysym.sym == SDLK_SPACE) {
+    ui->canvas_state.space_held = 0;
+    ui->canvas_state.is_panning = 0;
+  }
+
+  // Mouse wheel zoom (toward cursor position)
+  if (evt->type == SDL_MOUSEWHEEL) {
+    float old_zoom = ui->canvas_state.zoom;
+    float zoom_factor = 1.15f;
+
+    if (evt->wheel.y > 0) {
+      // Zoom in
+      ui->canvas_state.zoom *= zoom_factor;
+    } else if (evt->wheel.y < 0) {
+      // Zoom out
+      ui->canvas_state.zoom /= zoom_factor;
+    }
+
+    // Clamp zoom
+    if (ui->canvas_state.zoom < 0.1f)
+      ui->canvas_state.zoom = 0.1f;
+    if (ui->canvas_state.zoom > 5.0f)
+      ui->canvas_state.zoom = 5.0f;
+
+    // Zoom toward mouse position
+    // World position under mouse before zoom
+    // Note: This requires knowing the canvas bounds which we don't have here
+    // We'll use a simpler approach that zooms toward screen center
+    // For proper zoom-to-cursor, we'd need to track canvas bounds
+
+    // Approximate: adjust camera to zoom toward mouse
+    // This is a simplified version - for precise zoom-to-cursor we'd need canvas bounds
+    float new_zoom = ui->canvas_state.zoom;
+    float zoom_ratio = new_zoom / old_zoom;
+
+    // Shift camera to maintain relative mouse position (approximate)
+    // Assuming mouse is somewhere in the middle area
+    // For better accuracy, we'd pass canvas bounds to this function
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -548,69 +654,293 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
   }
 }
 
+// -----------------------------------------------------------------------------
+// Canvas Helper: Draw infinite dot grid
+// -----------------------------------------------------------------------------
+
+static void canvas_draw_dot_grid(struct nk_command_buffer *canvas,
+                                 struct nk_rect bounds, float cam_x, float cam_y,
+                                 float zoom) {
+  // Grid spacing in world units
+  const float grid_spacing = 40.0f;
+  // Dot appearance
+  const float dot_radius = 1.5f;
+  struct nk_color dot_color = {80, 82, 86, 255}; // Subtle gray
+
+  // Calculate visible world bounds
+  float world_left = cam_x;
+  float world_top = cam_y;
+  float world_right = cam_x + bounds.w / zoom;
+  float world_bottom = cam_y + bounds.h / zoom;
+
+  // Snap to grid
+  float start_x = floorf(world_left / grid_spacing) * grid_spacing;
+  float start_y = floorf(world_top / grid_spacing) * grid_spacing;
+
+  // Limit iterations for performance
+  int max_dots_x = (int)((bounds.w / (grid_spacing * zoom)) + 2);
+  int max_dots_y = (int)((bounds.h / (grid_spacing * zoom)) + 2);
+  if (max_dots_x > 100)
+    max_dots_x = 100;
+  if (max_dots_y > 100)
+    max_dots_y = 100;
+
+  for (int iy = 0; iy < max_dots_y; iy++) {
+    float world_y = start_y + iy * grid_spacing;
+    if (world_y > world_bottom)
+      break;
+
+    float screen_y = bounds.y + (world_y - cam_y) * zoom;
+
+    for (int ix = 0; ix < max_dots_x; ix++) {
+      float world_x = start_x + ix * grid_spacing;
+      if (world_x > world_right)
+        break;
+
+      float screen_x = bounds.x + (world_x - cam_x) * zoom;
+
+      // Draw dot as small filled circle
+      nk_fill_circle(canvas, nk_rect(screen_x - dot_radius, screen_y - dot_radius,
+                                      dot_radius * 2, dot_radius * 2),
+                     dot_color);
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Canvas Helper: Render floating toolbar (Apple Freeform style)
+// -----------------------------------------------------------------------------
+
+static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
+                                  struct nk_rect bounds, Block *block) {
+  // Floating toolbar at bottom center of canvas
+  const float toolbar_w = 200.0f;
+  const float toolbar_h = 40.0f;
+  const float margin = 16.0f;
+
+  float toolbar_x = bounds.x + (bounds.w - toolbar_w) / 2.0f;
+  float toolbar_y = bounds.y + bounds.h - toolbar_h - margin;
+
+  // Toolbar background (pure white with subtle shadow)
+  struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
+  struct nk_color toolbar_bg = {255, 255, 255, 245};
+  struct nk_color toolbar_border = {220, 220, 220, 255};
+
+  // Shadow
+  struct nk_color shadow = {0, 0, 0, 30};
+  nk_fill_rect(canvas_buf, nk_rect(toolbar_x + 2, toolbar_y + 2, toolbar_w, toolbar_h),
+               12.0f, shadow);
+
+  // Background
+  nk_fill_rect(canvas_buf, nk_rect(toolbar_x, toolbar_y, toolbar_w, toolbar_h),
+               12.0f, toolbar_bg);
+  nk_stroke_rect(canvas_buf, nk_rect(toolbar_x, toolbar_y, toolbar_w, toolbar_h),
+                 12.0f, 1.0f, toolbar_border);
+
+  // Tool buttons (5 tools)
+  const float btn_size = 32.0f;
+  const float btn_spacing = 4.0f;
+  const float total_btn_w = 5 * btn_size + 4 * btn_spacing;
+  float btn_x = toolbar_x + (toolbar_w - total_btn_w) / 2.0f;
+  float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
+
+  const char *tool_icons[] = {ICON_CURSOR, ICON_SHAPE, ICON_PENCIL, ICON_TEXT_TOOL,
+                              ICON_STICKY};
+  CanvasToolMode tools[] = {CANVAS_TOOL_SELECT, CANVAS_TOOL_RECT, CANVAS_TOOL_PEN,
+                            CANVAS_TOOL_TEXT, CANVAS_TOOL_STICKY};
+
+  // Save button style
+  struct nk_style_button saved_style = ctx->style.button;
+
+  // Minimal button style for toolbar
+  ctx->style.button.normal = nk_style_item_color(nk_rgba(255, 255, 255, 0));
+  ctx->style.button.hover = nk_style_item_color(nk_rgba(240, 240, 240, 255));
+  ctx->style.button.active = nk_style_item_color(nk_rgba(230, 230, 230, 255));
+  ctx->style.button.border_color = nk_rgba(0, 0, 0, 0);
+  ctx->style.button.text_normal = nk_rgb(60, 60, 60);
+  ctx->style.button.text_hover = nk_rgb(40, 40, 40);
+  ctx->style.button.text_active = nk_rgb(20, 20, 20);
+  ctx->style.button.rounding = 8.0f;
+
+  for (int i = 0; i < 5; i++) {
+    struct nk_rect btn_bounds = nk_rect(btn_x + i * (btn_size + btn_spacing), btn_y,
+                                         btn_size, btn_size);
+
+    // Highlight active tool
+    if (ui->canvas_state.tool == tools[i]) {
+      ctx->style.button.normal = nk_style_item_color(nk_rgba(66, 133, 244, 40));
+      ctx->style.button.text_normal = nk_rgb(66, 133, 244);
+    } else {
+      ctx->style.button.normal = nk_style_item_color(nk_rgba(255, 255, 255, 0));
+      ctx->style.button.text_normal = nk_rgb(60, 60, 60);
+    }
+
+    // Check if mouse is over this button
+    float mx = ui->mouse_x;
+    float my = ui->mouse_y;
+    int hovered = (mx >= btn_bounds.x && mx < btn_bounds.x + btn_bounds.w &&
+                   my >= btn_bounds.y && my < btn_bounds.y + btn_bounds.h);
+
+    // Draw button manually since we're inside custom rendering
+    if (hovered) {
+      nk_fill_rect(canvas_buf, btn_bounds, 8.0f, nk_rgba(240, 240, 240, 255));
+    } else if (ui->canvas_state.tool == tools[i]) {
+      nk_fill_rect(canvas_buf, btn_bounds, 8.0f, nk_rgba(66, 133, 244, 40));
+    }
+
+    // Draw icon
+    if (ui->font_icons) {
+      struct nk_color icon_color =
+          (ui->canvas_state.tool == tools[i]) ? nk_rgb(66, 133, 244) : nk_rgb(60, 60, 60);
+      nk_draw_text(canvas_buf,
+                   nk_rect(btn_bounds.x + 6, btn_bounds.y + 6, btn_size - 12, btn_size - 12),
+                   tool_icons[i], strlen(tool_icons[i]), &ui->font_icons->handle,
+                   nk_rgba(0, 0, 0, 0), icon_color);
+    }
+
+    // Handle click
+    if (hovered && (ui->mouse_buttons & 1)) {
+      ui->canvas_state.tool = tools[i];
+    }
+  }
+
+  // Restore button style
+  ctx->style.button = saved_style;
+}
+
+// -----------------------------------------------------------------------------
+// Canvas: Main render function
+// -----------------------------------------------------------------------------
+
 void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
                             Block *block, float width) {
   if (!block || block->type != BLOCK_CANVAS)
     return;
 
+  CanvasData *cd = &block->data.canvas;
+
+  // Sync UI state with canvas data on first render or when switching canvas
+  if (ui->canvas_state.active_canvas_id != block->id) {
+    ui->canvas_state.active_canvas_id = block->id;
+    ui->canvas_state.cam_x = cd->view_x;
+    ui->canvas_state.cam_y = cd->view_y;
+    ui->canvas_state.zoom = cd->zoom > 0.01f ? cd->zoom : 1.0f;
+  }
+
+  // Toggle for expand/collapse
   ui_render_expand_toggle(ui, ctx, block);
 
-  float canvas_h = 300.0f;
+  // Canvas height
+  float canvas_h = 400.0f;
   if (ui->expanded_block_id == block->id) {
-    canvas_h = nk_window_get_height(ctx) - 40.0f;
+    canvas_h = nk_window_get_height(ctx) - 60.0f;
   }
 
   nk_layout_row_dynamic(ctx, canvas_h, 1);
 
   struct nk_rect bounds = nk_widget_bounds(ctx);
-  struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+  struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
 
-  // Background
-  nk_fill_rect(canvas, bounds, 0, COLOR_PANEL);
-  nk_stroke_rect(canvas, bounds, 0, 1.0f, COLOR_BORDER);
+  // Get local camera state
+  float cam_x = ui->canvas_state.cam_x;
+  float cam_y = ui->canvas_state.cam_y;
+  float zoom = ui->canvas_state.zoom;
 
-  // Render nodes
-  CanvasData *cd = &block->data.canvas;
+  // --- Background: Pure white ---
+  nk_fill_rect(canvas_buf, bounds, 0, nk_rgb(255, 255, 255));
+
+  // --- Dot grid ---
+  canvas_draw_dot_grid(canvas_buf, bounds, cam_x, cam_y, zoom);
+
+  // --- Render nodes ---
   if (cd->root) {
     for (Node *node = cd->root->first_child; node; node = node->next_sibling) {
       if (!node->visible)
         continue;
 
-      float sx = bounds.x + (node->x - cd->view_x) * cd->zoom;
-      float sy = bounds.y + (node->y - cd->view_y) * cd->zoom;
-      float sw = node->width * cd->zoom;
-      float sh = node->height * cd->zoom;
+      // Transform: ScreenPos = BoundsOrigin + (WorldPos - CamOffset) * Zoom
+      float sx = bounds.x + (node->x - cam_x) * zoom;
+      float sy = bounds.y + (node->y - cam_y) * zoom;
+      float sw = node->width * zoom;
+      float sh = node->height * zoom;
+
+      // Clip to canvas bounds
+      if (sx + sw < bounds.x || sx > bounds.x + bounds.w)
+        continue;
+      if (sy + sh < bounds.y || sy > bounds.y + bounds.h)
+        continue;
 
       struct nk_rect nr = nk_rect(sx, sy, sw, sh);
 
       // Convert uint32_t RGBA to nk_color
-      struct nk_color fill = {
-          (node->fill_color >> 24) & 0xFF, (node->fill_color >> 16) & 0xFF,
-          (node->fill_color >> 8) & 0xFF, node->fill_color & 0xFF};
+      struct nk_color fill = {(node->fill_color >> 24) & 0xFF,
+                              (node->fill_color >> 16) & 0xFF,
+                              (node->fill_color >> 8) & 0xFF,
+                              node->fill_color & 0xFF};
 
-      nk_fill_rect(canvas, nr, node->corner_radius, fill);
-
-      if (node->stroke_width > 0) {
-        struct nk_color stroke = {(node->stroke_color >> 24) & 0xFF,
-                                  (node->stroke_color >> 16) & 0xFF,
-                                  (node->stroke_color >> 8) & 0xFF,
-                                  node->stroke_color & 0xFF};
-        nk_stroke_rect(canvas, nr, node->corner_radius, node->stroke_width,
-                       stroke);
+      // Draw based on node type
+      if (node->type == NODE_TYPE_ELLIPSE) {
+        nk_fill_circle(canvas_buf, nr, fill);
+        if (node->stroke_width > 0) {
+          struct nk_color stroke = {(node->stroke_color >> 24) & 0xFF,
+                                    (node->stroke_color >> 16) & 0xFF,
+                                    (node->stroke_color >> 8) & 0xFF,
+                                    node->stroke_color & 0xFF};
+          nk_stroke_circle(canvas_buf, nr, node->stroke_width * zoom, stroke);
+        }
+      } else {
+        // Rectangle/Frame/etc
+        nk_fill_rect(canvas_buf, nr, node->corner_radius * zoom, fill);
+        if (node->stroke_width > 0) {
+          struct nk_color stroke = {(node->stroke_color >> 24) & 0xFF,
+                                    (node->stroke_color >> 16) & 0xFF,
+                                    (node->stroke_color >> 8) & 0xFF,
+                                    node->stroke_color & 0xFF};
+          nk_stroke_rect(canvas_buf, nr, node->corner_radius * zoom,
+                         node->stroke_width * zoom, stroke);
+        }
       }
 
-      // Text
+      // Text content
       if (node->type == NODE_TYPE_TEXT && node->text[0]) {
-        nk_draw_text(canvas, nr, node->text, strlen(node->text),
-                     ctx->style.font, fill, COLOR_TEXT);
+        struct nk_color text_color = nk_rgb(30, 30, 30);
+        nk_draw_text(canvas_buf, nr, node->text, strlen(node->text),
+                     ctx->style.font, nk_rgba(0, 0, 0, 0), text_color);
+      }
+
+      // Selection highlight
+      if (ui->selected_node == node) {
+        struct nk_color sel_color = nk_rgb(66, 133, 244);
+        nk_stroke_rect(canvas_buf, nk_rect(nr.x - 2, nr.y - 2, nr.w + 4, nr.h + 4),
+                       0, 2.0f, sel_color);
       }
     }
   }
 
-  // Label
-  nk_draw_text(canvas, nk_rect(bounds.x + 10, bounds.y + 10, 200, 20),
-               "Canvas (Infinite)", 17, ctx->style.font, COLOR_PANEL,
-               COLOR_TEXT_DIM);
+  // --- Floating toolbar ---
+  canvas_render_toolbar(ui, ctx, bounds, block);
+
+  // --- Pan indicator when space is held ---
+  if (ui->canvas_state.space_held) {
+    // Show hand cursor indicator
+    if (ui->font_icons) {
+      nk_draw_text(canvas_buf, nk_rect(bounds.x + 10, bounds.y + 10, 24, 24),
+                   ICON_HAND, strlen(ICON_HAND), &ui->font_icons->handle,
+                   nk_rgba(0, 0, 0, 0), nk_rgb(100, 100, 100));
+    }
+  }
+
+  // --- Zoom level indicator ---
+  char zoom_label[32];
+  snprintf(zoom_label, sizeof(zoom_label), "%.0f%%", zoom * 100.0f);
+  nk_draw_text(canvas_buf, nk_rect(bounds.x + bounds.w - 60, bounds.y + 10, 50, 20),
+               zoom_label, strlen(zoom_label), ctx->style.font,
+               nk_rgba(0, 0, 0, 0), nk_rgb(150, 150, 150));
+
+  // Sync back to canvas data
+  cd->view_x = ui->canvas_state.cam_x;
+  cd->view_y = ui->canvas_state.cam_y;
+  cd->zoom = ui->canvas_state.zoom;
 
   nk_spacing(ctx, 1);
 }

@@ -841,43 +841,7 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
         }
     }
 
-    // =========================================================================
-    // CALLOUT BLOCK COMMANDS
-    // =========================================================================
-
-    else if (strcmp(verb, "block_callout_theme") == 0 && cmd.argc >= 4) {
-        uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-        uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-        const char *theme_str = cmd.argv[3];
-
-        Block *block = find_block(engine, page_id, block_id);
-        if (block && block->type == BLOCK_CALLOUT) {
-            CalloutTheme theme = CALLOUT_INFO;
-            if (strcmp(theme_str, "alert") == 0) theme = CALLOUT_ALERT;
-            else if (strcmp(theme_str, "star") == 0) theme = CALLOUT_STAR;
-            else if (strcmp(theme_str, "check") == 0) theme = CALLOUT_CHECK;
-            else if (strcmp(theme_str, "idea") == 0) theme = CALLOUT_IDEA;
-            block->data.callout.theme = theme;
-            engine_emit_command(engine, command_line);
-            success = true;
-        }
-    }
-
-    // =========================================================================
-    // CHECKLIST BLOCK COMMANDS
-    // =========================================================================
-
-    else if (strcmp(verb, "block_checklist_toggle") == 0 && cmd.argc >= 3) {
-        uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-        uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-
-        Block *block = find_block(engine, page_id, block_id);
-        if (block && block->type == BLOCK_CHECKLIST) {
-            block->data.checklist.is_checked = !block->data.checklist.is_checked;
-            engine_emit_command(engine, command_line);
-            success = true;
-        }
-    }
+    // NOTE: CALLOUT and CHECKLIST block types are reserved for future use
 
     return success;
 }

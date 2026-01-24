@@ -49,3 +49,10 @@ block_text 1 2 "Start writing here..."
 -- Session started --
 block_text 1 1 "New Note"
 block_text 1 2 "Start writing here..."
+block_text 2 1 "New Note"
+block_text 2 2 "Start writing here..."
+block_text 3 1 "New Note"
+block_text 3 2 "Start writing here..."
+-- Session started --
+block_text 1 1 "New Note"
+block_text 1 2 "Start writing here..."

@@ -26,6 +26,44 @@
 #include "../../include/nuklear.h"
 
 // -----------------------------------------------------------------------------
+// Canvas Tool Modes
+// -----------------------------------------------------------------------------
+
+typedef enum {
+  CANVAS_TOOL_SELECT = 0,
+  CANVAS_TOOL_RECT,
+  CANVAS_TOOL_PEN,
+  CANVAS_TOOL_TEXT,
+  CANVAS_TOOL_STICKY
+} CanvasToolMode;
+
+// -----------------------------------------------------------------------------
+// Canvas Interaction State (stored per-canvas in UIHost)
+// -----------------------------------------------------------------------------
+
+typedef struct {
+  // Current tool
+  CanvasToolMode tool;
+
+  // Camera state (matches CanvasData view_x/y/zoom but this is UI state)
+  float cam_x, cam_y;
+  float zoom;
+
+  // Pan state
+  int is_panning;
+  int space_held;
+  float pan_start_x, pan_start_y;
+  float cam_start_x, cam_start_y;
+
+  // Drawing state
+  int is_drawing;
+  float draw_start_x, draw_start_y;
+
+  // Target canvas block
+  uint32_t active_canvas_id;
+} CanvasInteraction;
+
+// -----------------------------------------------------------------------------
 // UI Host Structure
 // -----------------------------------------------------------------------------
 
@@ -86,6 +124,13 @@ typedef struct UIHost {
 
   // Recent documents
   Recents recents;
+
+  // Canvas interaction state
+  CanvasInteraction canvas_state;
+
+  // Mouse state for canvas
+  float mouse_x, mouse_y;
+  int mouse_buttons; // Bitmask: 1=left, 2=middle, 4=right
 
 } UIHost;
 
@@ -163,5 +208,13 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_LUA "\xEF\x87\xB6"             // ri-terminal-box-line
 #define ICON_FULLSCREEN "\xEE\xB6\x9C"      // ri-fullscreen-line
 #define ICON_FULLSCREEN_EXIT "\xEE\xB6\x9A" // ri-fullscreen-exit-line
+
+// Canvas tools icons
+#define ICON_CURSOR "\xEE\xAA\x8A"      // ri-cursor-line (select tool)
+#define ICON_SHAPE "\xEE\xAD\xA4"       // ri-checkbox-blank-line (rect tool)
+#define ICON_PENCIL "\xEE\xBF\x8F"      // ri-pencil-line (pen tool)
+#define ICON_TEXT_TOOL "\xEE\x87\x98"   // ri-text (text tool)
+#define ICON_STICKY "\xEF\x83\xBC"      // ri-sticky-note-line (sticky note)
+#define ICON_HAND "\xEE\xB7\xBB"        // ri-hand (pan tool)
 
 #endif // UI_HOST_H
