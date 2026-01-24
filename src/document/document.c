@@ -5,2465 +5,1694 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <SDL.h>
+// =============================================================================
+// ASLAN DOCUMENT MODEL v3 - Unified Block-Based Implementation
+// =============================================================================
 
-// Nuklear font measurement API (used only here; keep it out of core headers).
-#include "../../include/nuklear.h"
+// -----------------------------------------------------------------------------
+// Utility Functions
+// -----------------------------------------------------------------------------
 
-// Local strdup (C99, minimal)
 static char *aslan_strdup(const char *s) {
-  if (!s)
-    s = "";
-  size_t n = strlen(s);
-  char *out = (char *)malloc(n + 1);
-  if (!out)
-    return NULL;
-  memcpy(out, s, n);
-  out[n] = '\0';
-  return out;
+    if (!s) s = "";
+    size_t n = strlen(s);
+    char *out = (char *)malloc(n + 1);
+    if (!out) return NULL;
+    memcpy(out, s, n);
+    out[n] = '\0';
+    return out;
 }
 
-// =========================
-// Grid (Tableau) (v1)
-// =========================
+static void safe_strcpy(char *dst, const char *src, size_t dst_size) {
+    if (!dst || dst_size == 0) return;
+    if (!src) { dst[0] = '\0'; return; }
+    size_t len = strlen(src);
+    if (len >= dst_size) len = dst_size - 1;
+    memcpy(dst, src, len);
+    dst[len] = '\0';
+}
 
-AslanGrid *grid_create(int r, int c) {
-  if (r < 1)
-    r = 1;
-  if (c < 1)
-    c = 1;
+// -----------------------------------------------------------------------------
+// Block Type Helpers
+// -----------------------------------------------------------------------------
 
-  AslanGrid *g = (AslanGrid *)calloc(1, sizeof(AslanGrid));
-  if (!g)
-    return NULL;
-  g->rows = r;
-  g->cols = c;
-
-  g->data = (char ***)calloc((size_t)r, sizeof(char **));
-  if (!g->data) {
-    free(g);
-    return NULL;
-  }
-
-  for (int i = 0; i < r; i++) {
-    g->data[i] = (char **)calloc((size_t)c, sizeof(char *));
-    if (!g->data[i]) {
-      grid_destroy(g);
-      return NULL;
+const char *block_type_to_string(BlockType type) {
+    switch (type) {
+        case BLOCK_TEXT:      return "text";
+        case BLOCK_HEADING_1: return "h1";
+        case BLOCK_HEADING_2: return "h2";
+        case BLOCK_HEADING_3: return "h3";
+        case BLOCK_SEPARATOR: return "separator";
+        case BLOCK_LUA:       return "lua";
+        case BLOCK_TABLE:     return "table";
+        case BLOCK_CANVAS:    return "canvas";
+        case BLOCK_DESIGN:    return "design";
+        case BLOCK_VIDEO:     return "video";
+        case BLOCK_CALLOUT:   return "callout";
+        case BLOCK_CHECKLIST: return "checklist";
+        default:              return "unknown";
     }
-    // cells default to NULL
-  }
-
-  g->col_widths = (int *)calloc((size_t)c, sizeof(int));
-  if (!g->col_widths) {
-    grid_destroy(g);
-    return NULL;
-  }
-  // Default widths (simple + editable later)
-  for (int j = 0; j < c; j++)
-    g->col_widths[j] = 140;
-
-  // UI focus defaults
-  g->active_row = 0;
-  g->active_col = 0;
-
-  return g;
-}
-
-int grid_address_to_coords(const char *address, int *out_r, int *out_c) {
-  if (!address || !address[0] || !out_r || !out_c)
-    return 0;
-
-  // Skip leading whitespace
-  const char *p = address;
-  while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')
-    p++;
-  if (!*p)
-    return 0;
-
-  // Column: A-Z (case-insensitive)
-  char col_ch = *p;
-  if (col_ch >= 'a' && col_ch <= 'z')
-    col_ch = (char)(col_ch - 'a' + 'A');
-  if (col_ch < 'A' || col_ch > 'Z')
-    return 0;
-  int col = (int)(col_ch - 'A');
-  p++;
-
-  // Row: 1..
-  if (*p < '0' || *p > '9')
-    return 0;
-  int row_1 = 0;
-  while (*p >= '0' && *p <= '9') {
-    int d = *p - '0';
-    // guard overflow (rows are small anyway)
-    if (row_1 > 1000000)
-      return 0;
-    row_1 = row_1 * 10 + d;
-    p++;
-  }
-  if (row_1 <= 0)
-    return 0;
-
-  // Allow trailing whitespace only
-  while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')
-    p++;
-  if (*p != '\0')
-    return 0;
-
-  *out_r = row_1 - 1;
-  *out_c = col;
-  return 1;
-}
-
-void grid_compute_column_widths(AslanGrid *grid, const void *font_ptr) {
-  const struct nk_user_font *font = (const struct nk_user_font *)font_ptr;
-  if (!grid || !font)
-    return;
-  if (grid->rows <= 0 || grid->cols <= 0)
-    return;
-  if (!grid->data || !grid->col_widths)
-    return;
-  if (!font->width)
-    return;
-
-  // Tuning: keep grid readable but bounded.
-  const float pad_px = 16.0f; // left+right padding around text
-  const float min_px = 60.0f; // minimum column width
-  const float max_px =
-      420.0f; // maximum column width to prevent layout breakage
-
-  for (int c = 0; c < grid->cols; c++) {
-    float best = min_px;
-
-    for (int r = 0; r < grid->rows; r++) {
-      const char *txt =
-          (grid->data[r] && grid->data[r][c]) ? grid->data[r][c] : "";
-      int len = (int)strlen(txt);
-      float w = font->width(font->userdata, font->height, txt, len) + pad_px;
-      if (w > best)
-        best = w;
-      if (best >= max_px) {
-        best = max_px;
-        break;
-      }
-    }
-
-    if (best < min_px)
-      best = min_px;
-    if (best > max_px)
-      best = max_px;
-    grid->col_widths[c] = (int)(best + 0.5f);
-  }
-}
-
-void grid_destroy(AslanGrid *grid) {
-  if (!grid)
-    return;
-  if (grid->data) {
-    for (int r = 0; r < grid->rows; r++) {
-      if (!grid->data[r])
-        continue;
-      for (int c = 0; c < grid->cols; c++) {
-        free(grid->data[r][c]);
-        grid->data[r][c] = NULL;
-      }
-      free(grid->data[r]);
-      grid->data[r] = NULL;
-    }
-    free(grid->data);
-    grid->data = NULL;
-  }
-  free(grid->col_widths);
-  grid->col_widths = NULL;
-  free(grid);
-}
-
-void grid_set_cell(AslanGrid *grid, int r, int c, const char *text) {
-  if (!grid)
-    return;
-  if (r < 0 || r >= grid->rows)
-    return;
-  if (c < 0 || c >= grid->cols)
-    return;
-  char *dup = aslan_strdup(text);
-  if (!dup)
-    return;
-  free(grid->data[r][c]);
-  grid->data[r][c] = dup;
-}
-
-// =========================
-// Clip (Video Sequence Editor) (v1)
-// =========================
-
-AslanClipPage *clip_page_create(void) {
-  AslanClipPage *page = (AslanClipPage *)calloc(1, sizeof(AslanClipPage));
-  if (!page)
-    return NULL;
-
-  page->clips = NULL;
-  page->clip_count = 0;
-  page->clip_cap = 0;
-  page->active_index = -1;
-  page->editing_field = 0;
-  page->playhead = 0.0;
-  page->is_playing = false;
-
-  return page;
-}
-
-void clip_page_destroy(AslanClipPage *page) {
-  if (!page)
-    return;
-  free(page->clips);
-  page->clips = NULL;
-  free(page);
-}
-
-int clip_add(AslanClipPage *page, const char *path) {
-  if (!page)
-    return -1;
-
-  // Grow array if needed
-  if (page->clip_count >= page->clip_cap) {
-    int new_cap = page->clip_cap < 8 ? 8 : page->clip_cap * 2;
-    AslanClip *new_clips =
-        (AslanClip *)realloc(page->clips, (size_t)new_cap * sizeof(AslanClip));
-    if (!new_clips)
-      return -1;
-    page->clips = new_clips;
-    page->clip_cap = new_cap;
-  }
-
-  int idx = page->clip_count;
-  AslanClip *clip = &page->clips[idx];
-  memset(clip, 0, sizeof(AslanClip));
-
-  if (path) {
-    strncpy(clip->source_path, path, sizeof(clip->source_path) - 1);
-    clip->source_path[sizeof(clip->source_path) - 1] = '\0';
-  }
-
-  clip->start_time = 0.0;
-  clip->end_time = 10.0; // Default 10 seconds
-  clip->is_selected = false;
-  clip->comment[0] = '\0';
-
-  page->clip_count++;
-  return idx;
-}
-
-bool clip_delete(AslanClipPage *page, int index) {
-  if (!page || !page->clips)
-    return false;
-  if (index < 0 || index >= page->clip_count)
-    return false;
-
-  // Shift remaining clips down
-  for (int i = index; i < page->clip_count - 1; i++) {
-    page->clips[i] = page->clips[i + 1];
-  }
-
-  page->clip_count--;
-
-  // Adjust active index if needed
-  if (page->active_index >= page->clip_count) {
-    page->active_index = page->clip_count - 1;
-  }
-  if (page->active_index == index) {
-    page->active_index = -1;
-  } else if (page->active_index > index) {
-    page->active_index--;
-  }
-
-  return true;
-}
-
-bool clip_move(AslanClipPage *page, int from, int to) {
-  if (!page || !page->clips)
-    return false;
-  if (from < 0 || from >= page->clip_count)
-    return false;
-  if (to < 0 || to >= page->clip_count)
-    return false;
-  if (from == to)
-    return true;
-
-  AslanClip temp = page->clips[from];
-
-  if (from < to) {
-    // Shift elements down
-    for (int i = from; i < to; i++) {
-      page->clips[i] = page->clips[i + 1];
-    }
-  } else {
-    // Shift elements up
-    for (int i = from; i > to; i--) {
-      page->clips[i] = page->clips[i - 1];
-    }
-  }
-
-  page->clips[to] = temp;
-
-  // Update active index if it was affected
-  if (page->active_index == from) {
-    page->active_index = to;
-  } else if (from < to && page->active_index > from &&
-             page->active_index <= to) {
-    page->active_index--;
-  } else if (from > to && page->active_index >= to &&
-             page->active_index < from) {
-    page->active_index++;
-  }
-
-  return true;
-}
-
-bool clip_split(AslanClipPage *page, int index, double split_time) {
-  if (!page || !page->clips)
-    return false;
-  if (index < 0 || index >= page->clip_count)
-    return false;
-
-  AslanClip *clip = &page->clips[index];
-
-  // Validate split time is within clip range
-  if (split_time <= clip->start_time || split_time >= clip->end_time)
-    return false;
-
-  // Add a new clip (this may reallocate)
-  int new_idx = clip_add(page, clip->source_path);
-  if (new_idx < 0)
-    return false;
-
-  // After potential reallocation, get fresh pointer
-  clip = &page->clips[index];
-  AslanClip *new_clip = &page->clips[new_idx];
-
-  // Configure new clip (second half)
-  new_clip->start_time = split_time;
-  new_clip->end_time = clip->end_time;
-  strncpy(new_clip->comment, clip->comment, sizeof(new_clip->comment) - 1);
-
-  // Truncate original clip (first half)
-  clip->end_time = split_time;
-
-  // Move new clip to right after the original
-  if (new_idx != index + 1) {
-    clip_move(page, new_idx, index + 1);
-  }
-
-  return true;
-}
-
-bool clip_set_source(AslanClipPage *page, int index, const char *path) {
-  if (!page || !page->clips)
-    return false;
-  if (index < 0 || index >= page->clip_count)
-    return false;
-
-  if (path) {
-    strncpy(page->clips[index].source_path, path,
-            sizeof(page->clips[index].source_path) - 1);
-    page->clips[index].source_path[sizeof(page->clips[index].source_path) - 1] =
-        '\0';
-  } else {
-    page->clips[index].source_path[0] = '\0';
-  }
-
-  return true;
-}
-
-bool clip_set_range(AslanClipPage *page, int index, double start, double end) {
-  if (!page || !page->clips)
-    return false;
-  if (index < 0 || index >= page->clip_count)
-    return false;
-  if (start < 0.0)
-    start = 0.0;
-  if (end < start)
-    end = start;
-
-  page->clips[index].start_time = start;
-  page->clips[index].end_time = end;
-
-  return true;
-}
-
-bool clip_set_comment(AslanClipPage *page, int index, const char *comment) {
-  if (!page || !page->clips)
-    return false;
-  if (index < 0 || index >= page->clip_count)
-    return false;
-
-  if (comment) {
-    strncpy(page->clips[index].comment, comment,
-            sizeof(page->clips[index].comment) - 1);
-    page->clips[index].comment[sizeof(page->clips[index].comment) - 1] = '\0';
-  } else {
-    page->clips[index].comment[0] = '\0';
-  }
-
-  return true;
-}
-
-double clip_get_duration(const AslanClip *clip) {
-  if (!clip)
-    return 0.0;
-  double dur = clip->end_time - clip->start_time;
-  return dur > 0.0 ? dur : 0.0;
-}
-
-double clip_page_total_duration(const AslanClipPage *page) {
-  if (!page || !page->clips)
-    return 0.0;
-  double total = 0.0;
-  for (int i = 0; i < page->clip_count; i++) {
-    total += clip_get_duration(&page->clips[i]);
-  }
-  return total;
-}
-
-static int global_find_index(const Document *doc, const char *key) {
-  if (!doc || !key || !key[0])
-    return -1;
-  for (int i = 0; i < (int)(sizeof(doc->globals) / sizeof(doc->globals[0]));
-       i++) {
-    if (doc->globals[i].in_use &&
-        strncmp(doc->globals[i].key, key, sizeof(doc->globals[i].key)) == 0) {
-      return i;
-    }
-  }
-  return -1;
-}
-
-static int global_find_free_slot(Document *doc) {
-  if (!doc)
-    return -1;
-  for (int i = 0; i < (int)(sizeof(doc->globals) / sizeof(doc->globals[0]));
-       i++) {
-    if (!doc->globals[i].in_use)
-      return i;
-  }
-  return -1;
-}
-
-static Node *detach_child(Node *parent, Node *child) {
-  if (!parent || !child)
-    return NULL;
-  Node *prev = NULL;
-  Node *cur = parent->first_child;
-  while (cur) {
-    if (cur == child) {
-      if (prev)
-        prev->next_sibling = cur->next_sibling;
-      else
-        parent->first_child = cur->next_sibling;
-      cur->next_sibling = NULL;
-      cur->parent = parent;
-      return cur;
-    }
-    prev = cur;
-    cur = cur->next_sibling;
-  }
-  return NULL;
-}
-
-static void append_child(Node *parent, Node *child) {
-  if (!parent || !child)
-    return;
-  child->parent = parent;
-  child->next_sibling = NULL;
-  if (!parent->first_child) {
-    parent->first_child = child;
-    return;
-  }
-  Node *cur = parent->first_child;
-  while (cur->next_sibling)
-    cur = cur->next_sibling;
-  cur->next_sibling = child;
-}
-
-static void insert_child_after(Node *parent, Node *child, Node *after) {
-  if (!parent || !child)
-    return;
-  child->parent = parent;
-  if (!after) {
-    child->next_sibling = parent->first_child;
-    parent->first_child = child;
-    return;
-  }
-  child->next_sibling = after->next_sibling;
-  after->next_sibling = child;
-}
-
-static Node *make_root_node(void) {
-  Node *r = (Node *)calloc(1, sizeof(Node));
-  if (!r)
-    return NULL;
-  r->id = 0;
-  r->type = NODE_TYPE_ROOT;
-  strcpy(r->name, "Root");
-  return r;
-}
-
-Document *doc_create(void) {
-  Document *doc = (Document *)calloc(1, sizeof(Document));
-  if (!doc)
-    return NULL;
-
-  doc->next_node_id = 1;
-  memset(doc->filepath, 0, sizeof(doc->filepath));
-
-  // Pages defaults already zeroed by calloc
-  doc->page_count = 0;
-  doc->next_page_id = 1;
-  doc->active_page_id = 0;
-
-  // Start empty: pages are created explicitly by the UI/user.
-  // This avoids having an extra default page ("Page 1") when Home -> New Page
-  // is used.
-  doc->root = make_root_node();
-
-  // Document meta defaults
-  // Document meta defaults already zeroed by calloc
-  strncpy(doc->doc_type, "canvas2d", sizeof(doc->doc_type) - 1);
-  doc->doc_width = 800;
-  doc->doc_height = 600;
-
-  // Globals defaults
-  memset(doc->globals, 0, sizeof(doc->globals));
-
-  return doc;
-}
-
-static void free_node_recursive(Node *node) {
-  if (!node)
-    return;
-
-  free_node_recursive(node->first_child);
-  free_node_recursive(node->next_sibling);
-
-  if (node->payload) {
-    // Note: specialized cleanup for payload types could be added here if
-    // needed. For now, most payloads are just malloc'd buffers or structs.
-    free(node->payload);
-    node->payload = NULL;
-  }
-
-  free(node);
-}
-
-static void doc_node_remove(Document *doc, Node *n) {
-  if (!doc || !n)
-    return;
-
-  // 1. Remove from spatial index
-  uint32_t pid = doc_page_active_id(doc);
-  for (int i = 0; i < 32; i++) {
-    if (doc->pages[i].in_use && doc->pages[i].page_id == pid) {
-      if (doc->pages[i].spatial_index) {
-        // spatial_index_remove(doc->pages[i].spatial_index, n);
-      }
-      break;
-    }
-  }
-
-  // 2. Detach from hierarchy
-  if (n->parent) {
-    if (n->parent->first_child == n) {
-      n->parent->first_child = n->next_sibling;
-    } else {
-      Node *prev = n->parent->first_child;
-      while (prev && prev->next_sibling != n) {
-        prev = prev->next_sibling;
-      }
-      if (prev) {
-        prev->next_sibling = n->next_sibling;
-      }
-    }
-  }
-  n->parent = NULL;
-  n->next_sibling = NULL;
-
-  // 3. Free recursive
-  free_node_recursive(n);
-}
-
-// =========================
-// Notes (v1)
-// =========================
-
-static void note_row_sync_to_node(AslanRow *r) {
-  if (!r || !r->node)
-    return;
-  // Content sync
-  if (r->chars) {
-    strncpy(r->node->text, r->chars, sizeof(r->node->text) - 1);
-  }
-  // Type sync
-  switch (r->type) {
-  case ASLAN_ROW_TEXT:
-    r->node->type = NODE_TYPE_BLOCK_TEXT;
-    break;
-  case ASLAN_ROW_HEADING_1:
-    r->node->type = NODE_TYPE_BLOCK_HEADING_1;
-    break;
-  case ASLAN_ROW_SEPARATOR:
-    r->node->type = NODE_TYPE_BLOCK_SEPARATOR;
-    break;
-  case ASLAN_ROW_HIGHLIGHT:
-    r->node->type = NODE_TYPE_BLOCK_TEXT; // Reuses text block
-    break;
-  case ASLAN_ROW_GRID:
-    r->node->type = NODE_TYPE_GRID;
-    break;
-  case ASLAN_ROW_EMBED:
-    r->node->type = NODE_TYPE_BLOCK_TEXT; // Reuses for now
-    break;
-  default:
-    break;
-  }
-}
-
-static void note_row_set_text(AslanRow *r, const char *text) {
-  if (!r)
-    return;
-  if (!text)
-    text = "";
-
-  size_t n = strlen(text);
-  if (n + 1 > r->cap) {
-    size_t new_cap = r->cap ? r->cap : 32;
-    while (new_cap < n + 1)
-      new_cap *= 2;
-    char *new_chars = (char *)realloc(r->chars, new_cap);
-    if (!new_chars)
-      return;
-    r->chars = new_chars;
-    r->cap = new_cap;
-  }
-  memcpy(r->chars, text, n);
-  r->chars[n] = '\0';
-  r->len = n;
-  note_row_sync_to_node(r);
-}
-
-static void note_row_insert_char(AslanRow *r, int at, char c) {
-  if (!r)
-    return;
-  if (at < 0)
-    at = 0;
-  if ((size_t)at > r->len)
-    at = (int)r->len;
-
-  if (r->len + 2 > r->cap) {
-    size_t new_cap = r->cap ? r->cap : 32;
-    while (new_cap < r->len + 2)
-      new_cap *= 2;
-    char *new_chars = (char *)realloc(r->chars, new_cap);
-    if (!new_chars)
-      return;
-    r->chars = new_chars;
-    r->cap = new_cap;
-  }
-
-  memmove(r->chars + at + 1, r->chars + at, (r->len - (size_t)at) + 1);
-  r->chars[at] = c;
-  r->len++;
-  note_row_sync_to_node(r);
-}
-
-static void note_row_delete_char(AslanRow *r, int at) {
-  if (!r)
-    return;
-  if (r->len == 0)
-    return;
-  if (at <= 0)
-    return;
-  if ((size_t)at > r->len)
-    at = (int)r->len;
-
-  size_t idx = (size_t)at - 1;
-  memmove(r->chars + idx, r->chars + idx + 1, (r->len - idx));
-  r->len--;
-  note_row_sync_to_node(r);
-}
-
-void note_insert_line(AslanNoteDoc *doc, int row_idx, const char *text) {
-  if (!doc)
-    return;
-  if (row_idx < 0)
-    row_idx = 0;
-  if (row_idx > doc->row_count)
-    row_idx = doc->row_count;
-
-  if (doc->row_count + 1 > doc->row_cap) {
-    int new_cap = doc->row_cap ? doc->row_cap * 2 : 16;
-    while (new_cap < doc->row_count + 1)
-      new_cap *= 2;
-    AslanRow *new_rows =
-        (AslanRow *)realloc(doc->rows, (size_t)new_cap * sizeof(AslanRow));
-    if (!new_rows)
-      return;
-    doc->rows = new_rows;
-    doc->row_cap = new_cap;
-  }
-
-  if (row_idx < doc->row_count) {
-    memmove(&doc->rows[row_idx + 1], &doc->rows[row_idx],
-            (size_t)(doc->row_count - row_idx) * sizeof(AslanRow));
-  }
-
-  AslanRow *r = &doc->rows[row_idx];
-  memset(r, 0, sizeof(AslanRow));
-  r->type = ASLAN_ROW_TEXT;
-  r->chars = aslan_strdup(text ? text : "");
-  r->len = strlen(r->chars);
-  r->cap = r->len + 1;
-
-  // Unified Nodes: Create and link a node.
-  if (doc->doc) {
-    Node *root = doc_page_root(doc->doc, doc->page_id);
-    if (root) {
-      Node *n = doc_create_node(doc->doc, NODE_TYPE_BLOCK_TEXT, NULL);
-      if (n) {
-        r->node = n;
-        // Insert after previous row's node
-        Node *after = NULL;
-        if (row_idx > 0) {
-          after = doc->rows[row_idx - 1].node;
-        }
-        insert_child_after(root, n, after);
-      }
-    }
-  }
-
-  doc->row_count++;
-  if (doc->cursor_row >= row_idx)
-    doc->cursor_row++;
-}
-
-static void note_doc_clamp_cursor(AslanNoteDoc *doc) {
-  if (!doc)
-    return;
-  if (doc->row_count <= 0) {
-    doc->cursor_row = 0;
-    doc->cursor_col = 0;
-    return;
-  }
-
-  if (doc->cursor_row < 0)
-    doc->cursor_row = 0;
-  if (doc->cursor_row >= doc->row_count)
-    doc->cursor_row = doc->row_count - 1;
-
-  int max_col = (int)doc->rows[doc->cursor_row].len;
-  if (doc->cursor_col < 0)
-    doc->cursor_col = 0;
-  if (doc->cursor_col > max_col)
-    doc->cursor_col = max_col;
-}
-
-static void note_doc_insert_newline(AslanNoteDoc *doc) {
-  if (!doc)
-    return;
-  if (doc->row_count == 0) {
-    note_insert_line(doc, 0, "");
-    doc->cursor_row = 0;
-    doc->cursor_col = 0;
-    return;
-  }
-
-  note_doc_clamp_cursor(doc);
-  AslanRow *r = &doc->rows[doc->cursor_row];
-  // The current row will be modified (split) -> mark it pending for AOF.
-  doc->aof_last_edited_row = doc->cursor_row;
-  doc->aof_last_edit_time_ms = SDL_GetTicks();
-  int at = doc->cursor_col;
-  if (at < 0)
-    at = 0;
-  if ((size_t)at > r->len)
-    at = (int)r->len;
-
-  const char *tail = r->chars ? (r->chars + at) : "";
-  note_insert_line(doc, doc->cursor_row + 1, tail);
-  if (r->chars)
-    r->chars[at] = '\0';
-  r->len = (size_t)at;
-
-  doc->cursor_row++;
-  doc->cursor_col = 0;
-}
-
-static void note_doc_join_with_previous_line(AslanNoteDoc *doc) {
-  if (!doc)
-    return;
-  note_doc_clamp_cursor(doc);
-  if (doc->cursor_row <= 0)
-    return;
-  if (doc->cursor_row >= doc->row_count)
-    return;
-
-  int cur = doc->cursor_row;
-  int prev = cur - 1;
-  AslanRow *rprev = &doc->rows[prev];
-  AslanRow *rcur = &doc->rows[cur];
-
-  size_t prev_len = rprev->len;
-  size_t cur_len = rcur->len;
-
-  // Ensure previous line has room
-  if (prev_len + cur_len + 1 > rprev->cap) {
-    size_t new_cap = rprev->cap ? rprev->cap : 32;
-    while (new_cap < prev_len + cur_len + 1)
-      new_cap *= 2;
-    char *new_chars = (char *)realloc(rprev->chars, new_cap);
-    if (!new_chars)
-      return;
-    rprev->chars = new_chars;
-    rprev->cap = new_cap;
-  }
-
-  if (cur_len && rcur->chars) {
-    memcpy(rprev->chars + prev_len, rcur->chars, cur_len);
-    rprev->len = prev_len + cur_len;
-    rprev->chars[rprev->len] = '\0';
-  }
-
-  // Previous row content changed -> mark it pending for AOF.
-  doc->aof_last_edited_row = prev;
-  doc->aof_last_edit_time_ms = SDL_GetTicks();
-
-  // Delete current line
-  if (rcur->node) {
-    doc_node_remove(doc->doc, rcur->node);
-    rcur->node = NULL;
-  }
-  free(rcur->chars);
-  if (cur < doc->row_count - 1) {
-    memmove(&doc->rows[cur], &doc->rows[cur + 1],
-            (size_t)(doc->row_count - cur - 1) * sizeof(AslanRow));
-  }
-  doc->row_count--;
-
-  doc->cursor_row = prev;
-  doc->cursor_col = (int)prev_len;
-  note_doc_clamp_cursor(doc);
-}
-
-static void note_sel_clear(AslanNoteDoc *doc) {
-  if (!doc)
-    return;
-  doc->is_selecting = false;
-  doc->anchor_row = doc->cursor_row;
-  doc->anchor_col = doc->cursor_col;
-}
-
-static int note_sel_has_range(const AslanNoteDoc *doc) {
-  if (!doc)
-    return 0;
-  if (!doc->is_selecting)
-    return 0;
-  return !(doc->anchor_row == doc->cursor_row &&
-           doc->anchor_col == doc->cursor_col);
-}
-
-static void note_sel_normalize(const AslanNoteDoc *doc, int *out_sr,
-                               int *out_sc, int *out_er, int *out_ec) {
-  int ar = doc ? doc->anchor_row : 0;
-  int ac = doc ? doc->anchor_col : 0;
-  int cr = doc ? doc->cursor_row : 0;
-  int cc = doc ? doc->cursor_col : 0;
-
-  int sr = ar, sc = ac, er = cr, ec = cc;
-  if (sr > er || (sr == er && sc > ec)) {
-    sr = cr;
-    sc = cc;
-    er = ar;
-    ec = ac;
-  }
-
-  if (out_sr)
-    *out_sr = sr;
-  if (out_sc)
-    *out_sc = sc;
-  if (out_er)
-    *out_er = er;
-  if (out_ec)
-    *out_ec = ec;
-}
-
-static void note_doc_delete_selection(AslanNoteDoc *doc) {
-  if (!doc)
-    return;
-  note_doc_clamp_cursor(doc);
-  if (!note_sel_has_range(doc))
-    return;
-
-  int sr = 0, sc = 0, er = 0, ec = 0;
-  note_sel_normalize(doc, &sr, &sc, &er, &ec);
-  if (sr < 0)
-    sr = 0;
-  if (er < 0)
-    er = 0;
-  if (sr >= doc->row_count)
-    sr = doc->row_count - 1;
-  if (er >= doc->row_count)
-    er = doc->row_count - 1;
-  if (sr < 0 || er < 0 || doc->row_count <= 0) {
-    note_sel_clear(doc);
-    return;
-  }
-
-  AslanRow *r0 = &doc->rows[sr];
-  AslanRow *r1 = &doc->rows[er];
-  int max_sc = (int)(r0 ? r0->len : 0);
-  int max_ec = (int)(r1 ? r1->len : 0);
-  if (sc < 0)
-    sc = 0;
-  if (ec < 0)
-    ec = 0;
-  if (sc > max_sc)
-    sc = max_sc;
-  if (ec > max_ec)
-    ec = max_ec;
-
-  if (sr == er) {
-    // Delete within one line: [sc, ec)
-    if (r0 && r0->chars && ec > sc) {
-      memmove(r0->chars + sc, r0->chars + ec, (r0->len - (size_t)ec) + 1);
-      r0->len -= (size_t)(ec - sc);
-    }
-    doc->cursor_row = sr;
-    doc->cursor_col = sc;
-    note_doc_clamp_cursor(doc);
-    doc->aof_last_edited_row = sr;
-    doc->aof_last_edit_time_ms = SDL_GetTicks();
-    note_sel_clear(doc);
-    return;
-  }
-
-  // Multi-line delete: keep prefix of sr up to sc, keep suffix of er from ec.
-  const char *suffix = "";
-  size_t suffix_len = 0;
-  if (r1 && r1->chars && ec <= (int)r1->len) {
-    suffix = r1->chars + ec;
-    suffix_len = r1->len - (size_t)ec;
-  }
-
-  // Truncate start row at sc.
-  if (r0 && r0->chars) {
-    if (sc <= (int)r0->len) {
-      r0->chars[sc] = '\0';
-      r0->len = (size_t)sc;
-    }
-  }
-
-  // Append suffix to start row.
-  if (suffix_len > 0 && r0) {
-    if (r0->len + suffix_len + 1 > r0->cap) {
-      size_t new_cap = r0->cap ? r0->cap : 32;
-      while (new_cap < r0->len + suffix_len + 1)
-        new_cap *= 2;
-      char *new_chars = (char *)realloc(r0->chars, new_cap);
-      if (!new_chars)
-        return;
-      r0->chars = new_chars;
-      r0->cap = new_cap;
-    }
-    memcpy(r0->chars + r0->len, suffix, suffix_len);
-    r0->len += suffix_len;
-    r0->chars[r0->len] = '\0';
-  }
-
-  // Free removed rows content.
-  for (int r_idx = sr + 1; r_idx <= er; r_idx++) {
-    if (doc->rows[r_idx].node) {
-      doc_node_remove(doc->doc, doc->rows[r_idx].node);
-      doc->rows[r_idx].node = NULL;
-    }
-    free(doc->rows[r_idx].chars);
-    doc->rows[r_idx].chars = NULL;
-    doc->rows[r_idx].len = 0;
-    doc->rows[r_idx].cap = 0;
-  }
-
-  // Remove rows [sr+1 .. er]
-  int remove_count = er - sr;
-  if (remove_count > 0) {
-    int tail_start = er + 1;
-    if (tail_start < doc->row_count) {
-      memmove(&doc->rows[sr + 1], &doc->rows[tail_start],
-              (size_t)(doc->row_count - tail_start) * sizeof(AslanRow));
-    }
-    doc->row_count -= remove_count;
-  }
-
-  doc->cursor_row = sr;
-  doc->cursor_col = sc;
-  note_doc_clamp_cursor(doc);
-  doc->aof_last_edited_row = sr;
-  doc->aof_last_edit_time_ms = SDL_GetTicks();
-  note_sel_clear(doc);
-}
-
-static char *note_doc_copy_selection_text(const AslanNoteDoc *doc) {
-  if (!doc)
-    return NULL;
-  if (!note_sel_has_range(doc))
-    return NULL;
-
-  int sr = 0, sc = 0, er = 0, ec = 0;
-  note_sel_normalize(doc, &sr, &sc, &er, &ec);
-  if (sr < 0 || er < 0 || sr >= doc->row_count || er >= doc->row_count)
-    return NULL;
-
-  size_t total = 0;
-  for (int r = sr; r <= er; r++) {
-    const AslanRow *row = &doc->rows[r];
-    int a = 0;
-    int b = (int)(row ? row->len : 0);
-    if (r == sr)
-      a = sc;
-    if (r == er)
-      b = ec;
-    if (a < 0)
-      a = 0;
-    if (b < 0)
-      b = 0;
-    if (a > (int)row->len)
-      a = (int)row->len;
-    if (b > (int)row->len)
-      b = (int)row->len;
-    if (b < a)
-      b = a;
-    total += (size_t)(b - a);
-    if (r != er)
-      total += 1; // '\n'
-  }
-
-  char *out = (char *)malloc(total + 1);
-  if (!out)
-    return NULL;
-  size_t at = 0;
-  for (int r = sr; r <= er; r++) {
-    const AslanRow *row = &doc->rows[r];
-    int a = 0;
-    int b = (int)(row ? row->len : 0);
-    if (r == sr)
-      a = sc;
-    if (r == er)
-      b = ec;
-    if (a < 0)
-      a = 0;
-    if (b < 0)
-      b = 0;
-    if (a > (int)row->len)
-      a = (int)row->len;
-    if (b > (int)row->len)
-      b = (int)row->len;
-    if (b < a)
-      b = a;
-    size_t n = (size_t)(b - a);
-    if (n > 0 && row && row->chars) {
-      memcpy(out + at, row->chars + a, n);
-      at += n;
-    }
-    if (r != er)
-      out[at++] = '\n';
-  }
-  out[at] = '\0';
-  return out;
-}
-
-int note_handle_input(AslanNoteDoc *doc, const union SDL_Event *ev) {
-  if (!doc || !ev)
-    return 0;
-
-  if (doc->row_count == 0) {
-    note_insert_line(doc, 0, "");
-    doc->cursor_row = 0;
-    doc->cursor_col = 0;
-  }
-
-  switch (ev->type) {
-  case SDL_KEYDOWN: {
-    SDL_Keycode sym = ev->key.keysym.sym;
-    SDL_Keymod mod = ev->key.keysym.mod;
-    // On macOS, relying only on event.mod can be flaky depending on input
-    // method. Use a conservative fallback to the global mod state.
-    if (mod == KMOD_NONE)
-      mod = SDL_GetModState();
-    const int shift = (mod & KMOD_SHIFT) != 0;
-    const int shortcut = (mod & (KMOD_CTRL | KMOD_GUI)) != 0;
-
-    // Select all
-    if (shortcut && sym == SDLK_a) {
-      note_doc_clamp_cursor(doc);
-      doc->is_selecting = true;
-      doc->anchor_row = 0;
-      doc->anchor_col = 0;
-      doc->cursor_row = doc->row_count - 1;
-      if (doc->cursor_row < 0)
-        doc->cursor_row = 0;
-      doc->cursor_col =
-          (doc->row_count > 0) ? (int)doc->rows[doc->cursor_row].len : 0;
-      return 1;
-    }
-
-    // Clipboard shortcuts
-    if (shortcut && (sym == SDLK_c || sym == SDLK_x || sym == SDLK_v)) {
-      if (sym == SDLK_c || sym == SDLK_x) {
-        char *txt = note_doc_copy_selection_text(doc);
-        if (txt) {
-          SDL_SetClipboardText(txt);
-          free(txt);
-          if (sym == SDLK_x) {
-            note_doc_delete_selection(doc);
-          }
-          return 1;
-        }
-        // No selection: let it fall through (no-op)
-      } else if (sym == SDLK_v) {
-        char *clip = SDL_GetClipboardText();
-        if (clip) {
-          // Replace selection if any
-          if (note_sel_has_range(doc)) {
-            note_doc_delete_selection(doc);
-          }
-
-          // Insert clipboard, supporting newlines.
-          note_doc_clamp_cursor(doc);
-          int row = doc->cursor_row;
-          int col = doc->cursor_col;
-          AslanRow *r = &doc->rows[row];
-
-          const char *p = clip;
-          while (*p) {
-            const char *nl = strchr(p, '\n');
-            size_t chunk_len = nl ? (size_t)(nl - p) : strlen(p);
-
-            // Insert chunk into current row at col
-            for (size_t i = 0; i < chunk_len; i++) {
-              unsigned char ch = (unsigned char)p[i];
-              if (!isprint(ch) && ch != '\t')
-                continue;
-              note_row_insert_char(r, col, (char)ch);
-              col++;
-            }
-            doc->cursor_col = col;
-            doc->aof_last_edited_row = doc->cursor_row;
-            doc->aof_last_edit_time_ms = SDL_GetTicks();
-
-            if (!nl)
-              break;
-
-            // newline -> split
-            note_doc_insert_newline(doc);
-            row = doc->cursor_row;
-            col = doc->cursor_col;
-            r = &doc->rows[row];
-
-            p = nl + 1;
-          }
-
-          SDL_free(clip);
-          note_sel_clear(doc);
-          return 1;
-        }
-      }
-    }
-
-    // Selection anchor handling: shift-held movements extend selection.
-    // Without shift, any navigation clears selection.
-    if (!shift) {
-      // If user starts navigating without shift, clear selection.
-      if (sym == SDLK_UP || sym == SDLK_DOWN || sym == SDLK_LEFT ||
-          sym == SDLK_RIGHT || sym == SDLK_HOME || sym == SDLK_END) {
-        note_sel_clear(doc);
-      }
-    } else {
-      // Start selection on first shift-navigation.
-      if (!doc->is_selecting &&
-          (sym == SDLK_UP || sym == SDLK_DOWN || sym == SDLK_LEFT ||
-           sym == SDLK_RIGHT || sym == SDLK_HOME || sym == SDLK_END)) {
-        doc->is_selecting = true;
-        doc->anchor_row = doc->cursor_row;
-        doc->anchor_col = doc->cursor_col;
-      }
-    }
-
-    switch (sym) {
-    case SDLK_UP:
-      doc->cursor_row--;
-      note_doc_clamp_cursor(doc);
-      return 1;
-    case SDLK_DOWN:
-      doc->cursor_row++;
-      note_doc_clamp_cursor(doc);
-      return 1;
-    case SDLK_LEFT:
-      doc->cursor_col--;
-      note_doc_clamp_cursor(doc);
-      return 1;
-    case SDLK_RIGHT:
-      doc->cursor_col++;
-      note_doc_clamp_cursor(doc);
-      return 1;
-    case SDLK_HOME:
-      doc->cursor_col = 0;
-      note_doc_clamp_cursor(doc);
-      return 1;
-    case SDLK_END:
-      note_doc_clamp_cursor(doc);
-      doc->cursor_col = (int)doc->rows[doc->cursor_row].len;
-      return 1;
-    case SDLK_RETURN:
-    case SDLK_KP_ENTER:
-      if (note_sel_has_range(doc)) {
-        note_doc_delete_selection(doc);
-      }
-      note_doc_insert_newline(doc);
-      note_sel_clear(doc);
-      return 1;
-    case SDLK_BACKSPACE: {
-      note_doc_clamp_cursor(doc);
-      if (note_sel_has_range(doc)) {
-        note_doc_delete_selection(doc);
-        return 1;
-      }
-      AslanRow *visual_row = &doc->rows[doc->cursor_row];
-      if (doc->cursor_col > 0) {
-        note_row_delete_char(visual_row, doc->cursor_col);
-        doc->cursor_col--;
-
-        // Current row content changed -> mark pending for AOF.
-        doc->aof_last_edited_row = doc->cursor_row;
-        doc->aof_last_edit_time_ms = SDL_GetTicks();
-      } else {
-        // Join with previous line when at beginning.
-        note_doc_join_with_previous_line(doc);
-      }
-      note_sel_clear(doc);
-      return 1;
-    }
-    default:
-      break;
-    }
-    break;
-  }
-  case SDL_TEXTINPUT: {
-    note_doc_clamp_cursor(doc);
-    if (note_sel_has_range(doc)) {
-      note_doc_delete_selection(doc);
-    }
-    AslanRow *visual_row = &doc->rows[doc->cursor_row];
-    const char *s = ev->text.text;
-    for (int i = 0; s[i]; i++) {
-      unsigned char ch = (unsigned char)s[i];
-      if (ch == '\n' || ch == '\r')
-        continue;
-      if (!isprint(ch) && ch != '\t')
-        continue;
-
-      note_row_insert_char(visual_row, doc->cursor_col, (char)ch);
-      doc->cursor_col++;
-    }
-
-    // Current row content changed -> mark pending for AOF.
-    doc->aof_last_edited_row = doc->cursor_row;
-    doc->aof_last_edit_time_ms = SDL_GetTicks();
-    note_sel_clear(doc);
-    return 1;
-  }
-  default:
-    break;
-  }
-
-  return 0;
-}
-
-void doc_destroy(Document *doc) {
-  if (!doc)
-    return;
-
-  // Free all page payloads
-  for (int i = 0; i < (int)(sizeof(doc->pages) / sizeof(doc->pages[0])); i++) {
-    if (doc->pages[i].in_use) {
-      if (doc->pages[i].root) {
-        free_node_recursive(doc->pages[i].root);
-        doc->pages[i].root = NULL;
-      }
-      if (doc->pages[i].grid) {
-        grid_destroy(doc->pages[i].grid);
-        doc->pages[i].grid = NULL;
-      }
-      if (doc->pages[i].note) {
-        AslanNoteDoc *nd = doc->pages[i].note;
-        for (int j = 0; j < nd->row_count; j++) {
-          free(nd->rows[j].chars);
-        }
-        free(nd->rows);
-        free(nd);
-        doc->pages[i].note = NULL;
-      }
-      if (doc->pages[i].clip) {
-        clip_page_destroy(doc->pages[i].clip);
-        doc->pages[i].clip = NULL;
-      }
-      if (doc->pages[i].spatial_index) {
-        spatial_index_destroy(doc->pages[i].spatial_index);
-        doc->pages[i].spatial_index = NULL;
-      }
-    }
-  }
-
-  // The global doc->root is likely one of the page roots we just freed,
-  // but let's be safe. If it's still there and NOT a page root, free it.
-  // (In the current design, doc->root is just a pointer to the active page's
-  // root).
-
-  free(doc);
-}
-
-static int page_find_index_by_id(const Document *doc, uint32_t page_id) {
-  if (!doc || page_id == 0)
-    return -1;
-  for (int i = 0; i < (int)(sizeof(doc->pages) / sizeof(doc->pages[0])); i++) {
-    if (doc->pages[i].in_use && doc->pages[i].page_id == page_id)
-      return i;
-  }
-  return -1;
-}
-
-static int page_find_free_slot(Document *doc) {
-  if (!doc)
-    return -1;
-  for (int i = 0; i < (int)(sizeof(doc->pages) / sizeof(doc->pages[0])); i++) {
-    if (!doc->pages[i].in_use)
-      return i;
-  }
-  return -1;
-}
-
-static uint32_t doc_page_create_internal(Document *doc, uint32_t forced_page_id,
-                                         const char *name) {
-  if (!doc)
-    return 0;
-  int slot = page_find_free_slot(doc);
-  if (slot < 0)
-    return 0;
-
-  if (forced_page_id != 0) {
-    // Ensure uniqueness
-    if (page_find_index_by_id(doc, forced_page_id) >= 0)
-      return 0;
-  }
-
-  Node *r = make_root_node();
-  if (!r)
-    return 0;
-
-  doc->pages[slot].in_use = 1;
-  doc->pages[slot].page_id =
-      forced_page_id != 0 ? forced_page_id : doc->next_page_id++;
-  memset(doc->pages[slot].name, 0, sizeof(doc->pages[slot].name));
-  if (name && name[0])
-    strncpy(doc->pages[slot].name, name, sizeof(doc->pages[slot].name) - 1);
-  else {
-    // default name: Page N
-    snprintf(doc->pages[slot].name, sizeof(doc->pages[slot].name), "Page %d",
-             doc->page_count + 1);
-  }
-  doc->pages[slot].root = r;
-  doc->pages[slot].view_zoom = 1.0f;
-  doc->pages[slot].spatial_index = spatial_index_create(128);
-  doc->page_count++;
-
-  // Keep next_page_id monotonic even with forced ids (avoid collisions).
-  if (forced_page_id != 0 && forced_page_id >= doc->next_page_id) {
-    doc->next_page_id = forced_page_id + 1;
-  }
-
-  // Auto-select new page
-  doc->active_page_id = doc->pages[slot].page_id;
-  doc->root = doc->pages[slot].root;
-  return doc->pages[slot].page_id;
-}
-
-uint32_t doc_page_create(Document *doc, const char *name) {
-  return doc_page_create_internal(doc, 0, name);
-}
-
-uint32_t doc_page_create_with_id(Document *doc, uint32_t page_id,
-                                 const char *name) {
-  if (!doc || page_id == 0)
-    return 0;
-  return doc_page_create_internal(doc, page_id, name);
-}
-
-bool doc_page_select(Document *doc, uint32_t page_id) {
-  if (!doc || page_id == 0)
-    return false;
-  if (doc->active_page_id == page_id)
-    return true; // idempotent
-  int idx = page_find_index_by_id(doc, page_id);
-  if (idx < 0)
-    return false;
-  doc->active_page_id = page_id;
-  doc->root = doc->pages[idx].root;
-  return true;
-}
-
-Node *doc_page_root(Document *doc, uint32_t page_id) {
-  if (!doc)
-    return NULL;
-  for (int i = 0; i < 32; i++) {
-    if (doc->pages[i].in_use && doc->pages[i].page_id == page_id) {
-      return doc->pages[i].root;
-    }
-  }
-  return NULL;
-}
-
-uint32_t doc_page_active_id(const Document *doc) {
-  if (!doc)
-    return 0;
-  return doc->active_page_id;
-}
-
-const char *doc_page_name(const Document *doc, uint32_t page_id) {
-  if (!doc || page_id == 0)
-    return NULL;
-  int idx = page_find_index_by_id(doc, page_id);
-  if (idx < 0)
-    return NULL;
-  return doc->pages[idx].name;
-}
-
-bool doc_set_global(Document *doc, const char *key, const char *value) {
-  if (!doc || !key || !key[0] || !value)
-    return false;
-
-  int idx = global_find_index(doc, key);
-  if (idx < 0) {
-    idx = global_find_free_slot(doc);
-    if (idx < 0)
-      return false;
-    memset(doc->globals[idx].key, 0, sizeof(doc->globals[idx].key));
-    strncpy(doc->globals[idx].key, key, sizeof(doc->globals[idx].key) - 1);
-    doc->globals[idx].in_use = 1;
-  }
-
-  memset(doc->globals[idx].value, 0, sizeof(doc->globals[idx].value));
-  strncpy(doc->globals[idx].value, value, sizeof(doc->globals[idx].value) - 1);
-  return true;
-}
-
-bool doc_unset_global(Document *doc, const char *key) {
-  if (!doc || !key || !key[0])
-    return false;
-  int idx = global_find_index(doc, key);
-  if (idx < 0)
-    return false;
-  memset(doc->globals[idx].key, 0, sizeof(doc->globals[idx].key));
-  memset(doc->globals[idx].value, 0, sizeof(doc->globals[idx].value));
-  doc->globals[idx].in_use = 0;
-  return true;
-}
-
-const char *doc_get_global(const Document *doc, const char *key) {
-  if (!doc || !key || !key[0])
-    return NULL;
-  int idx = global_find_index(doc, key);
-  if (idx < 0)
-    return NULL;
-  return doc->globals[idx].value;
-}
-
-void doc_globals_iterate(const Document *doc, doc_global_iter_fn fn,
-                         void *user) {
-  if (!doc || !fn)
-    return;
-  for (int i = 0; i < (int)(sizeof(doc->globals) / sizeof(doc->globals[0]));
-       i++) {
-    if (!doc->globals[i].in_use)
-      continue;
-    fn(doc->globals[i].key, doc->globals[i].value, user);
-  }
-}
-
-Node *doc_create_node(Document *doc, NodeType type, const char *name) {
-  if (!doc)
-    return NULL;
-  Node *n = (Node *)calloc(1, sizeof(Node));
-  if (!n)
-    return NULL;
-  n->id = doc->next_node_id++;
-  n->type = type;
-  n->visible = 1;
-
-  n->payload = NULL;
-  n->payload_size = 0;
-
-  if (name)
-    strncpy(n->name, name, sizeof(n->name) - 1);
-
-  // Insert into spatial index if not root
-  if (type != NODE_TYPE_ROOT) {
-    uint32_t pid = doc_page_active_id(doc);
-    for (int i = 0; i < 32; i++) {
-      if (doc->pages[i].in_use && doc->pages[i].page_id == pid) {
-        if (doc->pages[i].spatial_index) {
-          spatial_index_insert(doc->pages[i].spatial_index, n);
-        }
-        break;
-      }
-    }
-  }
-
-  return n;
-}
-
-void doc_add_child(Node *parent, Node *child) {
-  if (!parent || !child)
-    return;
-
-  child->parent = parent;
-  child->next_sibling = NULL; // Sécurité
-
-  if (!parent->first_child) {
-    parent->first_child = child;
-  } else {
-    // Ajout en fin de liste
-    Node *current = parent->first_child;
-    while (current->next_sibling) {
-      current = current->next_sibling;
-    }
-    current->next_sibling = child;
-  }
-}
-
-bool doc_reparent_node(Document *doc, uint32_t child_id,
-                       uint32_t new_parent_id) {
-  if (!doc || !doc->root)
-    return false;
-  if (child_id == new_parent_id)
-    return false;
-
-  Node *child = doc_find_node_by_id(doc, child_id);
-  Node *new_parent = doc_find_node_by_id(doc, new_parent_id);
-  if (!child || !new_parent)
-    return false;
-  if (!child->parent)
-    return false;
-  if (child->parent == new_parent)
-    return true;
-
-  Node *detached = detach_child(child->parent, child);
-  if (!detached)
-    return false;
-  append_child(new_parent, detached);
-  return true;
-}
-
-static Node *find_node_recursive(Node *current, uint32_t id) {
-  if (!current)
-    return NULL;
-  if (current->id == id)
-    return current;
-
-  Node *found = find_node_recursive(current->first_child, id);
-  if (found)
-    return found;
-
-  return find_node_recursive(current->next_sibling, id);
-}
-
-Node *doc_find_node_by_id(Document *doc, uint32_t id) {
-  if (!doc || !doc->root)
-    return NULL;
-  return find_node_recursive(doc->root, id);
-}
-
-bool doc_set_visible(Document *doc, uint32_t id, int visible) {
-  Node *node = doc_find_node_by_id(doc, id);
-  if (!node || node->type == NODE_TYPE_ROOT)
-    return false;
-  node->visible = visible ? 1 : 0;
-  return true;
-}
-
-bool doc_bring_to_front(Document *doc, uint32_t id) {
-  Node *node = doc_find_node_by_id(doc, id);
-  if (!node || !node->parent)
-    return false;
-  Node *parent = node->parent;
-  // already last?
-  Node *cur = parent->first_child;
-  if (!cur)
-    return false;
-  while (cur->next_sibling)
-    cur = cur->next_sibling;
-  if (cur == node)
-    return true;
-
-  Node *detached = detach_child(parent, node);
-  if (!detached)
-    return false;
-  append_child(parent, detached);
-  return true;
-}
-
-bool doc_send_to_back(Document *doc, uint32_t id) {
-  Node *node = doc_find_node_by_id(doc, id);
-  if (!node || !node->parent)
-    return false;
-  Node *parent = node->parent;
-  if (parent->first_child == node)
-    return true;
-
-  Node *detached = detach_child(parent, node);
-  if (!detached)
-    return false;
-  insert_child_after(parent, detached, NULL);
-  return true;
-}
-
-bool doc_bring_forward(Document *doc, uint32_t id) {
-  Node *node = doc_find_node_by_id(doc, id);
-  if (!node || !node->parent)
-    return false;
-  Node *parent = node->parent;
-
-  Node *prev = NULL;
-  Node *cur = parent->first_child;
-  while (cur && cur != node) {
-    prev = cur;
-    cur = cur->next_sibling;
-  }
-  if (!cur)
-    return false;
-  Node *next = cur->next_sibling;
-  if (!next)
-    return true; // already at front
-
-  // swap cur and next
-  if (prev)
-    prev->next_sibling = next;
-  else
-    parent->first_child = next;
-  cur->next_sibling = next->next_sibling;
-  next->next_sibling = cur;
-  return true;
-}
-
-bool doc_send_backward(Document *doc, uint32_t id) {
-  Node *node = doc_find_node_by_id(doc, id);
-  if (!node || !node->parent)
-    return false;
-  Node *parent = node->parent;
-  if (parent->first_child == node)
-    return true; // already at back
-
-  Node *prevprev = NULL;
-  Node *prev = parent->first_child;
-  while (prev && prev->next_sibling != node) {
-    prevprev = prev;
-    prev = prev->next_sibling;
-  }
-  if (!prev)
-    return false;
-
-  // swap prev and node
-  if (prevprev)
-    prevprev->next_sibling = node;
-  else
-    parent->first_child = node;
-  prev->next_sibling = node->next_sibling;
-  node->next_sibling = prev;
-  return true;
-}
-
-static Node *find_node_at_recursive(Node *node, float x, float y) {
-  if (!node)
-    return NULL;
-
-  // On cherche d'abord dans le frère suivant (qui est dessiné APRES dans le
-  // parcours, donc potentiellement "au-dessus" dans l'ordre d'affichage
-  // standard si on suivait un ordre d'ajout simple, mais ici l'ordre récursif
-  // est inverse). En fait, dans Aslan, le dernier enfant ajouté est le premier
-  // de la liste (LIFO), donc il est "au-dessus".
-  Node *found = find_node_at_recursive(node->next_sibling, x, y);
-  if (found)
-    return found;
-
-  // On cherche ensuite dans les enfants (qui sont toujours au-dessus du parent)
-  found = find_node_at_recursive(node->first_child, x, y);
-  if (found)
-    return found;
-
-  // Vérification si le point est dans le rectangle du nœud actuel
-  if (node->type != NODE_TYPE_ROOT) {
-    if (x >= node->x && x <= node->x + node->width && y >= node->y &&
-        y <= node->y + node->height) {
-      return node;
-    }
-  }
-
-  return NULL;
-}
-
-Node *doc_find_node_at(Document *doc, float x, float y) {
-  if (!doc || !doc->root)
-    return NULL;
-
-  // Fallback to recursive search only (Spatial Index is currently disabled or
-  // heuristic-only)
-  return find_node_at_recursive(doc->root->first_child, x, y);
-}
-
-void doc_node_sync_spatial_index(Document *doc, Node *node, float old_x,
-                                 float old_y, float old_w, float old_h) {
-  if (!doc || !node)
-    return;
-  uint32_t pid = doc_page_active_id(doc);
-  for (int i = 0; i < 32; i++) {
-    if (doc->pages[i].in_use && doc->pages[i].page_id == pid) {
-      if (doc->pages[i].spatial_index) {
-        spatial_index_update(doc->pages[i].spatial_index, node, old_x, old_y,
-                             old_w, old_h);
-      }
-      break;
-    }
-  }
 }
 
-static void print_node_recursive(Node *node, int depth) {
-  if (!node)
-    return;
-
-  for (int i = 0; i < depth; i++)
-    printf("  ");
-  printf("- [%d] %s (Type: %d) at (%.1f, %.1f)\n", node->id, node->name,
-         node->type, node->x, node->y);
-
-  print_node_recursive(node->first_child, depth + 1);
-  print_node_recursive(node->next_sibling, depth);
-}
-
-static void scan_max_node_id_recursive(Node *node, uint32_t *max_id) {
-  if (!node || !max_id)
-    return;
-  if (node->type != NODE_TYPE_ROOT) {
-    if (node->id > *max_id)
-      *max_id = node->id;
-  }
-  scan_max_node_id_recursive(node->first_child, max_id);
-  scan_max_node_id_recursive(node->next_sibling, max_id);
-}
-
-void doc_recompute_next_ids(Document *doc) {
-  if (!doc)
-    return;
-
-  uint32_t max_node_id = 0;
-  uint32_t max_page_id = 0;
-
-  for (int i = 0; i < (int)(sizeof(doc->pages) / sizeof(doc->pages[0])); i++) {
-    if (!doc->pages[i].in_use)
-      continue;
-    if (doc->pages[i].page_id > max_page_id)
-      max_page_id = doc->pages[i].page_id;
-    if (doc->pages[i].root) {
-      scan_max_node_id_recursive(doc->pages[i].root, &max_node_id);
-    }
-  }
-
-  // next ids are max+1 (but never 0)
-  doc->next_node_id = max_node_id + 1;
-  if (doc->next_node_id == 0)
-    doc->next_node_id = 1;
-
-  doc->next_page_id = max_page_id + 1;
-  if (doc->next_page_id == 0)
-    doc->next_page_id = 1;
-}
-
-void doc_print_tree(const Document *doc) {
-  printf("=== Document Tree ===\n");
-  if (doc && doc->root) {
-    print_node_recursive(doc->root, 0);
-  } else {
-    printf("(Empty)\n");
-  }
-  printf("=====================\n");
-}
-
-// --- SVG Export ---
-
-static void write_svg_node_recursive(FILE *f, Node *node) {
-  if (!node)
-    return;
-
-  // On dessine seulement si c'est un RECT pour l'instant
-  if (node->type == NODE_TYPE_RECT) {
-    // Couleur aléatoire basée sur l'ID pour distinguer les blocs
-    int r = (node->id * 50) % 255;
-    int g = (node->id * 80) % 255;
-    int b = (node->id * 110) % 255;
-
-    fprintf(f, "  <g>\n");
-    fprintf(f,
-            "    <rect x='%.2f' y='%.2f' width='%.2f' height='%.2f' "
-            "fill='rgb(%d,%d,%d)' stroke='black' stroke-width='2' />\n",
-            node->x, node->y, node->width, node->height, r, g, b);
-
-    // Ajout du texte pour le nom
-    fprintf(f,
-            "    <text x='%.2f' y='%.2f' font-family='Arial' font-size='14' "
-            "fill='white'>%s</text>\n",
-            node->x + 5, node->y + 20, node->name);
-    fprintf(f, "  </g>\n");
-  }
-
-  write_svg_node_recursive(f, node->first_child);
-  write_svg_node_recursive(f, node->next_sibling);
+BlockType block_type_from_string(const char *str) {
+    if (!str) return BLOCK_TEXT;
+    if (strcmp(str, "text") == 0)      return BLOCK_TEXT;
+    if (strcmp(str, "h1") == 0)        return BLOCK_HEADING_1;
+    if (strcmp(str, "h2") == 0)        return BLOCK_HEADING_2;
+    if (strcmp(str, "h3") == 0)        return BLOCK_HEADING_3;
+    if (strcmp(str, "separator") == 0) return BLOCK_SEPARATOR;
+    if (strcmp(str, "lua") == 0)       return BLOCK_LUA;
+    if (strcmp(str, "table") == 0)     return BLOCK_TABLE;
+    if (strcmp(str, "canvas") == 0)    return BLOCK_CANVAS;
+    if (strcmp(str, "design") == 0)    return BLOCK_DESIGN;
+    if (strcmp(str, "video") == 0)     return BLOCK_VIDEO;
+    if (strcmp(str, "callout") == 0)   return BLOCK_CALLOUT;
+    if (strcmp(str, "checklist") == 0) return BLOCK_CHECKLIST;
+    return BLOCK_TEXT;
 }
-
-void doc_export_to_svg(const Document *doc, const char *filename) {
-  if (!doc || !doc->root)
-    return;
-
-  FILE *f = fopen(filename, "w");
-  if (!f) {
-    printf("Error: Could not create SVG file %s\n", filename);
-    return;
-  }
-
-  // En-tête SVG standard
-  fprintf(f, "<?xml version='1.0' encoding='UTF-8' standalone='no'?>\n");
-  fprintf(
-      f, "<svg width='800' height='600' xmlns='http://www.w3.org/2000/svg'>\n");
-  fprintf(f,
-          "  <rect width='100%%' height='100%%' fill='#f0f0f0' />\n"); // Fond
-                                                                       // gris
-                                                                       // clair
-
-  write_svg_node_recursive(f, doc->root);
-
-  fprintf(f, "</svg>\n");
-  fclose(f);
-  printf("Exported SVG to %s\n", filename);
-}
-
-// --- Page Type & Meta API ---
-
-bool doc_page_set_type(Document *doc, uint32_t page_id, PageType type) {
-  if (!doc)
-    return false;
-  for (int i = 0; i < 32; i++) {
-    if (doc->pages[i].in_use && doc->pages[i].page_id == page_id) {
-      doc->pages[i].type = type;
-
-      // Notes ownership: allocate on first transition to NOTE.
-      if (type == PAGE_TYPE_NOTE && doc->pages[i].note == NULL) {
-        AslanNoteDoc *nd = (AslanNoteDoc *)calloc(1, sizeof(AslanNoteDoc));
-        if (!nd)
-          return false;
-        nd->doc = doc;
-        nd->page_id = page_id;
-        // Always ensure there's at least one empty line.
-        note_insert_line(nd, 0, "");
-        nd->cursor_row = 0;
-        nd->cursor_col = 0;
-        nd->is_selecting = false;
-        nd->anchor_row = 0;
-        nd->anchor_col = 0;
-        nd->aof_last_edited_row = -1;
-        nd->aof_last_edit_time_ms = 0;
-        doc->pages[i].note = nd;
-      }
-
-      // Grid ownership: allocate on first transition to GRID.
-      if (type == PAGE_TYPE_GRID && doc->pages[i].grid == NULL) {
-        // Minimal default: 8x4 table
-        AslanGrid *g = grid_create(8, 4);
-        if (!g)
-          return false;
-        doc->pages[i].grid = g;
-      }
-
-      // Clip ownership: allocate on first transition to CLIP.
-      if (type == PAGE_TYPE_CLIP && doc->pages[i].clip == NULL) {
-        AslanClipPage *cp = clip_page_create();
-        if (!cp)
-          return false;
-        doc->pages[i].clip = cp;
-      }
-      return true;
-    }
-  }
-  return false;
-}
-
-PageType doc_page_get_type(const Document *doc, uint32_t page_id) {
-  if (!doc)
-    return PAGE_TYPE_SPACE;
-  for (int i = 0; i < 32; i++) {
-    if (doc->pages[i].in_use && doc->pages[i].page_id == page_id) {
-      return doc->pages[i].type;
-    }
-  }
-  return PAGE_TYPE_SPACE;
-}
-
-bool doc_page_set_meta(Document *doc, uint32_t page_id, const char *key,
-                       float value) {
-  if (!doc || !key)
-    return false;
-  for (int i = 0; i < 32; i++) {
-    if (doc->pages[i].in_use && doc->pages[i].page_id == page_id) {
-      if (strcmp(key, "width") == 0)
-        doc->pages[i].width = value;
-      else if (strcmp(key, "height") == 0)
-        doc->pages[i].height = value;
-      else if (strcmp(key, "viewport.x") == 0)
-        doc->pages[i].view_x = value;
-      else if (strcmp(key, "viewport.y") == 0)
-        doc->pages[i].view_y = value;
-      else if (strcmp(key, "viewport.zoom") == 0)
-        doc->pages[i].view_zoom = value;
-      else
-        return false;
-      return true;
-    }
-  }
-  return false;
-}
-
-float doc_page_get_meta(const Document *doc, uint32_t page_id,
-                        const char *key) {
-  if (!doc || !key)
-    return 0.0f;
-  for (int i = 0; i < 32; i++) {
-    if (doc->pages[i].in_use && doc->pages[i].page_id == page_id) {
-      if (strcmp(key, "width") == 0)
-        return doc->pages[i].width;
-      else if (strcmp(key, "height") == 0)
-        return doc->pages[i].height;
-      else if (strcmp(key, "viewport.x") == 0)
-        return doc->pages[i].view_x;
-      else if (strcmp(key, "viewport.y") == 0)
-        return doc->pages[i].view_y;
-      else if (strcmp(key, "viewport.zoom") == 0)
-        return doc->pages[i].view_zoom;
-    }
-  }
-  return 0.0f;
-}
-
-// =============================================================================
-// UNIFIED NODE MODEL (Phase 1 completion)
-// =============================================================================
-
-// --- Node Type Helpers ---
 
 const char *node_type_to_string(NodeType type) {
-  switch (type) {
-  case NODE_TYPE_ROOT:
-    return "root";
-  case NODE_TYPE_RECT:
-    return "rect";
-  case NODE_TYPE_TEXT:
-    return "text";
-  case NODE_TYPE_IMAGE:
-    return "image";
-  case NODE_TYPE_FRAME:
-    return "frame";
-  case NODE_TYPE_GROUP:
-    return "group";
-  case NODE_TYPE_NOTE:
-    return "note";
-  case NODE_TYPE_GRID:
-    return "grid";
-  case NODE_TYPE_CLIP:
-    return "clip";
-  case NODE_TYPE_BLOCK_TEXT:
-    return "block_text";
-  case NODE_TYPE_BLOCK_HEADING_1:
-    return "block_h1";
-  case NODE_TYPE_BLOCK_HEADING_2:
-    return "block_h2";
-  case NODE_TYPE_BLOCK_HEADING_3:
-    return "block_h3";
-  case NODE_TYPE_BLOCK_SEPARATOR:
-    return "block_separator";
-  case NODE_TYPE_BLOCK_CALLOUT:
-    return "block_callout";
-  case NODE_TYPE_BLOCK_CHECKLIST:
-    return "block_checklist";
-  default:
-    return "unknown";
-  }
+    switch (type) {
+        case NODE_TYPE_ROOT:    return "root";
+        case NODE_TYPE_RECT:    return "rect";
+        case NODE_TYPE_TEXT:    return "text";
+        case NODE_TYPE_IMAGE:   return "image";
+        case NODE_TYPE_FRAME:   return "frame";
+        case NODE_TYPE_GROUP:   return "group";
+        case NODE_TYPE_LINE:    return "line";
+        case NODE_TYPE_ELLIPSE: return "ellipse";
+        default:                return "unknown";
+    }
 }
 
 NodeType node_type_from_string(const char *str) {
-  if (!str)
+    if (!str) return NODE_TYPE_ROOT;
+    if (strcmp(str, "rect") == 0)    return NODE_TYPE_RECT;
+    if (strcmp(str, "text") == 0)    return NODE_TYPE_TEXT;
+    if (strcmp(str, "image") == 0)   return NODE_TYPE_IMAGE;
+    if (strcmp(str, "frame") == 0)   return NODE_TYPE_FRAME;
+    if (strcmp(str, "group") == 0)   return NODE_TYPE_GROUP;
+    if (strcmp(str, "line") == 0)    return NODE_TYPE_LINE;
+    if (strcmp(str, "ellipse") == 0) return NODE_TYPE_ELLIPSE;
     return NODE_TYPE_ROOT;
-  if (strcmp(str, "rect") == 0)
-    return NODE_TYPE_RECT;
-  if (strcmp(str, "text") == 0)
-    return NODE_TYPE_TEXT;
-  if (strcmp(str, "image") == 0)
-    return NODE_TYPE_IMAGE;
-  if (strcmp(str, "frame") == 0)
-    return NODE_TYPE_FRAME;
-  if (strcmp(str, "group") == 0)
-    return NODE_TYPE_GROUP;
-  if (strcmp(str, "note") == 0)
-    return NODE_TYPE_NOTE;
-  if (strcmp(str, "grid") == 0)
-    return NODE_TYPE_GRID;
-  if (strcmp(str, "clip") == 0)
-    return NODE_TYPE_CLIP;
-  if (strcmp(str, "block_text") == 0)
-    return NODE_TYPE_BLOCK_TEXT;
-  if (strcmp(str, "block_h1") == 0)
-    return NODE_TYPE_BLOCK_HEADING_1;
-  if (strcmp(str, "block_h2") == 0)
-    return NODE_TYPE_BLOCK_HEADING_2;
-  if (strcmp(str, "block_h3") == 0)
-    return NODE_TYPE_BLOCK_HEADING_3;
-  if (strcmp(str, "block_separator") == 0)
-    return NODE_TYPE_BLOCK_SEPARATOR;
-  if (strcmp(str, "block_callout") == 0)
-    return NODE_TYPE_BLOCK_CALLOUT;
-  if (strcmp(str, "block_checklist") == 0)
-    return NODE_TYPE_BLOCK_CHECKLIST;
-  return NODE_TYPE_ROOT;
 }
 
-bool node_type_is_container(NodeType type) {
-  return type == NODE_TYPE_ROOT || type == NODE_TYPE_FRAME ||
-         type == NODE_TYPE_GROUP || type == NODE_TYPE_NOTE;
+// -----------------------------------------------------------------------------
+// Document Lifecycle
+// -----------------------------------------------------------------------------
+
+Document *doc_create(void) {
+    Document *doc = (Document *)calloc(1, sizeof(Document));
+    if (!doc) return NULL;
+
+    doc->next_page_id = 1;
+    doc->page_count = 0;
+    doc->active_page_idx = -1;
+    doc->doc_width = 800;
+    doc->doc_height = 600;
+
+    return doc;
 }
 
-bool node_type_has_payload(NodeType type) {
-  return type == NODE_TYPE_NOTE || type == NODE_TYPE_GRID ||
-         type == NODE_TYPE_CLIP;
-}
+void doc_destroy(Document *doc) {
+    if (!doc) return;
 
-// --- Payload Accessors ---
-
-NotePayload *node_get_note_payload(Node *node) {
-  if (!node || node->type != NODE_TYPE_NOTE)
-    return NULL;
-  return (NotePayload *)node->payload;
-}
-
-GridPayload *node_get_grid_payload(Node *node) {
-  if (!node || node->type != NODE_TYPE_GRID)
-    return NULL;
-  return (GridPayload *)node->payload;
-}
-
-ClipPayload *node_get_clip_payload(Node *node) {
-  if (!node || node->type != NODE_TYPE_CLIP)
-    return NULL;
-  return (ClipPayload *)node->payload;
-}
-
-// --- Note Payload Lifecycle ---
-
-void note_payload_init(NotePayload *note, Document *doc, uint32_t node_id) {
-  if (!note)
-    return;
-  memset(note, 0, sizeof(NotePayload));
-  note->doc = doc;
-  note->node_id = node_id;
-  note->row_cap = 16;
-  note->rows = (AslanRow *)calloc((size_t)note->row_cap, sizeof(AslanRow));
-  note->row_count = 0;
-  note->cursor_row = 0;
-  note->cursor_col = 0;
-  note->is_selecting = false;
-  note->anchor_row = 0;
-  note->anchor_col = 0;
-  note->aof_last_edited_row = -1;
-  note->aof_last_edit_time_ms = 0;
-  note->scroll_y = 0.0f;
-  note->max_chars_per_visual_line = 80;
-}
-
-void note_payload_destroy(NotePayload *note) {
-  if (!note)
-    return;
-  if (note->rows) {
-    for (int i = 0; i < note->row_count; i++) {
-      free(note->rows[i].chars);
-      if (note->rows[i].block)
-        free(note->rows[i].block);
-    }
-    free(note->rows);
-    note->rows = NULL;
-  }
-  note->row_count = 0;
-  note->row_cap = 0;
-}
-
-// --- Note Row Operations ---
-
-void note_insert_row(NotePayload *note, int row_idx, AslanRowType type,
-                     const char *text) {
-  if (!note)
-    return;
-  if (row_idx < 0)
-    row_idx = 0;
-  if (row_idx > note->row_count)
-    row_idx = note->row_count;
-
-  // Grow capacity if needed
-  if (note->row_count >= note->row_cap) {
-    int new_cap = note->row_cap * 2;
-    if (new_cap < 16)
-      new_cap = 16;
-    AslanRow *new_rows =
-        (AslanRow *)realloc(note->rows, (size_t)new_cap * sizeof(AslanRow));
-    if (!new_rows)
-      return;
-    note->rows = new_rows;
-    note->row_cap = new_cap;
-  }
-
-  // Shift rows down
-  for (int i = note->row_count; i > row_idx; i--) {
-    note->rows[i] = note->rows[i - 1];
-  }
-
-  // Initialize new row
-  AslanRow *r = &note->rows[row_idx];
-  memset(r, 0, sizeof(AslanRow));
-  r->type = type;
-
-  if (text) {
-    size_t len = strlen(text);
-    r->cap = len + 64;
-    r->chars = (char *)malloc(r->cap);
-    if (r->chars) {
-      memcpy(r->chars, text, len);
-      r->chars[len] = '\0';
-      r->len = len;
-    }
-  } else {
-    r->cap = 64;
-    r->chars = (char *)calloc(r->cap, 1);
-    r->len = 0;
-  }
-
-  // Initialize type-specific block data
-  if (type == ASLAN_ROW_GRID) {
-    AslanTableViewBlock *tvb =
-        (AslanTableViewBlock *)calloc(1, sizeof(AslanTableViewBlock));
-    r->block = tvb;
-  } else if (type == ASLAN_ROW_EMBED) {
-    AslanEmbedBlock *eb = (AslanEmbedBlock *)calloc(1, sizeof(AslanEmbedBlock));
-    if (eb) {
-      snprintf(eb->url, sizeof(eb->url), "https://youtube.com");
-      eb->height = 300.0f;
-    }
-    r->block = eb;
-  }
-
-  note->row_count++;
-}
-
-void note_set_row_type(NotePayload *note, int row_idx, AslanRowType type) {
-  if (!note || row_idx < 0 || row_idx >= note->row_count)
-    return;
-  AslanRow *r = &note->rows[row_idx];
-
-  // Free old block data if type is changing
-  if (r->type != type && r->block) {
-    free(r->block);
-    r->block = NULL;
-  }
-
-  r->type = type;
-
-  // Initialize new type-specific block data if needed
-  if (type == ASLAN_ROW_GRID && !r->block) {
-    r->block = calloc(1, sizeof(AslanTableViewBlock));
-  } else if (type == ASLAN_ROW_EMBED && !r->block) {
-    AslanEmbedBlock *eb = (AslanEmbedBlock *)calloc(1, sizeof(AslanEmbedBlock));
-    if (eb) {
-      snprintf(eb->url, sizeof(eb->url), "https://youtube.com");
-      eb->height = 300.0f;
-    }
-    r->block = eb;
-  }
-}
-
-void note_set_row_text(NotePayload *note, int row_idx, const char *text) {
-  if (!note || row_idx < 0 || row_idx >= note->row_count)
-    return;
-  AslanRow *r = &note->rows[row_idx];
-
-  size_t len = text ? strlen(text) : 0;
-  if (len >= r->cap) {
-    size_t new_cap = len + 64;
-    char *new_chars = (char *)realloc(r->chars, new_cap);
-    if (!new_chars)
-      return;
-    r->chars = new_chars;
-    r->cap = new_cap;
-  }
-
-  if (text) {
-    memcpy(r->chars, text, len);
-  }
-  r->chars[len] = '\0';
-  r->len = len;
-}
-
-void note_delete_row(NotePayload *note, int row_idx) {
-  if (!note || row_idx < 0 || row_idx >= note->row_count)
-    return;
-
-  // Free row data
-  AslanRow *r = &note->rows[row_idx];
-  free(r->chars);
-  if (r->block)
-    free(r->block);
-
-  // Shift rows up
-  for (int i = row_idx; i < note->row_count - 1; i++) {
-    note->rows[i] = note->rows[i + 1];
-  }
-  note->row_count--;
-
-  // Ensure at least one row exists
-  if (note->row_count == 0) {
-    note_insert_row(note, 0, ASLAN_ROW_TEXT, "");
-  }
-}
-
-// --- Grid Cell Accessor ---
-
-const char *grid_get_cell(const AslanGrid *grid, int r, int c) {
-  if (!grid || r < 0 || r >= grid->rows || c < 0 || c >= grid->cols)
-    return NULL;
-  if (!grid->data || !grid->data[r])
-    return NULL;
-  return grid->data[r][c];
-}
-
-// --- Unified Node Creation with ID ---
-
-Node *doc_create_node_with_id(Document *doc, uint32_t id, NodeType type,
-                              const char *name) {
-  if (!doc)
-    return NULL;
-
-  Node *n = (Node *)calloc(1, sizeof(Node));
-  if (!n)
-    return NULL;
-
-  n->id = id;
-  n->type = type;
-  n->visible = 1;
-  n->payload = NULL;
-  n->payload_size = 0;
-
-  if (name)
-    strncpy(n->name, name, sizeof(n->name) - 1);
-
-  // Update next_node_id if needed
-  if (id >= doc->next_node_id)
-    doc->next_node_id = id + 1;
-
-  // Insert into spatial index if not root
-  if (type != NODE_TYPE_ROOT) {
-    uint32_t pid = doc_page_active_id(doc);
+    // Destroy all pages
     for (int i = 0; i < 32; i++) {
-      if (doc->pages[i].in_use && doc->pages[i].page_id == pid) {
-        if (doc->pages[i].spatial_index) {
-          spatial_index_insert(doc->pages[i].spatial_index, n);
+        if (doc->pages[i].in_use) {
+            // Destroy all blocks in the page
+            Block *b = doc->pages[i].first_block;
+            while (b) {
+                Block *next = b->next;
+                block_destroy(b);
+                b = next;
+            }
+            doc->pages[i].first_block = NULL;
+            doc->pages[i].last_block = NULL;
+            doc->pages[i].in_use = 0;
         }
-        break;
-      }
     }
-  }
 
-  return n;
+    free(doc);
 }
 
-// --- Unified Node Creators ---
-
-Node *doc_create_note_node(Document *doc, const char *name, float x, float y,
-                           float w, float h) {
-  if (!doc)
-    return NULL;
-
-  Node *node = doc_create_node(doc, NODE_TYPE_NOTE, name);
-  if (!node)
-    return NULL;
-
-  node->x = x;
-  node->y = y;
-  node->width = w;
-  node->height = h;
-
-  // Allocate and initialize payload
-  NotePayload *payload = (NotePayload *)calloc(1, sizeof(NotePayload));
-  if (!payload) {
-    // Note: node is already created, we should clean up but for simplicity
-    // we leave it. In production, implement proper cleanup.
-    return node;
-  }
-
-  note_payload_init(payload, doc, node->id);
-  // Insert initial empty row
-  note_insert_row(payload, 0, ASLAN_ROW_TEXT, "");
-
-  node->payload = payload;
-  node->payload_size = sizeof(NotePayload);
-
-  return node;
+void doc_set_title(Document *doc, const char *title) {
+    if (!doc) return;
+    safe_strcpy(doc->title, title, sizeof(doc->title));
 }
 
-Node *doc_create_grid_node(Document *doc, const char *name, float x, float y,
-                           float w, float h, int rows, int cols) {
-  if (!doc)
-    return NULL;
+// -----------------------------------------------------------------------------
+// Globals API
+// -----------------------------------------------------------------------------
 
-  Node *node = doc_create_node(doc, NODE_TYPE_GRID, name);
-  if (!node)
-    return NULL;
-
-  node->x = x;
-  node->y = y;
-  node->width = w;
-  node->height = h;
-
-  // Allocate and initialize payload
-  GridPayload *payload = grid_create(rows, cols);
-  if (!payload) {
-    return node;
-  }
-
-  node->payload = payload;
-  node->payload_size = sizeof(GridPayload);
-
-  return node;
-}
-
-Node *doc_create_clip_node(Document *doc, const char *name, float x, float y,
-                           float w, float h) {
-  if (!doc)
-    return NULL;
-
-  Node *node = doc_create_node(doc, NODE_TYPE_CLIP, name);
-  if (!node)
-    return NULL;
-
-  node->x = x;
-  node->y = y;
-  node->width = w;
-  node->height = h;
-
-  // Allocate and initialize payload
-  ClipPayload *payload = clip_page_create();
-  if (!payload) {
-    return node;
-  }
-
-  node->payload = payload;
-  node->payload_size = sizeof(ClipPayload);
-
-  return node;
-}
-
-// --- Node Deletion ---
-
-static void destroy_node_payload(Node *node) {
-  if (!node || !node->payload)
-    return;
-
-  switch (node->type) {
-  case NODE_TYPE_NOTE: {
-    NotePayload *np = (NotePayload *)node->payload;
-    note_payload_destroy(np);
-    free(np);
-    break;
-  }
-  case NODE_TYPE_GRID: {
-    GridPayload *gp = (GridPayload *)node->payload;
-    grid_destroy(gp);
-    // grid_destroy already frees the struct
-    node->payload = NULL;
-    return;
-  }
-  case NODE_TYPE_CLIP: {
-    ClipPayload *cp = (ClipPayload *)node->payload;
-    clip_page_destroy(cp);
-    // clip_page_destroy already frees the struct
-    node->payload = NULL;
-    return;
-  }
-  default:
-    free(node->payload);
-    break;
-  }
-  node->payload = NULL;
-  node->payload_size = 0;
-}
-
-static void destroy_node_recursive(Node *node) {
-  if (!node)
-    return;
-
-  // First destroy children
-  destroy_node_recursive(node->first_child);
-  destroy_node_recursive(node->next_sibling);
-
-  // Destroy payload
-  destroy_node_payload(node);
-
-  // Free the node itself
-  free(node);
-}
-
-bool doc_delete_node(Document *doc, uint32_t id) {
-  if (!doc)
-    return false;
-
-  Node *node = doc_find_node_by_id(doc, id);
-  if (!node || node->type == NODE_TYPE_ROOT)
-    return false;
-
-  // Remove from spatial index
-  uint32_t pid = doc_page_active_id(doc);
-  for (int i = 0; i < 32; i++) {
-    if (doc->pages[i].in_use && doc->pages[i].page_id == pid) {
-      if (doc->pages[i].spatial_index) {
-        spatial_index_remove(doc->pages[i].spatial_index, node);
-      }
-      break;
+static int global_find_index(const Document *doc, const char *key) {
+    if (!doc || !key || !key[0]) return -1;
+    for (int i = 0; i < 64; i++) {
+        if (doc->globals[i].in_use && strcmp(doc->globals[i].key, key) == 0) {
+            return i;
+        }
     }
-  }
+    return -1;
+}
 
-  // Detach from parent
-  if (node->parent) {
-    Node *detached = detach_child(node->parent, node);
-    if (detached) {
-      // Destroy the node and all its children
-      destroy_node_recursive(detached);
-      return true;
+static int global_find_free(const Document *doc) {
+    if (!doc) return -1;
+    for (int i = 0; i < 64; i++) {
+        if (!doc->globals[i].in_use) return i;
     }
-  }
+    return -1;
+}
 
-  return false;
+bool doc_set_global(Document *doc, const char *key, const char *value) {
+    if (!doc || !key || !key[0] || !value) return false;
+
+    int idx = global_find_index(doc, key);
+    if (idx < 0) {
+        idx = global_find_free(doc);
+        if (idx < 0) return false;
+        safe_strcpy(doc->globals[idx].key, key, sizeof(doc->globals[idx].key));
+        doc->globals[idx].in_use = 1;
+    }
+
+    safe_strcpy(doc->globals[idx].value, value, sizeof(doc->globals[idx].value));
+    return true;
+}
+
+const char *doc_get_global(const Document *doc, const char *key) {
+    int idx = global_find_index(doc, key);
+    if (idx < 0) return NULL;
+    return doc->globals[idx].value;
+}
+
+bool doc_unset_global(Document *doc, const char *key) {
+    int idx = global_find_index(doc, key);
+    if (idx < 0) return false;
+    doc->globals[idx].in_use = 0;
+    doc->globals[idx].key[0] = '\0';
+    doc->globals[idx].value[0] = '\0';
+    return true;
+}
+
+void doc_globals_iterate(const Document *doc, doc_global_iter_fn fn, void *ud) {
+    if (!doc || !fn) return;
+    for (int i = 0; i < 64; i++) {
+        if (doc->globals[i].in_use) {
+            fn(doc->globals[i].key, doc->globals[i].value, ud);
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Page API
+// -----------------------------------------------------------------------------
+
+static int page_find_free_slot(const Document *doc) {
+    if (!doc) return -1;
+    for (int i = 0; i < 32; i++) {
+        if (!doc->pages[i].in_use) return i;
+    }
+    return -1;
+}
+
+static int page_find_by_id(const Document *doc, uint32_t page_id) {
+    if (!doc || page_id == 0) return -1;
+    for (int i = 0; i < 32; i++) {
+        if (doc->pages[i].in_use && doc->pages[i].id == page_id) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+Page *doc_page_create(Document *doc, const char *name) {
+    if (!doc) return NULL;
+
+    int slot = page_find_free_slot(doc);
+    if (slot < 0) return NULL;
+
+    Page *page = &doc->pages[slot];
+    memset(page, 0, sizeof(Page));
+
+    page->id = doc->next_page_id++;
+    page->in_use = 1;
+    page->next_block_id = 1;
+
+    if (name && name[0]) {
+        safe_strcpy(page->name, name, sizeof(page->name));
+    } else {
+        snprintf(page->name, sizeof(page->name), "Page %d", doc->page_count + 1);
+    }
+
+    doc->page_count++;
+
+    // Auto-activate if first page
+    if (doc->active_page_idx < 0) {
+        doc->active_page_idx = slot;
+    }
+
+    return page;
+}
+
+Page *doc_page_create_with_id(Document *doc, uint32_t id, const char *name) {
+    if (!doc || id == 0) return NULL;
+
+    // Check if ID already exists
+    if (page_find_by_id(doc, id) >= 0) return NULL;
+
+    int slot = page_find_free_slot(doc);
+    if (slot < 0) return NULL;
+
+    Page *page = &doc->pages[slot];
+    memset(page, 0, sizeof(Page));
+
+    page->id = id;
+    page->in_use = 1;
+    page->next_block_id = 1;
+
+    if (name && name[0]) {
+        safe_strcpy(page->name, name, sizeof(page->name));
+    } else {
+        snprintf(page->name, sizeof(page->name), "Page %u", id);
+    }
+
+    // Update next_page_id if needed
+    if (id >= doc->next_page_id) {
+        doc->next_page_id = id + 1;
+    }
+
+    doc->page_count++;
+
+    if (doc->active_page_idx < 0) {
+        doc->active_page_idx = slot;
+    }
+
+    return page;
+}
+
+Page *doc_page_get(Document *doc, uint32_t page_id) {
+    int idx = page_find_by_id(doc, page_id);
+    if (idx < 0) return NULL;
+    return &doc->pages[idx];
+}
+
+Page *doc_page_get_active(Document *doc) {
+    if (!doc || doc->active_page_idx < 0) return NULL;
+    return &doc->pages[doc->active_page_idx];
+}
+
+Page *doc_page_get_by_index(Document *doc, int index) {
+    if (!doc || index < 0 || index >= 32) return NULL;
+    if (!doc->pages[index].in_use) return NULL;
+    return &doc->pages[index];
+}
+
+bool doc_page_delete(Document *doc, uint32_t page_id) {
+    int idx = page_find_by_id(doc, page_id);
+    if (idx < 0) return false;
+
+    Page *page = &doc->pages[idx];
+
+    // Destroy all blocks
+    Block *b = page->first_block;
+    while (b) {
+        Block *next = b->next;
+        block_destroy(b);
+        b = next;
+    }
+
+    page->in_use = 0;
+    page->first_block = NULL;
+    page->last_block = NULL;
+    doc->page_count--;
+
+    // Update active page if needed
+    if (doc->active_page_idx == idx) {
+        doc->active_page_idx = -1;
+        for (int i = 0; i < 32; i++) {
+            if (doc->pages[i].in_use) {
+                doc->active_page_idx = i;
+                break;
+            }
+        }
+    }
+
+    return true;
+}
+
+bool doc_page_rename(Document *doc, uint32_t page_id, const char *name) {
+    Page *page = doc_page_get(doc, page_id);
+    if (!page || !name) return false;
+    safe_strcpy(page->name, name, sizeof(page->name));
+    return true;
+}
+
+void doc_page_activate(Document *doc, uint32_t page_id) {
+    int idx = page_find_by_id(doc, page_id);
+    if (idx >= 0) {
+        doc->active_page_idx = idx;
+    }
+}
+
+void doc_page_activate_by_index(Document *doc, int index) {
+    if (!doc || index < 0 || index >= 32) return;
+    if (doc->pages[index].in_use) {
+        doc->active_page_idx = index;
+    }
+}
+
+int doc_page_get_index(const Document *doc, uint32_t page_id) {
+    return page_find_by_id(doc, page_id);
+}
+
+// -----------------------------------------------------------------------------
+// Block Lifecycle
+// -----------------------------------------------------------------------------
+
+Block *block_create(Page *page, BlockType type) {
+    if (!page) return NULL;
+
+    Block *block = (Block *)calloc(1, sizeof(Block));
+    if (!block) return NULL;
+
+    block->id = page->next_block_id++;
+    block->type = type;
+    block->is_collapsed = false;
+    block->is_focused = false;
+    block->height = 0.0f;
+    block->highlight_color = 0;
+    block->cursor_pos = 0;
+    block->selection_start = -1;
+    block->selection_end = -1;
+
+    // Initialize text buffer
+    block->text_cap = 64;
+    block->text = (char *)calloc(block->text_cap, 1);
+    block->text_len = 0;
+
+    return block;
+}
+
+Block *block_create_with_id(Page *page, uint32_t id, BlockType type) {
+    if (!page) return NULL;
+
+    Block *block = (Block *)calloc(1, sizeof(Block));
+    if (!block) return NULL;
+
+    block->id = id;
+    block->type = type;
+    block->is_collapsed = false;
+    block->is_focused = false;
+
+    // Initialize text buffer
+    block->text_cap = 64;
+    block->text = (char *)calloc(block->text_cap, 1);
+    block->text_len = 0;
+
+    // Update page's next_block_id if needed
+    if (id >= page->next_block_id) {
+        page->next_block_id = id + 1;
+    }
+
+    return block;
+}
+
+void block_destroy(Block *block) {
+    if (!block) return;
+
+    // Free text buffer
+    free(block->text);
+
+    // Free type-specific data
+    switch (block->type) {
+        case BLOCK_TABLE:
+            block_table_destroy(block);
+            break;
+        case BLOCK_CANVAS:
+            block_canvas_destroy(block);
+            break;
+        case BLOCK_DESIGN:
+            block_design_destroy(block);
+            break;
+        case BLOCK_VIDEO:
+            block_video_destroy(block);
+            break;
+        case BLOCK_LUA:
+            block_lua_destroy(block);
+            break;
+        default:
+            break;
+    }
+
+    free(block);
+}
+
+// -----------------------------------------------------------------------------
+// Block List Operations
+// -----------------------------------------------------------------------------
+
+void page_append_block(Page *page, Block *block) {
+    if (!page || !block) return;
+
+    block->prev = page->last_block;
+    block->next = NULL;
+
+    if (page->last_block) {
+        page->last_block->next = block;
+    } else {
+        page->first_block = block;
+    }
+    page->last_block = block;
+    page->block_count++;
+}
+
+void page_prepend_block(Page *page, Block *block) {
+    if (!page || !block) return;
+
+    block->prev = NULL;
+    block->next = page->first_block;
+
+    if (page->first_block) {
+        page->first_block->prev = block;
+    } else {
+        page->last_block = block;
+    }
+    page->first_block = block;
+    page->block_count++;
+}
+
+void page_insert_block_after(Page *page, Block *after, Block *block) {
+    if (!page || !block) return;
+
+    if (!after) {
+        page_prepend_block(page, block);
+        return;
+    }
+
+    block->prev = after;
+    block->next = after->next;
+
+    if (after->next) {
+        after->next->prev = block;
+    } else {
+        page->last_block = block;
+    }
+    after->next = block;
+    page->block_count++;
+}
+
+void page_insert_block_before(Page *page, Block *before, Block *block) {
+    if (!page || !block) return;
+
+    if (!before) {
+        page_append_block(page, block);
+        return;
+    }
+
+    block->next = before;
+    block->prev = before->prev;
+
+    if (before->prev) {
+        before->prev->next = block;
+    } else {
+        page->first_block = block;
+    }
+    before->prev = block;
+    page->block_count++;
+}
+
+void page_remove_block(Page *page, Block *block) {
+    if (!page || !block) return;
+
+    if (block->prev) {
+        block->prev->next = block->next;
+    } else {
+        page->first_block = block->next;
+    }
+
+    if (block->next) {
+        block->next->prev = block->prev;
+    } else {
+        page->last_block = block->prev;
+    }
+
+    block->prev = NULL;
+    block->next = NULL;
+    page->block_count--;
+
+    if (page->focused_block == block) {
+        page->focused_block = NULL;
+    }
+}
+
+void page_move_block_up(Page *page, Block *block) {
+    if (!page || !block || !block->prev) return;
+
+    Block *prev = block->prev;
+
+    // Remove block from current position
+    if (block->next) {
+        block->next->prev = prev;
+    } else {
+        page->last_block = prev;
+    }
+    prev->next = block->next;
+
+    // Insert before prev
+    block->prev = prev->prev;
+    block->next = prev;
+    prev->prev = block;
+
+    if (block->prev) {
+        block->prev->next = block;
+    } else {
+        page->first_block = block;
+    }
+}
+
+void page_move_block_down(Page *page, Block *block) {
+    if (!page || !block || !block->next) return;
+
+    Block *next = block->next;
+
+    // Remove block from current position
+    if (block->prev) {
+        block->prev->next = next;
+    } else {
+        page->first_block = next;
+    }
+    next->prev = block->prev;
+
+    // Insert after next
+    block->next = next->next;
+    block->prev = next;
+    next->next = block;
+
+    if (block->next) {
+        block->next->prev = block;
+    } else {
+        page->last_block = block;
+    }
+}
+
+Block *page_find_block_by_id(Page *page, uint32_t block_id) {
+    if (!page) return NULL;
+
+    for (Block *b = page->first_block; b; b = b->next) {
+        if (b->id == block_id) return b;
+    }
+    return NULL;
+}
+
+// -----------------------------------------------------------------------------
+// Block Text Content
+// -----------------------------------------------------------------------------
+
+void block_set_text(Block *block, const char *text) {
+    if (!block) return;
+
+    size_t len = text ? strlen(text) : 0;
+
+    if (len >= block->text_cap) {
+        size_t new_cap = len + 64;
+        char *new_text = (char *)realloc(block->text, new_cap);
+        if (!new_text) return;
+        block->text = new_text;
+        block->text_cap = new_cap;
+    }
+
+    if (text) {
+        memcpy(block->text, text, len);
+    }
+    block->text[len] = '\0';
+    block->text_len = len;
+}
+
+void block_append_text(Block *block, const char *text) {
+    if (!block || !text) return;
+
+    size_t add_len = strlen(text);
+    size_t new_len = block->text_len + add_len;
+
+    if (new_len >= block->text_cap) {
+        size_t new_cap = new_len + 64;
+        char *new_text = (char *)realloc(block->text, new_cap);
+        if (!new_text) return;
+        block->text = new_text;
+        block->text_cap = new_cap;
+    }
+
+    memcpy(block->text + block->text_len, text, add_len);
+    block->text_len = new_len;
+    block->text[new_len] = '\0';
+}
+
+void block_insert_char(Block *block, int pos, char c) {
+    if (!block) return;
+    if (pos < 0) pos = 0;
+    if ((size_t)pos > block->text_len) pos = (int)block->text_len;
+
+    if (block->text_len + 2 > block->text_cap) {
+        size_t new_cap = block->text_cap * 2;
+        if (new_cap < 128) new_cap = 128;
+        char *new_text = (char *)realloc(block->text, new_cap);
+        if (!new_text) return;
+        block->text = new_text;
+        block->text_cap = new_cap;
+    }
+
+    memmove(block->text + pos + 1, block->text + pos, block->text_len - pos + 1);
+    block->text[pos] = c;
+    block->text_len++;
+}
+
+void block_delete_char(Block *block, int pos) {
+    if (!block || block->text_len == 0) return;
+    if (pos < 0 || (size_t)pos >= block->text_len) return;
+
+    memmove(block->text + pos, block->text + pos + 1, block->text_len - pos);
+    block->text_len--;
+}
+
+void block_delete_range(Block *block, int start, int end) {
+    if (!block || start >= end) return;
+    if (start < 0) start = 0;
+    if ((size_t)end > block->text_len) end = (int)block->text_len;
+
+    size_t remove_len = end - start;
+    memmove(block->text + start, block->text + end, block->text_len - end + 1);
+    block->text_len -= remove_len;
+}
+
+void block_convert_to(Block *block, BlockType new_type) {
+    if (!block || block->type == new_type) return;
+
+    // Clean up old type-specific data
+    switch (block->type) {
+        case BLOCK_TABLE:  block_table_destroy(block);  break;
+        case BLOCK_CANVAS: block_canvas_destroy(block); break;
+        case BLOCK_DESIGN: block_design_destroy(block); break;
+        case BLOCK_VIDEO:  block_video_destroy(block);  break;
+        case BLOCK_LUA:    block_lua_destroy(block);    break;
+        default: break;
+    }
+
+    block->type = new_type;
+}
+
+// -----------------------------------------------------------------------------
+// Table Block API
+// -----------------------------------------------------------------------------
+
+void block_table_init(Block *block, int rows, int cols) {
+    if (!block || block->type != BLOCK_TABLE) return;
+    if (rows < 1) rows = 1;
+    if (cols < 1) cols = 1;
+
+    TableData *td = &block->data.table;
+
+    // Free existing data
+    if (td->cells) {
+        for (int i = 0; i < td->rows * td->cols; i++) {
+            free(td->cells[i]);
+        }
+        free(td->cells);
+    }
+    free(td->col_widths);
+
+    // Allocate new data
+    td->rows = rows;
+    td->cols = cols;
+    td->cells = (char **)calloc(rows * cols, sizeof(char *));
+    td->col_widths = (int *)calloc(cols, sizeof(int));
+
+    for (int i = 0; i < cols; i++) {
+        td->col_widths[i] = 120;
+    }
+
+    td->active_row = 0;
+    td->active_col = 0;
+    td->view_mode = TABLE_VIEW_TABLE;
+}
+
+void block_table_destroy(Block *block) {
+    if (!block) return;
+
+    TableData *td = &block->data.table;
+    if (td->cells) {
+        for (int i = 0; i < td->rows * td->cols; i++) {
+            free(td->cells[i]);
+        }
+        free(td->cells);
+        td->cells = NULL;
+    }
+    free(td->col_widths);
+    td->col_widths = NULL;
+    td->rows = 0;
+    td->cols = 0;
+}
+
+void block_table_set_cell(Block *block, int row, int col, const char *text) {
+    if (!block || block->type != BLOCK_TABLE) return;
+
+    TableData *td = &block->data.table;
+    if (row < 0 || row >= td->rows || col < 0 || col >= td->cols) return;
+    if (!td->cells) return;
+
+    int idx = row * td->cols + col;
+    free(td->cells[idx]);
+    td->cells[idx] = aslan_strdup(text);
+}
+
+const char *block_table_get_cell(const Block *block, int row, int col) {
+    if (!block || block->type != BLOCK_TABLE) return NULL;
+
+    const TableData *td = &block->data.table;
+    if (row < 0 || row >= td->rows || col < 0 || col >= td->cols) return NULL;
+    if (!td->cells) return NULL;
+
+    return td->cells[row * td->cols + col];
+}
+
+void block_table_insert_row(Block *block, int row_idx) {
+    if (!block || block->type != BLOCK_TABLE) return;
+
+    TableData *td = &block->data.table;
+    if (row_idx < 0) row_idx = 0;
+    if (row_idx > td->rows) row_idx = td->rows;
+
+    int new_rows = td->rows + 1;
+    char **new_cells = (char **)calloc(new_rows * td->cols, sizeof(char *));
+    if (!new_cells) return;
+
+    // Copy cells before insertion point
+    for (int r = 0; r < row_idx; r++) {
+        for (int c = 0; c < td->cols; c++) {
+            new_cells[r * td->cols + c] = td->cells[r * td->cols + c];
+        }
+    }
+
+    // New row is already NULL (calloc)
+
+    // Copy cells after insertion point
+    for (int r = row_idx; r < td->rows; r++) {
+        for (int c = 0; c < td->cols; c++) {
+            new_cells[(r + 1) * td->cols + c] = td->cells[r * td->cols + c];
+        }
+    }
+
+    free(td->cells);
+    td->cells = new_cells;
+    td->rows = new_rows;
+}
+
+void block_table_insert_col(Block *block, int col_idx) {
+    if (!block || block->type != BLOCK_TABLE) return;
+
+    TableData *td = &block->data.table;
+    if (col_idx < 0) col_idx = 0;
+    if (col_idx > td->cols) col_idx = td->cols;
+
+    int new_cols = td->cols + 1;
+    char **new_cells = (char **)calloc(td->rows * new_cols, sizeof(char *));
+    int *new_widths = (int *)calloc(new_cols, sizeof(int));
+    if (!new_cells || !new_widths) {
+        free(new_cells);
+        free(new_widths);
+        return;
+    }
+
+    // Copy cells
+    for (int r = 0; r < td->rows; r++) {
+        for (int c = 0; c < col_idx; c++) {
+            new_cells[r * new_cols + c] = td->cells[r * td->cols + c];
+        }
+        // New column is NULL
+        for (int c = col_idx; c < td->cols; c++) {
+            new_cells[r * new_cols + c + 1] = td->cells[r * td->cols + c];
+        }
+    }
+
+    // Copy column widths
+    for (int c = 0; c < col_idx; c++) {
+        new_widths[c] = td->col_widths[c];
+    }
+    new_widths[col_idx] = 120;
+    for (int c = col_idx; c < td->cols; c++) {
+        new_widths[c + 1] = td->col_widths[c];
+    }
+
+    free(td->cells);
+    free(td->col_widths);
+    td->cells = new_cells;
+    td->col_widths = new_widths;
+    td->cols = new_cols;
+}
+
+void block_table_delete_row(Block *block, int row_idx) {
+    if (!block || block->type != BLOCK_TABLE) return;
+
+    TableData *td = &block->data.table;
+    if (td->rows <= 1) return;  // Keep at least one row
+    if (row_idx < 0 || row_idx >= td->rows) return;
+
+    // Free cells in deleted row
+    for (int c = 0; c < td->cols; c++) {
+        free(td->cells[row_idx * td->cols + c]);
+    }
+
+    // Shift rows up
+    for (int r = row_idx; r < td->rows - 1; r++) {
+        for (int c = 0; c < td->cols; c++) {
+            td->cells[r * td->cols + c] = td->cells[(r + 1) * td->cols + c];
+        }
+    }
+
+    td->rows--;
+
+    // Reallocate to save memory (optional)
+    char **new_cells = (char **)realloc(td->cells, td->rows * td->cols * sizeof(char *));
+    if (new_cells) td->cells = new_cells;
+}
+
+void block_table_delete_col(Block *block, int col_idx) {
+    if (!block || block->type != BLOCK_TABLE) return;
+
+    TableData *td = &block->data.table;
+    if (td->cols <= 1) return;  // Keep at least one column
+    if (col_idx < 0 || col_idx >= td->cols) return;
+
+    int new_cols = td->cols - 1;
+    char **new_cells = (char **)calloc(td->rows * new_cols, sizeof(char *));
+    int *new_widths = (int *)calloc(new_cols, sizeof(int));
+    if (!new_cells || !new_widths) {
+        free(new_cells);
+        free(new_widths);
+        return;
+    }
+
+    for (int r = 0; r < td->rows; r++) {
+        int dst_c = 0;
+        for (int c = 0; c < td->cols; c++) {
+            if (c == col_idx) {
+                free(td->cells[r * td->cols + c]);
+            } else {
+                new_cells[r * new_cols + dst_c] = td->cells[r * td->cols + c];
+                dst_c++;
+            }
+        }
+    }
+
+    int dst_c = 0;
+    for (int c = 0; c < td->cols; c++) {
+        if (c != col_idx) {
+            new_widths[dst_c++] = td->col_widths[c];
+        }
+    }
+
+    free(td->cells);
+    free(td->col_widths);
+    td->cells = new_cells;
+    td->col_widths = new_widths;
+    td->cols = new_cols;
+}
+
+void block_table_set_view(Block *block, TableViewMode mode) {
+    if (!block || block->type != BLOCK_TABLE) return;
+    block->data.table.view_mode = mode;
+}
+
+// -----------------------------------------------------------------------------
+// Node Operations (for Canvas/Design)
+// -----------------------------------------------------------------------------
+
+Node *node_create(uint32_t id, NodeType type, const char *name) {
+    Node *node = (Node *)calloc(1, sizeof(Node));
+    if (!node) return NULL;
+
+    node->id = id;
+    node->type = type;
+    node->visible = 1;
+    node->locked = 0;
+    node->fill_color = 0xFFFFFFFF;
+    node->stroke_color = 0x000000FF;
+    node->stroke_width = 1.0f;
+    node->width = 100.0f;
+    node->height = 100.0f;
+
+    if (name) {
+        safe_strcpy(node->name, name, sizeof(node->name));
+    }
+
+    return node;
+}
+
+void node_destroy(Node *node) {
+    if (!node) return;
+    free(node);
+}
+
+void node_destroy_tree(Node *node) {
+    if (!node) return;
+
+    node_destroy_tree(node->first_child);
+    node_destroy_tree(node->next_sibling);
+    node_destroy(node);
+}
+
+void node_add_child(Node *parent, Node *child) {
+    if (!parent || !child) return;
+
+    child->parent = parent;
+    child->next_sibling = NULL;
+
+    if (!parent->first_child) {
+        parent->first_child = child;
+    } else {
+        Node *cur = parent->first_child;
+        while (cur->next_sibling) {
+            cur = cur->next_sibling;
+        }
+        cur->next_sibling = child;
+    }
+}
+
+void node_remove_from_parent(Node *node) {
+    if (!node || !node->parent) return;
+
+    Node *parent = node->parent;
+
+    if (parent->first_child == node) {
+        parent->first_child = node->next_sibling;
+    } else {
+        Node *cur = parent->first_child;
+        while (cur && cur->next_sibling != node) {
+            cur = cur->next_sibling;
+        }
+        if (cur) {
+            cur->next_sibling = node->next_sibling;
+        }
+    }
+
+    node->parent = NULL;
+    node->next_sibling = NULL;
+}
+
+void node_set_position(Node *node, float x, float y) {
+    if (!node) return;
+    node->x = x;
+    node->y = y;
+}
+
+void node_set_size(Node *node, float w, float h) {
+    if (!node) return;
+    node->width = w;
+    node->height = h;
+}
+
+void node_set_text(Node *node, const char *text) {
+    if (!node) return;
+    safe_strcpy(node->text, text, sizeof(node->text));
+}
+
+void node_set_fill_color(Node *node, uint32_t rgba) {
+    if (!node) return;
+    node->fill_color = rgba;
+}
+
+void node_set_stroke(Node *node, uint32_t rgba, float width) {
+    if (!node) return;
+    node->stroke_color = rgba;
+    node->stroke_width = width;
+}
+
+void node_bring_to_front(Node *node) {
+    if (!node || !node->parent) return;
+
+    Node *parent = node->parent;
+
+    // Already last?
+    Node *cur = parent->first_child;
+    if (!cur) return;
+    while (cur->next_sibling) cur = cur->next_sibling;
+    if (cur == node) return;
+
+    // Remove and append
+    node_remove_from_parent(node);
+    node_add_child(parent, node);
+}
+
+void node_send_to_back(Node *node) {
+    if (!node || !node->parent) return;
+
+    Node *parent = node->parent;
+    if (parent->first_child == node) return;
+
+    node_remove_from_parent(node);
+    node->next_sibling = parent->first_child;
+    parent->first_child = node;
+    node->parent = parent;
+}
+
+// -----------------------------------------------------------------------------
+// Canvas Block API
+// -----------------------------------------------------------------------------
+
+void block_canvas_init(Block *block) {
+    if (!block || block->type != BLOCK_CANVAS) return;
+
+    CanvasData *cd = &block->data.canvas;
+
+    cd->root = node_create(0, NODE_TYPE_ROOT, "CanvasRoot");
+    cd->next_node_id = 1;
+    cd->view_x = 0.0f;
+    cd->view_y = 0.0f;
+    cd->zoom = 1.0f;
+    cd->index = NULL;  // spatial_index_create(128) if needed
+}
+
+void block_canvas_destroy(Block *block) {
+    if (!block) return;
+
+    CanvasData *cd = &block->data.canvas;
+
+    if (cd->root) {
+        node_destroy_tree(cd->root);
+        cd->root = NULL;
+    }
+
+    if (cd->index) {
+        spatial_index_destroy(cd->index);
+        cd->index = NULL;
+    }
+}
+
+static Node *find_node_recursive(Node *node, uint32_t id) {
+    if (!node) return NULL;
+    if (node->id == id) return node;
+
+    Node *found = find_node_recursive(node->first_child, id);
+    if (found) return found;
+
+    return find_node_recursive(node->next_sibling, id);
+}
+
+Node *block_canvas_create_node(Block *block, NodeType type, const char *name) {
+    if (!block || block->type != BLOCK_CANVAS) return NULL;
+
+    CanvasData *cd = &block->data.canvas;
+    if (!cd->root) return NULL;
+
+    Node *node = node_create(cd->next_node_id++, type, name);
+    if (!node) return NULL;
+
+    node_add_child(cd->root, node);
+    return node;
+}
+
+Node *block_canvas_find_node(Block *block, uint32_t node_id) {
+    if (!block || block->type != BLOCK_CANVAS) return NULL;
+
+    CanvasData *cd = &block->data.canvas;
+    return find_node_recursive(cd->root, node_id);
+}
+
+static Node *find_node_at_recursive(Node *node, float x, float y) {
+    if (!node) return NULL;
+
+    Node *found = find_node_at_recursive(node->next_sibling, x, y);
+    if (found) return found;
+
+    found = find_node_at_recursive(node->first_child, x, y);
+    if (found) return found;
+
+    if (node->type != NODE_TYPE_ROOT && node->visible) {
+        if (x >= node->x && x <= node->x + node->width &&
+            y >= node->y && y <= node->y + node->height) {
+            return node;
+        }
+    }
+
+    return NULL;
+}
+
+Node *block_canvas_find_node_at(Block *block, float x, float y) {
+    if (!block || block->type != BLOCK_CANVAS) return NULL;
+
+    CanvasData *cd = &block->data.canvas;
+    if (!cd->root) return NULL;
+
+    return find_node_at_recursive(cd->root->first_child, x, y);
+}
+
+bool block_canvas_delete_node(Block *block, uint32_t node_id) {
+    if (!block || block->type != BLOCK_CANVAS) return false;
+
+    Node *node = block_canvas_find_node(block, node_id);
+    if (!node || node->type == NODE_TYPE_ROOT) return false;
+
+    node_remove_from_parent(node);
+    node_destroy_tree(node);
+    return true;
+}
+
+void block_canvas_set_view(Block *block, float x, float y, float zoom) {
+    if (!block || block->type != BLOCK_CANVAS) return;
+
+    CanvasData *cd = &block->data.canvas;
+    cd->view_x = x;
+    cd->view_y = y;
+    cd->zoom = zoom;
+}
+
+// -----------------------------------------------------------------------------
+// Design Block API
+// -----------------------------------------------------------------------------
+
+void block_design_init(Block *block, int width, int height) {
+    if (!block || block->type != BLOCK_DESIGN) return;
+
+    DesignData *dd = &block->data.design;
+
+    dd->root = node_create(0, NODE_TYPE_ROOT, "DesignRoot");
+    dd->next_node_id = 1;
+    dd->width = width > 0 ? width : 800;
+    dd->height = height > 0 ? height : 600;
+    dd->zoom = 1.0f;
+    dd->bg_color = 0xFFFFFFFF;
+}
+
+void block_design_destroy(Block *block) {
+    if (!block) return;
+
+    DesignData *dd = &block->data.design;
+
+    if (dd->root) {
+        node_destroy_tree(dd->root);
+        dd->root = NULL;
+    }
+}
+
+Node *block_design_create_node(Block *block, NodeType type, const char *name) {
+    if (!block || block->type != BLOCK_DESIGN) return NULL;
+
+    DesignData *dd = &block->data.design;
+    if (!dd->root) return NULL;
+
+    Node *node = node_create(dd->next_node_id++, type, name);
+    if (!node) return NULL;
+
+    node_add_child(dd->root, node);
+    return node;
+}
+
+Node *block_design_find_node(Block *block, uint32_t node_id) {
+    if (!block || block->type != BLOCK_DESIGN) return NULL;
+
+    DesignData *dd = &block->data.design;
+    return find_node_recursive(dd->root, node_id);
+}
+
+bool block_design_delete_node(Block *block, uint32_t node_id) {
+    if (!block || block->type != BLOCK_DESIGN) return false;
+
+    Node *node = block_design_find_node(block, node_id);
+    if (!node || node->type == NODE_TYPE_ROOT) return false;
+
+    node_remove_from_parent(node);
+    node_destroy_tree(node);
+    return true;
+}
+
+void block_design_set_size(Block *block, int width, int height) {
+    if (!block || block->type != BLOCK_DESIGN) return;
+
+    block->data.design.width = width;
+    block->data.design.height = height;
+}
+
+void block_design_set_bg_color(Block *block, uint32_t color) {
+    if (!block || block->type != BLOCK_DESIGN) return;
+
+    block->data.design.bg_color = color;
+}
+
+// -----------------------------------------------------------------------------
+// Video Block API
+// -----------------------------------------------------------------------------
+
+void block_video_init(Block *block) {
+    if (!block || block->type != BLOCK_VIDEO) return;
+
+    VideoData *vd = &block->data.video;
+    vd->clips = NULL;
+    vd->clip_count = 0;
+    vd->clip_cap = 0;
+    vd->active_index = -1;
+    vd->playhead = 0.0;
+    vd->is_playing = false;
+    vd->is_fullscreen = false;
+}
+
+void block_video_destroy(Block *block) {
+    if (!block) return;
+
+    VideoData *vd = &block->data.video;
+    free(vd->clips);
+    vd->clips = NULL;
+    vd->clip_count = 0;
+    vd->clip_cap = 0;
+}
+
+int block_video_add_clip(Block *block, const char *path) {
+    if (!block || block->type != BLOCK_VIDEO) return -1;
+
+    VideoData *vd = &block->data.video;
+
+    if (vd->clip_count >= vd->clip_cap) {
+        int new_cap = vd->clip_cap < 8 ? 8 : vd->clip_cap * 2;
+        VideoClip *new_clips = (VideoClip *)realloc(vd->clips, new_cap * sizeof(VideoClip));
+        if (!new_clips) return -1;
+        vd->clips = new_clips;
+        vd->clip_cap = new_cap;
+    }
+
+    int idx = vd->clip_count;
+    VideoClip *clip = &vd->clips[idx];
+    memset(clip, 0, sizeof(VideoClip));
+
+    if (path) {
+        safe_strcpy(clip->source_path, path, sizeof(clip->source_path));
+    }
+    clip->start_time = 0.0;
+    clip->end_time = 10.0;
+    clip->is_selected = false;
+
+    vd->clip_count++;
+    return idx;
+}
+
+bool block_video_delete_clip(Block *block, int index) {
+    if (!block || block->type != BLOCK_VIDEO) return false;
+
+    VideoData *vd = &block->data.video;
+    if (index < 0 || index >= vd->clip_count) return false;
+
+    for (int i = index; i < vd->clip_count - 1; i++) {
+        vd->clips[i] = vd->clips[i + 1];
+    }
+    vd->clip_count--;
+
+    if (vd->active_index >= vd->clip_count) {
+        vd->active_index = vd->clip_count - 1;
+    }
+
+    return true;
+}
+
+bool block_video_set_clip_range(Block *block, int index, double start, double end) {
+    if (!block || block->type != BLOCK_VIDEO) return false;
+
+    VideoData *vd = &block->data.video;
+    if (index < 0 || index >= vd->clip_count) return false;
+
+    if (start < 0.0) start = 0.0;
+    if (end < start) end = start;
+
+    vd->clips[index].start_time = start;
+    vd->clips[index].end_time = end;
+    return true;
+}
+
+bool block_video_set_clip_comment(Block *block, int index, const char *comment) {
+    if (!block || block->type != BLOCK_VIDEO) return false;
+
+    VideoData *vd = &block->data.video;
+    if (index < 0 || index >= vd->clip_count) return false;
+
+    safe_strcpy(vd->clips[index].comment, comment, sizeof(vd->clips[index].comment));
+    return true;
+}
+
+double block_video_total_duration(const Block *block) {
+    if (!block || block->type != BLOCK_VIDEO) return 0.0;
+
+    const VideoData *vd = &block->data.video;
+    double total = 0.0;
+    for (int i = 0; i < vd->clip_count; i++) {
+        double dur = vd->clips[i].end_time - vd->clips[i].start_time;
+        if (dur > 0.0) total += dur;
+    }
+    return total;
+}
+
+void block_video_set_playhead(Block *block, double time) {
+    if (!block || block->type != BLOCK_VIDEO) return;
+    block->data.video.playhead = time;
+}
+
+void block_video_toggle_play(Block *block) {
+    if (!block || block->type != BLOCK_VIDEO) return;
+    block->data.video.is_playing = !block->data.video.is_playing;
+}
+
+void block_video_toggle_fullscreen(Block *block) {
+    if (!block || block->type != BLOCK_VIDEO) return;
+    block->data.video.is_fullscreen = !block->data.video.is_fullscreen;
+}
+
+// -----------------------------------------------------------------------------
+// Lua Block API
+// -----------------------------------------------------------------------------
+
+void block_lua_init(Block *block) {
+    if (!block || block->type != BLOCK_LUA) return;
+
+    LuaData *ld = &block->data.lua;
+    ld->code = NULL;
+    ld->code_len = 0;
+    ld->code_cap = 0;
+    ld->output = NULL;
+    ld->output_len = 0;
+    ld->has_error = false;
+    ld->is_running = false;
+}
+
+void block_lua_destroy(Block *block) {
+    if (!block) return;
+
+    LuaData *ld = &block->data.lua;
+    free(ld->code);
+    free(ld->output);
+    ld->code = NULL;
+    ld->output = NULL;
+}
+
+void block_lua_set_code(Block *block, const char *code) {
+    if (!block || block->type != BLOCK_LUA) return;
+
+    LuaData *ld = &block->data.lua;
+
+    size_t len = code ? strlen(code) : 0;
+
+    if (len >= ld->code_cap) {
+        size_t new_cap = len + 256;
+        char *new_code = (char *)realloc(ld->code, new_cap);
+        if (!new_code) return;
+        ld->code = new_code;
+        ld->code_cap = new_cap;
+    }
+
+    if (code) {
+        memcpy(ld->code, code, len);
+    }
+    ld->code[len] = '\0';
+    ld->code_len = len;
+}
+
+void block_lua_execute(Block *block, struct lua_State *L) {
+    if (!block || block->type != BLOCK_LUA || !L) return;
+
+    // Lua execution would go here
+    // For now, just set a placeholder output
+    LuaData *ld = &block->data.lua;
+
+    free(ld->output);
+    ld->output = aslan_strdup("[Execution pending - Lua integration required]");
+    ld->output_len = strlen(ld->output);
+    ld->has_error = false;
+}
+
+void block_lua_clear_output(Block *block) {
+    if (!block || block->type != BLOCK_LUA) return;
+
+    LuaData *ld = &block->data.lua;
+    free(ld->output);
+    ld->output = NULL;
+    ld->output_len = 0;
+    ld->has_error = false;
+}
+
+// -----------------------------------------------------------------------------
+// Persistence - AOF Save
+// -----------------------------------------------------------------------------
+
+static void escape_string(FILE *fp, const char *str) {
+    if (!str) { fprintf(fp, "\"\""); return; }
+
+    fprintf(fp, "\"");
+    for (const char *p = str; *p; p++) {
+        if (*p == '"') fprintf(fp, "\\\"");
+        else if (*p == '\\') fprintf(fp, "\\\\");
+        else if (*p == '\n') fprintf(fp, "\\n");
+        else if (*p == '\r') fprintf(fp, "\\r");
+        else if (*p == '\t') fprintf(fp, "\\t");
+        else fputc(*p, fp);
+    }
+    fprintf(fp, "\"");
+}
+
+static void save_node_recursive(FILE *fp, uint32_t page_id, uint32_t block_id,
+                                 const char *prefix, Node *node) {
+    if (!node || node->type == NODE_TYPE_ROOT) return;
+
+    // Create node
+    fprintf(fp, "%s_node %u %u create %u %s ", prefix, page_id, block_id,
+            node->id, node_type_to_string(node->type));
+    escape_string(fp, node->name);
+    fprintf(fp, "\n");
+
+    // Position and size
+    fprintf(fp, "%s_node %u %u move %u %.2f %.2f\n", prefix, page_id, block_id,
+            node->id, node->x, node->y);
+    fprintf(fp, "%s_node %u %u resize %u %.2f %.2f\n", prefix, page_id, block_id,
+            node->id, node->width, node->height);
+
+    // Colors
+    fprintf(fp, "%s_node %u %u fill %u %u\n", prefix, page_id, block_id,
+            node->id, node->fill_color);
+    fprintf(fp, "%s_node %u %u stroke %u %u %.2f\n", prefix, page_id, block_id,
+            node->id, node->stroke_color, node->stroke_width);
+
+    // Text content
+    if (node->text[0]) {
+        fprintf(fp, "%s_node %u %u text %u ", prefix, page_id, block_id, node->id);
+        escape_string(fp, node->text);
+        fprintf(fp, "\n");
+    }
+
+    // Recurse to children and siblings
+    for (Node *child = node->first_child; child; child = child->next_sibling) {
+        save_node_recursive(fp, page_id, block_id, prefix, child);
+    }
+}
+
+void doc_save_aof(const Document *doc, FILE *fp) {
+    if (!doc || !fp) return;
+
+    fprintf(fp, "-- aslan_aof:3 --\n");
+
+    // Document title
+    if (doc->title[0]) {
+        fprintf(fp, "doc_title ");
+        escape_string(fp, doc->title);
+        fprintf(fp, "\n");
+    }
+
+    // Globals
+    for (int i = 0; i < 64; i++) {
+        if (doc->globals[i].in_use) {
+            fprintf(fp, "set_global %s ", doc->globals[i].key);
+            escape_string(fp, doc->globals[i].value);
+            fprintf(fp, "\n");
+        }
+    }
+
+    // Pages and blocks
+    for (int pi = 0; pi < 32; pi++) {
+        const Page *page = &doc->pages[pi];
+        if (!page->in_use) continue;
+
+        // Create page
+        fprintf(fp, "page_create %u ", page->id);
+        escape_string(fp, page->name);
+        fprintf(fp, "\n");
+
+        // Blocks
+        for (Block *b = page->first_block; b; b = b->next) {
+            // Create block
+            fprintf(fp, "block_create %u %u %s\n", page->id, b->id,
+                    block_type_to_string(b->type));
+
+            // Text content
+            if (b->text && b->text_len > 0) {
+                fprintf(fp, "block_text %u %u ", page->id, b->id);
+                escape_string(fp, b->text);
+                fprintf(fp, "\n");
+            }
+
+            // Collapse state
+            if (b->is_collapsed) {
+                fprintf(fp, "block_collapse %u %u 1\n", page->id, b->id);
+            }
+
+            // Highlight
+            if (b->highlight_color > 0) {
+                fprintf(fp, "block_highlight %u %u %d\n", page->id, b->id,
+                        b->highlight_color);
+            }
+
+            // Type-specific data
+            switch (b->type) {
+                case BLOCK_TABLE: {
+                    const TableData *td = &b->data.table;
+                    fprintf(fp, "block_table_init %u %u %d %d\n", page->id, b->id,
+                            td->rows, td->cols);
+                    fprintf(fp, "block_table_view %u %u %s\n", page->id, b->id,
+                            td->view_mode == TABLE_VIEW_LIST ? "list" :
+                            td->view_mode == TABLE_VIEW_BOARD ? "board" : "table");
+                    for (int r = 0; r < td->rows; r++) {
+                        for (int c = 0; c < td->cols; c++) {
+                            const char *cell = td->cells ? td->cells[r * td->cols + c] : NULL;
+                            if (cell && cell[0]) {
+                                fprintf(fp, "block_table_cell %u %u %d %d ",
+                                        page->id, b->id, r, c);
+                                escape_string(fp, cell);
+                                fprintf(fp, "\n");
+                            }
+                        }
+                    }
+                    break;
+                }
+                case BLOCK_CANVAS: {
+                    const CanvasData *cd = &b->data.canvas;
+                    fprintf(fp, "block_canvas_view %u %u %.2f %.2f %.2f\n",
+                            page->id, b->id, cd->view_x, cd->view_y, cd->zoom);
+                    if (cd->root) {
+                        for (Node *n = cd->root->first_child; n; n = n->next_sibling) {
+                            save_node_recursive(fp, page->id, b->id, "block_canvas", n);
+                        }
+                    }
+                    break;
+                }
+                case BLOCK_DESIGN: {
+                    const DesignData *dd = &b->data.design;
+                    fprintf(fp, "block_design_init %u %u %d %d\n",
+                            page->id, b->id, dd->width, dd->height);
+                    fprintf(fp, "block_design_bg %u %u %u\n",
+                            page->id, b->id, dd->bg_color);
+                    if (dd->root) {
+                        for (Node *n = dd->root->first_child; n; n = n->next_sibling) {
+                            save_node_recursive(fp, page->id, b->id, "block_design", n);
+                        }
+                    }
+                    break;
+                }
+                case BLOCK_VIDEO: {
+                    const VideoData *vd = &b->data.video;
+                    for (int i = 0; i < vd->clip_count; i++) {
+                        const VideoClip *clip = &vd->clips[i];
+                        fprintf(fp, "block_video_clip_add %u %u ", page->id, b->id);
+                        escape_string(fp, clip->source_path);
+                        fprintf(fp, "\n");
+                        fprintf(fp, "block_video_clip_range %u %u %d %.3f %.3f\n",
+                                page->id, b->id, i, clip->start_time, clip->end_time);
+                        if (clip->comment[0]) {
+                            fprintf(fp, "block_video_clip_comment %u %u %d ",
+                                    page->id, b->id, i);
+                            escape_string(fp, clip->comment);
+                            fprintf(fp, "\n");
+                        }
+                    }
+                    break;
+                }
+                case BLOCK_LUA: {
+                    const LuaData *ld = &b->data.lua;
+                    if (ld->code && ld->code_len > 0) {
+                        fprintf(fp, "block_lua_code %u %u ", page->id, b->id);
+                        escape_string(fp, ld->code);
+                        fprintf(fp, "\n");
+                    }
+                    break;
+                }
+                case BLOCK_CALLOUT:
+                    fprintf(fp, "block_callout_theme %u %u %s\n", page->id, b->id,
+                            b->data.callout.theme == CALLOUT_ALERT ? "alert" :
+                            b->data.callout.theme == CALLOUT_STAR ? "star" :
+                            b->data.callout.theme == CALLOUT_CHECK ? "check" :
+                            b->data.callout.theme == CALLOUT_IDEA ? "idea" : "info");
+                    break;
+                case BLOCK_CHECKLIST:
+                    if (b->data.checklist.is_checked) {
+                        fprintf(fp, "block_checklist_toggle %u %u\n", page->id, b->id);
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+
+    // Active page
+    if (doc->active_page_idx >= 0 && doc->pages[doc->active_page_idx].in_use) {
+        fprintf(fp, "page_activate %u\n", doc->pages[doc->active_page_idx].id);
+    }
+}
+
+void doc_load_aof(Document *doc, FILE *fp) {
+    // AOF loading is complex - placeholder for now
+    // Would parse line by line and execute commands
+    (void)doc;
+    (void)fp;
+}
+
+void doc_save_snapshot(const Document *doc, const char *filepath) {
+    if (!doc || !filepath) return;
+
+    FILE *fp = fopen(filepath, "w");
+    if (!fp) return;
+
+    doc_save_aof(doc, fp);
+    fclose(fp);
+}
+
+Document *doc_load_snapshot(const char *filepath) {
+    if (!filepath) return NULL;
+
+    FILE *fp = fopen(filepath, "r");
+    if (!fp) return NULL;
+
+    Document *doc = doc_create();
+    if (doc) {
+        doc_load_aof(doc, fp);
+    }
+
+    fclose(fp);
+    return doc;
+}
+
+// -----------------------------------------------------------------------------
+// Export
+// -----------------------------------------------------------------------------
+
+void doc_export_svg(const Document *doc, const char *filepath) {
+    if (!doc || !filepath) return;
+
+    FILE *f = fopen(filepath, "w");
+    if (!f) return;
+
+    fprintf(f, "<?xml version='1.0' encoding='UTF-8'?>\n");
+    fprintf(f, "<svg width='%d' height='%d' xmlns='http://www.w3.org/2000/svg'>\n",
+            doc->doc_width, doc->doc_height);
+    fprintf(f, "  <rect width='100%%' height='100%%' fill='#ffffff'/>\n");
+    fprintf(f, "  <text x='20' y='40' font-family='sans-serif' font-size='16'>");
+    fprintf(f, "ASLAN Document Export</text>\n");
+    fprintf(f, "</svg>\n");
+
+    fclose(f);
+}
+
+void doc_export_pdf(const Document *doc, const char *filepath) {
+    // PDF export would require a library - placeholder
+    (void)doc;
+    (void)filepath;
 }

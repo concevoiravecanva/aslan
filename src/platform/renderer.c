@@ -1,34 +1,53 @@
 #include "renderer.h"
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-// Nuklear text rendering (reuses UI font atlas)
+// =============================================================================
+// ASLAN RENDERER v3 - SDL Window & Basic Drawing
+// =============================================================================
+//
+// Note: Block-based content rendering is handled by Nuklear in ui_host.c.
+// This file provides SDL window management and optional low-level drawing.
+//
+
+// Nuklear (for optional text rendering)
 #include "../../include/nuklear.h"
-#include "nuklear_sdl_renderer.h"
 
-// Globals API (declared in document.c)
-const char* doc_get_global(const Document* doc, const char* key);
+// -----------------------------------------------------------------------------
+// Renderer Lifecycle
+// -----------------------------------------------------------------------------
 
-Renderer* renderer_create(const char* title, int width, int height) {
+Renderer *renderer_create(const char *title, int width, int height) {
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
         printf("SDL could not initialize! SDL_Error: %s\n", SDL_GetError());
         return NULL;
     }
 
-    Renderer* r = (Renderer*)malloc(sizeof(Renderer));
+    Renderer *r = (Renderer *)malloc(sizeof(Renderer));
+    if (!r) return NULL;
+
     r->width = width;
     r->height = height;
 
-    r->window = SDL_CreateWindow(title, 
-                                SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 
-                                width, height, SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI);
-    
+    r->window = SDL_CreateWindow(
+        title,
+        SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+        width, height,
+        SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE
+    );
+
     if (!r->window) {
         printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
         free(r);
         return NULL;
     }
 
-    r->sdl_renderer = SDL_CreateRenderer(r->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    r->sdl_renderer = SDL_CreateRenderer(
+        r->window, -1,
+        SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC
+    );
+
     if (!r->sdl_renderer) {
         printf("Renderer could not be created! SDL_Error: %s\n", SDL_GetError());
         SDL_DestroyWindow(r->window);
@@ -36,14 +55,13 @@ Renderer* renderer_create(const char* title, int width, int height) {
         return NULL;
     }
 
-    // Force la taille logique pour que les coordonnées souris (points) 
-    // correspondent aux coordonnées de dessin (pixels) sur Retina.
+    // Logical size for consistent coordinates on HiDPI
     SDL_RenderSetLogicalSize(r->sdl_renderer, width, height);
 
     return r;
 }
 
-void renderer_destroy(Renderer* r) {
+void renderer_destroy(Renderer *r) {
     if (!r) return;
     SDL_DestroyRenderer(r->sdl_renderer);
     SDL_DestroyWindow(r->window);
@@ -51,37 +69,31 @@ void renderer_destroy(Renderer* r) {
     SDL_Quit();
 }
 
-void renderer_begin(Renderer* r) {
-    SDL_SetRenderDrawColor(r->sdl_renderer, 40, 44, 52, 255); // Fond gris foncé (style éditeur)
+// -----------------------------------------------------------------------------
+// Frame Begin/End
+// -----------------------------------------------------------------------------
+
+void renderer_begin(Renderer *r) {
+    if (!r) return;
+
+    // Dark background (Kilo-style editor)
+    SDL_SetRenderDrawColor(r->sdl_renderer, 30, 32, 36, 255);
     SDL_RenderClear(r->sdl_renderer);
 }
 
-static int parse_bool_global(const Document* doc, const char* key) {
-    const char* v = doc ? doc_get_global(doc, key) : NULL;
-    if (!v) return 0;
-    return (strcmp(v, "1") == 0 || strcasecmp(v, "true") == 0 || strcasecmp(v, "yes") == 0);
+void renderer_end(Renderer *r) {
+    if (!r) return;
+    SDL_RenderPresent(r->sdl_renderer);
 }
 
-static int parse_int_global(const Document* doc, const char* key, int def_value) {
-    const char* v = doc ? doc_get_global(doc, key) : NULL;
-    if (!v) return def_value;
-    int n = atoi(v);
-    return n;
-}
+// -----------------------------------------------------------------------------
+// Document Drawing (Optional - main UI is in Nuklear)
+// -----------------------------------------------------------------------------
 
-static void renderer_draw_grid(Renderer* r, const Document* doc) {
-    if (!r || !doc) return;
+static void draw_grid(Renderer *r, int step) {
+    if (!r || step < 2) return;
 
-    if (!parse_bool_global(doc, "grid.enabled")) return;
-
-    // Step: prefer grid.step, fallback to snap.step.
-    int step = parse_int_global(doc, "grid.step", 0);
-    if (step <= 0) step = parse_int_global(doc, "snap.step", 10);
-    if (step < 2) step = 2;
-    if (step > 200) step = 200;
-
-    // Light grid over dark background.
-    SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 24);
+    SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 20);
 
     // Vertical lines
     for (int x = 0; x < r->width; x += step) {
@@ -92,445 +104,169 @@ static void renderer_draw_grid(Renderer* r, const Document* doc) {
     for (int y = 0; y < r->height; y += step) {
         SDL_RenderDrawLine(r->sdl_renderer, 0, y, r->width, y);
     }
+}
 
-    // Axis emphasis every 5 steps (subtle)
-    const int major = step * 5;
-    if (major >= 10) {
-        SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 46);
-        for (int x = 0; x < r->width; x += major) {
-            SDL_RenderDrawLine(r->sdl_renderer, x, 0, x, r->height);
-        }
-        for (int y = 0; y < r->height; y += major) {
-            SDL_RenderDrawLine(r->sdl_renderer, 0, y, r->width, y);
-        }
+static void draw_node(Renderer *r, const Node *node, float ox, float oy, float zoom) {
+    if (!r || !node || !node->visible) return;
+
+    float sx = ox + node->x * zoom;
+    float sy = oy + node->y * zoom;
+    float sw = node->width * zoom;
+    float sh = node->height * zoom;
+
+    SDL_Rect rect = {(int)sx, (int)sy, (int)sw, (int)sh};
+
+    // Extract RGBA from fill_color
+    Uint8 fr = (node->fill_color >> 24) & 0xFF;
+    Uint8 fg = (node->fill_color >> 16) & 0xFF;
+    Uint8 fb = (node->fill_color >> 8) & 0xFF;
+    Uint8 fa = node->fill_color & 0xFF;
+
+    SDL_SetRenderDrawColor(r->sdl_renderer, fr, fg, fb, fa);
+    SDL_RenderFillRect(r->sdl_renderer, &rect);
+
+    // Stroke
+    if (node->stroke_width > 0) {
+        Uint8 sr = (node->stroke_color >> 24) & 0xFF;
+        Uint8 sg = (node->stroke_color >> 16) & 0xFF;
+        Uint8 sb = (node->stroke_color >> 8) & 0xFF;
+        Uint8 sa = node->stroke_color & 0xFF;
+
+        SDL_SetRenderDrawColor(r->sdl_renderer, sr, sg, sb, sa);
+        SDL_RenderDrawRect(r->sdl_renderer, &rect);
     }
 }
 
-static void renderer_draw_page_background(Renderer* r, const Document* doc) {
-    if (!r || !doc) return;
-    
-    uint32_t active_id = doc_page_active_id(doc);
-    if (active_id == 0) return;
-    
-    // Find active page struct
-    int pidx = -1;
-    for (int i = 0; i < 32; i++) {
-        if (doc->pages[i].in_use && doc->pages[i].page_id == active_id) {
-            pidx = i;
-            break;
-        }
-    }
-    if (pidx == -1) return;
-    
-    // If Page type, draw the paper sheet
-    if (doc->pages[pidx].type == PAGE_TYPE_PAGE) {
-        // Convert mm to px (96 DPI)
-        // mm = (px / 96) * 25.4  => px = (mm * 96) / 25.4
-        float dpi = 96.0f;
-        float px_w = (doc->pages[pidx].width * dpi) / 25.4f;
-        float px_h = (doc->pages[pidx].height * dpi) / 25.4f;
-        
-    // Draw in world space (paper origin at 0,0), then apply viewport transform.
-    // This makes Print pages pan/zoom like Board pages.
-    float world_x = 0.0f;
-    float world_y = 0.0f;
-
-    // Viewport (camera)
-    float vx = doc->pages[pidx].view_x;
-    float vy = doc->pages[pidx].view_y;
-    float vz = (doc->pages[pidx].view_zoom != 0.0f) ? doc->pages[pidx].view_zoom : 1.0f;
-
-    float cx = (float)r->width * 0.5f;
-    float cy = (float)r->height * 0.5f;
-
-    float x = (world_x - vx) * vz + cx;
-    float y = (world_y - vy) * vz + cy;
-    float w = px_w * vz;
-    float h = px_h * vz;
-        
-    SDL_Rect paper = { (int)x, (int)y, (int)w, (int)h };
-        
-        // Shadow
-    SDL_Rect shadow = { paper.x + 4, paper.y + 4, paper.w, paper.h };
-        SDL_SetRenderDrawColor(r->sdl_renderer, 0, 0, 0, 60);
-        SDL_RenderFillRect(r->sdl_renderer, &shadow);
-        
-        // Paper (White)
-        SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 255);
-        SDL_RenderFillRect(r->sdl_renderer, &paper);
-        
-        // Border (Thin grey)
-        SDL_SetRenderDrawColor(r->sdl_renderer, 200, 200, 200, 255);
-        SDL_RenderDrawRect(r->sdl_renderer, &paper);
-    }
-}
-
-static void world_to_screen_rect(const Renderer* r, float vx, float vy, float vz, const SDL_FRect* in, SDL_Rect* out) {
-    if (!r || !in || !out) return;
-    if (vz == 0.0f) vz = 1.0f;
-    float cx = (float)r->width * 0.5f;
-    float cy = (float)r->height * 0.5f;
-    out->x = (int)((in->x - vx) * vz + cx);
-    out->y = (int)((in->y - vy) * vz + cy);
-    out->w = (int)(in->w * vz);
-    out->h = (int)(in->h * vz);
-}
-
-static void draw_node_recursive(Renderer* r, Node* node, float vx, float vy, float vz, struct nk_context* nk_ctx) {
+static void draw_node_tree(Renderer *r, const Node *node, float ox, float oy, float zoom) {
     if (!node) return;
 
-    if (node->visible == 0) {
-    draw_node_recursive(r, node->first_child, vx, vy, vz, nk_ctx);
-    draw_node_recursive(r, node->next_sibling, vx, vy, vz, nk_ctx);
-        return;
+    // Draw this node (skip ROOT type)
+    if (node->type != NODE_TYPE_ROOT) {
+        draw_node(r, node, ox, oy, zoom);
     }
 
-    if (node->type == NODE_TYPE_RECT) {
-        SDL_FRect wrect = { node->x, node->y, node->width, node->height };
-        SDL_Rect rect;
-        world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
-
-        int color_seed = node->id * 12345;
-        Uint8 red = (color_seed & 0xFF0000) >> 16;
-        Uint8 green = (color_seed & 0x00FF00) >> 8;
-        Uint8 blue = (color_seed & 0x0000FF);
-
-        SDL_SetRenderDrawColor(r->sdl_renderer, red, green, blue, 255);
-        SDL_RenderFillRect(r->sdl_renderer, &rect);
-
-        SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 255);
-        SDL_RenderDrawRect(r->sdl_renderer, &rect);
+    // Draw children
+    for (Node *child = node->first_child; child; child = child->next_sibling) {
+        draw_node_tree(r, child, ox, oy, zoom);
     }
-
-    if (node->type == NODE_TYPE_IMAGE) {
-        SDL_FRect wrect = { node->x, node->y, node->width, node->height };
-        SDL_Rect rect;
-        world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
-
-        SDL_Texture* tex = NULL;
-        SDL_Surface* surface = NULL;
-
-        if (node->text[0] != 0) {
-            surface = SDL_LoadBMP(node->text);
-            if (surface) {
-                tex = SDL_CreateTextureFromSurface(r->sdl_renderer, surface);
-            }
-        }
-
-        if (tex) {
-            SDL_RenderCopy(r->sdl_renderer, tex, NULL, &rect);
-        } else {
-            SDL_SetRenderDrawColor(r->sdl_renderer, 40, 40, 40, 255);
-            SDL_RenderFillRect(r->sdl_renderer, &rect);
-            SDL_SetRenderDrawColor(r->sdl_renderer, 200, 200, 200, 255);
-            SDL_RenderDrawRect(r->sdl_renderer, &rect);
-        }
-
-        if (tex) SDL_DestroyTexture(tex);
-        if (surface) SDL_FreeSurface(surface);
-    }
-
-    if (node->type == NODE_TYPE_TEXT) {
-        // Text is rendered in ui_render() (Nuklear overlay pass) to reuse the font atlas
-        // without requiring a current Nuklear window during the SDL renderer pass.
-    }
-
-    // --- Unified Node Types (Phase 1) ---
-
-    if (node->type == NODE_TYPE_FRAME || node->type == NODE_TYPE_GROUP) {
-        // Frames and groups are containers: draw a subtle outline
-        SDL_FRect wrect = { node->x, node->y, node->width, node->height };
-        SDL_Rect rect;
-        world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
-
-        // Subtle fill for frames
-        if (node->type == NODE_TYPE_FRAME) {
-            SDL_SetRenderDrawColor(r->sdl_renderer, 60, 60, 80, 40);
-            SDL_RenderFillRect(r->sdl_renderer, &rect);
-        }
-
-        // Dashed outline (simulated with corner markers)
-        SDL_SetRenderDrawColor(r->sdl_renderer, 100, 150, 200, 180);
-        SDL_RenderDrawRect(r->sdl_renderer, &rect);
-    }
-
-    if (node->type == NODE_TYPE_NOTE) {
-        // Note nodes are rendered as a paper-like card
-        SDL_FRect wrect = { node->x, node->y, node->width, node->height };
-        SDL_Rect rect;
-        world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
-
-        // Paper background
-        SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 240, 255);
-        SDL_RenderFillRect(r->sdl_renderer, &rect);
-
-        // Subtle shadow effect (offset rectangle)
-        SDL_Rect shadow = { rect.x + 2, rect.y + 2, rect.w, rect.h };
-        SDL_SetRenderDrawColor(r->sdl_renderer, 0, 0, 0, 30);
-        SDL_RenderFillRect(r->sdl_renderer, &shadow);
-
-        // Border
-        SDL_SetRenderDrawColor(r->sdl_renderer, 200, 180, 150, 255);
-        SDL_RenderDrawRect(r->sdl_renderer, &rect);
-    }
-
-    if (node->type == NODE_TYPE_GRID) {
-        // Grid nodes are rendered as a spreadsheet-like card
-        SDL_FRect wrect = { node->x, node->y, node->width, node->height };
-        SDL_Rect rect;
-        world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
-
-        // Background
-        SDL_SetRenderDrawColor(r->sdl_renderer, 245, 250, 255, 255);
-        SDL_RenderFillRect(r->sdl_renderer, &rect);
-
-        // Grid lines (simple preview)
-        SDL_SetRenderDrawColor(r->sdl_renderer, 200, 210, 220, 200);
-        int grid_step = 20;
-        for (int gx = rect.x; gx < rect.x + rect.w; gx += grid_step) {
-            SDL_RenderDrawLine(r->sdl_renderer, gx, rect.y, gx, rect.y + rect.h);
-        }
-        for (int gy = rect.y; gy < rect.y + rect.h; gy += grid_step) {
-            SDL_RenderDrawLine(r->sdl_renderer, rect.x, gy, rect.x + rect.w, gy);
-        }
-
-        // Border
-        SDL_SetRenderDrawColor(r->sdl_renderer, 100, 130, 180, 255);
-        SDL_RenderDrawRect(r->sdl_renderer, &rect);
-    }
-
-    if (node->type == NODE_TYPE_CLIP) {
-        // Clip nodes are rendered as a film-strip-like card
-        SDL_FRect wrect = { node->x, node->y, node->width, node->height };
-        SDL_Rect rect;
-        world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
-
-        // Dark background (video preview area)
-        SDL_SetRenderDrawColor(r->sdl_renderer, 30, 30, 35, 255);
-        SDL_RenderFillRect(r->sdl_renderer, &rect);
-
-        // Film sprocket holes on sides
-        SDL_SetRenderDrawColor(r->sdl_renderer, 50, 50, 55, 255);
-        int hole_size = 6;
-        int hole_spacing = 14;
-        for (int hy = rect.y + 10; hy < rect.y + rect.h - 10; hy += hole_spacing) {
-            SDL_Rect hole_l = { rect.x + 3, hy, hole_size, hole_size };
-            SDL_Rect hole_r = { rect.x + rect.w - hole_size - 3, hy, hole_size, hole_size };
-            SDL_RenderFillRect(r->sdl_renderer, &hole_l);
-            SDL_RenderFillRect(r->sdl_renderer, &hole_r);
-        }
-
-        // Border
-        SDL_SetRenderDrawColor(r->sdl_renderer, 80, 100, 140, 255);
-        SDL_RenderDrawRect(r->sdl_renderer, &rect);
-    }
-
-    draw_node_recursive(r, node->first_child, vx, vy, vz, nk_ctx);
-    draw_node_recursive(r, node->next_sibling, vx, vy, vz, nk_ctx);
 }
 
-// =============================================================================
-// NOTE PAGE RENDERER - Modern Apple Notes / Notion style
-// =============================================================================
-// Philosophy: Clean, minimal, focused. Beautiful typography, generous whitespace.
-// Inspired by: Apple Notes, Notion, Canva Notes
-// Antirez principle: Simple, elegant, fast.
-
-static void renderer_draw_note_doc(Renderer* r, const Document* doc, int page_index) {
+void renderer_draw_document(Renderer *r, const Document *doc, struct nk_context *nk_ctx) {
     if (!r || !doc) return;
-    if (page_index < 0 || page_index >= 32) return;
 
-    const AslanNoteDoc* nd = doc->pages[page_index].note;
-    if (!nd) return;
-
-    // ==========================================================================
-    // MODERN LAYOUT - Apple Notes inspired
-    // ==========================================================================
-    const float margin_left = 120.0f;   // Extra generous left margin (Apple style)
-    const float margin_right = 120.0f;  // Symmetric margins
-    const float top_margin = 80.0f;     // Breathing room at top
-    
-    // Modern Color Palette (2024 style)
-    // Inspired by Apple Notes, Notion, Linear
-    const SDL_Color bg_page = {252, 252, 250, 255};       // Warm white (not pure #FFFFFF)
-    // Marker-style highlight: Semi-transparent, like real fluorescent marker
-    const SDL_Color color_fluo = {255, 230, 50, 180};     // Yellow marker (semi-transparent for realistic look)
-    
-    const float scroll_y = (nd->scroll_y > 0.0f) ? nd->scroll_y : 0.0f;
-
-    // ==========================================================================
-    // BACKGROUND: Warm, inviting page
-    // ==========================================================================
-    SDL_Rect page_area = { 0, 0, r->width, r->height };
-    SDL_SetRenderDrawColor(r->sdl_renderer, bg_page.r, bg_page.g, bg_page.b, bg_page.a);
-    SDL_RenderFillRect(r->sdl_renderer, &page_area);
-    
-    // ==========================================================================
-    // HIGHLIGHTS (Fluo) - Full opacity, vibrant
-    // ==========================================================================
-    float y_acc = top_margin;
-    for (int i = 0; i < nd->row_count; i++) {
-        // Calculate line height based on type
-        float h = 28.0f;  // Default text height (increased from 26px)
-        AslanRowType rt = nd->rows[i].type;
-        
-        if (rt == ASLAN_ROW_HEADING_1) {
-            h = 56.0f;  // Larger, more prominent headings
-        } else if (rt == ASLAN_ROW_SEPARATOR) {
-            h = 32.0f;  // More space around separators
+    // Get active page
+    Page *page = NULL;
+    if (doc->active_page_idx >= 0 && doc->active_page_idx < 32) {
+        if (doc->pages[doc->active_page_idx].in_use) {
+            page = (Page *)&doc->pages[doc->active_page_idx];
         }
-        
-        // Draw highlight background for marked rows (MARKER-STYLE: realistic fluorescent)
-        if (rt == ASLAN_ROW_HIGHLIGHT) {
-            // Calculate text width (approximate with monospace assumption)
-            const char* text = nd->rows[i].chars ? nd->rows[i].chars : "";
-            size_t text_len = strlen(text);
-            // Approximate: 8px per char (monospace), plus padding
-            float text_width = (float)text_len * 8.5f + 12.0f;
-            
-            // Don't make it wider than available space
-            float max_width = r->width - margin_left - margin_right;
-            if (text_width > max_width) text_width = max_width;
-            if (text_width < 20.0f) text_width = 20.0f;  // Minimum width
-            
-            SDL_SetRenderDrawBlendMode(r->sdl_renderer, SDL_BLENDMODE_BLEND);
-            
-            // MARKER EFFECT: Multiple layers for realistic look
-            // Layer 1: Main highlight (slightly taller, offset up)
-            float marker_h = h * 0.65f;  // 65% of line height (like real marker)
-            float marker_y = y_acc - scroll_y + (h - marker_h) * 0.4f;  // Slightly above center
-            
-            SDL_Rect main_rect = { 
-                (int)(margin_left - 2),
-                (int)marker_y, 
-                (int)text_width, 
-                (int)marker_h
-            };
-            SDL_SetRenderDrawColor(r->sdl_renderer, color_fluo.r, color_fluo.g, color_fluo.b, color_fluo.a);
-            SDL_RenderFillRect(r->sdl_renderer, &main_rect);
-            
-            // Layer 2: Darker edge at bottom (marker shadow effect)
-            SDL_Rect shadow_rect = {
-                (int)(margin_left - 2),
-                (int)(marker_y + marker_h - 3),
-                (int)text_width,
-                3
-            };
-            SDL_SetRenderDrawColor(r->sdl_renderer, 255, 210, 30, 100);  // Darker yellow
-            SDL_RenderFillRect(r->sdl_renderer, &shadow_rect);
-            
-            // Layer 3: Lighter top edge (marker highlight)
-            SDL_Rect top_rect = {
-                (int)(margin_left - 2),
-                (int)marker_y,
-                (int)text_width,
-                2
-            };
-            SDL_SetRenderDrawColor(r->sdl_renderer, 255, 245, 150, 150);  // Lighter yellow
-            SDL_RenderFillRect(r->sdl_renderer, &top_rect);
-        }
-        
-        y_acc += h;
     }
 
-    // Clean, minimal - no extra decorations
+    if (!page) return;
+
+    // Optional: Draw grid based on global setting
+    const char *grid_enabled = doc_get_global(doc, "grid.enabled");
+    if (grid_enabled && (strcmp(grid_enabled, "1") == 0 || strcmp(grid_enabled, "true") == 0)) {
+        const char *grid_step_str = doc_get_global(doc, "grid.step");
+        int grid_step = grid_step_str ? atoi(grid_step_str) : 20;
+        if (grid_step < 5) grid_step = 5;
+        if (grid_step > 200) grid_step = 200;
+        draw_grid(r, grid_step);
+    }
+
+    // Note: Block rendering is handled by Nuklear in ui_host.c
+    // This function can be used for additional low-level drawing if needed
 }
 
-void renderer_draw_document(Renderer* r, const Document* doc, struct nk_context* nk_ctx) {
-    if (!doc || !doc->root) return;
-    
-    // Draw page background (paper for Print type) BEFORE grid and nodes
-    renderer_draw_page_background(r, doc);
-    
-    renderer_draw_grid(r, doc);
+void renderer_draw_selection(Renderer *r, const Document *doc, Node *selected_node) {
+    if (!r || !selected_node) return;
 
-    // Active page index
-    int pidx = -1;
-    uint32_t active_id = doc_page_active_id(doc);
-    for (int i = 0; i < 32; i++) {
-        if (doc->pages[i].in_use && doc->pages[i].page_id == active_id) {
-            pidx = i;
-            break;
-        }
-    }
+    // Draw selection box around selected node
+    float sx = selected_node->x;
+    float sy = selected_node->y;
+    float sw = selected_node->width;
+    float sh = selected_node->height;
 
-    // Special renderer mode for Notes pages.
-    if (pidx >= 0 && doc->pages[pidx].type == PAGE_TYPE_NOTE) {
-        renderer_draw_note_doc(r, doc, pidx);
-        return;
-    }
-
-    // Otherwise: draw the normal canvas node tree.
-    float vx = 0.0f, vy = 0.0f, vz = 1.0f;
-    if (pidx >= 0) {
-        vx = doc->pages[pidx].view_x;
-        vy = doc->pages[pidx].view_y;
-        vz = (doc->pages[pidx].view_zoom != 0.0f) ? doc->pages[pidx].view_zoom : 1.0f;
-    }
-    draw_node_recursive(r, doc->root, vx, vy, vz, nk_ctx);
-}
-
-void renderer_draw_selection(Renderer* r, const Document* doc, Node* selected_node) {
-    if (!selected_node) return;
-
-    // Match the same viewport transform used for node rendering.
-    float vx = 0.0f, vy = 0.0f, vz = 1.0f;
-    if (doc) {
-        uint32_t active_id = doc_page_active_id(doc);
-        for (int i = 0; i < 32; i++) {
-            if (doc->pages[i].in_use && doc->pages[i].page_id == active_id) {
-                vx = doc->pages[i].view_x;
-                vy = doc->pages[i].view_y;
-                vz = (doc->pages[i].view_zoom != 0.0f) ? doc->pages[i].view_zoom : 1.0f;
-                break;
-            }
-        }
-    }
-
-    SDL_FRect wrect = { selected_node->x, selected_node->y, selected_node->width, selected_node->height };
-    SDL_Rect rect;
-    world_to_screen_rect(r, vx, vy, vz, &wrect, &rect);
-    
-    // 1. Bordure de sélection (Bleu vif)
-    SDL_SetRenderDrawColor(r->sdl_renderer, 0, 120, 215, 255);
+    // Selection highlight (blue border)
+    SDL_Rect rect = {(int)sx - 2, (int)sy - 2, (int)sw + 4, (int)sh + 4};
+    SDL_SetRenderDrawColor(r->sdl_renderer, 80, 140, 200, 255);
     SDL_RenderDrawRect(r->sdl_renderer, &rect);
-    
-    // On dessine une deuxième bordure intérieure pour plus de visibilité
-    SDL_Rect inner = { rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2 };
-    SDL_RenderDrawRect(r->sdl_renderer, &inner);
-    
-    // 2. Poignées de redimensionnement (carrés) dans chaque coin, *à l'intérieur* de la forme
-    // Keep handles readable when zooming: size scales a bit but is clamped.
-    int handle_size = (int)(18.0f * vz);
-    if (handle_size < 8) handle_size = 8;
-    if (handle_size > 28) handle_size = 28;
 
-    SDL_Rect handle_tl = { rect.x,
-                           rect.y,
-                           handle_size, handle_size };
-    SDL_Rect handle_tr = { rect.x + rect.w - handle_size,
-                           rect.y,
-                           handle_size, handle_size };
-    SDL_Rect handle_bl = { rect.x,
-                           rect.y + rect.h - handle_size,
-                           handle_size, handle_size };
-    SDL_Rect handle_br = { rect.x + rect.w - handle_size,
-                           rect.y + rect.h - handle_size,
-                           handle_size, handle_size };
+    // Corner handles
+    const int handle_size = 6;
+    SDL_Rect handles[4] = {
+        {rect.x - handle_size/2, rect.y - handle_size/2, handle_size, handle_size},
+        {rect.x + rect.w - handle_size/2, rect.y - handle_size/2, handle_size, handle_size},
+        {rect.x - handle_size/2, rect.y + rect.h - handle_size/2, handle_size, handle_size},
+        {rect.x + rect.w - handle_size/2, rect.y + rect.h - handle_size/2, handle_size, handle_size}
+    };
 
     SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 255);
-    SDL_RenderFillRect(r->sdl_renderer, &handle_tl);
-    SDL_RenderFillRect(r->sdl_renderer, &handle_tr);
-    SDL_RenderFillRect(r->sdl_renderer, &handle_bl);
-    SDL_RenderFillRect(r->sdl_renderer, &handle_br);
-
-    SDL_SetRenderDrawColor(r->sdl_renderer, 0, 120, 215, 255);
-    SDL_RenderDrawRect(r->sdl_renderer, &handle_tl);
-    SDL_RenderDrawRect(r->sdl_renderer, &handle_tr);
-    SDL_RenderDrawRect(r->sdl_renderer, &handle_bl);
-    SDL_RenderDrawRect(r->sdl_renderer, &handle_br);
+    for (int i = 0; i < 4; i++) {
+        SDL_RenderFillRect(r->sdl_renderer, &handles[i]);
+    }
+    SDL_SetRenderDrawColor(r->sdl_renderer, 80, 140, 200, 255);
+    for (int i = 0; i < 4; i++) {
+        SDL_RenderDrawRect(r->sdl_renderer, &handles[i]);
+    }
 }
 
-void renderer_end(Renderer* r) {
-    SDL_RenderPresent(r->sdl_renderer);
+// -----------------------------------------------------------------------------
+// Canvas/Design Block Rendering (for direct SDL rendering)
+// -----------------------------------------------------------------------------
+
+void renderer_draw_canvas_block(Renderer *r, const Block *block, float x, float y, float w, float h) {
+    if (!r || !block || block->type != BLOCK_CANVAS) return;
+
+    const CanvasData *cd = &block->data.canvas;
+
+    // Background
+    SDL_Rect bounds = {(int)x, (int)y, (int)w, (int)h};
+    SDL_SetRenderDrawColor(r->sdl_renderer, 40, 42, 46, 255);
+    SDL_RenderFillRect(r->sdl_renderer, &bounds);
+
+    // Border
+    SDL_SetRenderDrawColor(r->sdl_renderer, 60, 62, 66, 255);
+    SDL_RenderDrawRect(r->sdl_renderer, &bounds);
+
+    // Draw nodes
+    if (cd->root) {
+        float ox = x - cd->view_x * cd->zoom;
+        float oy = y - cd->view_y * cd->zoom;
+        draw_node_tree(r, cd->root, ox, oy, cd->zoom);
+    }
+}
+
+void renderer_draw_design_block(Renderer *r, const Block *block, float x, float y, float w, float h) {
+    if (!r || !block || block->type != BLOCK_DESIGN) return;
+
+    const DesignData *dd = &block->data.design;
+
+    // Calculate scale to fit
+    float scale_x = w / (float)dd->width;
+    float scale_y = h / (float)dd->height;
+    float scale = scale_x < scale_y ? scale_x : scale_y;
+    if (scale > 1.0f) scale = 1.0f;
+
+    float dw = (float)dd->width * scale;
+    float dh = (float)dd->height * scale;
+    float dx = x + (w - dw) / 2.0f;
+    float dy = y + (h - dh) / 2.0f;
+
+    // Background
+    SDL_Rect bounds = {(int)dx, (int)dy, (int)dw, (int)dh};
+    Uint8 br = (dd->bg_color >> 24) & 0xFF;
+    Uint8 bg = (dd->bg_color >> 16) & 0xFF;
+    Uint8 bb = (dd->bg_color >> 8) & 0xFF;
+    SDL_SetRenderDrawColor(r->sdl_renderer, br, bg, bb, 255);
+    SDL_RenderFillRect(r->sdl_renderer, &bounds);
+
+    // Border (accent)
+    SDL_SetRenderDrawColor(r->sdl_renderer, 80, 140, 200, 255);
+    SDL_RenderDrawRect(r->sdl_renderer, &bounds);
+
+    // Draw nodes
+    if (dd->root) {
+        draw_node_tree(r, dd->root, dx, dy, scale);
+    }
 }

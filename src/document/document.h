@@ -4,391 +4,511 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h> // FILE
+#include <stdio.h>
 
 // =============================================================================
-// ASLAN AOF GRAMMAR (v2) - Append-Only File Protocol
+// ASLAN DOCUMENT MODEL v3 - Unified Block-Based Architecture
 // =============================================================================
 //
-// All commands follow the format: VERB [ARGS...]
-// Strings containing spaces must be quoted: "my string"
-// IDs are always uint32_t. Coordinates are floats.
-//
-// --- Document Structure ---
-// doc_type <type_string>
-// doc_meta <key> <value>
-// set_global <key> "<value>"
-// unset_global <key>
-//
-// --- Pages (Surfaces) ---
-// page_create <page_id> "<name>"
-// page_type <page_id> space|page|table|note|clip|grid
-// page_meta <page_id> <key> <value>
-// page_activate <page_id>
-//
-// --- Nodes (Unified Object Model) ---
-// create_rect <id> <name> <x> <y> <w> <h>
-// create_text <id> <name> <x> <y> <w> <h> "<content>"
-// create_image <id> <name> <x> <y> <w> <h> "<path>"
-// create_frame <id> <name> <x> <y> <w> <h>
-// create_group <id> <name> <x> <y> <w> <h>
-// create_note <id> <name> <x> <y> <w> <h>
-// create_grid <id> <name> <x> <y> <w> <h> <rows> <cols>
-// create_clip <id> <name> <x> <y> <w> <h>
-//
-// --- Node Manipulation ---
-// move <id> <x> <y>
-// resize <id> <w> <h>
-// set_rect <id> <x> <y> <w> <h>
-// set_text <id> "<content>"
-// set_attr <id> <key> <value>
-// set_visible <id> 0|1
-// delete <id>
-//
-// --- Hierarchy ---
-// group_attach <group_id> <child_id>
-// reparent <node_id> <new_parent_id>
-// bring_to_front <id>
-// send_to_back <id>
-// bring_forward <id>
-// send_backward <id>
-//
-// --- Note Node Commands ---
-// note_row <node_id> <row_idx> <type> "<text>"
-// note_row_type <node_id> <row_idx> text|h1|h2|h3|separator|callout|checklist
-// note_callout_theme <node_id> <row_idx> info|star|alert|check|idea
-// note_checklist_toggle <node_id> <row_idx>
-//
-// --- Grid Node Commands ---
-// grid_cell <node_id> <row> <col> "<text>"
-// grid_resize <node_id> <rows> <cols>
-//
-// --- Clip Node Commands ---
-// clip_add <node_id> "<path>"
-// clip_set <node_id> <clip_idx> <start_time> <end_time>
-// clip_comment <node_id> <clip_idx> "<comment>"
-// clip_delete <node_id> <clip_idx>
+// Philosophy: Single document type with mixed blocks (Notion-like)
+// All content is a sequence of blocks within pages.
+// Blocks can be: Text, Headings, Separators, Lua Scripts, Tables,
+//                Canvas (infinite), Design (finite), Video.
 //
 // =============================================================================
 
-// Forward decl
+// Forward declarations
 union SDL_Event;
 struct SpatialIndex;
 typedef struct SpatialIndex SpatialIndex;
 struct Document;
+struct Block;
+struct Page;
+struct lua_State;
 
-// =========================
-// Nodes & Graph Hierarchy
-// =========================
+// =============================================================================
+// BLOCK TYPES
+// =============================================================================
 
-// Types de nœuds graphiques supportés (Unified Node Model)
+typedef enum {
+  BLOCK_TEXT = 0,  // Monospace text (Kilo-style editor)
+  BLOCK_HEADING_1, // H1 title
+  BLOCK_HEADING_2, // H2 subtitle
+  BLOCK_HEADING_3, // H3 section
+  BLOCK_SEPARATOR, // Elegant visual divider
+  BLOCK_LUA,       // Executable Lua script block
+  BLOCK_TABLE,     // Notion-style table with views
+  BLOCK_CANVAS,    // Infinite canvas (Miro-style)
+  BLOCK_DESIGN,    // Finite design surface (Canva-style)
+  BLOCK_VIDEO,     // Video montage/preview
+  BLOCK_CALLOUT,   // Info/warning box
+  BLOCK_CHECKLIST, // Checkbox item
+  BLOCK_COUNT
+} BlockType;
+
+// Table view modes
+typedef enum {
+  TABLE_VIEW_TABLE = 0, // Standard table grid
+  TABLE_VIEW_LIST,      // Vertical list
+  TABLE_VIEW_BOARD      // Kanban-style board
+} TableViewMode;
+
+// Callout themes
+typedef enum {
+  CALLOUT_INFO = 0,
+  CALLOUT_ALERT,
+  CALLOUT_STAR,
+  CALLOUT_CHECK,
+  CALLOUT_IDEA
+} CalloutTheme;
+
+// =============================================================================
+// NODE TYPES (for Canvas/Design embedded content)
+// =============================================================================
+
 typedef enum {
   NODE_TYPE_ROOT = 0,
   NODE_TYPE_RECT = 1,
   NODE_TYPE_TEXT = 2,
   NODE_TYPE_IMAGE = 3,
-  NODE_TYPE_FRAME = 4,   // Container frame (like Figma)
-  NODE_TYPE_GROUP = 5,   // Logical grouping
-
-  // Unified specialized nodes (Phase 1 completion)
-  NODE_TYPE_NOTE = 10,   // Rich-text note (Notion-like)
-  NODE_TYPE_GRID = 11,   // Spreadsheet/table
-  NODE_TYPE_CLIP = 12,   // Video clip sequence
-
-  // Notion-style inline blocks (used within NOTE nodes)
-  NODE_TYPE_BLOCK_TEXT = 20,
-  NODE_TYPE_BLOCK_HEADING_1 = 21,
-  NODE_TYPE_BLOCK_HEADING_2 = 22,
-  NODE_TYPE_BLOCK_HEADING_3 = 23,
-  NODE_TYPE_BLOCK_SEPARATOR = 24,
-  NODE_TYPE_BLOCK_CALLOUT = 25,
-  NODE_TYPE_BLOCK_CHECKLIST = 26
+  NODE_TYPE_FRAME = 4,  // Container frame (Figma-like)
+  NODE_TYPE_GROUP = 5,  // Logical grouping
+  NODE_TYPE_LINE = 6,   // Line/arrow
+  NODE_TYPE_ELLIPSE = 7 // Circle/ellipse
 } NodeType;
 
-// Structure générique pour un objet graphique
+// =============================================================================
+// NODE STRUCTURE (for Canvas/Design blocks)
+// =============================================================================
+
 typedef struct Node {
   uint32_t id;
   NodeType type;
   char name[64];
 
-  // Propriétés spatiales de base
+  // Spatial properties
   float x, y;
   float width, height;
+  float rotation; // Degrees
 
-  // Payload for certain node types (TEXT content, etc.)
+  // Appearance
+  uint32_t fill_color;   // RGBA
+  uint32_t stroke_color; // RGBA
+  float stroke_width;
+  float corner_radius;
+
+  // Text content (for NODE_TYPE_TEXT)
   char text[256];
 
-  // Dynamic payload for specialized behavior (NOTE, GRID, CLIP)
-  // Use node_get_*_payload() accessors for type-safe access.
-  void *payload;
-  size_t payload_size;
+  // Image path (for NODE_TYPE_IMAGE)
+  char image_path[256];
 
-  // Visibility (for layers)
+  // Visibility
   int visible;
+  int locked;
 
-  // Hiérarchie
+  // Hierarchy (linked list tree)
   struct Node *parent;
   struct Node *first_child;
   struct Node *next_sibling;
 } Node;
 
-// =========================
-// Note Payload (Notion/Kilo-inspired)
-// =========================
-typedef enum {
-  ASLAN_ROW_TEXT = 0,
-  ASLAN_ROW_GRID = 1,       // Embedded grid view
-  ASLAN_ROW_LUA_WIDGET = 2, // Scripted widgets
-  ASLAN_ROW_HEADING_1 = 3,
-  ASLAN_ROW_SEPARATOR = 6,
-  ASLAN_ROW_EMBED = 9,      // YouTube/Web embed
-  ASLAN_ROW_HIGHLIGHT = 10  // Highlighted text row
-} AslanRowType;
+// =============================================================================
+// BLOCK PAYLOAD STRUCTURES
+// =============================================================================
 
+// --- Table Block Data ---
 typedef struct {
-  uint32_t source_page_id;
-  int collapsed;
-} AslanTableViewBlock;
-
-typedef struct {
-  char url[512];
-  float height;
-} AslanEmbedBlock;
-
-typedef struct {
-  AslanRowType type;
-  char *chars;
-  size_t len;
-  size_t cap;
-  void *block; // AslanTableViewBlock*, AslanEmbedBlock*, etc.
-
-  // Unified Nodes: Link to a child node in the tree (for embedded content)
-  struct Node *node;
-  
-  // Highlight color (0=none, 1=yellow, 2=blue, 3=green)
-  int highlight_color;
-} AslanRow;
-
-// Note payload structure (stored in Node->payload for NODE_TYPE_NOTE)
-// Also used for legacy page-level notes (backward compatibility)
-typedef struct {
-  struct Document *doc; // Parent doc for node ops
-  uint32_t node_id;     // ID of the owning node (unified model)
-  uint32_t page_id;     // LEGACY: page ID for page-level notes
-
-  AslanRow *rows;
-  int row_count;
-  int row_cap;
-
-  int cursor_row;
-  int cursor_col;
-
-  bool is_selecting;
-  int anchor_row;
-  int anchor_col;
-
-  int aof_last_edited_row;
-  uint32_t aof_last_edit_time_ms;
-
-  float scroll_y;
-  int max_chars_per_visual_line;
-} NotePayload;
-
-// Backward compatibility typedef
-typedef NotePayload AslanNoteDoc;
-
-// =========================
-// Grid Payload (Spreadsheet)
-// =========================
-typedef struct {
+  char **cells; // Flat array: cells[row * cols + col]
   int rows;
   int cols;
-  char ***data;
-  int *col_widths;
+  int *col_widths; // Computed column widths
   int active_row;
   int active_col;
-} GridPayload;
+  TableViewMode view_mode;
+} TableData;
 
-// Backward compatibility typedef
-typedef GridPayload AslanGrid;
+// --- Canvas Block Data (Infinite) ---
+typedef struct {
+  Node *root; // Node tree root
+  uint32_t next_node_id;
+  float view_x, view_y; // Pan offset
+  float zoom;           // Zoom level (1.0 = 100%)
+  SpatialIndex *index;  // Hit-testing acceleration
+} CanvasData;
 
-AslanGrid *grid_create(int r, int c);
-void grid_destroy(AslanGrid *grid);
-void grid_set_cell(AslanGrid *grid, int r, int c, const char *text);
-const char *grid_get_cell(const AslanGrid *grid, int r, int c);
-void grid_compute_column_widths(AslanGrid *grid, const void *font);
-int grid_address_to_coords(const char *address, int *out_r, int *out_c);
+// --- Design Block Data (Finite) ---
+typedef struct {
+  Node *root; // Node tree root
+  uint32_t next_node_id;
+  int width, height; // Fixed dimensions in pixels
+  float zoom;        // View zoom
+  uint32_t bg_color; // Background color
+} DesignData;
 
-// =========================
-// Clip Payload (Video Sequence)
-// =========================
+// --- Video Block Data ---
 typedef struct {
   char source_path[256];
   double start_time;
   double end_time;
   bool is_selected;
   char comment[256];
-} AslanClip;
+} VideoClip;
 
 typedef struct {
-  AslanClip *clips;
+  VideoClip *clips;
   int clip_count;
   int clip_cap;
   int active_index;
-  int editing_field;
   double playhead;
   bool is_playing;
-} ClipPayload;
+  bool is_fullscreen;
+} VideoData;
 
-// Backward compatibility typedef
-typedef ClipPayload AslanClipPage;
+// --- Lua Script Block Data ---
+typedef struct {
+  char *code; // Lua source code
+  size_t code_len;
+  size_t code_cap;
+  char *output; // Last execution output
+  size_t output_len;
+  bool has_error;
+  bool is_running;
+} LuaData;
 
-AslanClipPage *clip_page_create(void);
-void clip_page_destroy(AslanClipPage *page);
-int clip_add(AslanClipPage *page, const char *path);
-bool clip_delete(AslanClipPage *page, int index);
-bool clip_move(AslanClipPage *page, int from, int to);
-bool clip_split(AslanClipPage *page, int index, double time);
-bool clip_set_source(AslanClipPage *page, int index, const char *path);
-bool clip_set_range(AslanClipPage *page, int index, double start, double end);
-bool clip_set_comment(AslanClipPage *page, int index, const char *comment);
-double clip_get_duration(const AslanClip *clip);
-double clip_page_total_duration(const AslanClipPage *page);
+// --- Callout Block Data ---
+typedef struct {
+  CalloutTheme theme;
+} CalloutData;
 
-// --- Page Type enum ---
-typedef enum {
-  PAGE_TYPE_SPACE = 0, // Infinite canvas (default)
-  PAGE_TYPE_PAGE = 1,  // Fixed-size print layout
-  PAGE_TYPE_TABLE = 2, // Reserved
-  PAGE_TYPE_NOTE = 3,  // DEPRECATED: Use NODE_TYPE_NOTE instead
-  PAGE_TYPE_CLIP = 4,  // DEPRECATED: Use NODE_TYPE_CLIP instead
-  PAGE_TYPE_GRID = 5   // DEPRECATED: Use NODE_TYPE_GRID instead
-} PageType;
+// --- Checklist Block Data ---
+typedef struct {
+  bool is_checked;
+} ChecklistData;
 
-// Le Document est le conteneur principal
+// =============================================================================
+// BLOCK STRUCTURE (Unified)
+// =============================================================================
+
+typedef struct Block {
+  uint32_t id; // Unique block ID
+  BlockType type;
+
+  // Text content (for TEXT, HEADING_*, SEPARATOR, LUA, CALLOUT, CHECKLIST)
+  char *text;
+  size_t text_len;
+  size_t text_cap;
+
+  // Type-specific payload
+  union {
+    TableData table;
+    CanvasData canvas;
+    DesignData design;
+    VideoData video;
+    LuaData lua;
+    CalloutData callout;
+    ChecklistData checklist;
+  } data;
+
+  // View state
+  bool is_collapsed;
+  bool is_focused;
+  float height;        // Computed render height (pixels)
+  int highlight_color; // 0=none, 1=yellow, 2=blue, 3=green
+
+  // Cursor state (for text editing within block)
+  int cursor_pos;
+  int selection_start;
+  int selection_end;
+
+  // Doubly-linked list
+  struct Block *prev;
+  struct Block *next;
+} Block;
+
+// =============================================================================
+// PAGE STRUCTURE
+// =============================================================================
+
+typedef struct Page {
+  uint32_t id;
+  char name[64];
+  int in_use;
+
+  // Block list (doubly-linked)
+  Block *first_block;
+  Block *last_block;
+  int block_count;
+  uint32_t next_block_id;
+
+  // Scroll state
+  float scroll_y;
+  float scroll_target_y; // For smooth scrolling
+
+  // Focused block
+  Block *focused_block;
+} Page;
+
+// =============================================================================
+// DOCUMENT STRUCTURE
+// =============================================================================
+
 typedef struct Document {
-  Node *root;
-  uint32_t next_node_id;
   char filepath[256];
-  char doc_type[32];
-  int doc_width;
-  int doc_height;
+  char title[128];
 
+  // ID generators
+  uint32_t next_page_id;
+
+  // Global metadata (key-value)
   struct {
     char key[64];
     char value[256];
     int in_use;
   } globals[64];
 
-  struct {
-    int in_use;
-    uint32_t page_id;
-    char name[64];
-    Node *root; // Root node for this page's node tree
-
-    // DEPRECATED: Legacy page-level structures (for backward compatibility)
-    // New code should use NODE_TYPE_NOTE/GRID/CLIP nodes instead.
-    AslanNoteDoc *note;
-    AslanGrid *grid;
-    AslanClipPage *clip;
-
-    PageType type;
-    float width;
-    float height;
-    float view_x;
-    float view_y;
-    float view_zoom;
-    SpatialIndex *spatial_index;
-  } pages[32];
+  // Pages (tabs)
+  Page pages[32];
   int page_count;
-  uint32_t next_page_id;
-  uint32_t active_page_id;
+  int active_page_idx; // Index into pages[]
+
+  // Document-level settings
+  int doc_width;  // Default page width (for export)
+  int doc_height; // Default page height (for export)
 } Document;
 
-// --- Pages API ---
-uint32_t doc_page_create(Document *doc, const char *name);
-uint32_t doc_page_create_with_id(Document *doc, uint32_t page_id,
-                                 const char *name);
-uint32_t doc_page_active_id(const Document *doc);
-const char *doc_page_name(const Document *doc, uint32_t page_id);
-void doc_page_activate(Document *doc, uint32_t page_id);
-Node *doc_page_root(Document *doc, uint32_t page_id);
+// =============================================================================
+// DOCUMENT API
+// =============================================================================
 
-bool doc_page_set_type(Document *doc, uint32_t page_id, PageType type);
-PageType doc_page_get_type(const Document *doc, uint32_t page_id);
-bool doc_page_set_meta(Document *doc, uint32_t page_id, const char *key,
-                       float value);
-float doc_page_get_meta(const Document *doc, uint32_t page_id, const char *key);
+Document *doc_create(void);
+void doc_destroy(Document *doc);
+void doc_set_title(Document *doc, const char *title);
 
 // --- Globals API ---
-typedef void (*doc_global_iter_fn)(const char *key, const char *value,
-                                   void *userdata);
-void doc_globals_iterate(const Document *doc, doc_global_iter_fn fn,
-                         void *userdata);
 bool doc_set_global(Document *doc, const char *key, const char *value);
 const char *doc_get_global(const Document *doc, const char *key);
 bool doc_unset_global(Document *doc, const char *key);
 
-// --- Node API (Core) ---
-Node *doc_create_node(Document *doc, NodeType type, const char *name);
-Node *doc_create_node_with_id(Document *doc, uint32_t id, NodeType type,
-                              const char *name);
-Node *doc_find_node_by_id(Document *doc, uint32_t id);
-Node *doc_find_node_at(Document *doc, float x, float y);
-void doc_node_sync_spatial_index(Document *doc, Node *node, float old_x,
-                                 float old_y, float old_w, float old_h);
-bool doc_delete_node(Document *doc, uint32_t id);
+typedef void (*doc_global_iter_fn)(const char *key, const char *value,
+                                   void *ud);
+void doc_globals_iterate(const Document *doc, doc_global_iter_fn fn, void *ud);
 
-bool doc_set_visible(Document *doc, uint32_t id, int visible);
-bool doc_bring_to_front(Document *doc, uint32_t id);
-bool doc_send_to_back(Document *doc, uint32_t id);
-bool doc_bring_forward(Document *doc, uint32_t id);
-bool doc_send_backward(Document *doc, uint32_t id);
+// =============================================================================
+// PAGE API
+// =============================================================================
 
-void doc_add_child(Node *parent, Node *child);
-bool doc_reparent_node(Document *doc, uint32_t node_id, uint32_t new_parent_id);
-void doc_print_tree(const Document *doc);
-void doc_recompute_next_ids(Document *doc);
+Page *doc_page_create(Document *doc, const char *name);
+Page *doc_page_create_with_id(Document *doc, uint32_t id, const char *name);
+Page *doc_page_get(Document *doc, uint32_t page_id);
+Page *doc_page_get_active(Document *doc);
+Page *doc_page_get_by_index(Document *doc, int index);
+bool doc_page_delete(Document *doc, uint32_t page_id);
+bool doc_page_rename(Document *doc, uint32_t page_id, const char *name);
+void doc_page_activate(Document *doc, uint32_t page_id);
+void doc_page_activate_by_index(Document *doc, int index);
+int doc_page_get_index(const Document *doc, uint32_t page_id);
 
-// --- Unified Node Creation (Phase 1 completion) ---
-// These functions create specialized nodes with proper payload initialization.
-Node *doc_create_note_node(Document *doc, const char *name, float x, float y,
-                           float w, float h);
-Node *doc_create_grid_node(Document *doc, const char *name, float x, float y,
-                           float w, float h, int rows, int cols);
-Node *doc_create_clip_node(Document *doc, const char *name, float x, float y,
-                           float w, float h);
+// =============================================================================
+// BLOCK API
+// =============================================================================
 
-// --- Payload Accessors (Type-safe access to node payloads) ---
-NotePayload *node_get_note_payload(Node *node);
-GridPayload *node_get_grid_payload(Node *node);
-ClipPayload *node_get_clip_payload(Node *node);
+// --- Block Lifecycle ---
+Block *block_create(Page *page, BlockType type);
+Block *block_create_with_id(Page *page, uint32_t id, BlockType type);
+void block_destroy(Block *block);
 
-// --- Note Node API ---
-void note_payload_init(NotePayload *note, Document *doc, uint32_t node_id);
-void note_payload_destroy(NotePayload *note);
-void note_insert_row(NotePayload *note, int row_idx, AslanRowType type,
-                     const char *text);
-void note_set_row_type(NotePayload *note, int row_idx, AslanRowType type);
-void note_set_row_text(NotePayload *note, int row_idx, const char *text);
-void note_delete_row(NotePayload *note, int row_idx);
+// --- Block List Operations ---
+void page_append_block(Page *page, Block *block);
+void page_prepend_block(Page *page, Block *block);
+void page_insert_block_after(Page *page, Block *after, Block *block);
+void page_insert_block_before(Page *page, Block *before, Block *block);
+void page_remove_block(Page *page, Block *block);
+void page_move_block_up(Page *page, Block *block);
+void page_move_block_down(Page *page, Block *block);
+Block *page_find_block_by_id(Page *page, uint32_t block_id);
 
-// Legacy API (backward compat)
-void note_insert_line(AslanNoteDoc *doc, int row_idx, const char *text);
-int note_handle_input(AslanNoteDoc *doc, const union SDL_Event *ev);
-void engine_serialize_note(const AslanNoteDoc *doc, uint32_t page_id, FILE *fp);
+// --- Block Text Content ---
+void block_set_text(Block *block, const char *text);
+void block_append_text(Block *block, const char *text);
+void block_insert_char(Block *block, int pos, char c);
+void block_delete_char(Block *block, int pos);
+void block_delete_range(Block *block, int start, int end);
 
-// --- SVG Export ---
-void doc_export_to_svg(const Document *doc, const char *filename);
+// --- Block Type Conversion ---
+void block_convert_to(Block *block, BlockType new_type);
 
-// --- Persistence ---
-Document *doc_create(void);
-void doc_destroy(Document *doc);
+// =============================================================================
+// TABLE BLOCK API
+// =============================================================================
 
-// --- Node Type Helpers ---
+void block_table_init(Block *block, int rows, int cols);
+void block_table_destroy(Block *block);
+void block_table_set_cell(Block *block, int row, int col, const char *text);
+const char *block_table_get_cell(const Block *block, int row, int col);
+void block_table_insert_row(Block *block, int row_idx);
+void block_table_insert_col(Block *block, int col_idx);
+void block_table_delete_row(Block *block, int row_idx);
+void block_table_delete_col(Block *block, int col_idx);
+void block_table_set_view(Block *block, TableViewMode mode);
+
+// =============================================================================
+// CANVAS BLOCK API
+// =============================================================================
+
+void block_canvas_init(Block *block);
+void block_canvas_destroy(Block *block);
+Node *block_canvas_create_node(Block *block, NodeType type, const char *name);
+Node *block_canvas_find_node(Block *block, uint32_t node_id);
+Node *block_canvas_find_node_at(Block *block, float x, float y);
+bool block_canvas_delete_node(Block *block, uint32_t node_id);
+void block_canvas_set_view(Block *block, float x, float y, float zoom);
+
+// =============================================================================
+// DESIGN BLOCK API
+// =============================================================================
+
+void block_design_init(Block *block, int width, int height);
+void block_design_destroy(Block *block);
+Node *block_design_create_node(Block *block, NodeType type, const char *name);
+Node *block_design_find_node(Block *block, uint32_t node_id);
+bool block_design_delete_node(Block *block, uint32_t node_id);
+void block_design_set_size(Block *block, int width, int height);
+void block_design_set_bg_color(Block *block, uint32_t color);
+
+// =============================================================================
+// VIDEO BLOCK API
+// =============================================================================
+
+void block_video_init(Block *block);
+void block_video_destroy(Block *block);
+int block_video_add_clip(Block *block, const char *path);
+bool block_video_delete_clip(Block *block, int index);
+bool block_video_set_clip_range(Block *block, int index, double start,
+                                double end);
+bool block_video_set_clip_comment(Block *block, int index, const char *comment);
+double block_video_total_duration(const Block *block);
+void block_video_set_playhead(Block *block, double time);
+void block_video_toggle_play(Block *block);
+void block_video_toggle_fullscreen(Block *block);
+
+// =============================================================================
+// LUA BLOCK API
+// =============================================================================
+
+void block_lua_init(Block *block);
+void block_lua_destroy(Block *block);
+void block_lua_set_code(Block *block, const char *code);
+void block_lua_execute(Block *block, struct lua_State *L);
+void block_lua_clear_output(Block *block);
+
+// =============================================================================
+// NODE API (for Canvas/Design blocks)
+// =============================================================================
+
+Node *node_create(uint32_t id, NodeType type, const char *name);
+void node_destroy(Node *node);
+void node_destroy_tree(Node *node);
+void node_add_child(Node *parent, Node *child);
+void node_remove_from_parent(Node *node);
+void node_set_position(Node *node, float x, float y);
+void node_set_size(Node *node, float w, float h);
+void node_set_text(Node *node, const char *text);
+void node_set_fill_color(Node *node, uint32_t rgba);
+void node_set_stroke(Node *node, uint32_t rgba, float width);
+void node_bring_to_front(Node *node);
+void node_send_to_back(Node *node);
+
+// =============================================================================
+// PERSISTENCE
+// =============================================================================
+
+// AOF (Append-Only File) Operations
+void doc_save_aof(const Document *doc, FILE *fp);
+void doc_load_aof(Document *doc, FILE *fp);
+
+// Snapshot Operations
+void doc_save_snapshot(const Document *doc, const char *filepath);
+Document *doc_load_snapshot(const char *filepath);
+
+// Export
+void doc_export_svg(const Document *doc, const char *filepath);
+void doc_export_pdf(const Document *doc, const char *filepath);
+
+// =============================================================================
+// UTILITY
+// =============================================================================
+
+const char *block_type_to_string(BlockType type);
+BlockType block_type_from_string(const char *str);
 const char *node_type_to_string(NodeType type);
 NodeType node_type_from_string(const char *str);
-bool node_type_is_container(NodeType type);
-bool node_type_has_payload(NodeType type);
 
-#endif
+// =============================================================================
+// AOF COMMAND GRAMMAR v3
+// =============================================================================
+//
+// -- aslan_aof:3 --
+//
+// # Document
+// doc_title "<title>"
+// set_global <key> "<value>"
+// unset_global <key>
+//
+// # Pages
+// page_create <page_id> "<name>"
+// page_delete <page_id>
+// page_rename <page_id> "<name>"
+// page_activate <page_id>
+//
+// # Blocks
+// block_create <page_id> <block_id> <type>
+// block_delete <page_id> <block_id>
+// block_text <page_id> <block_id> "<content>"
+// block_move_after <page_id> <block_id> <after_block_id>
+// block_collapse <page_id> <block_id> 0|1
+// block_highlight <page_id> <block_id> 0|1|2|3
+//
+// # Table Block
+// block_table_init <page_id> <block_id> <rows> <cols>
+// block_table_cell <page_id> <block_id> <row> <col> "<text>"
+// block_table_view <page_id> <block_id> table|list|board
+// block_table_insert_row <page_id> <block_id> <row_idx>
+// block_table_insert_col <page_id> <block_id> <col_idx>
+// block_table_delete_row <page_id> <block_id> <row_idx>
+// block_table_delete_col <page_id> <block_id> <col_idx>
+//
+// # Canvas Block
+// block_canvas_node <page_id> <block_id> create <node_id> <type> "<name>"
+// block_canvas_node <page_id> <block_id> delete <node_id>
+// block_canvas_node <page_id> <block_id> move <node_id> <x> <y>
+// block_canvas_node <page_id> <block_id> resize <node_id> <w> <h>
+// block_canvas_node <page_id> <block_id> text <node_id> "<content>"
+// block_canvas_node <page_id> <block_id> fill <node_id> <rgba>
+// block_canvas_node <page_id> <block_id> stroke <node_id> <rgba> <width>
+// block_canvas_view <page_id> <block_id> <x> <y> <zoom>
+//
+// # Design Block
+// block_design_init <page_id> <block_id> <width> <height>
+// block_design_bg <page_id> <block_id> <rgba>
+// block_design_node <page_id> <block_id> ... (same as canvas_node)
+//
+// # Video Block
+// block_video_clip_add <page_id> <block_id> "<path>"
+// block_video_clip_delete <page_id> <block_id> <clip_idx>
+// block_video_clip_range <page_id> <block_id> <clip_idx> <start> <end>
+// block_video_clip_comment <page_id> <block_id> <clip_idx> "<comment>"
+// block_video_playhead <page_id> <block_id> <time>
+//
+// # Lua Block
+// block_lua_code <page_id> <block_id> "<code>"
+//
+// # Callout Block
+// block_callout_theme <page_id> <block_id> info|alert|star|check|idea
+//
+// # Checklist Block
+// block_checklist_toggle <page_id> <block_id>
+//
+// =============================================================================
+
+#endif // DOCUMENT_H

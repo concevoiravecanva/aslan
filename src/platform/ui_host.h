@@ -2,13 +2,18 @@
 #define UI_HOST_H
 
 #include "../core/engine.h"
+#include "recents.h"
 #include <SDL.h>
 #include <lauxlib.h>
 #include <lua.h>
 #include <lualib.h>
 #include <string.h>
 
-// On définit Nuklear ici pour tout le projet
+// =============================================================================
+// ASLAN UI HOST v3 - Block-Based Document Interface
+// =============================================================================
+
+// Nuklear configuration
 #define NK_INCLUDE_FIXED_TYPES
 #define NK_INCLUDE_STANDARD_IO
 #define NK_INCLUDE_STANDARD_VARARGS
@@ -20,96 +25,147 @@
 #define NK_MEMCPY memcpy
 #include "../../include/nuklear.h"
 
+// -----------------------------------------------------------------------------
+// UI Host Structure
+// -----------------------------------------------------------------------------
+
 typedef struct UIHost {
-  struct nk_context
-      *ctx; // Utiliser un pointeur vers le contexte géré par nk_sdl
-  struct nk_font_atlas atlas;
-  // Default UI font (and future shared font handle)
-  struct nk_font *font_inter;
-  // Monospace font for NOTE editor (stable caret + click mapping)
-  struct nk_font *font_mono;
-  // Heading fonts for NOTE blocks (H1, H2, H3)
-  struct nk_font *font_h1; // 28pt Bold
-  struct nk_font *font_h2; // 24pt SemiBold
-  struct nk_font *font_h3; // 18pt SemiBold
-  // Icon font (Remix Icon)
-  struct nk_font *font_icons;
+  // Nuklear context
+  struct nk_context *ctx;
+  struct nk_font_atlas *atlas;
+
+  // Fonts
+  struct nk_font *font_inter; // Default UI font
+  struct nk_font *font_mono;  // Monospace for text blocks
+  struct nk_font *font_h1;    // Heading 1 (28pt)
+  struct nk_font *font_h2;    // Heading 2 (24pt)
+  struct nk_font *font_h3;    // Heading 3 (18pt)
+  struct nk_font *font_icons; // Remix Icons
   float font_size_px;
-  Node *selected_node;
-  lua_State *L; // Ajout du pointeur vers l'état Lua
-  // Small UX feedback for the user (last action/command)
+
+  // Selection state
+  Node *selected_node; // Selected node in canvas/design block
+
+  // Lua state
+  lua_State *L;
+
+  // Status message
   char status[128];
 
-  // App screen state
-  // 0 = Home, 1 = Editor
+  // Screen state: 0=Home, 1=Editor
   int screen;
 
-  // Tool mode: 0 = select/move/resize, 1 = create rect
+  // Tool mode: 0=select, 1=create rect, 2=create text
   int tool_mode;
 
-  // Export settings (defaults)
-  char export_svg_path[256];
-
-  // Export modal state (Antirez-style: simple in-app dialog)
-  int show_export_svg_modal;
-  char export_svg_dir[256];
-  char export_svg_name[256];
-
-  // Save As .aslan modal state
-  int show_save_aslan_modal;
-  char save_aslan_dir[256];
-  char save_aslan_name[256];
-
-  // Home: Open existing doc (typed path for now)
-  char open_aslan_path[512];
-
-  // Home: Recents (MRU)
-  char recents_store_path[512];
-  int recents_count;
-  char recents_paths[16][512];
-
-  // Globals editor state
-  char global_key[64];
-  char global_value[256];
-
-  // New Page modal state
+  // Modal states
   int show_new_page_modal;
-  int new_page_type_idx;    // 0=Space, 1=Page, 2=Table, 3=Note, 4=Clip
-  int new_page_preset_idx;  // 0=A4, 1=A3, 2=Letter, 3=Custom
-  int new_page_orientation; // 0=Portrait, 1=Landscape
-  float new_page_width_mm;
-  float new_page_height_mm;
   char new_page_name[64];
 
-  // Snap/Grid editor state (persist UI edits across frames)
-  int snap_step_edit;
-  int grid_step_edit;
-  int snap_grid_steps_inited;
+  int show_save_modal;
+  char save_path[256];
 
-  // Text editor state for TEXT nodes
-  char text_edit_buf[2048];
-  int text_edit_inited;
+  // Block editing state
+  uint32_t editing_block_id; // Block being edited (0=none)
+  int editing_cursor_pos;
+  int text_input_active;
 
-  // In-situ text editing (Approach #2)
-  uint32_t editing_node_id; // 0 = none
-  char inline_edit_buf[2048];
-  int inline_edit_inited;
-  int inline_edit_wants_focus;
-  int inline_edit_dirty;
-  
-  // NOTE input: Force capture input after toolbar button click
-  // This bypasses nk_item_is_any_active() check for a few frames
-  int note_force_input;
-  
-  // FLUO: Current color selection (0=off, 1=yellow, 2=blue, 3=green)
-  // Cycles: 0 → 1 → 2 → 3 → 0 → ...
+  // Canvas/Design interaction
+  float drag_start_x, drag_start_y;
+  int is_dragging;
+  int is_resizing;
+
+  // Scroll state
+  float scroll_y;
+  float scroll_target_y;
+
+  // Block insertion menu
+  int show_insert_menu;
+  float insert_menu_x, insert_menu_y;
+
+  // Highlight color (0=none, 1=yellow, 2=blue, 3=green)
   int fluo_color_index;
+
+  // Recent documents
+  Recents recents;
+
 } UIHost;
+
+// -----------------------------------------------------------------------------
+// UI Lifecycle
+// -----------------------------------------------------------------------------
 
 UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L);
 void ui_shutdown(UIHost *ui);
 
+// -----------------------------------------------------------------------------
+// UI Event Handling & Rendering
+// -----------------------------------------------------------------------------
+
 void ui_handle_event(UIHost *ui, SDL_Event *evt);
 void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h);
 
-#endif
+// -----------------------------------------------------------------------------
+// Block Rendering Functions
+// -----------------------------------------------------------------------------
+
+void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
+                     Page *page, Block *block, float width);
+
+void ui_render_block_text(UIHost *ui, struct nk_context *ctx, Block *block,
+                          float width);
+void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
+                             float width, int level);
+void ui_render_block_separator(UIHost *ui, struct nk_context *ctx, Block *block,
+                               float width);
+void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
+                           Block *block, float width);
+void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
+                            Block *block, float width);
+void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
+                            Block *block, float width);
+void ui_render_block_video(UIHost *ui, Engine *engine, struct nk_context *ctx,
+                           Block *block, float width);
+void ui_render_block_lua(UIHost *ui, Engine *engine, struct nk_context *ctx,
+                         Block *block, float width);
+void ui_render_block_callout(UIHost *ui, struct nk_context *ctx, Block *block,
+                             float width);
+void ui_render_block_checklist(UIHost *ui, Engine *engine,
+                               struct nk_context *ctx, Block *block,
+                               float width);
+
+// -----------------------------------------------------------------------------
+// UI Components
+// -----------------------------------------------------------------------------
+
+void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
+                       int win_w);
+void ui_render_bottom_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
+                          int win_w, int win_h);
+void ui_render_home(UIHost *ui, Engine *engine, struct nk_context *ctx,
+                    int win_w, int win_h);
+void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
+
+// -----------------------------------------------------------------------------
+// Remix Icon Codepoints (subset)
+// -----------------------------------------------------------------------------
+
+#define ICON_TEXT "\xEE\x86\xA5"      // ri-text
+#define ICON_H1 "\xEE\x8C\x99"        // ri-h-1
+#define ICON_H2 "\xEE\x8C\x9A"        // ri-h-2
+#define ICON_SEPARATOR "\xEE\x96\xAC" // ri-separator
+#define ICON_CODE "\xEE\x86\xA8"      // ri-code-line
+#define ICON_TABLE "\xEE\x98\x82"     // ri-table-2
+#define ICON_CANVAS "\xEE\x85\x96"    // ri-artboard-2-line
+#define ICON_DESIGN "\xEE\x8D\xB8"    // ri-layout-4-line
+#define ICON_VIDEO "\xEE\x99\x97"     // ri-video-line
+#define ICON_CALLOUT "\xEE\x88\x97"   // ri-chat-quote-line
+#define ICON_CHECKLIST "\xEE\x86\x8E" // ri-checkbox-line
+#define ICON_ADD "\xEE\x85\x85"       // ri-add-line
+#define ICON_DELETE "\xEE\x87\x98"    // ri-delete-bin-line
+#define ICON_PLAY "\xEE\x8F\x90"      // ri-play-line
+#define ICON_PAUSE "\xEE\x8F\x8B"     // ri-pause-line
+#define ICON_EXPAND "\xEE\x85\x99"    // ri-arrow-down-s-line
+#define ICON_COLLAPSE "\xEE\x85\xA9"  // ri-arrow-up-s-line
+
+#endif // UI_HOST_H
