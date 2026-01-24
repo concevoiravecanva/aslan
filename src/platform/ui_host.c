@@ -161,61 +161,121 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
   // Pass to Nuklear first
   nk_sdl_handle_event(evt);
 
+  // NOTE: mouse_just_pressed/released are reset in ui_render after processing
+
   // Track mouse position
   if (evt->type == SDL_MOUSEMOTION) {
     ui->mouse_x = (float)evt->motion.x;
     ui->mouse_y = (float)evt->motion.y;
 
-    // Handle canvas panning
-    if (ui->canvas_state.is_panning) {
-      float dx = ui->mouse_x - ui->canvas_state.pan_start_x;
-      float dy = ui->mouse_y - ui->canvas_state.pan_start_y;
+    // Check if mouse is in canvas
+    CanvasInteraction *cs = &ui->canvas_state;
+    cs->mouse_in_canvas = (ui->mouse_x >= cs->bounds_x &&
+                           ui->mouse_x < cs->bounds_x + cs->bounds_w &&
+                           ui->mouse_y >= cs->bounds_y &&
+                           ui->mouse_y < cs->bounds_y + cs->bounds_h);
 
-      // Move camera (inverse direction of mouse movement)
-      ui->canvas_state.cam_x = ui->canvas_state.cam_start_x - dx / ui->canvas_state.zoom;
-      ui->canvas_state.cam_y = ui->canvas_state.cam_start_y - dy / ui->canvas_state.zoom;
+    // Handle canvas panning
+    if (cs->is_panning) {
+      float dx = ui->mouse_x - cs->pan_start_x;
+      float dy = ui->mouse_y - cs->pan_start_y;
+      cs->cam_x = cs->cam_start_x - dx / cs->zoom;
+      cs->cam_y = cs->cam_start_y - dy / cs->zoom;
+    }
+
+    // Handle node dragging
+    if (cs->is_dragging_node && ui->selected_node) {
+      float world_x = cs->cam_x + (ui->mouse_x - cs->bounds_x) / cs->zoom;
+      float world_y = cs->cam_y + (ui->mouse_y - cs->bounds_y) / cs->zoom;
+      ui->selected_node->x = world_x - cs->drag_offset_x;
+      ui->selected_node->y = world_y - cs->drag_offset_y;
+    }
+
+    // Handle element creation preview
+    if (cs->is_creating) {
+      cs->create_end_x = cs->cam_x + (ui->mouse_x - cs->bounds_x) / cs->zoom;
+      cs->create_end_y = cs->cam_y + (ui->mouse_y - cs->bounds_y) / cs->zoom;
     }
   }
 
   // Track mouse buttons
   if (evt->type == SDL_MOUSEBUTTONDOWN) {
-    if (evt->button.button == SDL_BUTTON_LEFT)
+    CanvasInteraction *cs = &ui->canvas_state;
+
+    // IMPORTANT: Update mouse position from click event (not just motion)
+    ui->mouse_x = (float)evt->button.x;
+    ui->mouse_y = (float)evt->button.y;
+
+    // Update mouse_in_canvas check
+    cs->mouse_in_canvas = (ui->mouse_x >= cs->bounds_x &&
+                           ui->mouse_x < cs->bounds_x + cs->bounds_w &&
+                           ui->mouse_y >= cs->bounds_y &&
+                           ui->mouse_y < cs->bounds_y + cs->bounds_h);
+
+    if (evt->button.button == SDL_BUTTON_LEFT) {
       ui->mouse_buttons |= 1;
-    if (evt->button.button == SDL_BUTTON_MIDDLE)
+      cs->mouse_just_pressed = 1;
+
+      // Debug: log click
+      printf("[CLICK] x=%.0f y=%.0f in_canvas=%d bounds=(%.0f,%.0f,%.0f,%.0f)\n",
+             ui->mouse_x, ui->mouse_y, cs->mouse_in_canvas,
+             cs->bounds_x, cs->bounds_y, cs->bounds_w, cs->bounds_h);
+
+      // Start panning with space + left click
+      if (cs->space_held && cs->mouse_in_canvas) {
+        cs->is_panning = 1;
+        cs->pan_start_x = ui->mouse_x;
+        cs->pan_start_y = ui->mouse_y;
+        cs->cam_start_x = cs->cam_x;
+        cs->cam_start_y = cs->cam_y;
+      }
+    }
+
+    if (evt->button.button == SDL_BUTTON_MIDDLE) {
       ui->mouse_buttons |= 2;
+      // Start panning with middle mouse button
+      if (cs->mouse_in_canvas) {
+        cs->is_panning = 1;
+        cs->pan_start_x = ui->mouse_x;
+        cs->pan_start_y = ui->mouse_y;
+        cs->cam_start_x = cs->cam_x;
+        cs->cam_start_y = cs->cam_y;
+      }
+    }
+
     if (evt->button.button == SDL_BUTTON_RIGHT)
       ui->mouse_buttons |= 4;
-
-    // Start panning with middle mouse button
-    if (evt->button.button == SDL_BUTTON_MIDDLE) {
-      ui->canvas_state.is_panning = 1;
-      ui->canvas_state.pan_start_x = ui->mouse_x;
-      ui->canvas_state.pan_start_y = ui->mouse_y;
-      ui->canvas_state.cam_start_x = ui->canvas_state.cam_x;
-      ui->canvas_state.cam_start_y = ui->canvas_state.cam_y;
-    }
-
-    // Start panning with space + left click
-    if (evt->button.button == SDL_BUTTON_LEFT && ui->canvas_state.space_held) {
-      ui->canvas_state.is_panning = 1;
-      ui->canvas_state.pan_start_x = ui->mouse_x;
-      ui->canvas_state.pan_start_y = ui->mouse_y;
-      ui->canvas_state.cam_start_x = ui->canvas_state.cam_x;
-      ui->canvas_state.cam_start_y = ui->canvas_state.cam_y;
-    }
   }
 
   if (evt->type == SDL_MOUSEBUTTONUP) {
+    CanvasInteraction *cs = &ui->canvas_state;
+
+    // Update mouse position from release event
+    ui->mouse_x = (float)evt->button.x;
+    ui->mouse_y = (float)evt->button.y;
+
     if (evt->button.button == SDL_BUTTON_LEFT) {
       ui->mouse_buttons &= ~1;
-      if (ui->canvas_state.space_held) {
-        ui->canvas_state.is_panning = 0;
+      cs->mouse_just_released = 1;
+      printf("[RELEASE] x=%.0f y=%.0f\n", ui->mouse_x, ui->mouse_y);
+
+      // Stop panning if was space+left panning
+      if (cs->space_held) {
+        cs->is_panning = 0;
       }
+
+      // Stop dragging node
+      cs->is_dragging_node = 0;
+
+      // NOTE: Don't reset is_creating here - let the render function handle it
+      // The render function will check mouse_just_released && is_creating
     }
+
     if (evt->button.button == SDL_BUTTON_MIDDLE) {
       ui->mouse_buttons &= ~2;
-      ui->canvas_state.is_panning = 0;
+      cs->is_panning = 0;
     }
+
     if (evt->button.button == SDL_BUTTON_RIGHT)
       ui->mouse_buttons &= ~4;
   }
@@ -229,39 +289,47 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     ui->canvas_state.is_panning = 0;
   }
 
-  // Mouse wheel zoom (toward cursor position)
-  if (evt->type == SDL_MOUSEWHEEL) {
-    float old_zoom = ui->canvas_state.zoom;
-    float zoom_factor = 1.15f;
-
-    if (evt->wheel.y > 0) {
-      // Zoom in
-      ui->canvas_state.zoom *= zoom_factor;
-    } else if (evt->wheel.y < 0) {
-      // Zoom out
-      ui->canvas_state.zoom /= zoom_factor;
+  // Delete selected node
+  if (evt->type == SDL_KEYDOWN && evt->key.keysym.sym == SDLK_BACKSPACE) {
+    if (ui->selected_node && ui->canvas_state.active_block) {
+      CanvasData *cd = &ui->canvas_state.active_block->data.canvas;
+      // Remove node from tree (simplified - just hide it)
+      ui->selected_node->visible = 0;
+      ui->selected_node = NULL;
     }
+  }
 
-    // Clamp zoom
-    if (ui->canvas_state.zoom < 0.1f)
-      ui->canvas_state.zoom = 0.1f;
-    if (ui->canvas_state.zoom > 5.0f)
-      ui->canvas_state.zoom = 5.0f;
+  // Mouse wheel zoom toward cursor
+  if (evt->type == SDL_MOUSEWHEEL) {
+    CanvasInteraction *cs = &ui->canvas_state;
+    // Initialize zoom if not set
+    if (cs->zoom < 0.01f) cs->zoom = 1.0f;
+    if (cs->mouse_in_canvas) {
+      float old_zoom = cs->zoom;
+      float zoom_factor = 1.15f;
 
-    // Zoom toward mouse position
-    // World position under mouse before zoom
-    // Note: This requires knowing the canvas bounds which we don't have here
-    // We'll use a simpler approach that zooms toward screen center
-    // For proper zoom-to-cursor, we'd need to track canvas bounds
+      if (evt->wheel.y > 0) {
+        cs->zoom *= zoom_factor;
+      } else if (evt->wheel.y < 0) {
+        cs->zoom /= zoom_factor;
+      }
 
-    // Approximate: adjust camera to zoom toward mouse
-    // This is a simplified version - for precise zoom-to-cursor we'd need canvas bounds
-    float new_zoom = ui->canvas_state.zoom;
-    float zoom_ratio = new_zoom / old_zoom;
+      // Clamp zoom
+      if (cs->zoom < 0.1f) cs->zoom = 0.1f;
+      if (cs->zoom > 5.0f) cs->zoom = 5.0f;
 
-    // Shift camera to maintain relative mouse position (approximate)
-    // Assuming mouse is somewhere in the middle area
-    // For better accuracy, we'd pass canvas bounds to this function
+      // Zoom toward mouse cursor
+      float mouse_rel_x = ui->mouse_x - cs->bounds_x;
+      float mouse_rel_y = ui->mouse_y - cs->bounds_y;
+
+      // World position under mouse before zoom
+      float world_x = cs->cam_x + mouse_rel_x / old_zoom;
+      float world_y = cs->cam_y + mouse_rel_y / old_zoom;
+
+      // Adjust camera so same world point stays under mouse
+      cs->cam_x = world_x - mouse_rel_x / cs->zoom;
+      cs->cam_y = world_y - mouse_rel_y / cs->zoom;
+    }
   }
 }
 
@@ -708,12 +776,27 @@ static void canvas_draw_dot_grid(struct nk_command_buffer *canvas,
 }
 
 // -----------------------------------------------------------------------------
+// Canvas Helper: Check if point is in toolbar area
+// -----------------------------------------------------------------------------
+
+static int canvas_point_in_toolbar(struct nk_rect bounds, float mx, float my) {
+  const float toolbar_w = 200.0f;
+  const float toolbar_h = 40.0f;
+  const float margin = 16.0f;
+  float toolbar_x = bounds.x + (bounds.w - toolbar_w) / 2.0f;
+  float toolbar_y = bounds.y + bounds.h - toolbar_h - margin;
+  return (mx >= toolbar_x && mx < toolbar_x + toolbar_w &&
+          my >= toolbar_y && my < toolbar_y + toolbar_h);
+}
+
+// -----------------------------------------------------------------------------
 // Canvas Helper: Render floating toolbar (Apple Freeform style)
 // -----------------------------------------------------------------------------
 
 static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
                                   struct nk_rect bounds, Block *block) {
-  // Floating toolbar at bottom center of canvas
+  (void)block;
+
   const float toolbar_w = 200.0f;
   const float toolbar_h = 40.0f;
   const float margin = 16.0f;
@@ -721,15 +804,13 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
   float toolbar_x = bounds.x + (bounds.w - toolbar_w) / 2.0f;
   float toolbar_y = bounds.y + bounds.h - toolbar_h - margin;
 
-  // Toolbar background (pure white with subtle shadow)
   struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
-  struct nk_color toolbar_bg = {255, 255, 255, 245};
-  struct nk_color toolbar_border = {220, 220, 220, 255};
+  struct nk_color toolbar_bg = {255, 255, 255, 250};
+  struct nk_color toolbar_border = {200, 200, 200, 255};
 
   // Shadow
-  struct nk_color shadow = {0, 0, 0, 30};
-  nk_fill_rect(canvas_buf, nk_rect(toolbar_x + 2, toolbar_y + 2, toolbar_w, toolbar_h),
-               12.0f, shadow);
+  nk_fill_rect(canvas_buf, nk_rect(toolbar_x + 2, toolbar_y + 3, toolbar_w, toolbar_h),
+               12.0f, nk_rgba(0, 0, 0, 25));
 
   // Background
   nk_fill_rect(canvas_buf, nk_rect(toolbar_x, toolbar_y, toolbar_w, toolbar_h),
@@ -737,75 +818,112 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
   nk_stroke_rect(canvas_buf, nk_rect(toolbar_x, toolbar_y, toolbar_w, toolbar_h),
                  12.0f, 1.0f, toolbar_border);
 
-  // Tool buttons (5 tools)
+  // Tool buttons
   const float btn_size = 32.0f;
   const float btn_spacing = 4.0f;
   const float total_btn_w = 5 * btn_size + 4 * btn_spacing;
   float btn_x = toolbar_x + (toolbar_w - total_btn_w) / 2.0f;
   float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
 
-  const char *tool_icons[] = {ICON_CURSOR, ICON_SHAPE, ICON_PENCIL, ICON_TEXT_TOOL,
-                              ICON_STICKY};
+  // Tool labels (use text for debugging, switch to icons when working)
+  const char *tool_labels[] = {"S", "R", "P", "T", "N"};
   CanvasToolMode tools[] = {CANVAS_TOOL_SELECT, CANVAS_TOOL_RECT, CANVAS_TOOL_PEN,
                             CANVAS_TOOL_TEXT, CANVAS_TOOL_STICKY};
 
-  // Save button style
-  struct nk_style_button saved_style = ctx->style.button;
-
-  // Minimal button style for toolbar
-  ctx->style.button.normal = nk_style_item_color(nk_rgba(255, 255, 255, 0));
-  ctx->style.button.hover = nk_style_item_color(nk_rgba(240, 240, 240, 255));
-  ctx->style.button.active = nk_style_item_color(nk_rgba(230, 230, 230, 255));
-  ctx->style.button.border_color = nk_rgba(0, 0, 0, 0);
-  ctx->style.button.text_normal = nk_rgb(60, 60, 60);
-  ctx->style.button.text_hover = nk_rgb(40, 40, 40);
-  ctx->style.button.text_active = nk_rgb(20, 20, 20);
-  ctx->style.button.rounding = 8.0f;
+  CanvasInteraction *cs = &ui->canvas_state;
 
   for (int i = 0; i < 5; i++) {
-    struct nk_rect btn_bounds = nk_rect(btn_x + i * (btn_size + btn_spacing), btn_y,
-                                         btn_size, btn_size);
+    struct nk_rect btn = nk_rect(btn_x + i * (btn_size + btn_spacing), btn_y,
+                                  btn_size, btn_size);
 
-    // Highlight active tool
-    if (ui->canvas_state.tool == tools[i]) {
-      ctx->style.button.normal = nk_style_item_color(nk_rgba(66, 133, 244, 40));
-      ctx->style.button.text_normal = nk_rgb(66, 133, 244);
-    } else {
-      ctx->style.button.normal = nk_style_item_color(nk_rgba(255, 255, 255, 0));
-      ctx->style.button.text_normal = nk_rgb(60, 60, 60);
-    }
+    int is_active = (cs->tool == tools[i]);
+    int hovered = (ui->mouse_x >= btn.x && ui->mouse_x < btn.x + btn.w &&
+                   ui->mouse_y >= btn.y && ui->mouse_y < btn.y + btn.h);
 
-    // Check if mouse is over this button
-    float mx = ui->mouse_x;
-    float my = ui->mouse_y;
-    int hovered = (mx >= btn_bounds.x && mx < btn_bounds.x + btn_bounds.w &&
-                   my >= btn_bounds.y && my < btn_bounds.y + btn_bounds.h);
+    // Button background - always draw a subtle background for visibility
+    struct nk_color bg_color = is_active ? nk_rgba(66, 133, 244, 80) :
+                               hovered ? nk_rgba(0, 0, 0, 30) :
+                               nk_rgba(0, 0, 0, 10);
+    nk_fill_rect(canvas_buf, btn, 6.0f, bg_color);
 
-    // Draw button manually since we're inside custom rendering
-    if (hovered) {
-      nk_fill_rect(canvas_buf, btn_bounds, 8.0f, nk_rgba(240, 240, 240, 255));
-    } else if (ui->canvas_state.tool == tools[i]) {
-      nk_fill_rect(canvas_buf, btn_bounds, 8.0f, nk_rgba(66, 133, 244, 40));
-    }
+    // Draw text label (more reliable than icons for debugging)
+    struct nk_color text_color = is_active ? nk_rgb(66, 133, 244) : nk_rgb(60, 60, 60);
+    nk_draw_text(canvas_buf,
+                 nk_rect(btn.x + 10, btn.y + 8, btn_size - 20, btn_size - 16),
+                 tool_labels[i], 1, ctx->style.font,
+                 nk_rgba(0, 0, 0, 0), text_color);
 
-    // Draw icon
-    if (ui->font_icons) {
-      struct nk_color icon_color =
-          (ui->canvas_state.tool == tools[i]) ? nk_rgb(66, 133, 244) : nk_rgb(60, 60, 60);
-      nk_draw_text(canvas_buf,
-                   nk_rect(btn_bounds.x + 6, btn_bounds.y + 6, btn_size - 12, btn_size - 12),
-                   tool_icons[i], strlen(tool_icons[i]), &ui->font_icons->handle,
-                   nk_rgba(0, 0, 0, 0), icon_color);
-    }
-
-    // Handle click
-    if (hovered && (ui->mouse_buttons & 1)) {
-      ui->canvas_state.tool = tools[i];
+    // Handle click - detect on mouse down for immediate response
+    if (hovered && cs->mouse_just_pressed) {
+      printf("[TOOLBAR] Clicked tool %d (was %d)\n", tools[i], cs->tool);
+      cs->tool = tools[i];
     }
   }
+}
 
-  // Restore button style
-  ctx->style.button = saved_style;
+// -----------------------------------------------------------------------------
+// Canvas Helper: Create new node in canvas
+// -----------------------------------------------------------------------------
+
+static Node *canvas_create_node(CanvasData *cd, NodeType type, float x, float y,
+                                float w, float h) {
+  if (!cd->root) return NULL;
+
+  Node *node = (Node *)calloc(1, sizeof(Node));
+  if (!node) return NULL;
+
+  node->id = cd->next_node_id++;
+  node->type = type;
+  node->x = x;
+  node->y = y;
+  node->width = w;
+  node->height = h;
+  node->visible = 1;
+  node->parent = cd->root;
+
+  // Default appearance
+  if (type == NODE_TYPE_RECT || type == NODE_TYPE_FRAME) {
+    node->fill_color = 0xE8F0FEFF;  // Light blue
+    node->stroke_color = 0x4285F4FF; // Blue border
+    node->stroke_width = 2.0f;
+    node->corner_radius = 8.0f;
+  } else if (type == NODE_TYPE_TEXT) {
+    node->fill_color = 0xFFFBE6FF;  // Light yellow (sticky note)
+    node->stroke_color = 0xF5C842FF;
+    node->stroke_width = 1.0f;
+    node->corner_radius = 4.0f;
+    strncpy(node->text, "Note", sizeof(node->text) - 1);
+  }
+
+  // Add to tree
+  if (!cd->root->first_child) {
+    cd->root->first_child = node;
+  } else {
+    Node *last = cd->root->first_child;
+    while (last->next_sibling) last = last->next_sibling;
+    last->next_sibling = node;
+  }
+
+  return node;
+}
+
+// -----------------------------------------------------------------------------
+// Canvas Helper: Find node at world position
+// -----------------------------------------------------------------------------
+
+static Node *canvas_find_node_at(CanvasData *cd, float world_x, float world_y) {
+  if (!cd->root) return NULL;
+
+  // Iterate in reverse to get topmost node first
+  Node *found = NULL;
+  for (Node *node = cd->root->first_child; node; node = node->next_sibling) {
+    if (!node->visible) continue;
+    if (world_x >= node->x && world_x < node->x + node->width &&
+        world_y >= node->y && world_y < node->y + node->height) {
+      found = node;  // Keep going to find topmost
+    }
+  }
+  return found;
 }
 
 // -----------------------------------------------------------------------------
@@ -814,18 +932,27 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
 
 void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
                             Block *block, float width) {
+  (void)engine;
+  (void)width;
+
   if (!block || block->type != BLOCK_CANVAS)
     return;
 
   CanvasData *cd = &block->data.canvas;
+  CanvasInteraction *cs = &ui->canvas_state;
 
   // Sync UI state with canvas data on first render or when switching canvas
-  if (ui->canvas_state.active_canvas_id != block->id) {
-    ui->canvas_state.active_canvas_id = block->id;
-    ui->canvas_state.cam_x = cd->view_x;
-    ui->canvas_state.cam_y = cd->view_y;
-    ui->canvas_state.zoom = cd->zoom > 0.01f ? cd->zoom : 1.0f;
+  if (cs->active_canvas_id != block->id) {
+    cs->active_canvas_id = block->id;
+    cs->active_block = block;
+    cs->cam_x = cd->view_x;
+    cs->cam_y = cd->view_y;
+    cs->zoom = cd->zoom > 0.01f ? cd->zoom : 1.0f;
+    cs->is_creating = 0;
+    cs->is_dragging_node = 0;
+    ui->selected_node = NULL;
   }
+  cs->active_block = block;
 
   // Toggle for expand/collapse
   ui_render_expand_toggle(ui, ctx, block);
@@ -841,10 +968,19 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
   struct nk_rect bounds = nk_widget_bounds(ctx);
   struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
 
-  // Get local camera state
-  float cam_x = ui->canvas_state.cam_x;
-  float cam_y = ui->canvas_state.cam_y;
-  float zoom = ui->canvas_state.zoom;
+  // Store bounds for event handling
+  cs->bounds_x = bounds.x;
+  cs->bounds_y = bounds.y;
+  cs->bounds_w = bounds.w;
+  cs->bounds_h = bounds.h;
+
+  float cam_x = cs->cam_x;
+  float cam_y = cs->cam_y;
+  float zoom = cs->zoom;
+
+  // Update mouse-in-canvas state
+  cs->mouse_in_canvas = (ui->mouse_x >= bounds.x && ui->mouse_x < bounds.x + bounds.w &&
+                         ui->mouse_y >= bounds.y && ui->mouse_y < bounds.y + bounds.h);
 
   // --- Background: Pure white ---
   nk_fill_rect(canvas_buf, bounds, 0, nk_rgb(255, 255, 255));
@@ -852,27 +988,88 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
   // --- Dot grid ---
   canvas_draw_dot_grid(canvas_buf, bounds, cam_x, cam_y, zoom);
 
+  // --- Handle input ---
+  int in_toolbar = canvas_point_in_toolbar(bounds, ui->mouse_x, ui->mouse_y);
+
+  // Handle mouse release for creation (check BEFORE mouse_in_canvas to catch releases anywhere)
+  if (cs->mouse_just_released && cs->is_creating) {
+    printf("[CANVAS] Finishing creation...\n");
+    float x1 = cs->create_start_x < cs->create_end_x ? cs->create_start_x : cs->create_end_x;
+    float y1 = cs->create_start_y < cs->create_end_y ? cs->create_start_y : cs->create_end_y;
+    float w = fabsf(cs->create_end_x - cs->create_start_x);
+    float h = fabsf(cs->create_end_y - cs->create_start_y);
+
+    // Minimum size
+    if (w < 20.0f) w = 80.0f;
+    if (h < 20.0f) h = 60.0f;
+
+    Node *new_node = NULL;
+    if (cs->tool == CANVAS_TOOL_RECT) {
+      new_node = canvas_create_node(cd, NODE_TYPE_RECT, x1, y1, w, h);
+    } else if (cs->tool == CANVAS_TOOL_STICKY || cs->tool == CANVAS_TOOL_TEXT) {
+      new_node = canvas_create_node(cd, NODE_TYPE_TEXT, x1, y1, w, h);
+    }
+
+    if (new_node) {
+      ui->selected_node = new_node;
+      printf("[CANVAS] Created node %u at (%.0f,%.0f) size (%.0f,%.0f)\n",
+             new_node->id, new_node->x, new_node->y, new_node->width, new_node->height);
+    } else {
+      printf("[CANVAS] Failed to create node! cd->root=%p\n", (void*)cd->root);
+    }
+
+    cs->is_creating = 0;
+    // Switch back to select tool after creating
+    cs->tool = CANVAS_TOOL_SELECT;
+  }
+
+  // Handle mouse press (only if in canvas and not in toolbar)
+  if (cs->mouse_in_canvas && !in_toolbar && !cs->is_panning && cs->mouse_just_pressed) {
+    float world_x = cam_x + (ui->mouse_x - bounds.x) / zoom;
+    float world_y = cam_y + (ui->mouse_y - bounds.y) / zoom;
+
+    printf("[CANVAS INPUT] tool=%d world=(%.0f,%.0f)\n", cs->tool, world_x, world_y);
+
+    if (cs->tool == CANVAS_TOOL_SELECT) {
+      // Try to select a node
+      Node *hit = canvas_find_node_at(cd, world_x, world_y);
+      if (hit) {
+        ui->selected_node = hit;
+        cs->is_dragging_node = 1;
+        cs->drag_offset_x = world_x - hit->x;
+        cs->drag_offset_y = world_y - hit->y;
+        printf("[CANVAS] Selected node %u\n", hit->id);
+      } else {
+        ui->selected_node = NULL;
+      }
+    } else if (cs->tool == CANVAS_TOOL_RECT || cs->tool == CANVAS_TOOL_STICKY ||
+               cs->tool == CANVAS_TOOL_TEXT) {
+      // Start creating element
+      cs->is_creating = 1;
+      cs->create_start_x = world_x;
+      cs->create_start_y = world_y;
+      cs->create_end_x = world_x;
+      cs->create_end_y = world_y;
+      printf("[CANVAS] Start creating at (%.0f,%.0f)\n", world_x, world_y);
+    }
+  }
+
   // --- Render nodes ---
   if (cd->root) {
     for (Node *node = cd->root->first_child; node; node = node->next_sibling) {
-      if (!node->visible)
-        continue;
+      if (!node->visible) continue;
 
-      // Transform: ScreenPos = BoundsOrigin + (WorldPos - CamOffset) * Zoom
       float sx = bounds.x + (node->x - cam_x) * zoom;
       float sy = bounds.y + (node->y - cam_y) * zoom;
       float sw = node->width * zoom;
       float sh = node->height * zoom;
 
       // Clip to canvas bounds
-      if (sx + sw < bounds.x || sx > bounds.x + bounds.w)
-        continue;
-      if (sy + sh < bounds.y || sy > bounds.y + bounds.h)
-        continue;
+      if (sx + sw < bounds.x || sx > bounds.x + bounds.w) continue;
+      if (sy + sh < bounds.y || sy > bounds.y + bounds.h) continue;
 
       struct nk_rect nr = nk_rect(sx, sy, sw, sh);
 
-      // Convert uint32_t RGBA to nk_color
       struct nk_color fill = {(node->fill_color >> 24) & 0xFF,
                               (node->fill_color >> 16) & 0xFF,
                               (node->fill_color >> 8) & 0xFF,
@@ -889,7 +1086,6 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           nk_stroke_circle(canvas_buf, nr, node->stroke_width * zoom, stroke);
         }
       } else {
-        // Rectangle/Frame/etc
         nk_fill_rect(canvas_buf, nr, node->corner_radius * zoom, fill);
         if (node->stroke_width > 0) {
           struct nk_color stroke = {(node->stroke_color >> 24) & 0xFF,
@@ -902,45 +1098,85 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
 
       // Text content
-      if (node->type == NODE_TYPE_TEXT && node->text[0]) {
-        struct nk_color text_color = nk_rgb(30, 30, 30);
-        nk_draw_text(canvas_buf, nr, node->text, strlen(node->text),
-                     ctx->style.font, nk_rgba(0, 0, 0, 0), text_color);
+      if (node->text[0]) {
+        nk_draw_text(canvas_buf, nk_rect(nr.x + 8, nr.y + 8, nr.w - 16, nr.h - 16),
+                     node->text, strlen(node->text), ctx->style.font,
+                     nk_rgba(0, 0, 0, 0), nk_rgb(30, 30, 30));
       }
 
       // Selection highlight
       if (ui->selected_node == node) {
-        struct nk_color sel_color = nk_rgb(66, 133, 244);
         nk_stroke_rect(canvas_buf, nk_rect(nr.x - 2, nr.y - 2, nr.w + 4, nr.h + 4),
-                       0, 2.0f, sel_color);
+                       0, 2.0f, nk_rgb(66, 133, 244));
+        // Draw resize handles
+        float hsize = 8.0f;
+        nk_fill_rect(canvas_buf, nk_rect(nr.x + nr.w - hsize/2, nr.y + nr.h - hsize/2, hsize, hsize),
+                     2.0f, nk_rgb(66, 133, 244));
       }
     }
+  }
+
+  // --- Creation preview ---
+  if (cs->is_creating) {
+    float x1 = bounds.x + (cs->create_start_x - cam_x) * zoom;
+    float y1 = bounds.y + (cs->create_start_y - cam_y) * zoom;
+    float x2 = bounds.x + (cs->create_end_x - cam_x) * zoom;
+    float y2 = bounds.y + (cs->create_end_y - cam_y) * zoom;
+
+    float rx = x1 < x2 ? x1 : x2;
+    float ry = y1 < y2 ? y1 : y2;
+    float rw = fabsf(x2 - x1);
+    float rh = fabsf(y2 - y1);
+
+    struct nk_color preview_fill = nk_rgba(66, 133, 244, 30);
+    struct nk_color preview_stroke = nk_rgba(66, 133, 244, 180);
+
+    nk_fill_rect(canvas_buf, nk_rect(rx, ry, rw, rh), 4.0f, preview_fill);
+    nk_stroke_rect(canvas_buf, nk_rect(rx, ry, rw, rh), 4.0f, 2.0f, preview_stroke);
   }
 
   // --- Floating toolbar ---
   canvas_render_toolbar(ui, ctx, bounds, block);
 
-  // --- Pan indicator when space is held ---
-  if (ui->canvas_state.space_held) {
-    // Show hand cursor indicator
-    if (ui->font_icons) {
-      nk_draw_text(canvas_buf, nk_rect(bounds.x + 10, bounds.y + 10, 24, 24),
-                   ICON_HAND, strlen(ICON_HAND), &ui->font_icons->handle,
-                   nk_rgba(0, 0, 0, 0), nk_rgb(100, 100, 100));
-    }
+  // --- Status indicators ---
+  if (cs->space_held && ui->font_icons) {
+    nk_draw_text(canvas_buf, nk_rect(bounds.x + 10, bounds.y + 10, 24, 24),
+                 ICON_HAND, strlen(ICON_HAND), &ui->font_icons->handle,
+                 nk_rgba(0, 0, 0, 0), nk_rgb(100, 100, 100));
   }
 
-  // --- Zoom level indicator ---
+  // Zoom level
   char zoom_label[32];
   snprintf(zoom_label, sizeof(zoom_label), "%.0f%%", zoom * 100.0f);
   nk_draw_text(canvas_buf, nk_rect(bounds.x + bounds.w - 60, bounds.y + 10, 50, 20),
                zoom_label, strlen(zoom_label), ctx->style.font,
-               nk_rgba(0, 0, 0, 0), nk_rgb(150, 150, 150));
+               nk_rgba(0, 0, 0, 0), nk_rgb(100, 100, 100));
+
+  // Tool indicator
+  const char *tool_names[] = {"Select", "Rectangle", "Pen", "Text", "Sticky"};
+  if (cs->tool < 5) {
+    nk_draw_text(canvas_buf, nk_rect(bounds.x + 10, bounds.y + bounds.h - 30, 100, 20),
+                 tool_names[cs->tool], strlen(tool_names[cs->tool]), ctx->style.font,
+                 nk_rgba(0, 0, 0, 0), nk_rgb(100, 100, 100));
+  }
+
+  // Debug: show node count
+  int node_count = 0;
+  if (cd->root) {
+    for (Node *n = cd->root->first_child; n; n = n->next_sibling) {
+      if (n->visible) node_count++;
+    }
+  }
+  char debug_label[64];
+  snprintf(debug_label, sizeof(debug_label), "Nodes: %d", node_count);
+  nk_draw_text(canvas_buf, nk_rect(bounds.x + bounds.w - 80, bounds.y + 30, 70, 20),
+               debug_label, strlen(debug_label), ctx->style.font,
+               nk_rgba(0, 0, 0, 0), nk_rgb(100, 100, 100));
 
   // Sync back to canvas data
-  cd->view_x = ui->canvas_state.cam_x;
-  cd->view_y = ui->canvas_state.cam_y;
-  cd->zoom = ui->canvas_state.zoom;
+  cd->view_x = cs->cam_x;
+  cd->view_y = cs->cam_y;
+  cd->zoom = cs->zoom;
 
   nk_spacing(ctx, 1);
 }
@@ -1247,6 +1483,10 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   if (ui->screen != 0 && ui->expanded_block_id == 0) {
     ui_render_bottom_bar(ui, engine, ctx, win_w, win_h);
   }
+
+  // Reset per-frame canvas input state (after all processing is done)
+  ui->canvas_state.mouse_just_pressed = 0;
+  ui->canvas_state.mouse_just_released = 0;
 
   // Render Nuklear
   nk_sdl_render(NK_ANTI_ALIASING_ON);

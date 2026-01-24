@@ -45,9 +45,13 @@ typedef struct {
   // Current tool
   CanvasToolMode tool;
 
-  // Camera state (matches CanvasData view_x/y/zoom but this is UI state)
+  // Camera state
   float cam_x, cam_y;
   float zoom;
+
+  // Canvas bounds (set during render, used in events)
+  float bounds_x, bounds_y, bounds_w, bounds_h;
+  int mouse_in_canvas;
 
   // Pan state
   int is_panning;
@@ -55,12 +59,22 @@ typedef struct {
   float pan_start_x, pan_start_y;
   float cam_start_x, cam_start_y;
 
-  // Drawing state
-  int is_drawing;
-  float draw_start_x, draw_start_y;
+  // Drawing/creating state
+  int is_creating;
+  float create_start_x, create_start_y;  // World coords
+  float create_end_x, create_end_y;      // World coords
+
+  // Dragging state
+  int is_dragging_node;
+  float drag_offset_x, drag_offset_y;    // Offset from node origin
+
+  // Mouse state for click detection
+  int mouse_just_pressed;   // Left button just pressed this frame
+  int mouse_just_released;  // Left button just released this frame
 
   // Target canvas block
   uint32_t active_canvas_id;
+  Block *active_block;      // Direct pointer for convenience
 } CanvasInteraction;
 
 // -----------------------------------------------------------------------------
