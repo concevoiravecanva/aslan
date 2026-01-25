@@ -63,8 +63,9 @@ typedef enum {
   NODE_TYPE_IMAGE = 3,
   NODE_TYPE_FRAME = 4,  // Container frame (Figma-like)
   NODE_TYPE_GROUP = 5,  // Logical grouping
-  NODE_TYPE_LINE = 6,   // Line/arrow
-  NODE_TYPE_ELLIPSE = 7 // Circle/ellipse
+  NODE_TYPE_LINE = 6,      // Line/arrow
+  NODE_TYPE_ELLIPSE = 7,   // Circle/ellipse
+  NODE_TYPE_TRIANGLE = 8   // Triangle
 } NodeType;
 
 // =============================================================================

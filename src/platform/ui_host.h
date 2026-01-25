@@ -36,7 +36,8 @@ typedef enum {
   CANVAS_TOOL_FORM_TRIANGLE,
   CANVAS_TOOL_FORM_LINE,
   CANVAS_TOOL_TEXT,
-  CANVAS_TOOL_NOTE
+  CANVAS_TOOL_NOTE,
+  CANVAS_TOOL_IMAGE
 } CanvasToolMode;
 
 // -----------------------------------------------------------------------------
@@ -76,6 +77,15 @@ typedef struct {
 
   // Forms menu state
   int show_forms_menu;
+
+  // Pending element creation (from toolbar click)
+  int pending_create;  // 0=none, 1=text, 2=note, 3=image, 10+shape_index=form
+
+  // Resize state
+  int is_resizing;
+  int resize_handle;  // Which handle: 0=SE, 1=E, 2=S, etc.
+  float resize_start_w, resize_start_h;
+  float resize_start_x, resize_start_y;
 
   // Target canvas block
   uint32_t active_canvas_id;

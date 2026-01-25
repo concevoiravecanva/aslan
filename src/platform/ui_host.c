@@ -9,6 +9,89 @@
 #include <SDL.h>
 #include <math.h>
 #include <stdlib.h>
+#include <sys/stat.h>
+#include <errno.h>
+
+// -----------------------------------------------------------------------------
+// File Dialog Helper (macOS)
+// -----------------------------------------------------------------------------
+
+// Opens a native file dialog to select an image file
+// Returns 1 on success, 0 on cancel/error. Path is written to out_path.
+static int open_image_file_dialog(char *out_path, size_t path_size) {
+  // Use osascript to open macOS native file dialog
+  const char *script =
+    "osascript -e 'set theFile to choose file of type {\"public.image\"} "
+    "with prompt \"Select an image\"' -e 'POSIX path of theFile' 2>/dev/null";
+
+  FILE *fp = popen(script, "r");
+  if (!fp) return 0;
+
+  char result[512] = {0};
+  if (fgets(result, sizeof(result), fp) != NULL) {
+    // Remove trailing newline
+    size_t len = strlen(result);
+    if (len > 0 && result[len - 1] == '\n') {
+      result[len - 1] = '\0';
+      len--;
+    }
+    if (len > 0) {
+      strncpy(out_path, result, path_size - 1);
+      out_path[path_size - 1] = '\0';
+      pclose(fp);
+      return 1;
+    }
+  }
+
+  pclose(fp);
+  return 0;
+}
+
+// Copy file to assets directory, returns path relative to document
+// Creates assets/ directory if needed
+static int copy_image_to_assets(const char *src_path, const char *doc_dir,
+                                 char *out_rel_path, size_t rel_path_size) {
+  // Create assets directory
+  char assets_dir[512];
+  snprintf(assets_dir, sizeof(assets_dir), "%s/assets", doc_dir);
+  mkdir(assets_dir, 0755);  // Ignore error if exists
+
+  // Get filename from path
+  const char *filename = strrchr(src_path, '/');
+  filename = filename ? filename + 1 : src_path;
+
+  // Generate unique filename if needed (add timestamp)
+  char dest_filename[256];
+  time_t now = time(NULL);
+  snprintf(dest_filename, sizeof(dest_filename), "%ld_%s", (long)now, filename);
+
+  // Full destination path
+  char dest_path[512];
+  snprintf(dest_path, sizeof(dest_path), "%s/%s", assets_dir, dest_filename);
+
+  // Copy file
+  FILE *src = fopen(src_path, "rb");
+  if (!src) return 0;
+
+  FILE *dst = fopen(dest_path, "wb");
+  if (!dst) {
+    fclose(src);
+    return 0;
+  }
+
+  char buf[8192];
+  size_t n;
+  while ((n = fread(buf, 1, sizeof(buf), src)) > 0) {
+    fwrite(buf, 1, n, dst);
+  }
+
+  fclose(src);
+  fclose(dst);
+
+  // Return relative path
+  snprintf(out_rel_path, rel_path_size, "assets/%s", dest_filename);
+  return 1;
+}
 
 // Nuklear SDL renderer backend (external)
 #define NK_SDL_RENDERER_IMPLEMENTATION
@@ -261,8 +344,8 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       // Stop dragging node
       cs->is_dragging_node = 0;
 
-      // NOTE: Don't reset is_creating here - let the render function handle it
-      // The render function will check mouse_just_released && is_creating
+      // Stop resizing
+      cs->is_resizing = 0;
     }
 
     if (evt->button.button == SDL_BUTTON_MIDDLE) {
@@ -797,8 +880,11 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
                                   struct nk_rect bounds, Block *block) {
   (void)block;
 
-  const float toolbar_w = 160.0f;
-  const float toolbar_h = 40.0f;
+  // 4 buttons: Forms, Text, Note, Image (no Select button - default mode)
+  const float btn_size = 32.0f;
+  const float btn_spacing = 6.0f;
+  const float toolbar_w = 4 * btn_size + 3 * btn_spacing + 24.0f;
+  const float toolbar_h = 44.0f;
   const float margin = 16.0f;
 
   float toolbar_x = bounds.x + (bounds.w - toolbar_w) / 2.0f;
@@ -820,61 +906,65 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
   nk_stroke_rect(canvas_buf, nk_rect(toolbar_x, toolbar_y, toolbar_w, toolbar_h),
                  12.0f, 1.0f, toolbar_border);
 
-  // 4 main buttons: S (Select), F (Forms), T (Text), N (Note)
-  const float btn_size = 32.0f;
-  const float btn_spacing = 4.0f;
-  const float total_btn_w = 4 * btn_size + 3 * btn_spacing;
-  float btn_x = toolbar_x + (toolbar_w - total_btn_w) / 2.0f;
+  float btn_x = toolbar_x + 12.0f;
   float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
 
-  const char *tool_labels[] = {"S", "F", "T", "N"};
+  // Tool icons and modes
+  // 0: Forms (shapes), 1: Text, 2: Note, 3: Image
+  // Note: Text uses "T" because the icon font doesn't render properly
+  const char *tool_icons[] = {ICON_SHAPE, "T", ICON_STICKY, "\xEE\xB9\xA4"}; // Last is ri-image-line
+  int use_icon_font[] = {1, 0, 1, 1}; // 0 = use regular font, 1 = use icon font
+  int tool_count = 4;
 
-  for (int i = 0; i < 4; i++) {
+  for (int i = 0; i < tool_count; i++) {
     struct nk_rect btn = nk_rect(btn_x + i * (btn_size + btn_spacing), btn_y,
                                   btn_size, btn_size);
 
     int is_active = 0;
-    if (i == 0) is_active = (cs->tool == CANVAS_TOOL_SELECT);
-    else if (i == 1) is_active = is_form_tool(cs->tool) || cs->show_forms_menu;
-    else if (i == 2) is_active = (cs->tool == CANVAS_TOOL_TEXT);
-    else if (i == 3) is_active = (cs->tool == CANVAS_TOOL_NOTE);
+    if (i == 0) is_active = cs->show_forms_menu;
+    else if (i == 1) is_active = 0; // Text never stays active
+    else if (i == 2) is_active = 0; // Note never stays active
+    else if (i == 3) is_active = 0; // Image never stays active
 
     int hovered = (ui->mouse_x >= btn.x && ui->mouse_x < btn.x + btn.w &&
                    ui->mouse_y >= btn.y && ui->mouse_y < btn.y + btn.h);
 
     struct nk_color bg_color = is_active ? nk_rgba(66, 133, 244, 80) :
-                               hovered ? nk_rgba(0, 0, 0, 30) :
-                               nk_rgba(0, 0, 0, 10);
+                               hovered ? nk_rgba(0, 0, 0, 20) :
+                               nk_rgba(0, 0, 0, 0);
     nk_fill_rect(canvas_buf, btn, 6.0f, bg_color);
 
-    struct nk_color text_color = is_active ? nk_rgb(66, 133, 244) : nk_rgb(60, 60, 60);
-    nk_draw_text(canvas_buf,
-                 nk_rect(btn.x + 10, btn.y + 8, btn_size - 20, btn_size - 16),
-                 tool_labels[i], 1, ctx->style.font,
-                 nk_rgba(0, 0, 0, 0), text_color);
+    // Draw icon or text
+    struct nk_color icon_color = is_active ? nk_rgb(66, 133, 244) : nk_rgb(80, 80, 80);
+    if (use_icon_font[i] && ui->font_icons) {
+      nk_draw_text(canvas_buf,
+                   nk_rect(btn.x + 6, btn.y + 6, btn_size - 12, btn_size - 12),
+                   tool_icons[i], strlen(tool_icons[i]), &ui->font_icons->handle,
+                   nk_rgba(0, 0, 0, 0), icon_color);
+    } else {
+      // Use regular font for "T"
+      nk_draw_text(canvas_buf,
+                   nk_rect(btn.x + 8, btn.y + 4, btn_size - 16, btn_size - 8),
+                   tool_icons[i], strlen(tool_icons[i]), ctx->style.font,
+                   nk_rgba(0, 0, 0, 0), icon_color);
+    }
 
     if (hovered && cs->mouse_just_pressed) {
       if (i == 0) {
-        cs->tool = CANVAS_TOOL_SELECT;
-        cs->show_forms_menu = 0;
-      } else if (i == 1) {
-        // Toggle forms menu
         cs->show_forms_menu = !cs->show_forms_menu;
-      } else if (i == 2) {
-        cs->tool = CANVAS_TOOL_TEXT;
+      } else {
+        // Create element directly in center of visible canvas
         cs->show_forms_menu = 0;
-      } else if (i == 3) {
-        cs->tool = CANVAS_TOOL_NOTE;
-        cs->show_forms_menu = 0;
+        cs->pending_create = i; // 1=Text, 2=Note, 3=Image
       }
     }
   }
 
   // --- Forms submenu (above toolbar) ---
   if (cs->show_forms_menu) {
-    const float menu_w = 160.0f;
+    const float menu_w = 4 * btn_size + 3 * btn_spacing + 16.0f;
     const float menu_h = 44.0f;
-    float menu_x = toolbar_x;
+    float menu_x = toolbar_x + (toolbar_w - menu_w) / 2.0f;
     float menu_y = toolbar_y - menu_h - 8.0f;
 
     // Shadow
@@ -887,7 +977,6 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
                    10.0f, 1.0f, toolbar_border);
 
     // Form buttons: Rectangle, Ellipse, Triangle, Line
-    const char *form_labels[] = {"▢", "○", "△", "—"};
     CanvasToolMode form_tools[] = {CANVAS_TOOL_FORM_RECT, CANVAS_TOOL_FORM_ELLIPSE,
                                    CANVAS_TOOL_FORM_TRIANGLE, CANVAS_TOOL_FORM_LINE};
 
@@ -903,17 +992,36 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
                      ui->mouse_y >= fbtn.y && ui->mouse_y < fbtn.y + fbtn.h);
 
       struct nk_color bg = is_active ? nk_rgba(66, 133, 244, 80) :
-                           hovered ? nk_rgba(0, 0, 0, 30) : nk_rgba(0, 0, 0, 0);
+                           hovered ? nk_rgba(0, 0, 0, 20) : nk_rgba(0, 0, 0, 0);
       nk_fill_rect(canvas_buf, fbtn, 6.0f, bg);
 
-      struct nk_color tc = is_active ? nk_rgb(66, 133, 244) : nk_rgb(60, 60, 60);
-      // Draw shape symbol
-      const char *lbl = form_labels[i];
-      nk_draw_text(canvas_buf, nk_rect(fbtn.x + 8, fbtn.y + 6, btn_size - 16, btn_size - 12),
-                   lbl, strlen(lbl), ctx->style.font, nk_rgba(0, 0, 0, 0), tc);
+      // Draw shape directly using nk primitives
+      struct nk_color shape_color = is_active ? nk_rgb(66, 133, 244) : nk_rgb(80, 80, 80);
+      float cx = fbtn.x + btn_size / 2.0f;
+      float cy = fbtn.y + btn_size / 2.0f;
+      float sz = 10.0f;
+
+      if (i == 0) {
+        // Rectangle
+        nk_stroke_rect(canvas_buf, nk_rect(cx - sz, cy - sz * 0.7f, sz * 2, sz * 1.4f),
+                       2.0f, 1.5f, shape_color);
+      } else if (i == 1) {
+        // Ellipse
+        nk_stroke_circle(canvas_buf, nk_rect(cx - sz, cy - sz, sz * 2, sz * 2),
+                         1.5f, shape_color);
+      } else if (i == 2) {
+        // Triangle
+        nk_stroke_triangle(canvas_buf, cx, cy - sz, cx - sz, cy + sz * 0.7f,
+                           cx + sz, cy + sz * 0.7f, 1.5f, shape_color);
+      } else if (i == 3) {
+        // Line
+        nk_stroke_line(canvas_buf, cx - sz, cy + sz * 0.5f, cx + sz, cy - sz * 0.5f,
+                       1.5f, shape_color);
+      }
 
       if (hovered && cs->mouse_just_pressed) {
-        cs->tool = form_tools[i];
+        // Create form directly: 10=rect, 11=ellipse, 12=triangle, 13=line
+        cs->pending_create = 10 + i;
         cs->show_forms_menu = 0;
       }
     }
@@ -967,7 +1075,7 @@ static Node *canvas_create_styled_node(CanvasData *cd, NodeStyleType style,
       break;
 
     case NODE_STYLE_TRIANGLE:
-      node->type = NODE_TYPE_RECT;  // Will render as triangle
+      node->type = NODE_TYPE_TRIANGLE;
       node->fill_color = 0xFBBC04FF;  // Yellow
       node->stroke_color = 0xF9A825FF;
       node->stroke_width = 0.0f;
@@ -1112,60 +1220,160 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
     cs->show_forms_menu = 0;
   }
 
+  // --- Handle pending element creation (from toolbar button click) ---
+  if (cs->pending_create > 0) {
+    // Calculate center of visible canvas in world coords
+    float center_world_x = cam_x + (bounds.w / 2.0f) / zoom;
+    float center_world_y = cam_y + (bounds.h / 2.0f) / zoom;
+
+    Node *new_node = NULL;
+    float def_w = 100.0f;
+    float def_h = 80.0f;
+    float nx = center_world_x - def_w / 2.0f;
+    float ny = center_world_y - def_h / 2.0f;
+
+    if (cs->pending_create == 1) {
+      // Text
+      new_node = canvas_create_styled_node(cd, NODE_STYLE_TEXT, nx, ny, 120.0f, 30.0f);
+    } else if (cs->pending_create == 2) {
+      // Note
+      new_node = canvas_create_styled_node(cd, NODE_STYLE_NOTE, nx, ny, 150.0f, 100.0f);
+    } else if (cs->pending_create == 3) {
+      // Image - open file dialog
+      char selected_path[512] = {0};
+      if (open_image_file_dialog(selected_path, sizeof(selected_path))) {
+        // Get document directory from engine (if available) or use current dir
+        char doc_dir[256] = ".";
+        // For now, use the current working directory
+        // In a real implementation, this would come from the document's filepath
+
+        // Copy image to assets directory
+        char rel_path[256] = {0};
+        if (copy_image_to_assets(selected_path, doc_dir, rel_path, sizeof(rel_path))) {
+          // Create image node with relative path
+          Node *img_node = (Node *)calloc(1, sizeof(Node));
+          if (img_node && cd->root) {
+            img_node->id = cd->next_node_id++;
+            img_node->type = NODE_TYPE_IMAGE;
+            img_node->x = nx;
+            img_node->y = ny;
+            img_node->width = 200.0f;
+            img_node->height = 150.0f;
+            img_node->visible = 1;
+            img_node->parent = cd->root;
+            img_node->fill_color = 0xFFFFFFFF;
+            img_node->stroke_color = 0xCCCCCCFF;
+            img_node->stroke_width = 1.0f;
+            strncpy(img_node->image_path, rel_path, sizeof(img_node->image_path) - 1);
+            // Get filename for display
+            const char *fname = strrchr(selected_path, '/');
+            fname = fname ? fname + 1 : selected_path;
+            strncpy(img_node->text, fname, sizeof(img_node->text) - 1);
+
+            if (!cd->root->first_child) {
+              cd->root->first_child = img_node;
+            } else {
+              Node *last = cd->root->first_child;
+              while (last->next_sibling) last = last->next_sibling;
+              last->next_sibling = img_node;
+            }
+            new_node = img_node;
+          }
+        } else {
+          // Copy failed, create placeholder
+          snprintf(ui->status, sizeof(ui->status), "Failed to copy image");
+        }
+      }
+      // If dialog cancelled, don't create anything
+    } else if (cs->pending_create >= 10 && cs->pending_create <= 13) {
+      // Forms: 10=rect, 11=ellipse, 12=triangle, 13=line
+      NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE, NODE_STYLE_TRIANGLE, NODE_STYLE_LINE};
+      int idx = cs->pending_create - 10;
+      if (idx == 3) {
+        // Line
+        new_node = canvas_create_styled_node(cd, styles[idx], nx, ny, 150.0f, 4.0f);
+      } else {
+        new_node = canvas_create_styled_node(cd, styles[idx], nx, ny, def_w, def_h);
+      }
+    }
+
+    if (new_node) {
+      ui->selected_node = new_node;
+    }
+    cs->pending_create = 0;
+  }
+
+  // --- Check for resize handle click on selected node ---
+  int on_resize_handle = 0;
+  if (ui->selected_node && ui->selected_node->visible) {
+    Node *sel = ui->selected_node;
+    float sx = bounds.x + (sel->x - cam_x) * zoom;
+    float sy = bounds.y + (sel->y - cam_y) * zoom;
+    float sw = sel->width * zoom;
+    float sh = sel->height * zoom;
+
+    // SE handle (bottom-right corner)
+    float hsize = 10.0f;
+    float hx = sx + sw - hsize/2;
+    float hy = sy + sh - hsize/2;
+
+    if (ui->mouse_x >= hx && ui->mouse_x < hx + hsize &&
+        ui->mouse_y >= hy && ui->mouse_y < hy + hsize) {
+      on_resize_handle = 1;
+    }
+  }
+
   // Handle mouse press in canvas (not toolbar, not forms menu)
   if (cs->mouse_in_canvas && !in_toolbar && !in_forms_menu && !cs->is_panning && cs->mouse_just_pressed) {
     float world_x = cam_x + (ui->mouse_x - bounds.x) / zoom;
     float world_y = cam_y + (ui->mouse_y - bounds.y) / zoom;
 
-    if (cs->tool == CANVAS_TOOL_SELECT) {
+    if (on_resize_handle && ui->selected_node) {
+      // Start resizing
+      cs->is_resizing = 1;
+      cs->resize_handle = 0;  // SE corner
+      cs->resize_start_w = ui->selected_node->width;
+      cs->resize_start_h = ui->selected_node->height;
+      cs->resize_start_x = ui->mouse_x;
+      cs->resize_start_y = ui->mouse_y;
+    } else {
       // Try to select a node
       Node *hit = canvas_find_node_at(cd, world_x, world_y);
       if (hit) {
+        // Check if clicking on text node to edit
+        if (hit->type == NODE_TYPE_TEXT && ui->selected_node == hit) {
+          ui->editing_block_id = block->id;
+        }
         ui->selected_node = hit;
         cs->is_dragging_node = 1;
         cs->drag_offset_x = world_x - hit->x;
         cs->drag_offset_y = world_y - hit->y;
       } else {
         ui->selected_node = NULL;
-      }
-    } else {
-      // Create element immediately with default size
-      Node *new_node = NULL;
-      float def_w = 100.0f;
-      float def_h = 80.0f;
-
-      // Center the element on click position
-      float nx = world_x - def_w / 2.0f;
-      float ny = world_y - def_h / 2.0f;
-
-      switch (cs->tool) {
-        case CANVAS_TOOL_FORM_RECT:
-          new_node = canvas_create_styled_node(cd, NODE_STYLE_RECT, nx, ny, def_w, def_h);
-          break;
-        case CANVAS_TOOL_FORM_ELLIPSE:
-          new_node = canvas_create_styled_node(cd, NODE_STYLE_ELLIPSE, nx, ny, def_w, def_h);
-          break;
-        case CANVAS_TOOL_FORM_TRIANGLE:
-          new_node = canvas_create_styled_node(cd, NODE_STYLE_TRIANGLE, nx, ny, def_w, def_h);
-          break;
-        case CANVAS_TOOL_FORM_LINE:
-          new_node = canvas_create_styled_node(cd, NODE_STYLE_LINE, nx, ny, 150.0f, 4.0f);
-          break;
-        case CANVAS_TOOL_TEXT:
-          new_node = canvas_create_styled_node(cd, NODE_STYLE_TEXT, nx, ny, 120.0f, 30.0f);
-          break;
-        case CANVAS_TOOL_NOTE:
-          new_node = canvas_create_styled_node(cd, NODE_STYLE_NOTE, nx, ny, 150.0f, 100.0f);
-          break;
-        default:
-          break;
-      }
-
-      if (new_node) {
-        ui->selected_node = new_node;
-        // Stay on current tool to allow multiple placements
+        ui->editing_block_id = 0;
       }
     }
+  }
+
+  // Handle resizing
+  if (cs->is_resizing && ui->selected_node) {
+    float dx = (ui->mouse_x - cs->resize_start_x) / zoom;
+    float dy = (ui->mouse_y - cs->resize_start_y) / zoom;
+
+    float new_w = cs->resize_start_w + dx;
+    float new_h = cs->resize_start_h + dy;
+
+    // Minimum size
+    if (new_w < 20.0f) new_w = 20.0f;
+    if (new_h < 20.0f) new_h = 20.0f;
+
+    ui->selected_node->width = new_w;
+    ui->selected_node->height = new_h;
+  }
+
+  // Stop resizing on mouse release
+  if (cs->mouse_just_released) {
+    cs->is_resizing = 0;
   }
 
   // --- Render nodes ---
@@ -1192,37 +1400,61 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
       // Only draw background if not transparent
       int has_fill = (fill.a > 0);
 
+      struct nk_color stroke = {(node->stroke_color >> 24) & 0xFF,
+                                (node->stroke_color >> 16) & 0xFF,
+                                (node->stroke_color >> 8) & 0xFF,
+                                node->stroke_color & 0xFF};
+
       // Draw based on node type
       if (node->type == NODE_TYPE_ELLIPSE) {
         if (has_fill) {
           nk_fill_circle(canvas_buf, nr, fill);
         }
         if (node->stroke_width > 0) {
-          struct nk_color stroke = {(node->stroke_color >> 24) & 0xFF,
-                                    (node->stroke_color >> 16) & 0xFF,
-                                    (node->stroke_color >> 8) & 0xFF,
-                                    node->stroke_color & 0xFF};
           nk_stroke_circle(canvas_buf, nr, node->stroke_width * zoom, stroke);
         }
+      } else if (node->type == NODE_TYPE_TRIANGLE) {
+        // Triangle: top center, bottom left, bottom right
+        float x1 = nr.x + nr.w / 2.0f;
+        float y1 = nr.y;
+        float x2 = nr.x;
+        float y2 = nr.y + nr.h;
+        float x3 = nr.x + nr.w;
+        float y3 = nr.y + nr.h;
+        if (has_fill) {
+          nk_fill_triangle(canvas_buf, x1, y1, x2, y2, x3, y3, fill);
+        }
+        if (node->stroke_width > 0) {
+          nk_stroke_triangle(canvas_buf, x1, y1, x2, y2, x3, y3,
+                             node->stroke_width * zoom, stroke);
+        }
+      } else if (node->type == NODE_TYPE_IMAGE) {
+        // Image placeholder
+        if (has_fill) {
+          nk_fill_rect(canvas_buf, nr, 4.0f, fill);
+        }
+        nk_stroke_rect(canvas_buf, nr, 4.0f, 1.0f, stroke);
+        // Draw image icon in center
+        if (ui->font_icons) {
+          nk_draw_text(canvas_buf,
+                       nk_rect(nr.x + nr.w/2 - 12, nr.y + nr.h/2 - 12, 24, 24),
+                       "\xEE\xB9\xA4", 3, &ui->font_icons->handle,
+                       nk_rgba(0, 0, 0, 0), nk_rgb(150, 150, 150));
+        }
       } else if (node->type == NODE_TYPE_TEXT && !has_fill) {
-        // Plain text - no background, just render text
-        // Skip fill/stroke
+        // Plain text - no background, just render text below
       } else {
         if (has_fill) {
           nk_fill_rect(canvas_buf, nr, node->corner_radius * zoom, fill);
         }
         if (node->stroke_width > 0) {
-          struct nk_color stroke = {(node->stroke_color >> 24) & 0xFF,
-                                    (node->stroke_color >> 16) & 0xFF,
-                                    (node->stroke_color >> 8) & 0xFF,
-                                    node->stroke_color & 0xFF};
           nk_stroke_rect(canvas_buf, nr, node->corner_radius * zoom,
                          node->stroke_width * zoom, stroke);
         }
       }
 
       // Text content
-      if (node->text[0]) {
+      if (node->text[0] && node->type != NODE_TYPE_IMAGE) {
         float text_pad = has_fill ? 8.0f : 0.0f;
         nk_draw_text(canvas_buf, nk_rect(nr.x + text_pad, nr.y + text_pad,
                      nr.w - text_pad * 2, nr.h - text_pad * 2),
@@ -1234,10 +1466,35 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
       if (ui->selected_node == node) {
         nk_stroke_rect(canvas_buf, nk_rect(nr.x - 2, nr.y - 2, nr.w + 4, nr.h + 4),
                        0, 2.0f, nk_rgb(66, 133, 244));
-        // Draw resize handles
-        float hsize = 8.0f;
-        nk_fill_rect(canvas_buf, nk_rect(nr.x + nr.w - hsize/2, nr.y + nr.h - hsize/2, hsize, hsize),
-                     2.0f, nk_rgb(66, 133, 244));
+
+        // Draw resize handles at corners (SE corner is interactive)
+        float hsize = 10.0f;
+        struct nk_color handle_fill = nk_rgb(255, 255, 255);
+        struct nk_color handle_stroke = nk_rgb(66, 133, 244);
+
+        // SE corner (bottom-right) - main resize handle
+        float se_x = nr.x + nr.w - hsize/2;
+        float se_y = nr.y + nr.h - hsize/2;
+        nk_fill_rect(canvas_buf, nk_rect(se_x, se_y, hsize, hsize), 2.0f, handle_fill);
+        nk_stroke_rect(canvas_buf, nk_rect(se_x, se_y, hsize, hsize), 2.0f, 1.5f, handle_stroke);
+
+        // NW corner (top-left) - visual only
+        float nw_x = nr.x - hsize/2;
+        float nw_y = nr.y - hsize/2;
+        nk_fill_rect(canvas_buf, nk_rect(nw_x, nw_y, hsize, hsize), 2.0f, handle_fill);
+        nk_stroke_rect(canvas_buf, nk_rect(nw_x, nw_y, hsize, hsize), 2.0f, 1.5f, handle_stroke);
+
+        // NE corner (top-right) - visual only
+        float ne_x = nr.x + nr.w - hsize/2;
+        float ne_y = nr.y - hsize/2;
+        nk_fill_rect(canvas_buf, nk_rect(ne_x, ne_y, hsize, hsize), 2.0f, handle_fill);
+        nk_stroke_rect(canvas_buf, nk_rect(ne_x, ne_y, hsize, hsize), 2.0f, 1.5f, handle_stroke);
+
+        // SW corner (bottom-left) - visual only
+        float sw_x = nr.x - hsize/2;
+        float sw_y = nr.y + nr.h - hsize/2;
+        nk_fill_rect(canvas_buf, nk_rect(sw_x, sw_y, hsize, hsize), 2.0f, handle_fill);
+        nk_stroke_rect(canvas_buf, nk_rect(sw_x, sw_y, hsize, hsize), 2.0f, 1.5f, handle_stroke);
       }
     }
   }
@@ -1259,20 +1516,15 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
                zoom_label, strlen(zoom_label), ctx->style.font,
                nk_rgba(0, 0, 0, 0), nk_rgb(100, 100, 100));
 
-  // Tool indicator
-  const char *tool_name = "Select";
-  switch (cs->tool) {
-    case CANVAS_TOOL_SELECT: tool_name = "Select"; break;
-    case CANVAS_TOOL_FORM_RECT: tool_name = "Rectangle"; break;
-    case CANVAS_TOOL_FORM_ELLIPSE: tool_name = "Ellipse"; break;
-    case CANVAS_TOOL_FORM_TRIANGLE: tool_name = "Triangle"; break;
-    case CANVAS_TOOL_FORM_LINE: tool_name = "Line"; break;
-    case CANVAS_TOOL_TEXT: tool_name = "Text"; break;
-    case CANVAS_TOOL_NOTE: tool_name = "Note"; break;
+  // Status: show selected node info if any
+  if (ui->selected_node) {
+    char sel_info[64];
+    snprintf(sel_info, sizeof(sel_info), "%.0fx%.0f",
+             ui->selected_node->width, ui->selected_node->height);
+    nk_draw_text(canvas_buf, nk_rect(bounds.x + 10, bounds.y + bounds.h - 30, 100, 20),
+                 sel_info, strlen(sel_info), ctx->style.font,
+                 nk_rgba(0, 0, 0, 0), nk_rgb(100, 100, 100));
   }
-  nk_draw_text(canvas_buf, nk_rect(bounds.x + 10, bounds.y + bounds.h - 30, 100, 20),
-               tool_name, strlen(tool_name), ctx->style.font,
-               nk_rgba(0, 0, 0, 0), nk_rgb(100, 100, 100));
 
   // Debug: show node count
   int node_count = 0;
