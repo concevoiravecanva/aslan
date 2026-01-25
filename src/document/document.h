@@ -42,6 +42,7 @@ typedef enum {
   BLOCK_DESIGN,    // Finite design surface (Canva-style)
 
   BLOCK_VIDEO = 10,
+  BLOCK_AUDIO,       // Voice recording block with transcription
   BLOCK_COUNT
 } BlockType;
 
@@ -174,7 +175,16 @@ typedef struct {
   Node *root;
 } DesignData;
 
-// --- Video Block Data ---
+// --- Transcript Segment (for video/audio transcription) ---
+typedef struct {
+  int start_ms;       // Start time in milliseconds
+  int end_ms;         // End time in milliseconds
+  char text[512];     // Transcribed text
+  int word_count;     // Number of words
+  int is_deleted;     // 1 if user deleted this segment (Descript-style)
+} TranscriptSeg;
+
+// --- Video Block Data (Descript-style) ---
 typedef struct {
   char source_path[256];
   double start_time;
@@ -191,7 +201,32 @@ typedef struct {
   double playhead;
   bool is_playing;
   bool is_fullscreen;
+
+  // Transcript (Descript-style editing)
+  TranscriptSeg *transcript;
+  int transcript_count;
+  int transcript_capacity;
+  int is_transcribing;     // 1 if transcription in progress
+  int selected_segment;    // Currently selected segment (-1 = none)
+  char language[8];        // Detected language
 } VideoData;
+
+// --- Audio Block Data (Voice recording with transcription) ---
+typedef struct {
+  char audio_path[256];    // Path to recorded audio file
+  float *samples;          // Audio samples (16kHz mono float32)
+  int sample_count;
+  int sample_capacity;
+  int is_recording;        // 1 if currently recording
+  int is_playing;
+
+  // Transcript
+  TranscriptSeg *transcript;
+  int transcript_count;
+  int transcript_capacity;
+  int is_transcribing;
+  int selected_segment;
+} AudioData;
 
 // --- Lua Script Block Data ---
 typedef struct {
@@ -223,6 +258,7 @@ typedef struct Block {
     CanvasData canvas;
     DesignData design;
     VideoData video;
+    AudioData audio;
     LuaData lua;
   } data;
 
@@ -413,6 +449,23 @@ double block_video_total_duration(const Block *block);
 void block_video_set_playhead(Block *block, double time);
 void block_video_toggle_play(Block *block);
 void block_video_toggle_fullscreen(Block *block);
+
+// Transcript (Descript-style editing)
+void block_video_set_transcript(Block *block, TranscriptSeg *segs, int count);
+void block_video_delete_segment(Block *block, int segment_idx);
+void block_video_restore_segment(Block *block, int segment_idx);
+
+// =============================================================================
+// AUDIO BLOCK API
+// =============================================================================
+
+void block_audio_init(Block *block);
+void block_audio_destroy(Block *block);
+void block_audio_start_recording(Block *block);
+void block_audio_stop_recording(Block *block);
+void block_audio_set_transcript(Block *block, TranscriptSeg *segs, int count);
+void block_audio_delete_segment(Block *block, int segment_idx);
+void block_audio_toggle_play(Block *block);
 
 // =============================================================================
 // LUA BLOCK API
