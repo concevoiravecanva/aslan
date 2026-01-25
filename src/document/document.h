@@ -61,11 +61,11 @@ typedef enum {
   NODE_TYPE_RECT = 1,
   NODE_TYPE_TEXT = 2,
   NODE_TYPE_IMAGE = 3,
-  NODE_TYPE_FRAME = 4,  // Container frame (Figma-like)
-  NODE_TYPE_GROUP = 5,  // Logical grouping
-  NODE_TYPE_LINE = 6,      // Line/arrow
-  NODE_TYPE_ELLIPSE = 7,   // Circle/ellipse
-  NODE_TYPE_TRIANGLE = 8   // Triangle
+  NODE_TYPE_FRAME = 4,   // Container frame (Figma-like)
+  NODE_TYPE_GROUP = 5,   // Logical grouping
+  NODE_TYPE_LINE = 6,    // Line/arrow
+  NODE_TYPE_ELLIPSE = 7, // Circle/ellipse
+  NODE_TYPE_TRIANGLE = 8 // Triangle
 } NodeType;
 
 // =============================================================================
@@ -120,12 +120,36 @@ typedef struct {
 } TableData;
 
 // --- Canvas Block Data (Infinite) ---
+
+typedef struct {
+  float x, y;
+} Point;
+
+typedef enum {
+  STROKE_TYPE_PEN = 0,
+  STROKE_TYPE_MARKER,
+  STROKE_TYPE_PENCIL
+} StrokeType;
+
+typedef struct Stroke {
+  Point *points;
+  int count;
+  int capacity;
+  uint32_t color; // RGBA
+  float thickness;
+  StrokeType type;
+  struct Stroke *next;
+} Stroke;
+
 typedef struct {
   Node *root; // Node tree root
   uint32_t next_node_id;
   float view_x, view_y; // Pan offset
   float zoom;           // Zoom level (1.0 = 100%)
   SpatialIndex *index;  // Hit-testing acceleration
+
+  // Ink Data
+  Stroke *strokes; // Helper linked list for strokes
 } CanvasData;
 
 // --- Design Block Data (Finite) ---
