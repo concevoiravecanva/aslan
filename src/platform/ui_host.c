@@ -6,6 +6,8 @@
 #define NK_IMPLEMENTATION
 #include "ui_host.h"
 #include "../scripting/lua_host.h"
+#include "mac_image.h"
+#include "../media/ffmpeg_pipe.h"
 #include <SDL.h>
 #include <errno.h>
 #include <math.h>
@@ -139,6 +141,7 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
 
   // Initialize Nuklear with SDL renderer
   ui->ctx = nk_sdl_init(win, renderer);
+  ui->renderer = renderer;
   if (!ui->ctx) {
     free(ui);
     return NULL;
@@ -976,11 +979,114 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     if (hovered && cs->mouse_just_pressed) {
       if (i == 0) {
         cs->show_forms_menu = !cs->show_forms_menu;
+      } else if (i == 4) {
+        // Pen tool
+        cs->tool = CANVAS_TOOL_PEN;
+        cs->show_forms_menu = 0;
+        if (cs->pen_thickness < 0.1f)
+          cs->pen_thickness = 2.0f;
+        if (cs->pen_color == 0)
+          cs->pen_color = 0x000000FF;
       } else {
         // Create element directly in center of visible canvas
         cs->show_forms_menu = 0;
         cs->pending_create = i; // 1=Text, 2=Note, 3=Image
+        cs->tool = CANVAS_TOOL_SELECT;
       }
+    }
+  }
+
+  // --- Pen Settings Menu (above toolbar) ---
+  if (cs->tool == CANVAS_TOOL_PEN) {
+    const float menu_w = 200.0f;
+    const float menu_h = 100.0f;
+    float menu_x = toolbar_x + (toolbar_w - menu_w) / 2.0f;
+    float menu_y = toolbar_y - menu_h - 8.0f;
+
+    // Shadow
+    nk_fill_rect(canvas_buf, nk_rect(menu_x + 2, menu_y + 3, menu_w, menu_h),
+                 10.0f, nk_rgba(0, 0, 0, 25));
+    // Background
+    nk_fill_rect(canvas_buf, nk_rect(menu_x, menu_y, menu_w, menu_h), 10.0f,
+                 toolbar_bg);
+    nk_stroke_rect(canvas_buf, nk_rect(menu_x, menu_y, menu_w, menu_h), 10.0f,
+                   1.0f, toolbar_border);
+
+    // Render Pen Settings manually (since we are inside canvas drawing)
+    // 1. Color Palette
+    uint32_t colors[] = {0x000000FF, 0xD93025FF, 0xF9AB00FF, 0x1E8E3EFF,
+                         0x1A73E8FF, 0xA142F4FF};
+    float cx = menu_x + 12.0f;
+    float cy = menu_y + 12.0f;
+    float sz = 24.0f;
+
+    for (int c = 0; c < 6; c++) {
+      struct nk_rect cr = nk_rect(cx + c * (sz + 6), cy, sz, sz);
+      struct nk_color col = nk_rgba((colors[c] >> 24) & 0xFF,
+                                    (colors[c] >> 16) & 0xFF,
+                                    (colors[c] >> 8) & 0xFF, colors[c] & 0xFF);
+      nk_fill_circle(canvas_buf, cr, col);
+
+      // Selected indicator
+      if (cs->pen_color == colors[c]) {
+        nk_stroke_circle(canvas_buf, cr, 2.0f, nk_rgb(100, 100, 100));
+        nk_fill_circle(canvas_buf,
+                       nk_rect(cr.x + 8, cr.y + 8, cr.w - 16, cr.h - 16),
+                       nk_rgb(255, 255, 255));
+      }
+
+      // Interaction
+      if (ui->mouse_x >= cr.x && ui->mouse_x < cr.x + cr.w &&
+          ui->mouse_y >= cr.y && ui->mouse_y < cr.y + cr.h) {
+        if (cs->mouse_just_pressed) {
+          cs->pen_color = colors[c];
+        }
+      }
+    }
+
+    // 2. Thickness Slider (Simulated)
+    cy += sz + 16.0f;
+    float slider_w = menu_w - 24.0f;
+    float slider_h = 4.0f;
+    nk_fill_rect(canvas_buf, nk_rect(cx, cy + 8, slider_w, slider_h), 2.0f,
+                 nk_rgb(200, 200, 200));
+
+    // Handle
+    float t_min = 1.0f, t_max = 10.0f;
+    float t_ratio = (cs->pen_thickness - t_min) / (t_max - t_min);
+    float hx = cx + t_ratio * slider_w;
+    struct nk_rect hr = nk_rect(hx - 8, cy, 16, 20);
+    nk_fill_rect(canvas_buf, hr, 4.0f, nk_rgb(100, 100, 100));
+
+    // Interaction for slider
+    if (ui->mouse_buttons & 1) {
+      if (ui->mouse_x >= cx && ui->mouse_x <= cx + slider_w &&
+          ui->mouse_y >= cy - 5 && ui->mouse_y <= cy + 25) {
+        float ratio = (ui->mouse_x - cx) / slider_w;
+        if (ratio < 0)
+          ratio = 0;
+        if (ratio > 1)
+          ratio = 1;
+        cs->pen_thickness = t_min + ratio * (t_max - t_min);
+      }
+    }
+
+    // 3. Marker Toggle
+    cy += 30.0f;
+    struct nk_rect mr = nk_rect(cx, cy, 80, 24);
+    nk_fill_rect(canvas_buf, mr, 4.0f,
+                 cs->pen_is_marker ? nk_rgb(200, 220, 255) : nk_rgb(240, 240, 240));
+    nk_stroke_rect(canvas_buf, mr, 4.0f, 1.0f, nk_rgb(200, 200, 200));
+    
+    // Text "Marker"
+    if (ui->font_inter)
+       nk_draw_text(canvas_buf, nk_rect(cx + 10, cy + 4, 60, 16), "Marker", 6, &ui->font_inter->handle, nk_rgba(0,0,0,0), nk_rgb(50,50,50));
+
+    if (cs->mouse_just_pressed) {
+        if (ui->mouse_x >= mr.x && ui->mouse_x < mr.x + mr.w &&
+            ui->mouse_y >= mr.y && ui->mouse_y < mr.y + mr.h) {
+            cs->pen_is_marker = !cs->pen_is_marker;
+        }
     }
   }
 
@@ -1175,6 +1281,106 @@ static Node *canvas_find_node_at(CanvasData *cd, float world_x, float world_y) {
 }
 
 // -----------------------------------------------------------------------------
+// Texture Cache (Simple LRU)
+// -----------------------------------------------------------------------------
+
+typedef struct {
+  char path[512];
+  SDL_Texture *tex;
+  int width;
+  int height;
+  uint32_t last_used;
+  int in_use;
+} TextureCacheEntry;
+
+#define TEX_CACHE_SIZE 64
+static TextureCacheEntry tex_cache[TEX_CACHE_SIZE];
+static uint32_t tex_cache_counter = 0;
+
+static SDL_Texture *get_image_texture(UIHost *ui, const char *path) {
+  if (!path || !path[0])
+    return NULL;
+
+  tex_cache_counter++;
+
+  // Check cache
+  for (int i = 0; i < TEX_CACHE_SIZE; i++) {
+    if (tex_cache[i].in_use && strcmp(tex_cache[i].path, path) == 0) {
+      tex_cache[i].last_used = tex_cache_counter;
+      return tex_cache[i].tex;
+    }
+  }
+
+  // Not in cache, load it using macOS native loader
+  int w, h;
+  void *pixels = mac_load_image_rgba(path, &w, &h);
+
+  if (!pixels) {
+    // Try relative to assets if not absolute
+    char full_path[512];
+    snprintf(full_path, sizeof(full_path), "assets/%s", path);
+    pixels = mac_load_image_rgba(full_path, &w, &h);
+    
+    // Debug
+    FILE *f = fopen("ui_debug.log", "a");
+    if (f) {
+        fprintf(f, "get_image_texture failed for %s, trying %s -> %p\n", path, full_path, pixels);
+        fclose(f);
+    }
+  }
+
+  if (!pixels) return NULL;
+
+  // Create texture
+  SDL_Texture *tex = SDL_CreateTexture(ui->renderer,
+                                       SDL_PIXELFORMAT_RGBA32,
+                                       SDL_TEXTUREACCESS_STATIC,
+                                       w, h);
+  if (tex) {
+    SDL_UpdateTexture(tex, NULL, pixels, w * 4);
+    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+  }
+
+  free(pixels);
+
+  if (!tex) return NULL;
+
+  // Find slot in cache
+  int slot = -1;
+  // First pass: empty slot
+  for (int i = 0; i < TEX_CACHE_SIZE; i++) {
+    if (!tex_cache[i].in_use) {
+      slot = i;
+      break;
+    }
+  }
+  // Second pass: LRU
+  if (slot == -1) {
+    uint32_t min_time = 0xFFFFFFFF;
+    for (int i = 0; i < TEX_CACHE_SIZE; i++) {
+      if (tex_cache[i].last_used < min_time) {
+        min_time = tex_cache[i].last_used;
+        slot = i;
+      }
+    }
+    // Free old texture
+    if (tex_cache[slot].tex) {
+      SDL_DestroyTexture(tex_cache[slot].tex);
+    }
+  }
+
+  // Store in cache
+  strncpy(tex_cache[slot].path, path, sizeof(tex_cache[slot].path) - 1);
+  tex_cache[slot].tex = tex;
+  tex_cache[slot].width = w;
+  tex_cache[slot].height = h;
+  tex_cache[slot].last_used = tex_cache_counter;
+  tex_cache[slot].in_use = 1;
+
+  return tex;
+}
+
+// -----------------------------------------------------------------------------
 // Canvas: Main render function
 // -----------------------------------------------------------------------------
 
@@ -1185,9 +1391,6 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   if (!block || block->type != BLOCK_CANVAS)
     return;
-
-  // Static to track active stroke across frames
-  static Stroke *current_stroke = NULL;
 
   CanvasData *cd = &block->data.canvas;
   CanvasInteraction *cs = &ui->canvas_state;
@@ -1429,8 +1632,8 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   // --- INK DRAWING LOGIC ---
 
-  // Pen Tool Active? (Tool Mode 4)
-  if (cs->pending_create == 4) { // Active pen tool
+  // Pen Tool Active?
+  if (cs->tool == CANVAS_TOOL_PEN) { // Active pen tool
     // If clicking in canvas (and not panning/resizing/toolbar)
     int can_draw = cs->mouse_in_canvas && !in_toolbar && !in_forms_menu &&
                    !cs->is_panning && !cs->is_resizing;
@@ -1441,46 +1644,50 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       if (cs->mouse_just_pressed) {
         // Start new stroke
-        current_stroke = (Stroke *)calloc(1, sizeof(Stroke));
-        current_stroke->capacity = 128;
-        current_stroke->points =
-            (Point *)calloc(current_stroke->capacity, sizeof(Point));
-        current_stroke->color = 0x000000FF; // Black
-        current_stroke->thickness = 2.0f;
-        current_stroke->type = STROKE_TYPE_PEN;
+        cs->stroke_block_id = block->id;
+        cs->current_stroke = (Stroke *)calloc(1, sizeof(Stroke));
+        cs->current_stroke->capacity = 128;
+        cs->current_stroke->points =
+            (Point *)calloc(cs->current_stroke->capacity, sizeof(Point));
+        cs->current_stroke->color = cs->pen_color;
+        cs->current_stroke->thickness = cs->pen_thickness;
+        cs->current_stroke->type = cs->pen_is_marker ? STROKE_TYPE_MARKER : STROKE_TYPE_PEN;
 
-        // TODO: Add support for colors/styles from UI
+        // Apply alpha for markers if they are opaque
+        if (cs->current_stroke->type == STROKE_TYPE_MARKER && (cs->current_stroke->color & 0xFF) == 0xFF) {
+            cs->current_stroke->color = (cs->current_stroke->color & 0xFFFFFF00) | 0x64; // ~40% opacity
+        }
 
         // Add first point
-        current_stroke->points[0].x = world_x;
-        current_stroke->points[0].y = world_y;
-        current_stroke->count = 1;
+        cs->current_stroke->points[0].x = world_x;
+        cs->current_stroke->points[0].y = world_y;
+        cs->current_stroke->count = 1;
 
-        // Add to block immediately (can optimize by adding at end)
-        block_canvas_add_stroke(block, current_stroke);
-      } else if (current_stroke) {
+        // Add to block immediately
+        block_canvas_add_stroke(block, cs->current_stroke);
+      } else if (cs->current_stroke && cs->stroke_block_id == block->id) {
         // Continue stroke
-        if (current_stroke->count >= current_stroke->capacity) {
-          current_stroke->capacity *= 2;
-          current_stroke->points = (Point *)realloc(
-              current_stroke->points, current_stroke->capacity * sizeof(Point));
+        if (cs->current_stroke->count >= cs->current_stroke->capacity) {
+          cs->current_stroke->capacity *= 2;
+          cs->current_stroke->points = (Point *)realloc(
+              cs->current_stroke->points, cs->current_stroke->capacity * sizeof(Point));
         }
 
         // Simple distance check to avoid too many points
-        Point last = current_stroke->points[current_stroke->count - 1];
+        Point last = cs->current_stroke->points[cs->current_stroke->count - 1];
         float dx = world_x - last.x;
         float dy = world_y - last.y;
         if (dx * dx + dy * dy > 4.0f) { // Every 2 units
-          current_stroke->points[current_stroke->count].x = world_x;
-          current_stroke->points[current_stroke->count].y = world_y;
-          current_stroke->count++;
+          cs->current_stroke->points[cs->current_stroke->count].x = world_x;
+          cs->current_stroke->points[cs->current_stroke->count].y = world_y;
+          cs->current_stroke->count++;
         }
       }
     } else {
-      // Not drawing
-      static int was_drawing = 0;
-      if (was_drawing && !(ui->mouse_buttons & 1)) {
-        // Just finished
+      // Only reset if we are the owner of the stroke
+      if (cs->current_stroke && cs->stroke_block_id == block->id) {
+        cs->current_stroke = NULL;
+        cs->stroke_block_id = 0;
       }
     }
   }
@@ -1502,19 +1709,16 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
         continue;
 
       struct nk_color col;
-      if (s->type == STROKE_TYPE_MARKER) {
-        // Marker: transparent, thick
-        col = nk_rgba(255, 255, 0, 100); // Yellow highlight default
-                                         // Or parse uint32 color with alpha
-      } else {
-        col = nk_rgb(0, 0, 0);
-      }
+      col.r = (s->color >> 24) & 0xFF;
+      col.g = (s->color >> 16) & 0xFF;
+      col.b = (s->color >> 8) & 0xFF;
+      col.a = s->color & 0xFF;
 
       // Convert points to screen space and draw
       // Simple polyline for now, upgrade to Catmull-Rom next step for
       // smoothness Allocating screen points array on stack if small, else heap
 
-      if (s->type == STROKE_TYPE_PEN && s->count > 3) {
+      if ((s->type == STROKE_TYPE_PEN || s->type == STROKE_TYPE_MARKER) && s->count > 3) {
         // Smooth render
         struct nk_vec2 *screen_pts = (struct nk_vec2 *)malloc(
             s->count * 10 * sizeof(struct nk_vec2)); // ~10 samples per segment
@@ -1535,8 +1739,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
             pt_idx++;
           }
         }
-        nk_stroke_polyline(canvas_buf, screen_pts, pt_idx, s->thickness * zoom,
-                           nk_round_point_idx(4), col);
+        nk_stroke_polyline(canvas_buf, (float*)screen_pts, pt_idx, s->thickness * zoom, col);
         free(screen_pts);
       } else {
         // Fallback / Fast render
@@ -1546,21 +1749,15 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           screen_pts[i].x = bounds.x + (s->points[i].x - cam_x) * zoom;
           screen_pts[i].y = bounds.y + (s->points[i].y - cam_y) * zoom;
         }
-        nk_stroke_polyline(canvas_buf, screen_pts, s->count,
-                           s->thickness * zoom, nk_round_point_idx(4), col);
+        nk_stroke_polyline(canvas_buf, (float*)screen_pts, s->count,
+                           s->thickness * zoom, col);
         free(screen_pts);
       }
     }
   }
 
-  nk_stroke_scissor(
-      canvas_buf, bounds); // Reset scissor (Note: Nuklear calls this
-                           // nk_stroke_scissor? No, nk_push_scissor needs to be
-                           // undone? Actually it's nk_command_buffer related.
-                           // Typically just set new scissor or rely on window)
-  // FIX: Nuklear doesn't have pop_scissor, you set it back to window bounds or
-  // 0. Actually usually you don't need to pop if you just restrict drawing
-  // calls.
+  // Reset scissor to allow drawing outside canvas bounds (e.g. toolbar)
+  nk_push_scissor(canvas_buf, nk_rect(0, 0, 100000, 100000));
 
   // --- Render nodes ---
   if (cd->root) {
@@ -1616,18 +1813,34 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
                              node->stroke_width * zoom, stroke);
         }
       } else if (node->type == NODE_TYPE_IMAGE) {
-        // Image placeholder
-        if (has_fill) {
-          nk_fill_rect(canvas_buf, nr, 4.0f, fill);
-        }
-        nk_stroke_rect(canvas_buf, nr, 4.0f, 1.0f, stroke);
-        // Draw image icon in center
-        if (ui->font_icons) {
-          nk_draw_text(
-              canvas_buf,
-              nk_rect(nr.x + nr.w / 2 - 12, nr.y + nr.h / 2 - 12, 24, 24),
-              "\xEE\xB9\xA4", 3, &ui->font_icons->handle, nk_rgba(0, 0, 0, 0),
-              nk_rgb(150, 150, 150));
+        // Render Image
+        SDL_Texture *tex = get_image_texture(ui, node->image_path);
+        if (tex) {
+          struct nk_image img = nk_image_ptr(tex);
+          nk_draw_image(canvas_buf, nr, &img, nk_rgba(255, 255, 255, 255));
+          
+          // Draw border if selected
+          if (ui->selected_node == node) {
+             nk_stroke_rect(canvas_buf, nr, 0.0f, 2.0f, nk_rgb(66, 133, 244));
+          }
+        } else {
+          // Placeholder
+          if (has_fill) {
+            nk_fill_rect(canvas_buf, nr, 4.0f, fill);
+          }
+          // Debug info for image loading failure
+          if (ui->selected_node == node) {
+             snprintf(ui->status, sizeof(ui->status), "Failed to load: %s", node->image_path);
+          }
+          nk_stroke_rect(canvas_buf, nr, 4.0f, 1.0f, stroke);
+          // Draw image icon in center
+          if (ui->font_icons) {
+            nk_draw_text(
+                canvas_buf,
+                nk_rect(nr.x + nr.w / 2 - 12, nr.y + nr.h / 2 - 12, 24, 24),
+                "\xEE\xB9\xA4", 3, &ui->font_icons->handle, nk_rgba(0, 0, 0, 0),
+                nk_rgb(150, 150, 150));
+          }
         }
       } else if (node->type == NODE_TYPE_TEXT && !has_fill) {
         // Plain text - no background, just render text below

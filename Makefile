@@ -8,6 +8,7 @@ LUA_LIB = -L/opt/homebrew/lib -llua
 # Paths for SDL2 (macOS Homebrew)
 SDL_INC = -I/opt/homebrew/include/SDL2
 SDL_LIB = -L/opt/homebrew/lib -lSDL2
+FRAMEWORKS = -framework Cocoa -framework CoreGraphics -framework ImageIO
 
 CORE_SRC = src/document/document.c \
            src/document/spatial_index.c \
@@ -22,11 +23,13 @@ CORE_SRC = src/document/document.c \
            src/media/export.c \
            src/media/note_timeline.c
 
+OBJC_SRC = src/platform/mac_image.m
+
 SRC = src/main.c \
       $(CORE_SRC)
 
-OBJ = $(SRC:.c=.o)
-CORE_OBJ = $(CORE_SRC:.c=.o)
+OBJ = $(SRC:.c=.o) $(OBJC_SRC:.m=.o)
+CORE_OBJ = $(CORE_SRC:.c=.o) $(OBJC_SRC:.m=.o)
 
 TARGET = aslan
 TEST_TARGET = aslan_tests
@@ -36,19 +39,22 @@ TEST_OBJ = $(TEST_SRC:.c=.o)
 all: $(TARGET)
 
 $(TARGET): $(OBJ)
-	$(CC) $(OBJ) -o $(TARGET) $(LUA_LIB) $(SDL_LIB) -lm
+	$(CC) $(OBJ) -o $(TARGET) $(LUA_LIB) $(SDL_LIB) $(FRAMEWORKS) -lm
 
 no_lua: CFLAGS += -DNO_LUA
 no_lua: $(OBJ)
-	$(CC) $(OBJ) -o $(TARGET) $(SDL_LIB)
+	$(CC) $(OBJ) -o $(TARGET) $(SDL_LIB) $(FRAMEWORKS)
 
 $(TEST_TARGET): $(CORE_OBJ) $(TEST_OBJ)
-	$(CC) $(CORE_OBJ) $(TEST_OBJ) -o $(TEST_TARGET) $(LUA_LIB) $(SDL_LIB) -lm
+	$(CC) $(CORE_OBJ) $(TEST_OBJ) -o $(TEST_TARGET) $(LUA_LIB) $(SDL_LIB) $(FRAMEWORKS) -lm
 
 test: $(TEST_TARGET)
 	./$(TEST_TARGET)
 
 %.o: %.c
+	$(CC) $(CFLAGS) $(LUA_INC) $(SDL_INC) -c $< -o $@
+
+%.o: %.m
 	$(CC) $(CFLAGS) $(LUA_INC) $(SDL_INC) -c $< -o $@
 
 clean:

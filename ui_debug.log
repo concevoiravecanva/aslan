@@ -1,4 +1,6 @@
 UI Init started
-Font Inter: 0x12661ad70
-Font Mono: 0x12661af50
-Font Icons: 0x1267ad2e0 (path: assets/remixicon.ttf)
+Font Inter: 0x13a767760
+Font Mono: 0x13a77f320
+Font Icons: 0x13a78b120 (path: assets/remixicon.ttf)
+Copying image: /Users/paolostraet/Downloads/Untitled design-8-2.png -> ./assets
+mac_load_image_rgba: assets/1769320579_Untitled design-8-2.png

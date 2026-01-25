@@ -37,7 +37,8 @@ typedef enum {
   CANVAS_TOOL_FORM_LINE,
   CANVAS_TOOL_TEXT,
   CANVAS_TOOL_NOTE,
-  CANVAS_TOOL_IMAGE
+  CANVAS_TOOL_IMAGE,
+  CANVAS_TOOL_PEN
 } CanvasToolMode;
 
 // -----------------------------------------------------------------------------
@@ -90,15 +91,29 @@ typedef struct {
   // Target canvas block
   uint32_t active_canvas_id;
   Block *active_block;      // Direct pointer for convenience
+
+  // Pen Tool State
+  uint32_t pen_color;       // RGBA
+  float pen_thickness;
+  int pen_is_marker;        // 0=Pen, 1=Marker
+  struct Stroke *current_stroke; // Active stroke being drawn
+  uint32_t stroke_block_id;      // Block ID where stroke started
 } CanvasInteraction;
 
 // -----------------------------------------------------------------------------
 // UI Host Structure
 // -----------------------------------------------------------------------------
 
+#include "../media/ffmpeg_pipe.h"
+
 typedef struct UIHost {
   // Nuklear context
   struct nk_context *ctx;
+  SDL_Renderer *renderer;
+  lua_State *L;
+
+  // Thumbnail Cache for Images/Videos
+  ThumbnailCache thumb_cache;
   struct nk_font_atlas *atlas;
 
   // Fonts
@@ -113,8 +128,6 @@ typedef struct UIHost {
   // Selection state
   Node *selected_node; // Selected node in canvas/design block
 
-  // Lua state
-  lua_State *L;
 
   // Status message
   char status[128];
