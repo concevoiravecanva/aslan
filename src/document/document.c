@@ -1389,7 +1389,19 @@ void block_design_init(Block *block, int width, int height) {
 
   DesignData *dd = &block->data.design;
 
-  dd->root = node_create(0, NODE_TYPE_ROOT, "DesignRoot");
+  // Initialize pages array with capacity for first page
+  dd->page_capacity = 4;
+  dd->pages = (DesignPage *)calloc(dd->page_capacity, sizeof(DesignPage));
+  dd->page_count = 1;
+  dd->current_page = 0;
+
+  // Create first page
+  dd->pages[0].root = node_create(0, NODE_TYPE_ROOT, "DesignRoot");
+  dd->pages[0].bg_color = 0xFFFFFFFF;
+
+  // Set legacy root pointer to current page's root
+  dd->root = dd->pages[0].root;
+
   dd->next_node_id = 1;
   dd->width = width > 0 ? width : 800;
   dd->height = height > 0 ? height : 600;
@@ -1403,10 +1415,94 @@ void block_design_destroy(Block *block) {
 
   DesignData *dd = &block->data.design;
 
-  if (dd->root) {
-    node_destroy_tree(dd->root);
-    dd->root = NULL;
+  // Destroy all pages
+  if (dd->pages) {
+    for (int i = 0; i < dd->page_count; i++) {
+      if (dd->pages[i].root) {
+        node_destroy_tree(dd->pages[i].root);
+        dd->pages[i].root = NULL;
+      }
+    }
+    free(dd->pages);
+    dd->pages = NULL;
   }
+
+  dd->root = NULL;
+  dd->page_count = 0;
+  dd->current_page = 0;
+}
+
+// Add a new page to design block
+int block_design_add_page(Block *block) {
+  if (!block || block->type != BLOCK_DESIGN)
+    return -1;
+
+  DesignData *dd = &block->data.design;
+
+  // Grow array if needed
+  if (dd->page_count >= dd->page_capacity) {
+    int new_cap = dd->page_capacity * 2;
+    DesignPage *new_pages = (DesignPage *)realloc(dd->pages, new_cap * sizeof(DesignPage));
+    if (!new_pages)
+      return -1;
+    dd->pages = new_pages;
+    dd->page_capacity = new_cap;
+  }
+
+  // Create new page
+  int idx = dd->page_count;
+  dd->pages[idx].root = node_create(0, NODE_TYPE_ROOT, "DesignRoot");
+  dd->pages[idx].bg_color = dd->bg_color;
+  dd->page_count++;
+
+  return idx;
+}
+
+// Delete a page from design block
+bool block_design_delete_page(Block *block, int page_idx) {
+  if (!block || block->type != BLOCK_DESIGN)
+    return false;
+
+  DesignData *dd = &block->data.design;
+
+  // Can't delete last page
+  if (dd->page_count <= 1 || page_idx < 0 || page_idx >= dd->page_count)
+    return false;
+
+  // Destroy page's node tree
+  if (dd->pages[page_idx].root) {
+    node_destroy_tree(dd->pages[page_idx].root);
+  }
+
+  // Shift remaining pages
+  for (int i = page_idx; i < dd->page_count - 1; i++) {
+    dd->pages[i] = dd->pages[i + 1];
+  }
+  dd->page_count--;
+
+  // Adjust current page if needed
+  if (dd->current_page >= dd->page_count) {
+    dd->current_page = dd->page_count - 1;
+  }
+
+  // Update root pointer
+  dd->root = dd->pages[dd->current_page].root;
+
+  return true;
+}
+
+// Go to a specific page
+void block_design_goto_page(Block *block, int page_idx) {
+  if (!block || block->type != BLOCK_DESIGN)
+    return;
+
+  DesignData *dd = &block->data.design;
+
+  if (page_idx < 0 || page_idx >= dd->page_count)
+    return;
+
+  dd->current_page = page_idx;
+  dd->root = dd->pages[dd->current_page].root;
 }
 
 Node *block_design_create_node(Block *block, NodeType type, const char *name) {

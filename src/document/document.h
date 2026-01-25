@@ -152,13 +152,26 @@ typedef struct {
   Stroke *strokes; // Helper linked list for strokes
 } CanvasData;
 
-// --- Design Block Data (Finite) ---
+// --- Design Block Data (Finite, Multi-Page) ---
+
+// Single design page (slide)
+typedef struct DesignPage {
+  Node *root;           // Node tree root for this page
+  uint32_t bg_color;    // Per-page background color
+} DesignPage;
+
 typedef struct {
-  Node *root; // Node tree root
+  DesignPage *pages;    // Array of pages
+  int page_count;       // Number of pages
+  int page_capacity;    // Allocated capacity
+  int current_page;     // Currently displayed page index
   uint32_t next_node_id;
-  int width, height; // Fixed dimensions in pixels
-  float zoom;        // View zoom
-  uint32_t bg_color; // Background color
+  int width, height;    // Fixed dimensions in pixels (same for all pages)
+  float zoom;           // View zoom
+  uint32_t bg_color;    // Default background color for new pages
+
+  // Legacy: single root for backwards compatibility (points to current page's root)
+  Node *root;
 } DesignData;
 
 // --- Video Block Data ---
@@ -379,6 +392,11 @@ Node *block_design_find_node(Block *block, uint32_t node_id);
 bool block_design_delete_node(Block *block, uint32_t node_id);
 void block_design_set_size(Block *block, int width, int height);
 void block_design_set_bg_color(Block *block, uint32_t color);
+
+// Multi-page support for presentations
+int block_design_add_page(Block *block);
+bool block_design_delete_page(Block *block, int page_idx);
+void block_design_goto_page(Block *block, int page_idx);
 
 // =============================================================================
 // VIDEO BLOCK API

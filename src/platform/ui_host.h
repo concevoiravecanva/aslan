@@ -176,6 +176,23 @@ typedef struct UIHost {
   // Canvas interaction state
   CanvasInteraction canvas_state;
 
+  // Design interaction state (simpler than canvas - no pan/zoom/pen)
+  struct DesignInteraction {
+    int show_forms_menu;
+    int pending_create;       // 0=none, 1=text, 2=image, 10+=forms
+    int mouse_just_pressed;
+    int mouse_just_released;
+    int is_dragging_node;
+    float drag_offset_x, drag_offset_y;
+    int is_resizing;
+    int resize_handle;
+    float resize_start_w, resize_start_h;
+    float resize_start_x, resize_start_y;
+    float resize_start_node_x, resize_start_node_y;
+    uint32_t active_design_id;
+    Block *active_block;
+  } design_state;
+
   // Mouse state for canvas
   float mouse_x, mouse_y;
   int mouse_buttons; // Bitmask: 1=left, 2=middle, 4=right
