@@ -84,9 +84,10 @@ typedef struct {
 
   // Resize state
   int is_resizing;
-  int resize_handle;  // Which handle: 0=SE, 1=E, 2=S, etc.
+  int resize_handle;  // Which handle: 0=SE, 1=SW, 2=NW, 3=NE
   float resize_start_w, resize_start_h;
-  float resize_start_x, resize_start_y;
+  float resize_start_x, resize_start_y;      // Mouse start pos
+  float resize_start_node_x, resize_start_node_y; // Node start pos
 
   // Target canvas block
   uint32_t active_canvas_id;
@@ -150,6 +151,11 @@ typedef struct UIHost {
   uint32_t expanded_block_id; // Block currently in full-screen mode (0=none)
   int editing_cursor_pos;
   int text_input_active;
+
+  // Canvas node text editing
+  Node *editing_node;        // Node being text-edited (NULL=none)
+  char edit_buffer[512];     // Text buffer for editing
+  int show_text_edit_popup;  // Show text edit popup
 
   // Canvas/Design interaction
   float drag_start_x, drag_start_y;

@@ -379,6 +379,35 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     ui->canvas_state.is_panning = 0;
   }
 
+  // Inline text editing keyboard handling (Freeform-style)
+  if (ui->editing_node) {
+    if (evt->type == SDL_KEYDOWN) {
+      if (evt->key.keysym.sym == SDLK_RETURN || evt->key.keysym.sym == SDLK_KP_ENTER) {
+        // Confirm edit and exit editing mode
+        strncpy(ui->editing_node->text, ui->edit_buffer, sizeof(ui->editing_node->text) - 1);
+        ui->editing_node->text[sizeof(ui->editing_node->text) - 1] = '\0';
+        ui->editing_node = NULL;
+      } else if (evt->key.keysym.sym == SDLK_ESCAPE) {
+        // Cancel edit (revert to original)
+        ui->editing_node = NULL;
+      } else if (evt->key.keysym.sym == SDLK_BACKSPACE) {
+        // Delete last character
+        size_t len = strlen(ui->edit_buffer);
+        if (len > 0) {
+          ui->edit_buffer[len - 1] = '\0';
+        }
+      }
+    } else if (evt->type == SDL_TEXTINPUT) {
+      // Append typed text
+      size_t len = strlen(ui->edit_buffer);
+      size_t input_len = strlen(evt->text.text);
+      if (len + input_len < sizeof(ui->edit_buffer) - 1) {
+        strcat(ui->edit_buffer, evt->text.text);
+      }
+    }
+    return; // Don't process other events while editing
+  }
+
   // Delete selected node
   if (evt->type == SDL_KEYDOWN && evt->key.keysym.sym == SDLK_BACKSPACE) {
     if (ui->selected_node && ui->canvas_state.active_block) {
@@ -930,10 +959,11 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
 
   // Tool icons and modes
   // 0: Forms (shapes), 1: Text, 2: Note, 3: Image, 4: Pen
-  // Icons: Shapes, Text (Paragraph), Sticky Note, Image, Pen (Quill)
-  const char *tool_icons[] = {ICON_SHAPE, "\xEE\xB9\x94", ICON_STICKY,
+  // Icons: Shapes, A (letter for text), Sticky Note, Image, Pen (Quill)
+  // Using "A" for Text because icon fonts don't render well for text icon
+  const char *tool_icons[] = {ICON_SHAPE, "A", ICON_STICKY,
                               "\xEE\xB9\xA4", "\xEF\x86\x95"};
-  int use_icon_font[] = {1, 1, 1, 1, 1}; // All use icon font now
+  int use_icon_font[] = {1, 0, 1, 1, 1}; // Text uses regular font (A)
   int tool_count = 5;
 
   for (int i = 0; i < tool_count; i++) {
@@ -950,7 +980,7 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     else if (i == 3)
       is_active = 0; // Image never stays active
     else if (i == 4)
-      is_active = 0; // Pen (placeholder)
+      is_active = (cs->tool == CANVAS_TOOL_PEN);
 
     int hovered = (ui->mouse_x >= btn.x && ui->mouse_x < btn.x + btn.w &&
                    ui->mouse_y >= btn.y && ui->mouse_y < btn.y + btn.h);
@@ -979,14 +1009,22 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     if (hovered && cs->mouse_just_pressed) {
       if (i == 0) {
         cs->show_forms_menu = !cs->show_forms_menu;
+        // If switching to forms menu, ensure we are in select mode (exit pen)
+        if (cs->show_forms_menu) {
+            cs->tool = CANVAS_TOOL_SELECT;
+        }
       } else if (i == 4) {
-        // Pen tool
-        cs->tool = CANVAS_TOOL_PEN;
-        cs->show_forms_menu = 0;
-        if (cs->pen_thickness < 0.1f)
-          cs->pen_thickness = 2.0f;
-        if (cs->pen_color == 0)
-          cs->pen_color = 0x000000FF;
+        // Pen tool - toggle
+        if (cs->tool == CANVAS_TOOL_PEN) {
+            cs->tool = CANVAS_TOOL_SELECT; // Toggle off
+        } else {
+            cs->tool = CANVAS_TOOL_PEN;
+            cs->show_forms_menu = 0;
+            if (cs->pen_thickness < 0.1f)
+              cs->pen_thickness = 2.0f;
+            if (cs->pen_color == 0)
+              cs->pen_color = 0x000000FF;
+        }
       } else {
         // Create element directly in center of visible canvas
         cs->show_forms_menu = 0;
@@ -1554,6 +1592,9 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   // --- Check for resize handle click on selected node ---
   int on_resize_handle = 0;
+  int hit_handle_index = 0;
+  int on_property_menu = 0;
+
   if (ui->selected_node && ui->selected_node->visible) {
     Node *sel = ui->selected_node;
     float sx = bounds.x + (sel->x - cam_x) * zoom;
@@ -1561,49 +1602,105 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
     float sw = sel->width * zoom;
     float sh = sel->height * zoom;
 
-    // SE handle (bottom-right corner)
-    float hsize = 20.0f; // Increased for better hit testing
-    float hx = sx + sw - hsize / 2;
-    float hy = sy + sh - hsize / 2;
+    // Check all 4 resize handles (0=SE, 1=SW, 2=NW, 3=NE)
+    float hsize = 40.0f; // Interaction size
 
-    if (ui->mouse_x >= hx && ui->mouse_x < hx + hsize && ui->mouse_y >= hy &&
-        ui->mouse_y < hy + hsize) {
-      on_resize_handle = 1;
+    // SE
+    if (ui->mouse_x >= sx + sw - hsize/2 && ui->mouse_x < sx + sw + hsize/2 &&
+        ui->mouse_y >= sy + sh - hsize/2 && ui->mouse_y < sy + sh + hsize/2) {
+      on_resize_handle = 1; hit_handle_index = 0;
+    }
+    // SW
+    else if (ui->mouse_x >= sx - hsize/2 && ui->mouse_x < sx + hsize/2 &&
+             ui->mouse_y >= sy + sh - hsize/2 && ui->mouse_y < sy + sh + hsize/2) {
+      on_resize_handle = 1; hit_handle_index = 1;
+    }
+    // NW
+    else if (ui->mouse_x >= sx - hsize/2 && ui->mouse_x < sx + hsize/2 &&
+             ui->mouse_y >= sy - hsize/2 && ui->mouse_y < sy + hsize/2) {
+      on_resize_handle = 1; hit_handle_index = 2;
+    }
+    // NE
+    else if (ui->mouse_x >= sx + sw - hsize/2 && ui->mouse_x < sx + sw + hsize/2 &&
+             ui->mouse_y >= sy - hsize/2 && ui->mouse_y < sy + hsize/2) {
+      on_resize_handle = 1; hit_handle_index = 3;
+    }
+    
+    // Check property menu hit
+    float menu_w = 220.0f;
+    float menu_h = 45.0f;
+    float menu_x = sx;
+    float menu_y = sy - menu_h - 10.0f;
+
+    // Keep within canvas bounds (Match logic with render)
+    if (menu_x < bounds.x) menu_x = bounds.x;
+    if (menu_x + menu_w > bounds.x + bounds.w) menu_x = bounds.x + bounds.w - menu_w;
+    if (menu_y < bounds.y) menu_y = sy + sh + 10.0f; 
+
+    if (ui->mouse_x >= menu_x && ui->mouse_x < menu_x + menu_w &&
+        ui->mouse_y >= menu_y && ui->mouse_y < menu_y + menu_h) {
+      on_property_menu = 1;
     }
   }
 
-  // Handle mouse press in canvas (not toolbar, not forms menu)
-  if (cs->mouse_in_canvas && !in_toolbar && !in_forms_menu && !cs->is_panning &&
-      cs->mouse_just_pressed) {
-    // CRITICAL FIX: Do not process selection if clicking on resize handle
-    if (!on_resize_handle) {
+  // PRIORITY: Handle resize handles first (even if in toolbar area)
+  if (cs->mouse_in_canvas && !cs->is_panning && cs->mouse_just_pressed &&
+      on_resize_handle && ui->selected_node) {
+    cs->is_resizing = 1;
+    cs->resize_handle = hit_handle_index;
+    cs->resize_start_w = ui->selected_node->width;
+    cs->resize_start_h = ui->selected_node->height;
+    cs->resize_start_x = ui->mouse_x;
+    cs->resize_start_y = ui->mouse_y;
+    cs->resize_start_node_x = ui->selected_node->x;
+    cs->resize_start_node_y = ui->selected_node->y;
+  }
+  // Handle other mouse press in canvas (not toolbar, not forms menu, not resizing)
+  else if (cs->mouse_in_canvas && !in_toolbar && !in_forms_menu && !cs->is_panning &&
+           cs->mouse_just_pressed && !on_resize_handle) {
+
+    if (on_property_menu) {
+      // Let property menu handle the click
+    } else {
+      // Normal click: Try to select a node, or deselect if empty
       float world_x = cam_x + (ui->mouse_x - bounds.x) / zoom;
       float world_y = cam_y + (ui->mouse_y - bounds.y) / zoom;
 
-      // Try to select a node
       Node *hit = canvas_find_node_at(cd, world_x, world_y);
-      if (hit) {
-        // Check if clicking on text node to edit
-        if (hit->type == NODE_TYPE_TEXT && ui->selected_node == hit) {
-          ui->editing_block_id = block->id;
-        }
-        ui->selected_node = hit;
-        cs->is_dragging_node = 1;
-        cs->drag_offset_x = world_x - hit->x;
-        cs->drag_offset_y = world_y - hit->y;
-      } else {
-        // Only deselect if we didn't click anything AND didn't click a handle
-        ui->selected_node = NULL;
-        ui->editing_block_id = 0;
+
+      // If we were editing and clicked elsewhere, save the text
+      if (ui->editing_node && ui->editing_node != hit) {
+        strncpy(ui->editing_node->text, ui->edit_buffer, sizeof(ui->editing_node->text) - 1);
+        ui->editing_node->text[sizeof(ui->editing_node->text) - 1] = '\0';
+        ui->editing_node = NULL;
       }
-    } else if (ui->selected_node) {
-      // Clicked resize handle
-      cs->is_resizing = 1;
-      cs->resize_handle = 0; // SE corner
-      cs->resize_start_w = ui->selected_node->width;
-      cs->resize_start_h = ui->selected_node->height;
-      cs->resize_start_x = ui->mouse_x;
-      cs->resize_start_y = ui->mouse_y;
+
+      if (hit) {
+        // Check if clicking on text node to edit (already selected = start editing)
+        if (hit->type == NODE_TYPE_TEXT && ui->selected_node == hit && !ui->editing_node) {
+          // Start inline text editing
+          ui->editing_node = hit;
+          strncpy(ui->edit_buffer, hit->text, sizeof(ui->edit_buffer) - 1);
+          ui->edit_buffer[sizeof(ui->edit_buffer) - 1] = '\0';
+        } else if (ui->editing_node != hit) {
+          // Selecting a different node, don't start editing
+          ui->selected_node = hit;
+          cs->is_dragging_node = 1;
+          cs->drag_offset_x = world_x - hit->x;
+          cs->drag_offset_y = world_y - hit->y;
+        }
+
+        if (!ui->editing_node) {
+          ui->selected_node = hit;
+          cs->is_dragging_node = 1;
+          cs->drag_offset_x = world_x - hit->x;
+          cs->drag_offset_y = world_y - hit->y;
+        }
+      } else {
+        // Clicked empty space -> Deselect
+        ui->selected_node = NULL;
+        ui->editing_node = NULL;
+      }
     }
   }
 
@@ -1611,18 +1708,44 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
   if (cs->is_resizing && ui->selected_node) {
     float dx = (ui->mouse_x - cs->resize_start_x) / zoom;
     float dy = (ui->mouse_y - cs->resize_start_y) / zoom;
+    
+    float start_w = cs->resize_start_w;
+    float start_h = cs->resize_start_h;
+    float new_w = start_w;
+    float new_h = start_h;
+    float new_x = cs->resize_start_node_x;
+    float new_y = cs->resize_start_node_y;
 
-    float new_w = cs->resize_start_w + dx;
-    float new_h = cs->resize_start_h + dy;
+    if (cs->resize_handle == 0) { // SE
+        new_w = start_w + dx;
+        new_h = start_h + dy;
+    } else if (cs->resize_handle == 1) { // SW
+        new_w = start_w - dx;
+        new_h = start_h + dy;
+    } else if (cs->resize_handle == 2) { // NW
+        new_w = start_w - dx;
+        new_h = start_h - dy;
+    } else if (cs->resize_handle == 3) { // NE
+        new_w = start_w + dx;
+        new_h = start_h - dy;
+    }
 
     // Minimum size
-    if (new_w < 20.0f)
-      new_w = 20.0f;
-    if (new_h < 20.0f)
-      new_h = 20.0f;
+    if (new_w < 20.0f) new_w = 20.0f;
+    if (new_h < 20.0f) new_h = 20.0f;
+    
+    // Adjust Position for Left/Top handles
+    if (cs->resize_handle == 1 || cs->resize_handle == 2) { // SW or NW
+        new_x = cs->resize_start_node_x + (start_w - new_w);
+    }
+    if (cs->resize_handle == 2 || cs->resize_handle == 3) { // NW or NE
+        new_y = cs->resize_start_node_y + (start_h - new_h);
+    }
 
     ui->selected_node->width = new_w;
     ui->selected_node->height = new_h;
+    ui->selected_node->x = new_x;
+    ui->selected_node->y = new_y;
   }
 
   // Stop resizing on mouse release
@@ -1843,56 +1966,43 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           }
         }
       } else if (node->type == NODE_TYPE_TEXT && !has_fill) {
-        // Plain text - no background, just render text below
+        // Plain text - inline editing like Freeform
+        const char *display_text = node->text;
+        int is_editing = (ui->editing_node == node);
 
-        // Use monospace font for text nodes if available
-        if (ui->font_mono)
-          nk_style_set_font(ctx, &ui->font_mono->handle);
+        if (is_editing) {
+          // Use edit buffer for display while editing
+          display_text = ui->edit_buffer;
 
-        // STYLING FIX: Force light background for edit field in canvas
-        struct nk_style_item old_normal = ctx->style.edit.normal;
-        struct nk_style_item old_hover = ctx->style.edit.hover;
-        struct nk_style_item old_active = ctx->style.edit.active;
-        struct nk_color old_text_normal =
-            ctx->style.edit.text_normal; // Also fix text color if needed
-
-        ctx->style.edit.normal =
-            nk_style_item_color(nk_rgba(255, 255, 255, 200));
-        ctx->style.edit.hover =
-            nk_style_item_color(nk_rgba(255, 255, 255, 220));
-        ctx->style.edit.active =
-            nk_style_item_color(nk_rgba(255, 255, 255, 255));
-        ctx->style.edit.text_normal =
-            nk_rgb(30, 30, 30); // Dark text on light bg
-
-        // Calculate text bounds to ensure it occupies the node area
-        struct nk_rect text_bounds = nr;
-
-        // If this node is selected, allow editing
-        if (ui->selected_node == node) {
-          char buf[256];
-          strncpy(buf, node->text, sizeof(buf) - 1);
-          buf[sizeof(buf) - 1] = '\0';
-
-          // Use nk_edit_string for editing
-          // We need a unique ID for this edit box to keep focus
-          nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD | NK_EDIT_SIG_ENTER,
-                                         buf, sizeof(buf) - 1,
-                                         nk_filter_default);
-
-          if (strcmp(buf, node->text) != 0) {
-            strncpy(node->text, buf, sizeof(node->text) - 1);
-          }
-        } else {
-          // Just draw text
-          nk_draw_text(canvas_buf, text_bounds, node->text, strlen(node->text),
-                       &ui->font_mono->handle, nk_rgba(0, 0, 0, 0),
-                       nk_rgb(30, 30, 30));
+          // Draw subtle editing background
+          nk_fill_rect(canvas_buf, nk_rect(nr.x - 4, nr.y - 2, nr.w + 8, nr.h + 4),
+                       4.0f, nk_rgba(66, 133, 244, 20));
+          nk_stroke_rect(canvas_buf, nk_rect(nr.x - 4, nr.y - 2, nr.w + 8, nr.h + 4),
+                         4.0f, 1.5f, nk_rgb(66, 133, 244));
         }
 
-        if (ui->font_mono)
-          nk_style_set_font(ctx, &ui->font_inter->handle); // Restore font
+        // Draw text
+        struct nk_user_font *font = ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
+        nk_draw_text(canvas_buf, nr, display_text, strlen(display_text),
+                     font, nk_rgba(0, 0, 0, 0), nk_rgb(30, 30, 30));
 
+        // Draw blinking cursor when editing
+        if (is_editing) {
+          // Calculate cursor position (at end of text)
+          float text_width = font->width(font->userdata, font->height,
+                                         display_text, strlen(display_text));
+          float cursor_x = nr.x + text_width + 2;
+          float cursor_y = nr.y + 2;
+          float cursor_h = nr.h - 4;
+
+          // Blink cursor (simple toggle based on time)
+          static int blink_counter = 0;
+          blink_counter++;
+          if ((blink_counter / 30) % 2 == 0) {
+            nk_stroke_line(canvas_buf, cursor_x, cursor_y, cursor_x, cursor_y + cursor_h,
+                           2.0f, nk_rgb(66, 133, 244));
+          }
+        }
       } else {
         if (has_fill) {
           nk_fill_rect(canvas_buf, nr, node->corner_radius * zoom, fill);
@@ -1925,7 +2035,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
         struct nk_color handle_fill = nk_rgb(255, 255, 255);
         struct nk_color handle_stroke = nk_rgb(66, 133, 244);
 
-        // SE corner (bottom-right) - main resize handle
+        // SE corner (bottom-right)
         float se_x = nr.x + nr.w - hsize / 2;
         float se_y = nr.y + nr.h - hsize / 2;
         nk_fill_rect(canvas_buf, nk_rect(se_x, se_y, hsize, hsize), 2.0f,
@@ -1933,7 +2043,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
         nk_stroke_rect(canvas_buf, nk_rect(se_x, se_y, hsize, hsize), 2.0f,
                        1.5f, handle_stroke);
 
-        // NW corner (top-left) - visual only
+        // NW corner (top-left)
         float nw_x = nr.x - hsize / 2;
         float nw_y = nr.y - hsize / 2;
         nk_fill_rect(canvas_buf, nk_rect(nw_x, nw_y, hsize, hsize), 2.0f,
@@ -1941,7 +2051,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
         nk_stroke_rect(canvas_buf, nk_rect(nw_x, nw_y, hsize, hsize), 2.0f,
                        1.5f, handle_stroke);
 
-        // NE corner (top-right) - visual only
+        // NE corner (top-right)
         float ne_x = nr.x + nr.w - hsize / 2;
         float ne_y = nr.y - hsize / 2;
         nk_fill_rect(canvas_buf, nk_rect(ne_x, ne_y, hsize, hsize), 2.0f,
@@ -1949,13 +2059,90 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
         nk_stroke_rect(canvas_buf, nk_rect(ne_x, ne_y, hsize, hsize), 2.0f,
                        1.5f, handle_stroke);
 
-        // SW corner (bottom-left) - visual only
+        // SW corner (bottom-left)
         float sw_x = nr.x - hsize / 2;
         float sw_y = nr.y + nr.h - hsize / 2;
         nk_fill_rect(canvas_buf, nk_rect(sw_x, sw_y, hsize, hsize), 2.0f,
                      handle_fill);
         nk_stroke_rect(canvas_buf, nk_rect(sw_x, sw_y, hsize, hsize), 2.0f,
                        1.5f, handle_stroke);
+      }
+    }
+  }
+
+  // --- Selected Node Property Menu ---
+  if (ui->selected_node && ui->selected_node->visible) {
+    Node *sel = ui->selected_node;
+    float sx = bounds.x + (sel->x - cam_x) * zoom;
+    float sy = bounds.y + (sel->y - cam_y) * zoom;
+    // float sw = sel->width * zoom; // Unused
+    // float sh = sel->height * zoom; // Unused
+
+    // Position menu above the node
+    float menu_w = 220.0f;
+    float menu_h = 45.0f;
+    float menu_x = sx;
+    float menu_y = sy - menu_h - 10.0f;
+
+    // Keep within canvas bounds
+    if (menu_x < bounds.x) menu_x = bounds.x;
+    if (menu_x + menu_w > bounds.x + bounds.w) menu_x = bounds.x + bounds.w - menu_w;
+    if (menu_y < bounds.y) menu_y = sy + sel->height * zoom + 10.0f; // Show below if no space above
+
+    // Draw menu background
+    nk_fill_rect(canvas_buf, nk_rect(menu_x, menu_y, menu_w, menu_h), 5.0f, nk_rgba(40, 40, 40, 230));
+    nk_stroke_rect(canvas_buf, nk_rect(menu_x, menu_y, menu_w, menu_h), 5.0f, 1.0f, nk_rgba(100, 100, 100, 255));
+
+    // Colors to pick from
+    uint32_t colors[] = {
+      0xFFFFFFFF, // White
+      0x000000FF, // Black
+      0xFF0000FF, // Red
+      0x00FF00FF, // Green
+      0x0000FFFF, // Blue
+      0xFFFF00FF, // Yellow
+      0xFF00FFFF, // Magenta
+      0x00FFFFFF  // Cyan
+    };
+    int num_colors = 8;
+    float circle_size = 24.0f;
+    float padding = 8.0f;
+    float start_x = menu_x + 10.0f;
+    float cy = menu_y + menu_h / 2.0f;
+
+    for (int i = 0; i < num_colors; i++) {
+      float cx = start_x + i * (circle_size + 4.0f);
+      struct nk_rect circle_rect = nk_rect(cx, cy - circle_size/2, circle_size, circle_size);
+
+      struct nk_color c = {
+        (colors[i] >> 24) & 0xFF,
+        (colors[i] >> 16) & 0xFF,
+        (colors[i] >> 8) & 0xFF,
+        colors[i] & 0xFF
+      };
+
+      // Draw color circle
+      nk_fill_circle(canvas_buf, circle_rect, c);
+      
+      // Selection indicator
+      if (sel->fill_color == colors[i]) {
+         nk_stroke_circle(canvas_buf, circle_rect, 2.0f, nk_rgb(255, 255, 255));
+      } else {
+         nk_stroke_circle(canvas_buf, circle_rect, 1.0f, nk_rgba(255, 255, 255, 100));
+      }
+
+      // Interaction
+      if (cs->mouse_in_canvas && !in_toolbar && !in_forms_menu &&
+          ui->mouse_x >= circle_rect.x && ui->mouse_x < circle_rect.x + circle_rect.w &&
+          ui->mouse_y >= circle_rect.y && ui->mouse_y < circle_rect.y + circle_rect.h &&
+          cs->mouse_just_pressed) {
+            
+          // Set color (Fill and Stroke for now, or just Fill?)
+          // User asked "changer sa couleur".
+          sel->fill_color = colors[i];
+          // Also set stroke to black or white for contrast if needed, or keep as is.
+          // Let's keep stroke as is, or maybe default to black stroke if it was transparent?
+          // For now just change fill.
       }
     }
   }
