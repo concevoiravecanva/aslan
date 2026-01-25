@@ -31,10 +31,12 @@
 
 typedef enum {
   CANVAS_TOOL_SELECT = 0,
-  CANVAS_TOOL_RECT,
-  CANVAS_TOOL_PEN,
+  CANVAS_TOOL_FORM_RECT,
+  CANVAS_TOOL_FORM_ELLIPSE,
+  CANVAS_TOOL_FORM_TRIANGLE,
+  CANVAS_TOOL_FORM_LINE,
   CANVAS_TOOL_TEXT,
-  CANVAS_TOOL_STICKY
+  CANVAS_TOOL_NOTE
 } CanvasToolMode;
 
 // -----------------------------------------------------------------------------
@@ -71,6 +73,9 @@ typedef struct {
   // Mouse state for click detection
   int mouse_just_pressed;   // Left button just pressed this frame
   int mouse_just_released;  // Left button just released this frame
+
+  // Forms menu state
+  int show_forms_menu;
 
   // Target canvas block
   uint32_t active_canvas_id;
