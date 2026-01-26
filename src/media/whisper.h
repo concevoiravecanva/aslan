@@ -58,6 +58,21 @@ TranscriptResult *whisper_transcribe_audio(const float *samples, int n_samples);
 void whisper_free_result(TranscriptResult *result);
 
 // =============================================================================
+// ASYNC API (non-blocking)
+// =============================================================================
+
+// Start async transcription (returns immediately)
+// Returns 1 if started, 0 if already running
+int whisper_transcribe_async(const char *filepath);
+
+// Check if transcription is in progress
+int whisper_is_transcribing(void);
+
+// Get result of async transcription (NULL if not done)
+// Caller must free with whisper_free_result
+TranscriptResult *whisper_get_async_result(void);
+
+// =============================================================================
 // UTILITY
 // =============================================================================
 

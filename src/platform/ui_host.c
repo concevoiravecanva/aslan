@@ -266,9 +266,9 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
   ctx->style.edit.border_color = COLOR_BORDER;
   ctx->style.edit.text_normal = COLOR_TEXT;
 
-  // Initialize whisper for transcription
+  // Initialize whisper for transcription (multilingual model)
   whisper_init("vendor/whisper.cpp/build/bin/whisper-cli",
-               "vendor/whisper.cpp/models/ggml-small.en.bin");
+               "vendor/whisper.cpp/models/ggml-small.bin");
 
   return ui;
 }
@@ -2944,6 +2944,30 @@ void ui_render_block_video(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   VideoData *vd = &block->data.video;
 
+  // Poll for async transcription completion
+  if (vd->is_transcribing && ui->video_state.active_block == block) {
+    TranscriptResult *result = whisper_get_async_result();
+    if (result) {
+      // Transcription finished - copy results
+      if (result->success) {
+        free(vd->transcript);
+        vd->transcript_capacity = result->segment_count;
+        vd->transcript = (TranscriptSeg *)calloc(vd->transcript_capacity, sizeof(TranscriptSeg));
+        vd->transcript_count = 0;
+        for (int i = 0; i < result->segment_count; i++) {
+          vd->transcript[i].start_ms = result->segments[i].start_ms;
+          vd->transcript[i].end_ms = result->segments[i].end_ms;
+          strncpy(vd->transcript[i].text, result->segments[i].text, sizeof(vd->transcript[i].text) - 1);
+          vd->transcript[i].is_deleted = 0;
+          vd->transcript_count++;
+        }
+        strncpy(vd->language, result->language, sizeof(vd->language) - 1);
+      }
+      whisper_free_result(result);
+      vd->is_transcribing = 0;
+    }
+  }
+
   ui_render_expand_toggle(ui, ctx, block);
 
   // Calculate heights based on content
@@ -3116,31 +3140,16 @@ void ui_render_block_video(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     }
 
-    // Check transcribe button
+    // Check transcribe button - START async transcription
     if (vd->clip_count > 0 && !vd->is_transcribing) {
       struct nk_rect trans_btn = nk_rect(btn_x + 90, bounds.y + 10.0f, 100, 26);
       if (ui->mouse_x >= trans_btn.x && ui->mouse_x < trans_btn.x + trans_btn.w &&
           ui->mouse_y >= trans_btn.y && ui->mouse_y < trans_btn.y + trans_btn.h) {
-        // Start transcription
-        vd->is_transcribing = 1;
-        TranscriptResult *result = whisper_transcribe_file(vd->clips[0].source_path);
-        if (result && result->success) {
-          // Copy segments
-          free(vd->transcript);
-          vd->transcript_capacity = result->segment_count;
-          vd->transcript = (TranscriptSeg *)calloc(vd->transcript_capacity, sizeof(TranscriptSeg));
-          vd->transcript_count = 0;
-          for (int i = 0; i < result->segment_count; i++) {
-            vd->transcript[i].start_ms = result->segments[i].start_ms;
-            vd->transcript[i].end_ms = result->segments[i].end_ms;
-            strncpy(vd->transcript[i].text, result->segments[i].text, sizeof(vd->transcript[i].text) - 1);
-            vd->transcript[i].is_deleted = 0;
-            vd->transcript_count++;
-          }
-          strncpy(vd->language, result->language, sizeof(vd->language) - 1);
+        // Start async transcription (non-blocking)
+        if (whisper_transcribe_async(vd->clips[0].source_path)) {
+          vd->is_transcribing = 1;
+          ui->video_state.active_block = block;
         }
-        whisper_free_result(result);
-        vd->is_transcribing = 0;
       }
     }
 
@@ -3173,29 +3182,9 @@ void ui_render_block_video(UIHost *ui, Engine *engine, struct nk_context *ctx,
 // Audio Block - Voice Recording with Transcription
 // -----------------------------------------------------------------------------
 
-// SDL audio callback for recording (we store samples in AudioData)
+// SDL audio recording state (using queue-based capture, not callbacks)
 static SDL_AudioDeviceID audio_recording_device = 0;
 static Block *audio_recording_block = NULL;
-
-static void audio_recording_callback(void *userdata, Uint8 *stream, int len) {
-  Block *block = (Block *)userdata;
-  if (!block || block->type != BLOCK_AUDIO) return;
-
-  AudioData *ad = &block->data.audio;
-  int sample_count = len / sizeof(float);
-
-  // Ensure capacity
-  if (ad->sample_count + sample_count > ad->sample_capacity) {
-    int new_cap = ad->sample_capacity == 0 ? 16000 : ad->sample_capacity * 2;
-    while (new_cap < ad->sample_count + sample_count) new_cap *= 2;
-    ad->samples = (float *)realloc(ad->samples, new_cap * sizeof(float));
-    ad->sample_capacity = new_cap;
-  }
-
-  // Copy samples
-  memcpy(ad->samples + ad->sample_count, stream, len);
-  ad->sample_count += sample_count;
-}
 
 static void start_audio_recording(Block *block) {
   if (!block || block->type != BLOCK_AUDIO) return;
@@ -3204,19 +3193,31 @@ static void start_audio_recording(Block *block) {
   // Don't start if already recording
   if (ad->is_recording) return;
 
+  // List available recording devices
+  int num_devices = SDL_GetNumAudioDevices(1); // 1 = recording devices
+  fprintf(stderr, "[audio] Found %d recording devices:\n", num_devices);
+  for (int i = 0; i < num_devices; i++) {
+    fprintf(stderr, "[audio]   %d: %s\n", i, SDL_GetAudioDeviceName(i, 1));
+  }
+
+  // Use queue-based recording (no callback)
   SDL_AudioSpec want, have;
   SDL_zero(want);
   want.freq = 16000;       // 16kHz for whisper
   want.format = AUDIO_F32;
   want.channels = 1;
   want.samples = 1024;
-  want.callback = audio_recording_callback;
-  want.userdata = block;
+  want.callback = NULL;    // Queue-based capture
 
-  audio_recording_device = SDL_OpenAudioDevice(NULL, 1, &want, &have, 0);
+  // Open default recording device (NULL = default)
+  audio_recording_device = SDL_OpenAudioDevice(NULL, 1, &want, &have, SDL_AUDIO_ALLOW_FORMAT_CHANGE);
   if (audio_recording_device == 0) {
+    fprintf(stderr, "[audio] Failed to open audio device: %s\n", SDL_GetError());
     return;
   }
+
+  fprintf(stderr, "[audio] Opened device %d: freq=%d, format=%d, channels=%d\n",
+          audio_recording_device, have.freq, have.format, have.channels);
 
   // Clear old samples
   free(ad->samples);
@@ -3226,7 +3227,33 @@ static void start_audio_recording(Block *block) {
 
   audio_recording_block = block;
   ad->is_recording = 1;
-  SDL_PauseAudioDevice(audio_recording_device, 0);
+  SDL_PauseAudioDevice(audio_recording_device, 0); // Start recording
+}
+
+// Call this every frame to collect recorded samples
+static void poll_audio_recording(void) {
+  if (!audio_recording_block || audio_recording_device == 0) return;
+
+  AudioData *ad = &audio_recording_block->data.audio;
+  if (!ad->is_recording) return;
+
+  // Check how much audio is queued
+  Uint32 queued = SDL_GetQueuedAudioSize(audio_recording_device);
+  if (queued == 0) return;
+
+  int sample_count = queued / sizeof(float);
+
+  // Ensure capacity
+  if (ad->sample_count + sample_count > ad->sample_capacity) {
+    int new_cap = ad->sample_capacity == 0 ? 16000 : ad->sample_capacity * 2;
+    while (new_cap < ad->sample_count + sample_count) new_cap *= 2;
+    ad->samples = (float *)realloc(ad->samples, new_cap * sizeof(float));
+    ad->sample_capacity = new_cap;
+  }
+
+  // Dequeue recorded audio
+  SDL_DequeueAudio(audio_recording_device, ad->samples + ad->sample_count, queued);
+  ad->sample_count += sample_count;
 }
 
 static void stop_audio_recording(Block *block) {
@@ -3296,6 +3323,33 @@ void ui_render_block_audio(UIHost *ui, Engine *engine, struct nk_context *ctx,
     return;
 
   AudioData *ad = &block->data.audio;
+
+  // Poll for recorded audio samples (if recording)
+  if (ad->is_recording && audio_recording_block == block) {
+    poll_audio_recording();
+  }
+
+  // Poll for async transcription completion
+  if (ad->is_transcribing && ui->audio_state.active_block == block) {
+    TranscriptResult *result = whisper_get_async_result();
+    if (result) {
+      if (result->success) {
+        free(ad->transcript);
+        ad->transcript_capacity = result->segment_count;
+        ad->transcript = (TranscriptSeg *)calloc(ad->transcript_capacity, sizeof(TranscriptSeg));
+        ad->transcript_count = 0;
+        for (int i = 0; i < result->segment_count; i++) {
+          ad->transcript[i].start_ms = result->segments[i].start_ms;
+          ad->transcript[i].end_ms = result->segments[i].end_ms;
+          strncpy(ad->transcript[i].text, result->segments[i].text, sizeof(ad->transcript[i].text) - 1);
+          ad->transcript[i].is_deleted = 0;
+          ad->transcript_count++;
+        }
+      }
+      whisper_free_result(result);
+      ad->is_transcribing = 0;
+    }
+  }
 
   // Track active audio block for keyboard handling
   if (ad->selected_segment >= 0 || ad->is_recording) {
@@ -3497,23 +3551,11 @@ void ui_render_block_audio(UIHost *ui, Engine *engine, struct nk_context *ctx,
       struct nk_rect trans_btn = nk_rect(btn_x + 90, bounds.y + 10.0f, 100, 26);
       if (ui->mouse_x >= trans_btn.x && ui->mouse_x < trans_btn.x + trans_btn.w &&
           ui->mouse_y >= trans_btn.y && ui->mouse_y < trans_btn.y + trans_btn.h) {
-        ad->is_transcribing = 1;
-        TranscriptResult *result = whisper_transcribe_file(ad->audio_path);
-        if (result && result->success) {
-          free(ad->transcript);
-          ad->transcript_capacity = result->segment_count;
-          ad->transcript = (TranscriptSeg *)calloc(ad->transcript_capacity, sizeof(TranscriptSeg));
-          ad->transcript_count = 0;
-          for (int i = 0; i < result->segment_count; i++) {
-            ad->transcript[i].start_ms = result->segments[i].start_ms;
-            ad->transcript[i].end_ms = result->segments[i].end_ms;
-            strncpy(ad->transcript[i].text, result->segments[i].text, sizeof(ad->transcript[i].text) - 1);
-            ad->transcript[i].is_deleted = 0;
-            ad->transcript_count++;
-          }
+        // Start async transcription (non-blocking)
+        if (whisper_transcribe_async(ad->audio_path)) {
+          ad->is_transcribing = 1;
+          ui->audio_state.active_block = block;
         }
-        whisper_free_result(result);
-        ad->is_transcribing = 0;
       }
     }
 
