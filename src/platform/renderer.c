@@ -73,11 +73,15 @@ void renderer_destroy(Renderer *r) {
 // Frame Begin/End
 // -----------------------------------------------------------------------------
 
-void renderer_begin(Renderer *r) {
+void renderer_begin(Renderer *r, int dark_mode) {
     if (!r) return;
 
-    // Dark background (Kilo-style editor)
-    SDL_SetRenderDrawColor(r->sdl_renderer, 30, 32, 36, 255);
+    // Set background color based on theme
+    if (dark_mode) {
+        SDL_SetRenderDrawColor(r->sdl_renderer, 30, 30, 35, 255);
+    } else {
+        SDL_SetRenderDrawColor(r->sdl_renderer, 252, 252, 253, 255);
+    }
     SDL_RenderClear(r->sdl_renderer);
 }
 

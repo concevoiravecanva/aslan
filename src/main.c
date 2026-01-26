@@ -574,7 +574,7 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
     nk_input_end(ui->ctx);
 
     // 2. Rendu
-    renderer_begin(renderer);
+    renderer_begin(renderer, ui->dark_mode);
     // 3. Rendu du document
     renderer_draw_document(renderer, engine->doc, ui->ctx);
 

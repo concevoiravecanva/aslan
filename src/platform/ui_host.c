@@ -572,17 +572,30 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
   if (nk_begin(ctx, "TopBar", nk_rect(0, 0, (float)win_w, bar_h),
                NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
 
-    nk_layout_row_static(ctx, btn_h, (int)btn_w, 14);
-
     Page *page = doc_page_get_active(engine->doc);
     uint32_t page_id = page ? page->id : 0;
+
+    // Calculate centering: 7 icons at 36px each = 252px total
+    float icons_total_w = 7 * btn_w;
+    float left_margin = ((float)win_w - icons_total_w) / 2.0f;
+    if (left_margin < btn_w + 10) left_margin = btn_w + 10; // Min space for home
+
+    // Use template layout: [Home] [flex space] [7 icons centered] [flex space]
+    nk_layout_row_template_begin(ctx, btn_h);
+    nk_layout_row_template_push_static(ctx, btn_w);           // Home
+    nk_layout_row_template_push_static(ctx, left_margin - btn_w - 5); // Left spacer
+    for (int i = 0; i < 7; i++) {
+      nk_layout_row_template_push_static(ctx, btn_w);         // 7 icons
+    }
+    nk_layout_row_template_push_variable(ctx, 1);             // Right spacer (fills rest)
+    nk_layout_row_template_end(ctx);
 
     // Home button (icon)
     if (ui_icon_button(ui, ICON_HOME)) {
       ui->screen = 0;
     }
 
-    // Spacer
+    // Left spacer (empty widget)
     nk_spacing(ctx, 1);
 
     // H1 block (keep text)
@@ -672,8 +685,8 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     }
 
-    // Audio (microphone icon)
-    if (ui_icon_button(ui, ICON_MIC)) {
+    // Audio (volume icon)
+    if (ui_icon_button(ui, ICON_VOLUME)) {
       if (page) {
         Block *b = block_create(page, BLOCK_AUDIO);
         if (b) {
@@ -686,6 +699,9 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
       }
     }
+
+    // Right spacer consumes remaining space
+    nk_spacing(ctx, 1);
   }
   nk_end(ctx);
 }
@@ -809,9 +825,6 @@ void ui_render_block_text(UIHost *ui, struct nk_context *ctx, Block *block,
 
   const float line_h = 24.0f;
 
-  // Check if text is empty
-  int is_empty = (!block->text || block->text[0] == '\0');
-
   // Calculate number of lines for multiline support
   int line_count = 1;
   if (block->text) {
@@ -847,8 +860,8 @@ void ui_render_block_text(UIHost *ui, struct nk_context *ctx, Block *block,
   nk_flags state = nk_edit_string_zero_terminated(ctx, flags, buf, (int)sizeof(buf) - 1,
                                                    nk_filter_default);
 
-  // Draw placeholder text if empty and not active
-  if (is_empty && !(state & NK_EDIT_ACTIVE)) {
+  // Draw placeholder text if buffer is empty and not active (check buf AFTER edit)
+  if (buf[0] == '\0' && !(state & NK_EDIT_ACTIVE)) {
     struct nk_color placeholder_color = ui->dark_mode ? nk_rgb(100, 100, 110)
                                                        : nk_rgb(180, 180, 185);
     const char *placeholder = "Write something...";
@@ -3660,6 +3673,13 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
     break;
   case BLOCK_HEADING_1:
     ui_render_block_heading(ui, ctx, block, width, 1);
+    // Sync page name with first H1 block
+    if (page && block == page->first_block && block->text && block->text[0]) {
+      if (strcmp(page->name, block->text) != 0) {
+        strncpy(page->name, block->text, sizeof(page->name) - 1);
+        page->name[sizeof(page->name) - 1] = '\0';
+      }
+    }
     break;
   case BLOCK_HEADING_2:
     ui_render_block_heading(ui, ctx, block, width, 2);
@@ -3713,7 +3733,8 @@ static void ui_apply_theme(UIHost *ui) {
 
     s->window.background = bg;
     s->window.fixed_background = nk_style_item_color(bg);
-    s->window.border_color = border;
+    s->window.border_color = bg;  // Match background to hide borders
+    s->window.border = 0;
 
     s->button.normal = nk_style_item_color(button);
     s->button.hover = nk_style_item_color(button_hover);
@@ -3748,7 +3769,8 @@ static void ui_apply_theme(UIHost *ui) {
 
     s->window.background = bg;
     s->window.fixed_background = nk_style_item_color(bg);
-    s->window.border_color = border;
+    s->window.border_color = bg;  // Match background to hide borders
+    s->window.border = 0;
 
     s->button.normal = nk_style_item_color(button);
     s->button.hover = nk_style_item_color(button_hover);
@@ -3820,7 +3842,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     const float content_w = (float)win_w - padding * 2;
 
     if (nk_begin(ctx, "Content", nk_rect(padding, top_h, content_w, content_h),
-                 NK_WINDOW_BORDER | NK_WINDOW_SCROLL_AUTO_HIDE)) {
+                 NK_WINDOW_SCROLL_AUTO_HIDE)) {
 
       Page *page = doc_page_get_active(engine->doc);
 
@@ -3876,7 +3898,7 @@ static void home_create_new_document(UIHost *ui, Engine *engine) {
 
     Block *txt = block_create(new_page, BLOCK_TEXT);
     if (txt) {
-      block_set_text(txt, "Start writing here...");
+      // Empty text block - placeholder will show visually
       page_append_block(new_page, txt);
     }
 

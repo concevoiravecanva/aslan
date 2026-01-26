@@ -283,6 +283,7 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_DESIGN "\xEE\xBA\x83"    // ri-layout-4-line
 #define ICON_VIDEO "\xEF\x8A\x82"     // ri-video-line
 #define ICON_MIC "\xEE\xBD\x9E"       // ri-mic-line (audio block)
+#define ICON_VOLUME "\xEF\x84\x8B"    // ri-volume-up-line (voice note)
 
 #define ICON_ADD "\xEE\xA8\x93"             // ri-add-line
 #define ICON_STOP "\xEF\x83\xA7"            // ri-stop-line
