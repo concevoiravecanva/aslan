@@ -585,19 +585,6 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
     // Spacer
     nk_spacing(ctx, 1);
 
-    // Text block (icon)
-    if (ui_icon_button(ui, ICON_TEXT)) {
-      if (page) {
-        Block *b = block_create(page, BLOCK_TEXT);
-        if (b) {
-          page_append_block(page, b);
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u text", page_id, b->id);
-          engine_execute_command(engine, cmd);
-        }
-      }
-    }
-
     // H1 block (keep text)
     if (nk_button_label(ctx, "H1")) {
       if (page) {
@@ -606,20 +593,6 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
           page_append_block(page, b);
           char cmd[128];
           snprintf(cmd, sizeof(cmd), "block_create %u %u h1", page_id, b->id);
-          engine_execute_command(engine, cmd);
-        }
-      }
-    }
-
-    // Separator (icon)
-    if (ui_icon_button(ui, ICON_SEPARATOR)) {
-      if (page) {
-        Block *b = block_create(page, BLOCK_SEPARATOR);
-        if (b) {
-          page_append_block(page, b);
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u separator", page_id,
-                   b->id);
           engine_execute_command(engine, cmd);
         }
       }
@@ -834,13 +807,31 @@ void ui_render_block_text(UIHost *ui, struct nk_context *ctx, Block *block,
     nk_style_set_font(ctx, &ui->font_mono->handle);
   }
 
-  const float row_h = 24.0f;
-  nk_layout_row_dynamic(ctx, row_h, 1);
+  const float line_h = 24.0f;
+
+  // Check if text is empty
+  int is_empty = (!block->text || block->text[0] == '\0');
+
+  // Calculate number of lines for multiline support
+  int line_count = 1;
+  if (block->text) {
+    for (const char *p = block->text; *p; p++) {
+      if (*p == '\n') line_count++;
+    }
+  }
+
+  // Dynamic height based on content (minimum 1 line)
+  float edit_height = line_h * (line_count > 0 ? line_count : 1);
+  if (edit_height < line_h) edit_height = line_h;
+
+  nk_layout_row_dynamic(ctx, edit_height, 1);
+
+  // Get bounds before edit for placeholder
+  struct nk_rect bounds = nk_widget_bounds(ctx);
+  struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
 
   // Highlight background
   if (block->highlight_color > 0) {
-    struct nk_rect bounds = nk_widget_bounds(ctx);
-    struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
     struct nk_color hl = block->highlight_color == 1   ? COLOR_HIGHLIGHT_YELLOW
                          : block->highlight_color == 2 ? COLOR_HIGHLIGHT_BLUE
                                                        : COLOR_HIGHLIGHT_GREEN;
@@ -851,9 +842,22 @@ void ui_render_block_text(UIHost *ui, struct nk_context *ctx, Block *block,
   strncpy(buf, block->text ? block->text : "", sizeof(buf) - 1);
   buf[sizeof(buf) - 1] = '\0';
 
-  nk_flags flags = NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT;
-  nk_edit_string_zero_terminated(ctx, flags, buf, (int)sizeof(buf) - 1,
-                                 nk_filter_default);
+  // NK_EDIT_BOX for multiline (Enter = newline), NK_EDIT_SELECTABLE for text selection
+  nk_flags flags = NK_EDIT_BOX | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD;
+  nk_flags state = nk_edit_string_zero_terminated(ctx, flags, buf, (int)sizeof(buf) - 1,
+                                                   nk_filter_default);
+
+  // Draw placeholder text if empty and not active
+  if (is_empty && !(state & NK_EDIT_ACTIVE)) {
+    struct nk_color placeholder_color = ui->dark_mode ? nk_rgb(100, 100, 110)
+                                                       : nk_rgb(180, 180, 185);
+    const char *placeholder = "Write something...";
+    float text_x = bounds.x + 8;
+    float text_y = bounds.y + (bounds.h - line_h) / 2 + 4;
+    nk_draw_text(canvas, nk_rect(text_x, text_y, bounds.w - 16, line_h),
+                 placeholder, strlen(placeholder), &ui->font_mono->handle,
+                 nk_rgba(0, 0, 0, 0), placeholder_color);
+  }
 
   // Update if changed
   if (strcmp(buf, block->text ? block->text : "") != 0) {
