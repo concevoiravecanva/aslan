@@ -136,6 +136,9 @@ typedef struct UIHost {
   // Screen state: 0=Home, 1=Editor
   int screen;
 
+  // Theme: 0=Light, 1=Dark
+  int dark_mode;
+
   // Tool mode: 0=select, 1=create rect, 2=create text
   int tool_mode;
 
