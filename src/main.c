@@ -11,36 +11,14 @@
 #include <libgen.h>
 #include <limits.h>
 
-// Boucle principale simplifiée
-void main_loop(Document *doc) {
-  bool running = true;
-  int frame = 0;
+// =============================================================================
+// ASLAN - Main Entry Point
+// =============================================================================
 
-  printf("Entering main loop...\n");
+// -----------------------------------------------------------------------------
+// Interactive CLI Mode (for debugging)
+// -----------------------------------------------------------------------------
 
-  // Simulation d'une boucle d'application (Game Loop pattern)
-  // Dans une vraie app, ceci serait piloté par les événements OS
-  // (SDL_PollEvent, etc.)
-  while (running && frame < 5) { // On limite à 5 frames pour le prototype
-    frame++;
-
-    // 1. Input (Stub)
-    platform_poll_events();
-
-    // 2. Update (Logic)
-    // scripting_on_update(L, dt);
-
-    // 3. Render (Stub)
-    // renderer_draw(doc);
-
-    printf("Frame %d: App is running...\n", frame);
-    platform_sleep(100); // Simule le temps de frame (100ms)
-  }
-
-  printf("Exiting main loop.\n");
-}
-
-// Boucle principale interactive (CLI)
 void run_interactive_mode(Engine *engine) {
   char buffer[256];
 
@@ -52,7 +30,6 @@ void run_interactive_mode(Engine *engine) {
     if (fgets(buffer, sizeof(buffer), stdin) == NULL)
       break;
 
-    // Nettoyage du saut de ligne
     buffer[strcspn(buffer, "\n")] = 0;
 
     if (strlen(buffer) == 0)
@@ -61,172 +38,43 @@ void run_interactive_mode(Engine *engine) {
     if (!engine_execute_command(engine, buffer)) {
       printf("Unknown command. Type 'help'.\n");
     }
-
-    // Mise à jour automatique de la vue (Preview)
-    // doc_export_svg(engine->doc, "preview.svg"); // Commented out - function
-    // renamed
   }
 }
 
-// NOTE: Legacy note-specific code commented out - types not defined in current
-// codebase
-/*
-// NOTE pages: fixed-width mapping (JetBrains Mono) so caret never drifts.
-// `cursor_col` is treated as ASCII column for v1 (good enough for notes).
-static int note_pick_col_from_x(struct nk_context *ctx, float rel_x) {
-  if (!ctx || !ctx->style.font)
-    return 0;
-  if (rel_x <= 0.0f)
-    return 0;
+// -----------------------------------------------------------------------------
+// Visual Mode (Main Application Loop)
+// -----------------------------------------------------------------------------
 
-  // Measure one monospace cell in the active font.
-  const char *cell = "M";
-  float char_w = ctx->style.font->width(ctx->style.font->userdata,
-                                        ctx->style.font->height, cell, 1);
-  if (char_w < 1.0f)
-    char_w = 8.0f;
-
-  int col = (int)(rel_x / char_w);
-  if (col < 0)
-    col = 0;
-  return col;
-}
-
-// NOTE pages - Variable height blocks (modern spacing)
-// Must match get_line_height() in ui_host.c
-static float note_row_height(AslanRowType type) {
-  switch (type) {
-  case ASLAN_ROW_HEADING_1:
-    return 56.0f; // Large, prominent headings
-  case ASLAN_ROW_SEPARATOR:
-    return 32.0f; // Breathing room
-  case ASLAN_ROW_GRID:
-    return 50.0f; // Simplified placeholder
-  case ASLAN_ROW_EMBED:
-    return 50.0f; // Simplified placeholder
-  case ASLAN_ROW_HIGHLIGHT:
-    return 28.0f; // Same as text with highlight background
-  default:
-    return 28.0f; // Regular text (increased from 22px for comfort)
-  }
-}
-
-static int note_pick_row_from_y(const AslanNoteDoc *nd, float top_y,
-                                float scroll_y, float my) {
-  if (!nd || nd->row_count <= 0)
-    return 0;
-  float y = top_y - scroll_y;
-  for (int r = 0; r < nd->row_count; r++) {
-    float h = note_row_height(nd->rows[r].type);
-    if (my < y + h)
-      return r;
-    y += h;
-  }
-  return nd->row_count - 1;
-}
-
-// Flush the last edited NOTE row to AOF (history.log) if pending.
-static void note_aof_flush_pending(Engine *engine, uint32_t page_id,
-                                   AslanNoteDoc *nd) {
-  if (!engine || !engine->history_file || !nd)
-    return;
-  int row = nd->aof_last_edited_row;
-  if (row < 0)
-    return;
-  if (nd->row_count <= 0 || !nd->rows) {
-    nd->aof_last_edited_row = -1;
-    return;
-  }
-  if (row >= nd->row_count) {
-    // Row vanished (e.g. merge). Nothing to flush.
-    nd->aof_last_edited_row = -1;
-    return;
-  }
-  const char *t = nd->rows[row].chars ? nd->rows[row].chars : "";
-  fprintf(engine->history_file, "note_set_ln %u %d \"%s\"\n", (unsigned)page_id,
-          row, t);
-  fflush(engine->history_file);
-  nd->aof_last_edited_row = -1;
-}
-*/
-
-// Boucle principale visuelle
 void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
   SDL_Event e;
 
-  // NOTE selection via mouse drag (screen-space)
-  static bool note_drag_selecting = false;
-  static bool note_drag_from_gutter = false;
-  static bool note_mouse_captured_by_note = false;
-
-  // Double-click detection (Antirez-style: small, local state)
+  // Double-click detection
   static uint32_t last_click_ms = 0;
   static float last_click_world_x = 0.0f;
   static float last_click_world_y = 0.0f;
   const uint32_t dbl_click_ms = 350;
-  const float dbl_click_dist =
-      6.0f; // world units (good enough at typical zooms)
+  const float dbl_click_dist = 6.0f;
 
   while (engine->is_running) {
-    // NOTE: Legacy note AOF debounce code commented out
-    /*
-    // NOTE AOF debounce: if user stopped typing for 500ms, flush pending row.
-    if (engine && engine->doc) {
-      uint32_t pid = doc_page_active_id(engine->doc);
-      for (int pi = 0; pi < 32; pi++) {
-        if (!engine->doc->pages[pi].in_use)
-          continue;
-        if (engine->doc->pages[pi].page_id != pid)
-          continue;
-        if (engine->doc->pages[pi].type == PAGE_TYPE_NOTE &&
-            engine->doc->pages[pi].note) {
-          AslanNoteDoc *nd = engine->doc->pages[pi].note;
-          if (nd->aof_last_edited_row >= 0) {
-            uint32_t now = SDL_GetTicks();
-            if (nd->aof_last_edit_time_ms != 0 &&
-                (now - nd->aof_last_edit_time_ms) > 500) {
-              note_aof_flush_pending(engine, pid, nd);
-            }
-          }
-        }
-        break;
-      }
-    }
-    */
-
-    // 1. Gestion des événements (Input)
+    // 1. Input handling
     nk_input_begin(ui->ctx);
+
     while (SDL_PollEvent(&e) != 0) {
       scripting_set_key_mods(SDL_GetModState());
 
-      bool note_consumed_wheel = false;
+      // Quit event
       if (e.type == SDL_QUIT) {
         engine->is_running = false;
       }
 
-      // NOTE: Legacy note flush on focus loss commented out
-      /*
-      // Flush NOTE edits when window loses focus.
+      // Window resize for HiDPI support
       if (e.type == SDL_WINDOWEVENT &&
-          e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
-        if (engine && engine->doc) {
-          uint32_t pid = doc_page_active_id(engine->doc);
-          for (int pi = 0; pi < 32; pi++) {
-            if (!engine->doc->pages[pi].in_use)
-              continue;
-            if (engine->doc->pages[pi].page_id != pid)
-              continue;
-            if (engine->doc->pages[pi].type == PAGE_TYPE_NOTE &&
-                engine->doc->pages[pi].note) {
-              note_aof_flush_pending(engine, pid, engine->doc->pages[pi].note);
-            }
-            break;
-          }
-        }
+          (e.window.event == SDL_WINDOWEVENT_RESIZED ||
+           e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)) {
+        renderer_update_size(renderer);
       }
-      */
 
-      // Raccourcis clavier (macOS): Cmd+Z (Undo), Cmd+Shift+Z (Redo)
+      // Keyboard shortcuts (macOS): Cmd+Z (Undo), Cmd+Shift+Z (Redo)
       if (e.type == SDL_KEYDOWN && !nk_item_is_any_active(ui->ctx)) {
         SDL_Keymod mods = SDL_GetModState();
         bool cmd = (mods & KMOD_GUI) != 0;
@@ -236,266 +84,36 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
         }
       }
 
+      // Forward event to UI
       ui_handle_event(ui, &e);
 
-      // NOTE: Legacy note mouse wheel scroll commented out
-      /*
-      // NOTE pages: use mouse wheel for vertical scroll (Notion-like).
-      // Consume wheel here so it doesn't become zoom/pan in Lua tools.
-      if (engine && engine->doc && e.type == SDL_MOUSEWHEEL) {
-        uint32_t pid = doc_page_active_id(engine->doc);
-        for (int pi = 0; pi < 32; pi++) {
-          if (!engine->doc->pages[pi].in_use)
-            continue;
-          if (engine->doc->pages[pi].page_id != pid)
-            continue;
-          if (engine->doc->pages[pi].type == PAGE_TYPE_NOTE &&
-              engine->doc->pages[pi].note) {
-            // SDL wheel: y > 0 is up. We want scroll_y to decrease when wheel
-            // up.
-            float dy = (float)e.wheel.y * 40.0f;
-            float ny = engine->doc->pages[pi].note->scroll_y - dy;
-            if (ny < 0.0f)
-              ny = 0.0f;
-
-            // Clamp to doc height.
-            // We use the same layout constants as the renderer/overlay.
-            {
-              const float line_h = 22.0f;
-              const float top_y = 80.0f;
-              // Use current SDL window height.
-              int ww = 0, wh = 0;
-              if (renderer && renderer->window) {
-                SDL_GetWindowSize(renderer->window, &ww, &wh);
-              }
-              float viewport_h = (float)wh - (top_y - 24.0f);
-              if (viewport_h < 0.0f)
-                viewport_h = 0.0f;
-              float content_h =
-                  (float)engine->doc->pages[pi].note->row_count * line_h;
-              float max_scroll = content_h - viewport_h;
-              if (max_scroll < 0.0f)
-                max_scroll = 0.0f;
-              if (ny > max_scroll)
-                ny = max_scroll;
-            }
-
-            engine->doc->pages[pi].note->scroll_y = ny;
-            note_consumed_wheel = true;
-          }
-          break;
-        }
-      }
-      */
-
-      // NOTE: Legacy note keyboard input handler commented out
-      /*
-      // Notes input: when a NOTE page is active, ALWAYS capture keyboard/text
-      // input This is the Kilo-style approach: the note editor owns all text
-      // input. Only exception: if we're inline editing a canvas TEXT node.
-      if (engine && engine->doc && (!ui || ui->editing_node_id == 0)) {
-        uint32_t pid = doc_page_active_id(engine->doc);
-        for (int pi = 0; pi < 32; pi++) {
-          if (!engine->doc->pages[pi].in_use)
-            continue;
-          if (engine->doc->pages[pi].page_id != pid)
-            continue;
-          if (engine->doc->pages[pi].type != PAGE_TYPE_NOTE)
-            break;
-
-          // Ensure text input is enabled for SDL_TEXTINPUT events.
-          if (!SDL_IsTextInputActive())
-            SDL_StartTextInput();
-
-          if (engine->doc->pages[pi].note) {
-            // CRITICAL: For NOTE pages, ALWAYS route text input to the note
-            // Don't check nk_item_is_any_active() - toolbar buttons should NOT
-            // block typing
-            if (e.type == SDL_KEYDOWN || e.type == SDL_TEXTINPUT) {
-              AslanNoteDoc *nd = engine->doc->pages[pi].note;
-              int before_row = nd->cursor_row;
-
-              int consumed = note_handle_input(nd, &e);
-
-              // AOF strategy (Antirez-style):
-              // - Don't spam history.log per key.
-              // - If the cursor changes row, flush the previous pending row
-              // immediately.
-              if (consumed) {
-                if (nd->cursor_row != before_row) {
-                  note_aof_flush_pending(engine, pid, nd);
-                }
-              }
-            }
-          }
-          break;
-        }
-      }
-      */
-
+      // Handle mouse/keyboard events for Lua tools
       if (!nk_item_is_any_active(ui->ctx) &&
           (!ui || ui->editing_block_id == 0)) {
+
         int imx, imy;
         SDL_GetMouseState(&imx, &imy);
         float mx = (float)imx;
         float my = (float)imy;
 
-        // Expose raw screen mouse position to Lua tools (used for jitter-free
-        // pan).
+        // Expose mouse position to Lua
         scripting_set_mouse_screen(mx, my);
 
-        // NOTE: Legacy coordinate conversion commented out (Page struct doesn't
-        // have view_x/y/zoom/page_id)
-        /*
-        // Convert screen -> world using active page viewport.
-        // screen = (world - view) * zoom + center
-        // world  = (screen - center) / zoom + view
-        float world_x = mx;
-        float world_y = my;
-        if (engine && engine->doc) {
-          uint32_t pid = doc_page_active_id(engine->doc);
-          // find page
-          for (int pi = 0; pi < 32; pi++) {
-            if (engine->doc->pages[pi].in_use &&
-                engine->doc->pages[pi].page_id == pid) {
-              float vx = engine->doc->pages[pi].view_x;
-              float vy = engine->doc->pages[pi].view_y;
-              float vz = (engine->doc->pages[pi].view_zoom != 0.0f)
-                             ? engine->doc->pages[pi].view_zoom
-                             : 1.0f;
-              float cx = 1024.0f * 0.5f;
-              float cy = 768.0f * 0.5f;
-              // NOTE: renderer uses logical size 1024x768.
-              world_x = (mx - cx) / vz + vx;
-              world_y = (my - cy) / vz + vy;
-              break;
-            }
-          }
-        }
-        */
         float world_x = mx;
         float world_y = my;
 
         if (e.type == SDL_MOUSEBUTTONDOWN) {
-          // NOTE: Legacy note click-to-focus handler commented out
-          /*
-          bool note_consumed_click = false;
-          // NOTE page click-to-focus: if active page is NOTE, and click is in
-          // note area, set cursor and start text input.
-          if (e.button.button == SDL_BUTTON_LEFT && engine && engine->doc) {
-            uint32_t pid = doc_page_active_id(engine->doc);
-            for (int pi = 0; pi < 32; pi++) {
-              if (!engine->doc->pages[pi].in_use)
-                continue;
-              if (engine->doc->pages[pi].page_id != pid)
-                continue;
-              if (engine->doc->pages[pi].type == PAGE_TYPE_NOTE &&
-                  engine->doc->pages[pi].note) {
-                // ... (rest of note click handler)
-              }
-              break;
-            }
-          }
-          */
-          /*
-          // Notion-style layout constants (must match renderer.c and
-          // ui_host.c)
-          const float margin_left = 96.0f;  // Left margin
-          const float margin_right = 96.0f; // Right margin
-          const float top_margin = 72.0f;   // Top margin
-
-          const float content_x = margin_left;
-          const float top_y = top_margin;
-
-          // Note content region
-          int win_w_local = 1024;
-          if (renderer) {
-            win_w_local = renderer->width;
-          }
-
-          if (mx >= content_x && mx <= (float)win_w_local - margin_right &&
-              my >= top_y) {
-            AslanNoteDoc *nd = engine->doc->pages[pi].note;
-            float scroll_y = nd->scroll_y;
-            int row = note_pick_row_from_y(nd, top_y, scroll_y, my);
-            (void)((row < nd->row_count) ? nd->rows[row].chars : "");
-
-            // No gutter in Notion-style layout
-            bool clicked_gutter = false;
-
-            // Match the same left origin used by NOTE overlay text
-            float rel_x = mx - content_x;
-            const struct nk_user_font *saved_font = ui->ctx->style.font;
-            if (ui->font_mono)
-              ui->ctx->style.font = &ui->font_mono->handle;
-            int col = note_pick_col_from_x(ui->ctx, rel_x);
-            ui->ctx->style.font = saved_font;
-
-            nd->cursor_row = row;
-            if (clicked_gutter) {
-              // Gutter click selects whole line.
-              nd->cursor_col = (row >= 0 && row < nd->row_count)
-                                   ? (int)nd->rows[row].len
-                                   : 0;
-            } else {
-              nd->cursor_col = col;
-            }
-
-            // Mouse selection: start drag selection.
-            SDL_Keymod mods = SDL_GetModState();
-            bool shift = (mods & KMOD_SHIFT) != 0;
-            if (!shift) {
-              // Start a fresh selection anchored at the click.
-              nd->is_selecting = false;
-              if (clicked_gutter) {
-                nd->anchor_row = row;
-                nd->anchor_col = 0;
-              } else {
-                nd->anchor_row = nd->cursor_row;
-                nd->anchor_col = nd->cursor_col;
-              }
-            } else {
-              // Shift+click extends selection from existing anchor.
-              if (!nd->is_selecting) {
-                // No existing selection => anchor becomes pre-click
-                // caret.
-                nd->is_selecting = true;
-                if (clicked_gutter) {
-                  nd->anchor_row = row;
-                  nd->anchor_col = 0;
-                } else {
-                  nd->anchor_row = nd->cursor_row;
-                  nd->anchor_col = nd->cursor_col;
-                }
-              }
-            }
-            note_drag_selecting = true;
-            note_drag_from_gutter = clicked_gutter;
-            note_mouse_captured_by_note = true;
-
-            SDL_StartTextInput();
-            note_consumed_click = true;
-          }
-        }
-        break;
-      }
-    }
-    */
-
-          // Double-click: if we clicked twice quickly in roughly the same spot,
-          // and a TEXT node is already selected, enter inline edit mode.
+          // Double-click detection for TEXT node editing
           if (e.button.button == SDL_BUTTON_LEFT && ui && ui->selected_node &&
               ui->selected_node->type == NODE_TYPE_TEXT) {
             uint32_t now = SDL_GetTicks();
             float dx = world_x - last_click_world_x;
             float dy = world_y - last_click_world_y;
             float d2 = dx * dx + dy * dy;
+
             if (last_click_ms && (now - last_click_ms) <= dbl_click_ms &&
                 d2 <= (dbl_click_dist * dbl_click_dist)) {
               ui->editing_block_id = ui->selected_node->id;
-              // ui->inline_edit_inited = 0;  // Field doesn't exist
-              // ui->inline_edit_wants_focus = 1;  // Field doesn't exist
-              // Reset click state so triple-click doesn't retrigger
               last_click_ms = 0;
             } else {
               last_click_ms = now;
@@ -503,67 +121,19 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
               last_click_world_y = world_y;
             }
           }
-          // NOTE: Legacy note_consumed_click check commented out
-          // if (!note_consumed_click) {
+
           scripting_call_event(ui->L, "on_mouse_down", world_x, world_y);
-          // }
-          // NOTE: Legacy note mouse handling commented out
-          /*
-          } else if (e.type == SDL_MOUSEBUTTONUP) {
-            bool was_note_capture = note_mouse_captured_by_note;
 
-            // Stop NOTE drag selection if active.
-            if (e.button.button == SDL_BUTTON_LEFT) {
-              note_drag_selecting = false;
-              note_drag_from_gutter = false;
-              note_mouse_captured_by_note = false;
-            }
+        } else if (e.type == SDL_MOUSEBUTTONUP) {
+          scripting_call_event(ui->L, "on_mouse_up", world_x, world_y);
 
-            // If the NOTE captured the mouse, don't forward mouse-up to tools.
-            if (!was_note_capture) {
-              scripting_call_event(ui->L, "on_mouse_up", world_x, world_y);
-            }
-          } else if (e.type == SDL_MOUSEMOTION) {
-            bool note_consumed_move = false;
+        } else if (e.type == SDL_MOUSEMOTION) {
+          scripting_call_event(ui->L, "on_mouse_move", world_x, world_y);
 
-            // If we're dragging in a NOTE page, update cursor position +
-            // selection.
-            if (note_drag_selecting && engine && engine->doc) {
-              uint32_t pid = doc_page_active_id(engine->doc);
-              for (int pi = 0; pi < 32; pi++) {
-                if (!engine->doc->pages[pi].in_use)
-                  continue;
-                if (engine->doc->pages[pi].page_id != pid)
-                  continue;
-                if (engine->doc->pages[pi].type == PAGE_TYPE_NOTE &&
-                    engine->doc->pages[pi].note) {
-                  // ... (rest of note drag code)
-                }
-                break;
-              }
-            }
-
-            if (!note_consumed_move) {
-              scripting_call_event(ui->L, "on_mouse_move", world_x, world_y);
-            }
-          */
         } else if (e.type == SDL_MOUSEWHEEL) {
-          // NOTE pages already consumed wheel for scroll above.
-          if (note_consumed_wheel) {
-            continue;
-          }
-          /*
-           * For now we expose wheel as a dedicated callback.
-           * Convention: (delta, mx, my) where delta is vertical wheel (positive
-           * = up).
-           */
           float delta = (float)e.wheel.y;
-          // Pass wheel delta and mouse X in screen space for cursor-anchored
-          // zoom.
           scripting_call_event(ui->L, "on_mouse_wheel", delta, mx);
-          /* NOTE: scripting_call_event takes 2 floats today; we pass (delta,
-             mx). If you want (delta, mx, my), we can extend the C<->Lua event
-             helper. */
+
         } else if (e.type == SDL_KEYDOWN) {
           SDL_Keymod mods = SDL_GetModState();
           scripting_call_key_event(ui->L, "on_key_down", (int)e.key.keysym.sym,
@@ -571,79 +141,35 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
         }
       }
     }
+
     nk_input_end(ui->ctx);
 
-    // 2. Rendu
+    // 2. Render background
     renderer_begin(renderer, ui->dark_mode);
-    // 3. Rendu du document
+
+    // 3. Render document
     renderer_draw_document(renderer, engine->doc, ui->ctx);
 
-    if (ui && ui->L) {
-      lua_getglobal(ui->L, "get_multi_selection_ids");
-      if (lua_isfunction(ui->L, -1)) {
-        if (lua_pcall(ui->L, 0, 1, 0) == LUA_OK) {
-          if (lua_istable(ui->L, -1)) {
-            int n = (int)lua_rawlen(ui->L, -1);
-            if (n >= 2) {
-              for (int i = 1; i <= n; i++) {
-                lua_rawgeti(ui->L, -1, i);
-                if (lua_isinteger(ui->L, -1)) {
-                  uint32_t id = (uint32_t)lua_tointeger(ui->L, -1);
-                  // Node *node = doc_find_node_by_id(engine->doc, id);  //
-                  // Function doesn't exist
-                  Node *node = NULL;
-                  if (node)
-                    renderer_draw_selection(renderer, engine->doc, node);
-                }
-                lua_pop(ui->L, 1);
-              }
-            } else {
-              if (ui->selected_node) {
-                renderer_draw_selection(renderer, engine->doc,
-                                        ui->selected_node);
-              }
-            }
-          } else {
-            if (ui->selected_node) {
-              renderer_draw_selection(renderer, engine->doc, ui->selected_node);
-            }
-          }
-          lua_pop(ui->L, 1);
-        } else {
-          lua_pop(ui->L, 1);
-          if (ui->selected_node) {
-            renderer_draw_selection(renderer, engine->doc, ui->selected_node);
-          }
-        }
-      } else {
-        lua_pop(ui->L, 1);
-        if (ui->selected_node) {
-          renderer_draw_selection(renderer, engine->doc, ui->selected_node);
-        }
-      }
-    } else {
-      if (ui->selected_node) {
-        renderer_draw_selection(renderer, engine->doc, ui->selected_node);
-      }
+    // 4. Render selection handles
+    if (ui->selected_node) {
+      renderer_draw_selection(renderer, engine->doc, ui->selected_node);
     }
 
-    // 5. Rendu de l'UI par dessus
+    // 5. Render UI overlay
     int ww, wh;
     SDL_GetWindowSize(renderer->window, &ww, &wh);
     ui_render(ui, engine, ww, wh);
 
-    // Decrement note_force_input flag (allows typing after toolbar button
-    // click)
-    // if (ui && ui->note_force_input > 0) {  // Field doesn't exist
-    if (false) {
-      // ui->note_force_input--;  // Field doesn't exist
-    }
-
+    // 6. Present frame
     renderer_end(renderer);
 
-    SDL_Delay(16);
+    SDL_Delay(16);  // ~60 FPS
   }
 }
+
+// -----------------------------------------------------------------------------
+// Main Entry Point
+// -----------------------------------------------------------------------------
 
 int main(int argc, char **argv) {
   (void)argc;
@@ -652,44 +178,40 @@ int main(int argc, char **argv) {
   platform_init();
   platform_log("Starting Aslan Visual Engine...");
 
-  // 1. Initialisation de l'Engine (Core)
+  // 1. Initialize Engine (Core)
   Engine *engine = engine_create();
   if (!engine)
     return 1;
 
-  // 2. Initialisation du Renderer (SDL2)
+  // 2. Initialize Renderer (SDL2)
   Renderer *renderer = renderer_create("Aslan Editor v0.1", 1024, 768);
   if (!renderer) {
     engine_destroy(engine);
     return 1;
   }
 
-  // 3. Initialisation du Scripting (Logic)
+  // 3. Initialize Scripting (Lua)
   lua_State *L = scripting_init(engine);
 
-  // Résoudre le dossier du binaire pour que les scripts se chargent même si on
-  // lance depuis ailleurs
+  // Resolve binary directory for script loading
   if (argv && argv[0]) {
     char exe_path[PATH_MAX];
     strncpy(exe_path, argv[0], sizeof(exe_path) - 1);
     exe_path[sizeof(exe_path) - 1] = 0;
     char *dir = dirname(exe_path);
     if (dir) {
-      // scripts/ est à côté du binaire dans ce projet
       scripting_set_base_dir(dir);
     }
   }
 
-  // 4. Initialisation de l'UI (Nuklear)
+  // 4. Initialize UI (Nuklear)
   UIHost *ui = ui_init(renderer->window, renderer->sdl_renderer, L);
-  engine->ui_host = ui; // Lier l'UI à l'engine
+  engine->ui_host = ui;
 
-  // 5. Rejouer l'historique (AOF)
+  // 5. Replay history (AOF)
   engine_load_history(engine);
 
-  // 6. Création d'objets par défaut seulement au tout premier démarrage
-  // (si history.log n'existe pas ou est vide). Après un 'clear', on veut rester
-  // vide.
+  // 6. Create default content only on first launch
   bool history_has_content = false;
   FILE *hf = fopen("history.log", "r");
   if (hf) {
@@ -704,14 +226,13 @@ int main(int argc, char **argv) {
     engine_execute_command(engine, "block_create 1 1 h1");
     engine_execute_command(engine, "block_text 1 1 \"Welcome to Aslan\"");
     engine_execute_command(engine, "block_create 1 2 text");
-    engine_execute_command(
-        engine, "block_text 1 2 \"Start writing your notes here...\"");
+    engine_execute_command(engine, "block_text 1 2 \"\"");
   }
 
-  // 7. Chargement des scripts (Dynamic Plugin System)
+  // 7. Load plugins
   scripting_load_plugins(L);
 
-  // 8. Lancement du mode visuel
+  // 8. Run visual mode
   run_visual_mode(engine, renderer, ui);
 
   // 9. Cleanup

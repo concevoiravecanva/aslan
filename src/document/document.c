@@ -1,5 +1,6 @@
 #include "document.h"
 #include "spatial_index.h"
+#include "aslan_table.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -837,19 +838,40 @@ void block_table_init(Block *block, int rows, int cols) {
       free(td->cells[i]);
     }
     free(td->cells);
+    td->cells = NULL;
   }
   free(td->col_widths);
+  td->col_widths = NULL;
 
-  // Allocate new data
-  td->rows = rows;
-  td->cols = cols;
-  td->cells = (char **)calloc(rows * cols, sizeof(char *));
-  td->col_widths = (int *)calloc(cols, sizeof(int));
-
-  for (int i = 0; i < cols; i++) {
-    td->col_widths[i] = 120;
+  // Free existing columnar table
+  if (td->columnar) {
+    aslan_table_destroy(td->columnar);
+    td->columnar = NULL;
   }
 
+  // Create new columnar table
+  td->columnar = aslan_table_create(block->id, "Table");
+  td->use_columnar = 1;
+
+  if (td->columnar) {
+    // Add default columns
+    for (int c = 0; c < cols; c++) {
+      char col_name[32];
+      snprintf(col_name, sizeof(col_name), "Column %d", c + 1);
+      // First column is Text, second is Number, rest are Text
+      AslanColumnType type = (c == 1) ? ASLAN_COL_NUMBER : ASLAN_COL_TEXT;
+      aslan_table_add_column(td->columnar, col_name, type);
+    }
+
+    // Add initial rows
+    for (int r = 0; r < rows; r++) {
+      aslan_table_add_row(td->columnar);
+    }
+  }
+
+  // Legacy fields (for backward compatibility display)
+  td->rows = rows;
+  td->cols = cols;
   td->active_row = 0;
   td->active_col = 0;
   td->view_mode = TABLE_VIEW_TABLE;
@@ -860,6 +882,8 @@ void block_table_destroy(Block *block) {
     return;
 
   TableData *td = &block->data.table;
+
+  // Free legacy cells
   if (td->cells) {
     for (int i = 0; i < td->rows * td->cols; i++) {
       free(td->cells[i]);
@@ -871,6 +895,13 @@ void block_table_destroy(Block *block) {
   td->col_widths = NULL;
   td->rows = 0;
   td->cols = 0;
+
+  // Free columnar table
+  if (td->columnar) {
+    aslan_table_destroy(td->columnar);
+    td->columnar = NULL;
+  }
+  td->use_columnar = 0;
 }
 
 void block_table_set_cell(Block *block, int row, int col, const char *text) {

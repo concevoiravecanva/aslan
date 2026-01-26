@@ -69,6 +69,25 @@ void renderer_destroy(Renderer *r) {
     SDL_Quit();
 }
 
+void renderer_update_size(Renderer *r) {
+    if (!r) return;
+    int render_w, render_h;
+    SDL_GetRendererOutputSize(r->sdl_renderer, &render_w, &render_h);
+    r->width = render_w;
+    r->height = render_h;
+}
+
+float renderer_get_dpi_scale(Renderer *r) {
+    if (!r || !r->window) return 1.0f;
+    int window_w, window_h, render_w, render_h;
+    SDL_GetWindowSize(r->window, &window_w, &window_h);
+    SDL_GetRendererOutputSize(r->sdl_renderer, &render_w, &render_h);
+    if (window_w > 0) {
+        return (float)render_w / (float)window_w;
+    }
+    return 1.0f;
+}
+
 // -----------------------------------------------------------------------------
 // Frame Begin/End
 // -----------------------------------------------------------------------------

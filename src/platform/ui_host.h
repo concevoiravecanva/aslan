@@ -305,4 +305,17 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_STICKY "\xEF\x83\xBC"      // ri-sticky-note-line (sticky note)
 #define ICON_HAND "\xEE\xB7\xBB"        // ri-hand (pan tool)
 
+// Table column type icons
+#define ICON_COL_TEXT "\xEE\x87\x98"      // ri-text
+#define ICON_COL_NUMBER "\xEE\xB7\xA4"    // ri-hashtag
+#define ICON_COL_CHECKBOX "\xEE\xAD\xB6"  // ri-checkbox-line
+#define ICON_COL_SELECT "\xEE\xA9\x8B"    // ri-arrow-down-s-line
+#define ICON_COL_DATE "\xEE\xAA\xB2"      // ri-calendar-line
+#define ICON_COL_RELATION "\xEE\xB0\xB5"  // ri-links-line
+#define ICON_COL_FORMULA "\xEE\xB6\xBA"   // ri-functions
+
+// Sort icons
+#define ICON_SORT_ASC "\xEE\xA9\xB8"      // ri-arrow-up-s-line
+#define ICON_SORT_DESC "\xEE\xA9\x8B"     // ri-arrow-down-s-line
+
 #endif // UI_HOST_H

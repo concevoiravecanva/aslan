@@ -5,6 +5,7 @@
 // Nuklear implementation (must be before nuklear.h include)
 #define NK_IMPLEMENTATION
 #include "ui_host.h"
+#include "../document/aslan_table.h"
 #include "../scripting/lua_host.h"
 #include "mac_image.h"
 #include "../media/ffmpeg_pipe.h"
@@ -930,35 +931,427 @@ void ui_render_block_separator(UIHost *ui, struct nk_context *ctx, Block *block,
   nk_spacing(ctx, 1);
 }
 
+// Helper: Get icon for column type
+static const char *table_col_type_icon(AslanColumnType type) {
+  switch (type) {
+    case ASLAN_COL_TEXT:     return ICON_COL_TEXT;
+    case ASLAN_COL_NUMBER:   return ICON_COL_NUMBER;
+    case ASLAN_COL_CHECKBOX: return ICON_COL_CHECKBOX;
+    case ASLAN_COL_SELECT:   return ICON_COL_SELECT;
+    case ASLAN_COL_DATE:     return ICON_COL_DATE;
+    case ASLAN_COL_RELATION: return ICON_COL_RELATION;
+    case ASLAN_COL_FORMULA:  return ICON_COL_FORMULA;
+    default: return ICON_COL_TEXT;
+  }
+}
+
+// Helper: Get column type name
+static const char *table_col_type_name(AslanColumnType type) {
+  switch (type) {
+    case ASLAN_COL_TEXT:     return "Text";
+    case ASLAN_COL_NUMBER:   return "Number";
+    case ASLAN_COL_CHECKBOX: return "Checkbox";
+    case ASLAN_COL_SELECT:   return "Select";
+    case ASLAN_COL_DATE:     return "Date";
+    case ASLAN_COL_RELATION: return "Relation";
+    case ASLAN_COL_FORMULA:  return "Formula";
+    default: return "Text";
+  }
+}
+
 void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                            Block *block, float width) {
+  (void)engine;
   if (!block || block->type != BLOCK_TABLE)
     return;
 
   TableData *td = &block->data.table;
-  if (td->rows <= 0 || td->cols <= 0)
-    return;
+  AslanTable *tbl = td->columnar;
 
-  const float row_h = 26.0f;
-  const float col_w = 120.0f;
+  // Constants
+  const float row_h = 28.0f;
+  const float header_h = 32.0f;
+  const float footer_h = 26.0f;
+  const float min_col_w = 80.0f;
+  const float max_col_w = 250.0f;
+  const float row_num_w = 40.0f;
+  const float toolbar_h = 32.0f;
 
+  // Colors
+  struct nk_color header_bg = ui->dark_mode ?
+    nk_rgb(45, 47, 52) : nk_rgb(245, 245, 248);
+  struct nk_color row_alt = ui->dark_mode ?
+    nk_rgb(35, 37, 42) : nk_rgb(252, 252, 253);
+  struct nk_color row_normal = ui->dark_mode ?
+    nk_rgb(30, 32, 36) : nk_rgb(255, 255, 255);
+  struct nk_color border_color = ui->dark_mode ?
+    nk_rgb(60, 62, 68) : nk_rgb(220, 220, 225);
+  struct nk_color footer_bg = ui->dark_mode ?
+    nk_rgb(40, 42, 48) : nk_rgb(248, 248, 250);
+
+  // Expand/collapse toggle
   ui_render_expand_toggle(ui, ctx, block);
 
-  for (int r = 0; r < td->rows; r++) {
-    nk_layout_row_static(ctx, row_h, (int)col_w, td->cols);
+  if (block->is_collapsed) return;
 
-    for (int c = 0; c < td->cols; c++) {
-      char buf[256];
-      const char *cell = block_table_get_cell(block, r, c);
-      strncpy(buf, cell ? cell : "", sizeof(buf) - 1);
-      buf[sizeof(buf) - 1] = '\0';
+  // =========================================================================
+  // TOOLBAR: Add Column, Add Row
+  // =========================================================================
+  nk_layout_row_dynamic(ctx, toolbar_h, 1);
+  if (nk_group_begin(ctx, "table_toolbar", NK_WINDOW_NO_SCROLLBAR)) {
+    nk_layout_row_template_begin(ctx, 24);
+    nk_layout_row_template_push_static(ctx, 100);
+    nk_layout_row_template_push_static(ctx, 100);
+    nk_layout_row_template_push_variable(ctx, 10);
+    nk_layout_row_template_end(ctx);
 
-      nk_flags flags = NK_EDIT_FIELD;
-      nk_edit_string_zero_terminated(ctx, flags, buf, (int)sizeof(buf) - 1,
-                                     nk_filter_default);
+    // Add Row button
+    if (nk_button_label(ctx, "+ Row")) {
+      if (tbl) {
+        aslan_table_add_row(tbl);
+      } else {
+        // Legacy: add row at end
+        block_table_insert_row(block, td->rows);
+      }
+    }
 
-      if (strcmp(buf, cell ? cell : "") != 0) {
-        block_table_set_cell(block, r, c, buf);
+    // Add Column button (opens type menu)
+    static int show_col_menu = 0;
+    static uint32_t menu_block_id = 0;
+    if (nk_button_label(ctx, "+ Column")) {
+      show_col_menu = !show_col_menu;
+      menu_block_id = block->id;
+    }
+
+    nk_spacing(ctx, 1);
+
+    // Column type menu
+    if (show_col_menu && menu_block_id == block->id) {
+      struct nk_rect bounds = nk_widget_bounds(ctx);
+      if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Add Column",
+                         NK_WINDOW_NO_SCROLLBAR,
+                         nk_rect(bounds.x, bounds.y + 30, 150, 200))) {
+        nk_layout_row_dynamic(ctx, 24, 1);
+
+        const char *types[] = {"Text", "Number", "Checkbox", "Select", "Date", "Formula"};
+        AslanColumnType type_vals[] = {
+          ASLAN_COL_TEXT, ASLAN_COL_NUMBER, ASLAN_COL_CHECKBOX,
+          ASLAN_COL_SELECT, ASLAN_COL_DATE, ASLAN_COL_FORMULA
+        };
+
+        for (int i = 0; i < 6; i++) {
+          char label[64];
+          snprintf(label, sizeof(label), "%s %s",
+                   table_col_type_icon(type_vals[i]), types[i]);
+          if (nk_button_label(ctx, label)) {
+            if (tbl) {
+              char col_name[32];
+              snprintf(col_name, sizeof(col_name), "Column %d",
+                       (int)tbl->column_count + 1);
+              aslan_table_add_column(tbl, col_name, type_vals[i]);
+            } else {
+              block_table_insert_col(block, td->cols);
+            }
+            show_col_menu = 0;
+            nk_popup_close(ctx);
+          }
+        }
+        nk_popup_end(ctx);
+      } else {
+        show_col_menu = 0;
+      }
+    }
+
+    nk_group_end(ctx);
+  }
+
+  // =========================================================================
+  // COLUMNAR TABLE RENDERING
+  // =========================================================================
+  if (tbl && tbl->column_count > 0) {
+    size_t col_count = tbl->column_count;
+    size_t view_count = aslan_table_view_count(tbl);
+
+    // Calculate column widths
+    float *col_widths = (float *)alloca(col_count * sizeof(float));
+    float total_w = row_num_w;
+    for (size_t c = 0; c < col_count; c++) {
+      float w = (float)tbl->columns[c].width_px;
+      if (w < min_col_w) w = min_col_w;
+      if (w > max_col_w) w = max_col_w;
+      col_widths[c] = w;
+      total_w += w;
+    }
+
+    // Scale if needed to fit width
+    if (total_w > width - 20) {
+      float scale = (width - 20 - row_num_w) / (total_w - row_num_w);
+      for (size_t c = 0; c < col_count; c++) {
+        col_widths[c] *= scale;
+        if (col_widths[c] < 60) col_widths[c] = 60;
+      }
+    }
+
+    // -----------------------------------------------------------------------
+    // HEADER ROW
+    // -----------------------------------------------------------------------
+    nk_layout_row_begin(ctx, NK_STATIC, header_h, (int)col_count + 1);
+
+    // Row number header
+    nk_layout_row_push(ctx, row_num_w);
+    struct nk_rect hdr_bounds = nk_widget_bounds(ctx);
+    nk_fill_rect(nk_window_get_canvas(ctx), hdr_bounds, 0, header_bg);
+    nk_label(ctx, "#", NK_TEXT_CENTERED);
+
+    // Column headers
+    for (size_t c = 0; c < col_count; c++) {
+      nk_layout_row_push(ctx, col_widths[c]);
+      hdr_bounds = nk_widget_bounds(ctx);
+      nk_fill_rect(nk_window_get_canvas(ctx), hdr_bounds, 0, header_bg);
+      nk_stroke_rect(nk_window_get_canvas(ctx), hdr_bounds, 0, 1, border_color);
+
+      // Header with icon, name, and sort indicator
+      char header_text[128];
+      const char *sort_icon = "";
+      if (tbl->sort_column == (int)c) {
+        sort_icon = tbl->sort_ascending ? ICON_SORT_ASC : ICON_SORT_DESC;
+      }
+      snprintf(header_text, sizeof(header_text), "%s %s %s",
+               table_col_type_icon(tbl->columns[c].type),
+               tbl->columns[c].name,
+               sort_icon);
+
+      // Make header clickable for sorting
+      if (nk_button_label(ctx, header_text)) {
+        if (tbl->sort_column == (int)c) {
+          // Toggle sort direction
+          aslan_table_sort(tbl, (int)c, !tbl->sort_ascending);
+        } else {
+          // Sort by this column ascending
+          aslan_table_sort(tbl, (int)c, true);
+        }
+      }
+    }
+    nk_layout_row_end(ctx);
+
+    // -----------------------------------------------------------------------
+    // DATA ROWS
+    // -----------------------------------------------------------------------
+    for (size_t v = 0; v < view_count && v < 100; v++) {  // Limit visible rows
+      uint64_t row_id = aslan_table_view_row_id(tbl, (int)v);
+      if (row_id == 0) continue;
+
+      struct nk_color row_bg = (v % 2 == 0) ? row_normal : row_alt;
+
+      nk_layout_row_begin(ctx, NK_STATIC, row_h, (int)col_count + 1);
+
+      // Row number
+      nk_layout_row_push(ctx, row_num_w);
+      struct nk_rect row_bounds = nk_widget_bounds(ctx);
+      nk_fill_rect(nk_window_get_canvas(ctx), row_bounds, 0, row_bg);
+      char row_num[16];
+      snprintf(row_num, sizeof(row_num), "%zu", v + 1);
+      nk_label(ctx, row_num, NK_TEXT_CENTERED);
+
+      // Cells
+      for (size_t c = 0; c < col_count; c++) {
+        nk_layout_row_push(ctx, col_widths[c]);
+        row_bounds = nk_widget_bounds(ctx);
+        nk_fill_rect(nk_window_get_canvas(ctx), row_bounds, 0, row_bg);
+        nk_stroke_rect(nk_window_get_canvas(ctx), row_bounds, 0, 0.5f, border_color);
+
+        AslanColumnType type = tbl->columns[c].type;
+
+        switch (type) {
+          case ASLAN_COL_TEXT: {
+            // Editable text field
+            char buf[256];
+            const char *val = aslan_table_get_text(tbl, (int)c, row_id);
+            strncpy(buf, val ? val : "", sizeof(buf) - 1);
+            buf[sizeof(buf) - 1] = '\0';
+
+            nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, buf,
+                                           sizeof(buf) - 1, nk_filter_default);
+
+            if (strcmp(buf, val ? val : "") != 0) {
+              aslan_table_set_text(tbl, (int)c, row_id, buf);
+            }
+            break;
+          }
+
+          case ASLAN_COL_NUMBER: {
+            // Editable number field
+            char buf[64];
+            double val = aslan_table_get_number(tbl, (int)c, row_id);
+            if (val == (int64_t)val) {
+              snprintf(buf, sizeof(buf), "%lld", (long long)val);
+            } else {
+              snprintf(buf, sizeof(buf), "%.2f", val);
+            }
+
+            nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, buf,
+                                           sizeof(buf) - 1, nk_filter_decimal);
+
+            double new_val = strtod(buf, NULL);
+            if (new_val != val) {
+              aslan_table_set_number(tbl, (int)c, row_id, new_val);
+            }
+            break;
+          }
+
+          case ASLAN_COL_CHECKBOX: {
+            // Checkbox
+            nk_bool checked = aslan_table_get_checkbox(tbl, (int)c, row_id) ? nk_true : nk_false;
+            if (nk_checkbox_label(ctx, "", &checked)) {
+              aslan_table_set_checkbox(tbl, (int)c, row_id, checked ? true : false);
+            }
+            break;
+          }
+
+          case ASLAN_COL_SELECT: {
+            // Dropdown
+            AslanColumn *col = &tbl->columns[c];
+            int sel = aslan_table_get_select(tbl, (int)c, row_id);
+
+            // Build options string
+            char options[512] = "";
+            char *p = options;
+            for (int i = 0; i < col->option_count && i < 10; i++) {
+              if (i > 0) *p++ = '\0';
+              strncpy(p, col->options[i].label, 60);
+              p += strlen(p);
+            }
+            if (col->option_count > 0) {
+              *p++ = '\0';
+            }
+
+            if (col->option_count > 0) {
+              int new_sel = sel < 0 ? 0 : sel;
+              new_sel = nk_combo_string(ctx, options, new_sel,
+                                        col->option_count,
+                                        (int)row_h, nk_vec2(col_widths[c], 150));
+              if (new_sel != sel) {
+                aslan_table_set_select(tbl, (int)c, row_id, new_sel);
+              }
+            } else {
+              nk_label(ctx, "(no options)", NK_TEXT_LEFT);
+            }
+            break;
+          }
+
+          case ASLAN_COL_DATE: {
+            // Date display (simplified - just show formatted date)
+            char buf[32];
+            aslan_table_get_cell_display(tbl, (int)c, row_id, buf, sizeof(buf));
+            nk_label(ctx, buf[0] ? buf : "-", NK_TEXT_LEFT);
+            break;
+          }
+
+          case ASLAN_COL_FORMULA: {
+            // Formula result (read-only)
+            char buf[64];
+            aslan_table_get_cell_display(tbl, (int)c, row_id, buf, sizeof(buf));
+            nk_label(ctx, buf, NK_TEXT_RIGHT);
+            break;
+          }
+
+          default: {
+            char buf[256];
+            aslan_table_get_cell_display(tbl, (int)c, row_id, buf, sizeof(buf));
+            nk_label(ctx, buf, NK_TEXT_LEFT);
+            break;
+          }
+        }
+      }
+      nk_layout_row_end(ctx);
+    }
+
+    // -----------------------------------------------------------------------
+    // FOOTER ROW (Aggregations)
+    // -----------------------------------------------------------------------
+    nk_layout_row_begin(ctx, NK_STATIC, footer_h, (int)col_count + 1);
+
+    // Footer row number cell
+    nk_layout_row_push(ctx, row_num_w);
+    struct nk_rect ftr_bounds = nk_widget_bounds(ctx);
+    nk_fill_rect(nk_window_get_canvas(ctx), ftr_bounds, 0, footer_bg);
+    nk_label(ctx, "", NK_TEXT_CENTERED);
+
+    // Footer cells with aggregations
+    for (size_t c = 0; c < col_count; c++) {
+      nk_layout_row_push(ctx, col_widths[c]);
+      ftr_bounds = nk_widget_bounds(ctx);
+      nk_fill_rect(nk_window_get_canvas(ctx), ftr_bounds, 0, footer_bg);
+      nk_stroke_rect(nk_window_get_canvas(ctx), ftr_bounds, 0, 0.5f, border_color);
+
+      char footer_text[64];
+      aslan_table_get_footer_display(tbl, (int)c, footer_text, sizeof(footer_text));
+
+      if (footer_text[0]) {
+        nk_label(ctx, footer_text, NK_TEXT_RIGHT);
+      } else {
+        // Click to set aggregation
+        if (nk_button_label(ctx, "...")) {
+          // Cycle through aggregation types
+          AslanAggregationType curr = aslan_table_get_footer_agg(tbl, (int)c);
+          AslanColumnType type = tbl->columns[c].type;
+
+          AslanAggregationType next = ASLAN_AGG_NONE;
+          if (type == ASLAN_COL_NUMBER || type == ASLAN_COL_FORMULA) {
+            // Cycle: None -> Sum -> Avg -> Min -> Max -> Count -> None
+            if (curr == ASLAN_AGG_NONE) next = ASLAN_AGG_SUM;
+            else if (curr == ASLAN_AGG_SUM) next = ASLAN_AGG_AVG;
+            else if (curr == ASLAN_AGG_AVG) next = ASLAN_AGG_MIN;
+            else if (curr == ASLAN_AGG_MIN) next = ASLAN_AGG_MAX;
+            else if (curr == ASLAN_AGG_MAX) next = ASLAN_AGG_COUNT;
+            else next = ASLAN_AGG_NONE;
+          } else if (type == ASLAN_COL_CHECKBOX) {
+            // Cycle: None -> Percent -> Count -> None
+            if (curr == ASLAN_AGG_NONE) next = ASLAN_AGG_PERCENT;
+            else if (curr == ASLAN_AGG_PERCENT) next = ASLAN_AGG_COUNT;
+            else next = ASLAN_AGG_NONE;
+          } else {
+            // Cycle: None -> Count -> None
+            if (curr == ASLAN_AGG_NONE) next = ASLAN_AGG_COUNT;
+            else next = ASLAN_AGG_NONE;
+          }
+          aslan_table_set_footer_agg(tbl, (int)c, next);
+        }
+      }
+    }
+    nk_layout_row_end(ctx);
+
+    // Row count info
+    nk_layout_row_dynamic(ctx, 20, 1);
+    char info[64];
+    snprintf(info, sizeof(info), "%zu rows", view_count);
+    nk_label(ctx, info, NK_TEXT_LEFT);
+
+  } else {
+    // =========================================================================
+    // LEGACY TABLE RENDERING (fallback for old tables)
+    // =========================================================================
+    if (td->rows <= 0 || td->cols <= 0) {
+      nk_layout_row_dynamic(ctx, 30, 1);
+      nk_label(ctx, "Empty table - click '+ Row' to add data", NK_TEXT_CENTERED);
+      return;
+    }
+
+    for (int r = 0; r < td->rows; r++) {
+      nk_layout_row_static(ctx, row_h, 120, td->cols);
+
+      for (int c = 0; c < td->cols; c++) {
+        char buf[256];
+        const char *cell = block_table_get_cell(block, r, c);
+        strncpy(buf, cell ? cell : "", sizeof(buf) - 1);
+        buf[sizeof(buf) - 1] = '\0';
+
+        nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, buf,
+                                       sizeof(buf) - 1, nk_filter_default);
+
+        if (strcmp(buf, cell ? cell : "") != 0) {
+          block_table_set_cell(block, r, c, buf);
+        }
       }
     }
   }

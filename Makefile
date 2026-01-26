@@ -12,6 +12,7 @@ FRAMEWORKS = -framework Cocoa -framework CoreGraphics -framework ImageIO
 
 CORE_SRC = src/document/document.c \
            src/document/spatial_index.c \
+           src/document/aslan_table.c \
            src/scripting/lua_host.c \
            src/scripting/lua_nk.c \
            src/platform/platform.c \
