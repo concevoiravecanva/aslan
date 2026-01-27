@@ -4531,6 +4531,17 @@ void ui_render_block_audio(UIHost *ui, Engine *engine, struct nk_context *ctx,
   nk_spacing(ctx, 1);
 }
 
+// -----------------------------------------------------------------------------
+// Lua Host (scripting_run_visual and scripting_load_plugins are in lua_host.c)
+// -----------------------------------------------------------------------------
+
+// Global pointer to the LuaData of the currently running script, for callbacks
+// This is defined in lua_host.c
+// extern LuaData *g_current_running_lua;
+
+// This function is defined in lua_host.c
+// int scripting_run_visual(lua_State *L, void *lua_data);
+
 void ui_render_block_lua(UIHost *ui, Engine *engine, struct nk_context *ctx,
                          Block *block, float width) {
   if (!block || block->type != BLOCK_LUA)
@@ -4538,36 +4549,9 @@ void ui_render_block_lua(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   LuaData *ld = &block->data.lua;
 
-  // Code editor
-  nk_layout_row_dynamic(ctx, 150.0f, 1);
-
-  struct nk_rect bounds = nk_widget_bounds(ctx);
-  struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-
-  nk_fill_rect(canvas, bounds, 0, nk_rgb(35, 35, 40));
-  nk_stroke_rect(canvas, bounds, 0, 1.0f, COLOR_ACCENT);
-
-  // Code editing
-  if (ui->font_mono) {
-    nk_style_set_font(ctx, &ui->font_mono->handle);
-  }
-
-  char buf[4096];
-  strncpy(buf, ld->code ? ld->code : "-- Lua script\n", sizeof(buf) - 1);
-  buf[sizeof(buf) - 1] = '\0';
-
-  nk_layout_row_dynamic(ctx, 120.0f, 1);
-  nk_flags flags = NK_EDIT_BOX | NK_EDIT_MULTILINE;
-  nk_edit_string_zero_terminated(ctx, flags, buf, (int)sizeof(buf) - 1,
-                                 nk_filter_default);
-
-  if (strcmp(buf, ld->code ? ld->code : "") != 0) {
-    block_lua_set_code(block, buf);
-  }
-
-  // Run button
-  nk_layout_row_static(ctx, 24.0f, 32, 2);
-  if (ui_icon_button(ui, ICON_PLAY)) {
+  // Header/Toolbar
+  nk_layout_row_static(ctx, 24.0f, 32, 4);
+  if (ui_icon_button(ui, ld->is_running ? ICON_STOP : ICON_PLAY)) {
     if (ui->L) {
       block_lua_execute(block, ui->L);
     }
@@ -4575,18 +4559,76 @@ void ui_render_block_lua(UIHost *ui, Engine *engine, struct nk_context *ctx,
   if (ui_icon_button(ui, ICON_DELETE)) {
     block_lua_clear_output(block);
   }
-
-  // Restore mono font for output
-  if (ui->font_mono) {
-    nk_style_set_font(ctx, &ui->font_mono->handle);
+  // Visual Mode Toggle
+  if (nk_button_label(ctx, ld->is_visual ? "Visual: ON" : "Visual: OFF")) {
+    ld->is_visual = !ld->is_visual;
   }
 
-  // Output
+  // --- SPLIT VIEW ---
+  // Left: Editor, Right: Rendering Area
+  float edit_h = 250.0f;
+  nk_layout_row_begin(ctx, NK_STATIC, edit_h, 2);
+  nk_layout_row_push(ctx, width * 0.6f);
+
+  // Group for Editor
+  if (nk_group_begin(ctx, "lua_editor", NK_WINDOW_NO_SCROLLBAR)) {
+    nk_layout_row_dynamic(ctx, edit_h - 10, 1);
+    char buf[4096];
+    strncpy(buf, ld->code ? ld->code : "", sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+
+    if (ui->font_mono)
+      nk_style_push_font(ctx, &ui->font_mono->handle);
+
+    nk_edit_string_zero_terminated(ctx, NK_EDIT_BOX | NK_EDIT_MULTILINE, buf,
+                                   sizeof(buf) - 1, nk_filter_default);
+
+    if (ui->font_mono)
+      nk_style_pop_font(ctx);
+
+    if (strcmp(buf, ld->code ? ld->code : "") != 0) {
+      block_lua_set_code(block, buf);
+    }
+    nk_group_end(ctx);
+  }
+
+  nk_layout_row_push(ctx, width * 0.35f);
+  // Group for Rendering Preview
+  if (nk_group_begin(ctx, "lua_render", NK_WINDOW_BORDER)) {
+    struct nk_rect r = nk_window_get_content_region(ctx);
+    struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+    nk_fill_rect(canvas, r, 0, nk_rgb(20, 20, 25));
+    nk_draw_text(canvas, nk_rect(r.x + 10, r.y + 10, r.w, 20), "Preview Area",
+                 12, &ui->font_inter->handle, nk_rgba(0, 0, 0, 0),
+                 nk_rgb(100, 100, 120));
+
+    // If visualizing, we could call a callback here
+    if (ld->is_visual && ui->L) {
+      scripting_run_visual(ui->L, ld);
+    }
+
+    nk_group_end(ctx);
+  }
+  nk_layout_row_end(ctx);
+
+  // --- CONSOLE (Bottom) ---
   if (ld->output && ld->output_len > 0) {
-    nk_layout_row_dynamic(ctx, 60.0f, 1);
-    struct nk_color out_color =
-        ld->has_error ? nk_rgb(255, 100, 100) : COLOR_TEXT_DIM;
-    nk_label_colored_wrap(ctx, ld->output, out_color);
+    nk_layout_row_dynamic(ctx, 80.0f, 1);
+    if (nk_group_begin(ctx, "lua_console", NK_WINDOW_BORDER)) {
+      nk_layout_row_dynamic(ctx, 15.0f, 1);
+      if (ui->font_mono)
+        nk_style_push_font(ctx, &ui->font_mono->handle);
+
+      struct nk_color out_color =
+          ld->has_error ? nk_rgb(255, 100, 100) : nk_rgb(200, 200, 200);
+
+      // Simple multiline display (could be improved with a list)
+      nk_label_colored_wrap(ctx, ld->output, out_color);
+
+      if (ui->font_mono)
+        nk_style_pop_font(ctx);
+      nk_group_end(ctx);
+    }
   }
 
   if (ui->font_inter) {

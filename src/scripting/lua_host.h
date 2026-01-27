@@ -22,6 +22,7 @@ typedef struct lua_State lua_State;
 // --- Lifecycle ---
 lua_State *scripting_init(struct Engine *engine);
 void scripting_shutdown(lua_State *L);
+lua_State *aslan_lua_init(struct Engine *engine); // Sandboxed for notebooks
 
 // --- Configuration ---
 void scripting_set_base_dir(const char *base_dir);
@@ -31,11 +32,15 @@ void scripting_set_key_mods(int mods);
 
 // --- Script Execution ---
 int scripting_run_file(lua_State *L, const char *filepath);
+int scripting_run_code(lua_State *L, void *lua_data);
+int scripting_run_visual(lua_State *L, void *lua_data);
 int scripting_load_plugins(lua_State *L);
 
 // --- Event Callbacks ---
-void scripting_call_event(lua_State *L, const char *func_name, float x, float y);
-void scripting_call_key_event(lua_State *L, const char *func_name, int key, int mods);
+void scripting_call_event(lua_State *L, const char *func_name, float x,
+                          float y);
+void scripting_call_key_event(lua_State *L, const char *func_name, int key,
+                              int mods);
 
 // --- UI Rendering (inside Nuklear context) ---
 void scripting_call_ui_render(lua_State *L);

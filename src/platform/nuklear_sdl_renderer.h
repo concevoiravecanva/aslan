@@ -298,7 +298,7 @@ NK_API SDL_Texture *nk_sdl_get_font_texture(void) { return sdl.ogl.font_tex; }
 
 NK_API int nk_sdl_handle_event(SDL_Event *evt) {
   struct nk_context *ctx = &sdl.ctx;
-  int ctrl_down = SDL_GetModState() & KMOD_CTRL;
+  int ctrl_down = SDL_GetModState() & (KMOD_CTRL | KMOD_GUI);
   static int insert_toggle = 0;
 
   switch (evt->type) {

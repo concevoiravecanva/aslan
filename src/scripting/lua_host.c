@@ -1,8 +1,10 @@
 #include "lua_host.h"
 #include "../core/engine.h"
+#include "../document/aslan_table.h"
 #include <dirent.h>
 #include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -28,6 +30,18 @@ int scripting_run_file(lua_State *L, const char *filepath) {
   return 0;
 }
 
+int scripting_run_code(lua_State *L, void *lua_data) {
+  (void)L;
+  (void)lua_data;
+  return 0;
+}
+
+int scripting_run_visual(lua_State *L, void *lua_data) {
+  (void)L;
+  (void)lua_data;
+  return 0;
+}
+
 void scripting_set_document(Document *doc) { (void)doc; }
 void scripting_set_engine(Engine *engine) { (void)engine; }
 int scripting_load_plugins(lua_State *L) {
@@ -45,6 +59,7 @@ void scripting_hot_reload_check(lua_State *L) { (void)L; }
 static Document *g_current_doc = NULL;
 static Engine *g_current_engine = NULL;
 static char g_script_base_dir[PATH_MAX] = {0};
+static LuaData *g_current_running_lua = NULL;
 
 // =============================================================================
 // Hot-Reload System
@@ -569,10 +584,68 @@ static int l_get_global(lua_State *L) {
 // Lua Bindings: Utility
 // =============================================================================
 
-// lua: aslan.print(msg)
-static int l_print(lua_State *L) {
+// lua: Aslan.get_cell(row, col)
+static int l_notebook_get_cell(lua_State *L) {
+  int row = (int)luaL_checkinteger(L, 1);
+  int col = (int)luaL_checkinteger(L, 2);
+
+  Page *page = doc_page_get_active(g_current_doc);
+  if (!page)
+    return 0;
+
+  // Find first table on page
+  Block *tbl_block = NULL;
+  for (Block *b = page->first_block; b; b = b->next) {
+    if (b->type == BLOCK_TABLE) {
+      tbl_block = b;
+      break;
+    }
+  }
+
+  if (tbl_block && tbl_block->data.table.columnar) {
+    AslanTable *tbl = tbl_block->data.table.columnar;
+    if (row >= 0 && (size_t)row < aslan_table_view_count(tbl) && col >= 0 &&
+        (size_t)col < tbl->column_count) {
+      uint64_t row_id = aslan_table_view_row_id(tbl, row);
+      char buf[ASLAN_TABLE_MAX_STRING_LEN];
+      aslan_table_get_cell_display(tbl, col, row_id, buf, sizeof(buf));
+      lua_pushstring(L, buf);
+      return 1;
+    }
+  }
+  return 0;
+}
+
+// Redirected print for notebooks
+static int l_notebook_print(lua_State *L) {
+  int n = lua_gettop(L);
+  if (n == 0)
+    return 0;
+
   const char *msg = luaL_checkstring(L, 1);
-  printf("[LUA] %s\n", msg);
+  if (g_current_running_lua) {
+    size_t len = strlen(msg);
+    if (!g_current_running_lua->output) {
+      g_current_running_lua->output_cap = 1024;
+      g_current_running_lua->output =
+          calloc(1, g_current_running_lua->output_cap);
+      g_current_running_lua->output_len = 0;
+    }
+
+    if (g_current_running_lua->output_len + len + 2 >=
+        g_current_running_lua->output_cap) {
+      g_current_running_lua->output_cap *= 2;
+      g_current_running_lua->output = realloc(
+          g_current_running_lua->output, g_current_running_lua->output_cap);
+    }
+
+    if (g_current_running_lua->output) {
+      strcat(g_current_running_lua->output, msg);
+      strcat(g_current_running_lua->output, "\n");
+      g_current_running_lua->output_len = strlen(g_current_running_lua->output);
+    }
+  }
+  printf("[LUA NOTEBOOK] %s\n", msg);
   return 0;
 }
 
@@ -583,7 +656,7 @@ static int l_print(lua_State *L) {
 static const luaL_Reg aslan_funcs[] = {
     // Core
     {"execute", l_execute},
-    {"print", l_print},
+    {"print", l_notebook_print},
 
     // Document
     {"get_page_count", l_get_page_count},
@@ -617,6 +690,39 @@ static const luaL_Reg aslan_funcs[] = {
 // =============================================================================
 // Initialization
 // =============================================================================
+
+lua_State *aslan_lua_init(Engine *engine) {
+  lua_State *L = luaL_newstate();
+  if (!L)
+    return NULL;
+
+  // Sandbox: Load only safe libraries
+  luaL_requiref(L, "_G", luaopen_base, 1);
+  lua_pop(L, 1);
+  luaL_requiref(L, "table", luaopen_table, 1);
+  lua_pop(L, 1);
+  luaL_requiref(L, "string", luaopen_string, 1);
+  lua_pop(L, 1);
+  luaL_requiref(L, "math", luaopen_math, 1);
+  lua_pop(L, 1);
+
+  // Register Aslan global table
+  static const luaL_Reg aslan_lib[] = {{"get_cell", l_notebook_get_cell},
+                                       {NULL, NULL}};
+  luaL_newlib(L, aslan_lib);
+  lua_setglobal(L, "Aslan");
+
+  // Redirect print
+  lua_pushcfunction(L, l_notebook_print);
+  lua_setglobal(L, "print");
+
+  g_current_engine = engine;
+  if (engine)
+    g_current_doc = engine->doc;
+
+  printf("[LUA] Notebook sandbox initialized\n");
+  return L;
+}
 
 lua_State *scripting_init(Engine *engine) {
   lua_State *L = luaL_newstate();
@@ -684,6 +790,97 @@ int scripting_run_file(lua_State *L, const char *filepath) {
   return 1;
 }
 
+int scripting_run_code(lua_State *L, void *lua_data) {
+  if (!L || L == (lua_State *)1 || !lua_data)
+    return 0;
+
+  LuaData *ld = (LuaData *)lua_data;
+
+  // Ensure output buffer exists
+  if (!ld->output) {
+    ld->output_cap = 4096;
+    ld->output = calloc(1, ld->output_cap);
+    ld->output_len = 0;
+  }
+
+  // Clear previous output/error state
+  if (ld->output) {
+    ld->output[0] = '\0';
+    ld->output_len = 0;
+  }
+  ld->has_error = false;
+
+  // Set redirection context
+  g_current_running_lua = ld;
+
+  // Step 1: Compile (check syntax)
+  if (luaL_loadstring(L, ld->code) != LUA_OK) {
+    const char *err = lua_tostring(L, -1);
+    if (ld->output) {
+      snprintf(ld->output, ld->output_cap, "[COMPILE ERROR] %s", err);
+      ld->output_len = strlen(ld->output);
+    }
+    ld->has_error = true;
+    ld->is_compiled = false;
+    lua_pop(L, 1);
+    g_current_running_lua = NULL;
+    return 0;
+  }
+
+  ld->is_compiled = true;
+
+  // Step 2: Execute (run bytecode)
+  if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+    const char *err = lua_tostring(L, -1);
+    if (ld->output) {
+      size_t current_len = strlen(ld->output);
+      snprintf(ld->output + current_len, ld->output_cap - current_len,
+               "\n[RUNTIME ERROR] %s", err);
+      ld->output_len = strlen(ld->output);
+    }
+    ld->has_error = true;
+    lua_pop(L, 1);
+    g_current_running_lua = NULL;
+    return 0;
+  }
+
+  g_current_running_lua = NULL;
+  return 1;
+}
+
+int scripting_run_visual(lua_State *L, void *lua_data) {
+  if (!L || L == (lua_State *)1 || !lua_data)
+    return 0;
+
+  LuaData *ld = (LuaData *)lua_data;
+  if (!ld->is_visual || ld->has_error)
+    return 0;
+
+  g_current_running_lua = ld;
+
+  // Try to call on_render()
+  lua_getglobal(L, "on_render");
+  if (lua_isfunction(L, -1)) {
+    if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
+      const char *err = lua_tostring(L, -1);
+      if (ld->output) {
+        size_t current_len = strlen(ld->output);
+        snprintf(ld->output + current_len, ld->output_cap - current_len,
+                 "\n[VISUAL ERROR] %s", err);
+        ld->output_len = strlen(ld->output);
+      }
+      ld->has_error = true;
+      lua_pop(L, 1);
+      g_current_running_lua = NULL;
+      return 0;
+    }
+  } else {
+    lua_pop(L, 1);
+  }
+
+  g_current_running_lua = NULL;
+  return 1;
+}
 int scripting_load_plugins(lua_State *L) {
   if (!L || L == (lua_State *)1)
     return 0;

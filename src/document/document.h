@@ -42,7 +42,7 @@ typedef enum {
   BLOCK_DESIGN,    // Finite design surface (Canva-style)
 
   BLOCK_VIDEO = 10,
-  BLOCK_AUDIO,       // Voice recording block with transcription
+  BLOCK_AUDIO, // Voice recording block with transcription
   BLOCK_COUNT
 } BlockType;
 
@@ -124,8 +124,8 @@ typedef struct {
   TableViewMode view_mode;
 
   // New columnar engine (NULL if using legacy mode)
-  struct AslanTable *columnar;  // High-performance column-store
-  int use_columnar;             // 1 = use new engine, 0 = legacy
+  struct AslanTable *columnar; // High-performance column-store
+  int use_columnar;            // 1 = use new engine, 0 = legacy
 } TableData;
 
 // --- Canvas Block Data (Infinite) ---
@@ -165,31 +165,32 @@ typedef struct {
 
 // Single design page (slide)
 typedef struct DesignPage {
-  Node *root;           // Node tree root for this page
-  uint32_t bg_color;    // Per-page background color
+  Node *root;        // Node tree root for this page
+  uint32_t bg_color; // Per-page background color
 } DesignPage;
 
 typedef struct {
-  DesignPage *pages;    // Array of pages
-  int page_count;       // Number of pages
-  int page_capacity;    // Allocated capacity
-  int current_page;     // Currently displayed page index
+  DesignPage *pages; // Array of pages
+  int page_count;    // Number of pages
+  int page_capacity; // Allocated capacity
+  int current_page;  // Currently displayed page index
   uint32_t next_node_id;
-  int width, height;    // Fixed dimensions in pixels (same for all pages)
-  float zoom;           // View zoom
-  uint32_t bg_color;    // Default background color for new pages
+  int width, height; // Fixed dimensions in pixels (same for all pages)
+  float zoom;        // View zoom
+  uint32_t bg_color; // Default background color for new pages
 
-  // Legacy: single root for backwards compatibility (points to current page's root)
+  // Legacy: single root for backwards compatibility (points to current page's
+  // root)
   Node *root;
 } DesignData;
 
 // --- Transcript Segment (for video/audio transcription) ---
 typedef struct {
-  int start_ms;       // Start time in milliseconds
-  int end_ms;         // End time in milliseconds
-  char text[512];     // Transcribed text
-  int word_count;     // Number of words
-  int is_deleted;     // 1 if user deleted this segment (Descript-style)
+  int start_ms;   // Start time in milliseconds
+  int end_ms;     // End time in milliseconds
+  char text[512]; // Transcribed text
+  int word_count; // Number of words
+  int is_deleted; // 1 if user deleted this segment (Descript-style)
 } TranscriptSeg;
 
 // --- Video Block Data (Descript-style) ---
@@ -214,18 +215,18 @@ typedef struct {
   TranscriptSeg *transcript;
   int transcript_count;
   int transcript_capacity;
-  int is_transcribing;     // 1 if transcription in progress
-  int selected_segment;    // Currently selected segment (-1 = none)
-  char language[8];        // Detected language
+  int is_transcribing;  // 1 if transcription in progress
+  int selected_segment; // Currently selected segment (-1 = none)
+  char language[8];     // Detected language
 } VideoData;
 
 // --- Audio Block Data (Voice recording with transcription) ---
 typedef struct {
-  char audio_path[256];    // Path to recorded audio file
-  float *samples;          // Audio samples (16kHz mono float32)
+  char audio_path[256]; // Path to recorded audio file
+  float *samples;       // Audio samples (16kHz mono float32)
   int sample_count;
   int sample_capacity;
-  int is_recording;        // 1 if currently recording
+  int is_recording; // 1 if currently recording
   int is_playing;
 
   // Transcript
@@ -243,8 +244,11 @@ typedef struct {
   size_t code_cap;
   char *output; // Last execution output
   size_t output_len;
+  size_t output_cap;
   bool has_error;
   bool is_running;
+  bool is_visual;   // 60 FPS visual mode
+  bool is_compiled; // Has bytecode ready
 } LuaData;
 
 // =============================================================================

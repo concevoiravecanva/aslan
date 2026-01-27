@@ -1,6 +1,7 @@
 #include "document.h"
-#include "spatial_index.h"
+#include "../scripting/lua_host.h"
 #include "aslan_table.h"
+#include "spatial_index.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1481,7 +1482,8 @@ int block_design_add_page(Block *block) {
   // Grow array if needed
   if (dd->page_count >= dd->page_capacity) {
     int new_cap = dd->page_capacity * 2;
-    DesignPage *new_pages = (DesignPage *)realloc(dd->pages, new_cap * sizeof(DesignPage));
+    DesignPage *new_pages =
+        (DesignPage *)realloc(dd->pages, new_cap * sizeof(DesignPage));
     if (!new_pages)
       return -1;
     dd->pages = new_pages;
@@ -1765,8 +1767,8 @@ void block_video_set_transcript(Block *block, TranscriptSeg *segs, int count) {
 
   // Copy segments
   vd->transcript_capacity = count > 0 ? count : 1;
-  vd->transcript = (TranscriptSeg *)calloc(vd->transcript_capacity,
-                                            sizeof(TranscriptSeg));
+  vd->transcript =
+      (TranscriptSeg *)calloc(vd->transcript_capacity, sizeof(TranscriptSeg));
   if (vd->transcript && segs) {
     memcpy(vd->transcript, segs, count * sizeof(TranscriptSeg));
     vd->transcript_count = count;
@@ -1840,7 +1842,8 @@ void block_audio_start_recording(Block *block) {
 
   // Allocate initial sample buffer (16kHz, 30 seconds)
   ad->sample_capacity = 16000 * 30;
-  ad->samples = (float *)realloc(ad->samples, ad->sample_capacity * sizeof(float));
+  ad->samples =
+      (float *)realloc(ad->samples, ad->sample_capacity * sizeof(float));
   ad->sample_count = 0;
 }
 
@@ -1860,8 +1863,8 @@ void block_audio_set_transcript(Block *block, TranscriptSeg *segs, int count) {
   free(ad->transcript);
 
   ad->transcript_capacity = count > 0 ? count : 1;
-  ad->transcript = (TranscriptSeg *)calloc(ad->transcript_capacity,
-                                            sizeof(TranscriptSeg));
+  ad->transcript =
+      (TranscriptSeg *)calloc(ad->transcript_capacity, sizeof(TranscriptSeg));
   if (ad->transcript && segs) {
     memcpy(ad->transcript, segs, count * sizeof(TranscriptSeg));
     ad->transcript_count = count;
@@ -1902,8 +1905,11 @@ void block_lua_init(Block *block) {
   ld->code_cap = 0;
   ld->output = NULL;
   ld->output_len = 0;
+  ld->output_cap = 0;
   ld->has_error = false;
   ld->is_running = false;
+  ld->is_visual = false;
+  ld->is_compiled = false;
 }
 
 void block_lua_destroy(Block *block) {
@@ -1915,6 +1921,8 @@ void block_lua_destroy(Block *block) {
   free(ld->output);
   ld->code = NULL;
   ld->output = NULL;
+  ld->output_len = 0;
+  ld->output_cap = 0;
 }
 
 void block_lua_set_code(Block *block, const char *code) {
@@ -1945,14 +1953,8 @@ void block_lua_execute(Block *block, struct lua_State *L) {
   if (!block || block->type != BLOCK_LUA || !L)
     return;
 
-  // Lua execution would go here
-  // For now, just set a placeholder output
   LuaData *ld = &block->data.lua;
-
-  free(ld->output);
-  ld->output = aslan_strdup("[Execution pending - Lua integration required]");
-  ld->output_len = strlen(ld->output);
-  ld->has_error = false;
+  scripting_run_code(L, ld);
 }
 
 void block_lua_clear_output(Block *block) {
