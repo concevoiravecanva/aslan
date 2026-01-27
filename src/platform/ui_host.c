@@ -387,10 +387,8 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       cs->mouse_just_released = 1;
       ui->design_state.mouse_just_released = 1; // Also track for design
 
-      // Stop panning if was space+left panning
-      if (cs->space_held) {
-        cs->is_panning = 0;
-      }
+      // Stop panning
+      cs->is_panning = 0;
 
       // Stop dragging node
       cs->is_dragging_node = 0;
@@ -1953,6 +1951,7 @@ static void canvas_render_sub_menu(UIHost *ui, struct nk_context *ctx,
             cs->tool = CANVAS_TOOL_SELECT;
             cs->space_held = 0;    // Disable pan mode
             cs->pan_from_menu = 0; // Clear menu pan
+            cs->is_panning = 0;    // Stop any active panning
           } else if (i == 1) {
             cs->pan_from_menu = 1; // Enable pan mode from menu
             cs->space_held = 1;    // Enable pan mode (hand tool)
@@ -1961,6 +1960,7 @@ static void canvas_render_sub_menu(UIHost *ui, struct nk_context *ctx,
           // Set pending_create to 10-13 for shapes
           cs->space_held = 0;    // Disable pan mode
           cs->pan_from_menu = 0; // Clear menu pan
+          cs->is_panning = 0;    // Stop any active panning
           if (sub_opts[i] == CANVAS_SUB_SHAPE_RECT)
             cs->pending_create = 10;
           else if (sub_opts[i] == CANVAS_SUB_SHAPE_ELLIPSE)
@@ -1973,6 +1973,7 @@ static void canvas_render_sub_menu(UIHost *ui, struct nk_context *ctx,
           cs->tool = CANVAS_TOOL_SELECT;
           cs->space_held = 0;    // Disable pan mode
           cs->pan_from_menu = 0; // Clear menu pan
+          cs->is_panning = 0;    // Stop any active panning
           // H1=6, Body=1, Sticky=2
           if (sub_opts[i] == CANVAS_SUB_TEXT_HEADING)
             cs->pending_create = 6;
@@ -1984,6 +1985,7 @@ static void canvas_render_sub_menu(UIHost *ui, struct nk_context *ctx,
           cs->tool = CANVAS_TOOL_SELECT;
           cs->space_held = 0;    // Disable pan mode
           cs->pan_from_menu = 0; // Clear menu pan
+          cs->is_panning = 0;    // Stop any active panning
           if (sub_opts[i] == CANVAS_SUB_MEDIA_IMAGE)
             cs->pending_create = 3;
           else if (sub_opts[i] == CANVAS_SUB_MEDIA_VIDEO)
