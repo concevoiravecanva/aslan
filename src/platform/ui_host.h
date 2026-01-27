@@ -42,12 +42,44 @@ typedef enum {
 } CanvasToolMode;
 
 // -----------------------------------------------------------------------------
+// Canvas Tool Categories and Sub-options
+// -----------------------------------------------------------------------------
+
+typedef enum {
+  CANVAS_CAT_SELECT = 0,
+  CANVAS_CAT_SHAPES,
+  CANVAS_CAT_TEXT,
+  CANVAS_CAT_MEDIA
+} CanvasCategory;
+
+typedef enum {
+  CANVAS_SUB_NONE = 0,
+  // Shapes
+  CANVAS_SUB_SHAPE_RECT,
+  CANVAS_SUB_SHAPE_ELLIPSE,
+  CANVAS_SUB_SHAPE_TRIANGLE,
+  CANVAS_SUB_SHAPE_LINE,
+  // Text
+  CANVAS_SUB_TEXT_HEADING,
+  CANVAS_SUB_TEXT_BODY,
+  CANVAS_SUB_TEXT_STICKY,
+  // Media
+  CANVAS_SUB_MEDIA_IMAGE,
+  CANVAS_SUB_MEDIA_VIDEO,
+  CANVAS_SUB_MEDIA_AUDIO
+} CanvasSubOption;
+
+// -----------------------------------------------------------------------------
 // Canvas Interaction State (stored per-canvas in UIHost)
 // -----------------------------------------------------------------------------
 
 typedef struct {
   // Current tool
   CanvasToolMode tool;
+
+  // Categorized toolbar state
+  CanvasCategory active_cat;
+  int show_sub_menu;
 
   // Camera state
   float cam_x, cam_y;
@@ -76,7 +108,7 @@ typedef struct {
   int mouse_just_pressed;  // Left button just pressed this frame
   int mouse_just_released; // Left button just released this frame
 
-  // Forms menu state
+  // Forms menu state (Legacy, will be replaced by active_cat logic)
   int show_forms_menu;
 
   // Pending element creation (from toolbar click)

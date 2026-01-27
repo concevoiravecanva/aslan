@@ -62,11 +62,13 @@ typedef enum {
   NODE_TYPE_RECT = 1,
   NODE_TYPE_TEXT = 2,
   NODE_TYPE_IMAGE = 3,
-  NODE_TYPE_FRAME = 4,   // Container frame (Figma-like)
-  NODE_TYPE_GROUP = 5,   // Logical grouping
-  NODE_TYPE_LINE = 6,    // Line/arrow
-  NODE_TYPE_ELLIPSE = 7, // Circle/ellipse
-  NODE_TYPE_TRIANGLE = 8 // Triangle
+  NODE_TYPE_FRAME = 4,    // Container frame (Figma-like)
+  NODE_TYPE_GROUP = 5,    // Logical grouping
+  NODE_TYPE_LINE = 6,     // Line/arrow
+  NODE_TYPE_ELLIPSE = 7,  // Circle/ellipse
+  NODE_TYPE_TRIANGLE = 8, // Triangle
+  NODE_TYPE_VIDEO = 9,
+  NODE_TYPE_AUDIO = 10
 } NodeType;
 
 // =============================================================================
