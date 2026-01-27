@@ -1157,8 +1157,10 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       // Notion Style Header: Anthracite gray text, slightly transparent icons
       struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
       const char *icon = table_col_type_icon(tbl->columns[c].type);
-      struct nk_color header_text_col = nk_rgb(55, 53, 47);
-      struct nk_color icon_col = nk_rgba(55, 53, 47, 128); // 50% opacity
+      struct nk_color header_text_col =
+          ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(55, 53, 47);
+      struct nk_color icon_col = ui->dark_mode ? nk_rgba(220, 220, 225, 128)
+                                               : nk_rgba(55, 53, 47, 128);
 
       // Draw Icon and Text manually with font switching
       if (ui->font_icons) {
@@ -1196,9 +1198,14 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     // -----------------------------------------------------------------------
     // DATA ROWS
     // -----------------------------------------------------------------------
-    struct nk_color notion_white = nk_rgb(255, 255, 255);
-    struct nk_color notion_border = nk_rgb(235, 236, 237);
-    struct nk_color notion_text = nk_rgb(55, 53, 47);
+    struct nk_color notion_row_bg =
+        ui->dark_mode ? nk_rgb(30, 32, 36) : nk_rgb(255, 255, 255);
+    struct nk_color notion_border =
+        ui->dark_mode ? nk_rgb(60, 62, 68) : nk_rgb(235, 236, 237);
+    struct nk_color notion_text =
+        ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(55, 53, 47);
+    struct nk_color vert_sep =
+        ui->dark_mode ? nk_rgb(45, 47, 52) : nk_rgb(245, 246, 247);
 
     for (size_t v = 0; v < view_count && v < 100; v++) { // Limit visible rows
       uint64_t row_id = aslan_table_view_row_id(tbl, (int)v);
@@ -1206,7 +1213,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         continue;
 
       // Notion style: Pure white background for everything
-      struct nk_color row_bg = notion_white;
+      struct nk_color row_bg = notion_row_bg;
 
       // Data Row Layout Template
       nk_layout_row_template_begin(ctx, row_h);
@@ -1219,7 +1226,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       // Row number
       struct nk_rect row_num_bounds = nk_widget_bounds(ctx);
       nk_fill_rect(nk_window_get_canvas(ctx), row_num_bounds, 0, row_bg);
-      // Bottom border only
+      // Bottom border only: Notion style
       nk_stroke_line(nk_window_get_canvas(ctx), row_num_bounds.x,
                      row_num_bounds.y + row_num_bounds.h,
                      row_num_bounds.x + row_num_bounds.w,
@@ -1262,8 +1269,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           nk_stroke_line(canvas, 0, row_h - 1, col_widths[c], row_h - 1, 1.0f,
                          notion_border);
           nk_stroke_line(canvas, col_widths[c] - 1, 0, col_widths[c] - 1, row_h,
-                         1.0f,
-                         nk_rgb(245, 246, 247)); // Faint vertical separator
+                         1.0f, vert_sep); // Faint vertical separator
 
           // Global padding for cell content: 10px left
           nk_style_push_vec2(ctx, &ctx->style.text.padding, nk_vec2(10, 0));
