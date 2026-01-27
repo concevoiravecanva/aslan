@@ -1238,7 +1238,6 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         // Scope each cell with a group to avoid widget ID conflicts
         if (nk_group_begin(ctx, cell_id, NK_WINDOW_NO_SCROLLBAR)) {
           nk_layout_row_dynamic(ctx, row_h, 1);
-          struct nk_rect row_bounds = nk_widget_bounds(ctx);
           struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
 
           // Notion Aesthetic: Only horizontal bottom border
@@ -1248,19 +1247,10 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           AslanColumnType type = tbl->columns[c].type;
           int is_active = (ui->table_state.active_row_idx == (int)v &&
                            ui->table_state.active_col_idx == (int)c);
-          int is_editing = (is_active && ui->table_state.is_editing_cell);
+          // Interaction: Updates active cell based on edit widget focus
 
-          // Interaction: Detect click to select/edit
-          if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
-                                              nk_layout_space_bounds(ctx))) {
-            if (is_active) {
-              ui->table_state.is_editing_cell = 1;
-            } else {
-              ui->table_state.active_row_idx = (int)v;
-              ui->table_state.active_col_idx = (int)c;
-              ui->table_state.is_editing_cell = 0;
-            }
-          }
+          // Interaction: Updates active cell based on edit widget focus
+          // We rely on nk_edit_string returning NK_EDIT_ACTIVE/ACTIVATED
 
           // Active Cell Highlight (Notion-blue tint)
           if (is_active) {
@@ -1285,14 +1275,18 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             strncpy(buf, val ? val : "", sizeof(buf) - 1);
             buf[sizeof(buf) - 1] = '\0';
 
-            if (is_editing) {
-              nk_edit_string_zero_terminated(
-                  ctx, NK_EDIT_FIELD, buf, sizeof(buf) - 1, nk_filter_default);
-              if (strcmp(buf, val ? val : "") != 0) {
-                aslan_table_set_text(tbl, (int)c, row_id, buf);
-              }
-            } else {
-              nk_label(ctx, buf[0] ? buf : "", NK_TEXT_LEFT);
+            nk_flags res = nk_edit_string_zero_terminated(
+                ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT, buf, sizeof(buf) - 1,
+                nk_filter_default);
+
+            if (res & NK_EDIT_ACTIVATED) {
+              ui->table_state.active_row_idx = (int)v;
+              ui->table_state.active_col_idx = (int)c;
+              ui->table_state.is_editing_cell = 1;
+            }
+
+            if (strcmp(buf, val ? val : "") != 0) {
+              aslan_table_set_text(tbl, (int)c, row_id, buf);
             }
             break;
           }
@@ -1306,15 +1300,19 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               snprintf(buf, sizeof(buf), "%.2f", val);
             }
 
-            if (is_editing) {
-              nk_edit_string_zero_terminated(
-                  ctx, NK_EDIT_FIELD, buf, sizeof(buf) - 1, nk_filter_decimal);
-              double new_val = strtod(buf, NULL);
-              if (new_val != val) {
-                aslan_table_set_number(tbl, (int)c, row_id, new_val);
-              }
-            } else {
-              nk_label(ctx, buf, NK_TEXT_LEFT);
+            nk_flags res = nk_edit_string_zero_terminated(
+                ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT, buf, sizeof(buf) - 1,
+                nk_filter_decimal);
+
+            if (res & NK_EDIT_ACTIVATED) {
+              ui->table_state.active_row_idx = (int)v;
+              ui->table_state.active_col_idx = (int)c;
+              ui->table_state.is_editing_cell = 1;
+            }
+
+            double new_val = strtod(buf, NULL);
+            if (new_val != val) {
+              aslan_table_set_number(tbl, (int)c, row_id, new_val);
             }
             break;
           }
@@ -1388,25 +1386,37 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               buf[0] = '\0';
             }
 
-            if (is_editing) {
-              nk_flags res = nk_edit_string_zero_terminated(
-                  ctx, NK_EDIT_FIELD, buf, sizeof(buf) - 1, nk_filter_ascii);
-              if (res & NK_EDIT_COMMITED || (buf[0] && strlen(buf) == 10)) {
-                struct tm tm = {0};
-                if (sscanf(buf, "%d-%d-%d", &tm.tm_year, &tm.tm_mon,
-                           &tm.tm_mday) == 3) {
-                  tm.tm_year -= 1900;
-                  tm.tm_mon -= 1;
-                  time_t new_t = mktime(&tm);
-                  if (new_t != -1) {
-                    int64_t new_ts = (int64_t)new_t * 1000;
-                    if (new_ts != ts)
-                      aslan_table_set_date(tbl, (int)c, row_id, new_ts);
-                  }
+            if (buf[0] == '\0') {
+              // Placeholder
+              struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+              nk_draw_text(canvas, nk_rect(14, 4, col_widths[c] - 8, row_h - 8),
+                           "0000-00-00", 10, &ui->font_inter->handle,
+                           nk_rgba(0, 0, 0, 0), nk_rgb(200, 200, 200));
+            }
+
+            nk_flags res = nk_edit_string_zero_terminated(
+                ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT, buf, sizeof(buf) - 1,
+                nk_filter_ascii);
+
+            if (res & NK_EDIT_ACTIVATED) {
+              ui->table_state.active_row_idx = (int)v;
+              ui->table_state.active_col_idx = (int)c;
+              ui->table_state.is_editing_cell = 1;
+            }
+
+            if (res & NK_EDIT_COMMITED || (buf[0] && strlen(buf) == 10)) {
+              struct tm tm = {0};
+              if (sscanf(buf, "%d-%d-%d", &tm.tm_year, &tm.tm_mon,
+                         &tm.tm_mday) == 3) {
+                tm.tm_year -= 1900;
+                tm.tm_mon -= 1;
+                time_t new_t = mktime(&tm);
+                if (new_t != -1) {
+                  int64_t new_ts = (int64_t)new_t * 1000;
+                  if (new_ts != ts)
+                    aslan_table_set_date(tbl, (int)c, row_id, new_ts);
                 }
               }
-            } else {
-              nk_label(ctx, buf[0] ? buf : "0000-00-00", NK_TEXT_LEFT);
             }
             break;
           }
