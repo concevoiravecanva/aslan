@@ -2103,6 +2103,81 @@ typedef enum {
   NODE_STYLE_TEXT // Plain text, no background
 } NodeStyleType;
 
+static Node *design_create_styled_node(DesignData *dd, NodeStyleType style,
+                                       float x, float y, float w, float h) {
+  if (!dd || !dd->root)
+    return NULL;
+
+  Node *node = (Node *)calloc(1, sizeof(Node));
+  if (!node)
+    return NULL;
+
+  node->id = dd->next_node_id++;
+  node->x = x;
+  node->y = y;
+  node->width = w;
+  node->height = h;
+  node->visible = 1;
+  node->parent = dd->root;
+
+  // Use the same styles as canvas for consistency
+  switch (style) {
+  case NODE_STYLE_RECT:
+    node->type = NODE_TYPE_RECT;
+    node->fill_color = 0x4285F4FF; // Blue
+    node->stroke_color = 0x1A73E8FF;
+    node->stroke_width = 0.0f;
+    node->corner_radius = 8.0f;
+    break;
+
+  case NODE_STYLE_ELLIPSE:
+    node->type = NODE_TYPE_ELLIPSE;
+    node->fill_color = 0x34A853FF; // Green
+    node->stroke_color = 0x1E8E3EFF;
+    node->stroke_width = 0.0f;
+    node->corner_radius = 0.0f;
+    break;
+
+  case NODE_STYLE_TRIANGLE:
+    node->type = NODE_TYPE_TRIANGLE;
+    node->fill_color = 0xFBBC04FF; // Yellow
+    node->stroke_color = 0xF9A825FF;
+    node->stroke_width = 0.0f;
+    node->corner_radius = 0.0f;
+    break;
+
+  case NODE_STYLE_LINE:
+    node->type = NODE_TYPE_RECT;
+    node->fill_color = 0x5F6368FF; // Gray
+    node->stroke_color = 0x5F6368FF;
+    node->stroke_width = 2.0f;
+    node->corner_radius = 0.0f;
+    node->height = 4.0f; // Thin line
+    break;
+
+  case NODE_STYLE_TEXT:
+    node->type = NODE_TYPE_TEXT;
+    node->fill_color = 0x00000000; // Transparent
+    node->stroke_color = 0x00000000;
+    node->stroke_width = 0.0f;
+    node->corner_radius = 0.0f;
+    strncpy(node->text, "Text", sizeof(node->text) - 1);
+    break;
+  }
+
+  // Add to tree
+  if (!dd->root->first_child) {
+    dd->root->first_child = node;
+  } else {
+    Node *last = dd->root->first_child;
+    while (last->next_sibling)
+      last = last->next_sibling;
+    last->next_sibling = node;
+  }
+
+  return node;
+}
+
 static Node *canvas_create_styled_node(CanvasData *cd, NodeStyleType style,
                                        float x, float y, float w, float h) {
   if (!cd->root)
@@ -2513,7 +2588,12 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
       } else {
         ui->selected_node = NULL;
-        ui->editing_node = NULL;
+        if (ui->editing_node) {
+          strncpy(ui->editing_node->text, ui->edit_buffer,
+                  sizeof(ui->editing_node->text) - 1);
+          ui->editing_node = NULL;
+          SDL_StopTextInput();
+        }
       }
     }
   }
@@ -2639,6 +2719,39 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           nk_draw_image(canvas_buf, nr, &img, nk_rgb(255, 255, 255));
         } else
           nk_fill_rect(canvas_buf, nr, 0, nk_rgb(200, 200, 200));
+      } else if (node->type == NODE_TYPE_TEXT) {
+        // Render background for sticky notes / text with bg
+        if (fill.a > 0)
+          nk_fill_rect(canvas_buf, nr, node->corner_radius * zoom, fill);
+
+        const char *display_text = node->text;
+        int is_editing = (ui->editing_node == node);
+        if (is_editing)
+          display_text = ui->edit_buffer;
+
+        if (display_text && strlen(display_text) > 0) {
+          struct nk_user_font *font =
+              ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
+
+          // Use H1 font if it looks like a heading
+          if (sh > 40.0f * zoom && ui->font_h1) {
+            font = &ui->font_h1->handle;
+          }
+
+          nk_draw_text(canvas_buf, nr, display_text, strlen(display_text), font,
+                       nk_rgba(0, 0, 0, 0), nk_rgb(0, 0, 0));
+
+          if (is_editing) {
+            float tw = font->width(font->userdata, font->height, display_text,
+                                   strlen(display_text));
+            int show_cursor = ((int)(SDL_GetTicks() / 500) % 2 == 0);
+            if (show_cursor) {
+              nk_stroke_line(canvas_buf, nr.x + tw + 1, nr.y + 2, nr.x + tw + 1,
+                             nr.y + nr.h - 2, 1.5f * zoom,
+                             nk_rgb(66, 133, 244));
+            }
+          }
+        }
       } else
         nk_fill_rect(canvas_buf, nr, node->corner_radius * zoom, fill);
 
@@ -2677,76 +2790,6 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
   cd->view_y = cs->cam_y;
   cd->zoom = cs->zoom;
   nk_spacing(ctx, 1);
-}
-
-// -----------------------------------------------------------------------------
-// Design Block Helper: Create styled node for design block
-// -----------------------------------------------------------------------------
-
-static Node *design_create_styled_node(DesignData *dd, NodeStyleType style,
-                                       float x, float y, float w, float h) {
-  if (!dd->root)
-    return NULL;
-
-  Node *node = (Node *)calloc(1, sizeof(Node));
-  if (!node)
-    return NULL;
-
-  node->id = dd->next_node_id++;
-  node->x = x;
-  node->y = y;
-  node->width = w;
-  node->height = h;
-  node->visible = 1;
-  node->parent = dd->root;
-
-  switch (style) {
-  case NODE_STYLE_RECT:
-    node->type = NODE_TYPE_RECT;
-    node->fill_color = 0x4285F4FF;
-    node->stroke_color = 0x1A73E8FF;
-    node->stroke_width = 0.0f;
-    node->corner_radius = 8.0f;
-    break;
-  case NODE_STYLE_ELLIPSE:
-    node->type = NODE_TYPE_ELLIPSE;
-    node->fill_color = 0x34A853FF;
-    node->stroke_color = 0x1E8E3EFF;
-    node->stroke_width = 0.0f;
-    break;
-  case NODE_STYLE_TRIANGLE:
-    node->type = NODE_TYPE_TRIANGLE;
-    node->fill_color = 0xFBBC04FF;
-    node->stroke_color = 0xF9A825FF;
-    node->stroke_width = 0.0f;
-    break;
-  case NODE_STYLE_LINE:
-    node->type = NODE_TYPE_RECT;
-    node->fill_color = 0x5F6368FF;
-    node->stroke_color = 0x5F6368FF;
-    node->stroke_width = 2.0f;
-    node->height = 4.0f;
-    break;
-  case NODE_STYLE_TEXT:
-    node->type = NODE_TYPE_TEXT;
-    node->fill_color = 0x00000000;
-    node->stroke_color = 0x00000000;
-    node->stroke_width = 0.0f;
-    strncpy(node->text, "Text", sizeof(node->text) - 1);
-    break;
-  }
-
-  // Add to tree
-  if (!dd->root->first_child) {
-    dd->root->first_child = node;
-  } else {
-    Node *last = dd->root->first_child;
-    while (last->next_sibling)
-      last = last->next_sibling;
-    last->next_sibling = node;
-  }
-
-  return node;
 }
 
 // -----------------------------------------------------------------------------
@@ -2848,6 +2891,44 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
   nk_fill_rect(canvas_buf, bounds, 4.0f, bg);
   nk_stroke_rect(canvas_buf, bounds, 4.0f, 1.0f, nk_rgb(200, 200, 200));
 
+  // --- Handle pending element creation ---
+  if (is_active_design && ds->pending_create > 0) {
+    float nx = (float)dd->width / 2.0f - 50.0f;
+    float ny = (float)dd->height / 2.0f - 40.0f;
+    Node *new_node = NULL;
+    float def_w = 100.0f, def_h = 80.0f;
+
+    if (ds->pending_create == 1) { // Body
+      new_node =
+          design_create_styled_node(dd, NODE_STYLE_TEXT, nx, ny, 200.0f, 40.0f);
+      if (new_node)
+        strncpy(new_node->text, "Body text", sizeof(new_node->text) - 1);
+    } else if (ds->pending_create == 6) { // H1
+      new_node =
+          design_create_styled_node(dd, NODE_STYLE_TEXT, nx, ny, 300.0f, 60.0f);
+      if (new_node)
+        strncpy(new_node->text, "Heading", sizeof(new_node->text) - 1);
+    } else if (ds->pending_create == 2) { // Sticky
+      new_node = design_create_styled_node(dd, NODE_STYLE_RECT, nx, ny, 120.0f,
+                                           120.0f);
+      if (new_node) {
+        new_node->fill_color = 0xFFF9C4FF;
+        new_node->stroke_color = 0xFBC02DFF;
+        new_node->type = NODE_TYPE_TEXT;
+        strncpy(new_node->text, "Note...", sizeof(new_node->text) - 1);
+      }
+    } else if (ds->pending_create >= 10 && ds->pending_create <= 13) {
+      NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
+                                NODE_STYLE_TRIANGLE, NODE_STYLE_LINE};
+      new_node = design_create_styled_node(dd, styles[ds->pending_create - 10],
+                                           nx, ny, def_w, def_h);
+    }
+
+    if (new_node)
+      ui->selected_node = new_node;
+    ds->pending_create = 0;
+  }
+
   // --- Render nodes ---
   if (dd->root) {
     for (Node *node = dd->root->first_child; node; node = node->next_sibling) {
@@ -2895,6 +2976,11 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           nk_stroke_polygon(canvas_buf, pts, 3, node->stroke_width, stroke);
       } else if (node->type == NODE_TYPE_TEXT) {
         // Text node
+
+        // Render background for sticky notes / text with bg
+        if (fill.a > 0)
+          nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, fill);
+
         const char *display_text = node->text;
         int is_editing = (ui->editing_node == node);
         if (is_editing) {
@@ -2909,6 +2995,12 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         if (display_text && strlen(display_text) > 0) {
           struct nk_user_font *font =
               ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
+
+          // Use H1 font if it looks like a heading
+          if (sh > 40.0f * scale && ui->font_h1) {
+            font = &ui->font_h1->handle;
+          }
+
           nk_draw_text(canvas_buf, nr, display_text, strlen(display_text), font,
                        nk_rgba(0, 0, 0, 0), nk_rgb(0, 0, 0));
           if (is_editing) {
