@@ -60,6 +60,7 @@ static Document *g_current_doc = NULL;
 static Engine *g_current_engine = NULL;
 static char g_script_base_dir[PATH_MAX] = {0};
 static LuaData *g_current_running_lua = NULL;
+char lua_output_buffer[4096] = "";
 
 // =============================================================================
 // Hot-Reload System
@@ -616,17 +617,26 @@ static int l_notebook_get_cell(lua_State *L) {
   return 0;
 }
 
-// Redirected print for notebooks
-static int l_notebook_print(lua_State *L) {
+// Redirige la fonction print de Lua vers le buffer global
+static int l_aslan_print(lua_State *L) {
   int n = lua_gettop(L);
   if (n == 0)
     return 0;
 
   const char *msg = luaL_checkstring(L, 1);
+
+  // Concatène dans le buffer global (limité à 4096)
+  strncat(lua_output_buffer, msg,
+          sizeof(lua_output_buffer) - strlen(lua_output_buffer) - 1);
+  strncat(lua_output_buffer, "\n",
+          sizeof(lua_output_buffer) - strlen(lua_output_buffer) - 1);
+
+  // Garde quand même la version par bloc pour la persistance si
+  // g_current_running_lua est set
   if (g_current_running_lua) {
     size_t len = strlen(msg);
     if (!g_current_running_lua->output) {
-      g_current_running_lua->output_cap = 1024;
+      g_current_running_lua->output_cap = 4096;
       g_current_running_lua->output =
           calloc(1, g_current_running_lua->output_cap);
       g_current_running_lua->output_len = 0;
@@ -645,6 +655,7 @@ static int l_notebook_print(lua_State *L) {
       g_current_running_lua->output_len = strlen(g_current_running_lua->output);
     }
   }
+
   printf("[LUA NOTEBOOK] %s\n", msg);
   return 0;
 }
@@ -656,7 +667,7 @@ static int l_notebook_print(lua_State *L) {
 static const luaL_Reg aslan_funcs[] = {
     // Core
     {"execute", l_execute},
-    {"print", l_notebook_print},
+    {"print", l_aslan_print},
 
     // Document
     {"get_page_count", l_get_page_count},
@@ -712,10 +723,8 @@ lua_State *aslan_lua_init(Engine *engine) {
   luaL_newlib(L, aslan_lib);
   lua_setglobal(L, "Aslan");
 
-  // Redirect print
-  lua_pushcfunction(L, l_notebook_print);
-  lua_setglobal(L, "print");
-
+  // Redirect print standard
+  lua_register(L, "print", l_aslan_print);
   g_current_engine = engine;
   if (engine)
     g_current_doc = engine->doc;

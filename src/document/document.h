@@ -242,7 +242,7 @@ typedef struct {
   char *code; // Lua source code
   size_t code_len;
   size_t code_cap;
-  char *output; // Last execution output
+  char *output; // lua_console_output: Last execution output
   size_t output_len;
   size_t output_cap;
   bool has_error;

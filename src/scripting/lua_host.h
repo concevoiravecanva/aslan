@@ -19,6 +19,9 @@ typedef struct lua_State lua_State;
 // PHASE 2: THE SCRIPTING EXPLOSION - Public API
 // =============================================================================
 
+// --- Notebook Bridge ---
+extern char lua_output_buffer[4096];
+
 // --- Lifecycle ---
 lua_State *scripting_init(struct Engine *engine);
 void scripting_shutdown(lua_State *L);

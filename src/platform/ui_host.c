@@ -4558,58 +4558,162 @@ void ui_render_block_lua(UIHost *ui, Engine *engine, struct nk_context *ctx,
   }
   if (ui_icon_button(ui, ICON_DELETE)) {
     block_lua_clear_output(block);
+    lua_output_buffer[0] = '\0'; // Clear global buffer too
   }
+  // Expand/Collapse Button
+  if (ui_icon_button(ui, ui->expanded_block_id == block->id
+                             ? ICON_FULLSCREEN_EXIT
+                             : ICON_FULLSCREEN)) {
+    if (ui->expanded_block_id == block->id) {
+      ui->expanded_block_id = 0; // Exit fullscreen
+      ui->editing_block_id = 0;
+    } else {
+      ui->expanded_block_id = block->id; // Enter fullscreen
+      ui->editing_block_id = block->id;
+    }
+  }
+
   // Visual Mode Toggle
   if (nk_button_label(ctx, ld->is_visual ? "Visual: ON" : "Visual: OFF")) {
     ld->is_visual = !ld->is_visual;
   }
 
-  // --- SPLIT VIEW ---
-  // Left: Editor, Right: Rendering Area
-  float edit_h = 250.0f;
-  nk_layout_row_begin(ctx, NK_STATIC, edit_h, 2);
-  nk_layout_row_push(ctx, width * 0.6f);
+  // --- LAYOUT LOGIC ---
+  int is_fullscreen = (ui->expanded_block_id == block->id);
+  float total_h = is_fullscreen ? (float)ui->win_height - 100 : 250.0f;
 
-  // Group for Editor
-  if (nk_group_begin(ctx, "lua_editor", NK_WINDOW_NO_SCROLLBAR)) {
-    nk_layout_row_dynamic(ctx, edit_h - 10, 1);
-    char buf[4096];
-    strncpy(buf, ld->code ? ld->code : "", sizeof(buf) - 1);
-    buf[sizeof(buf) - 1] = '\0';
+  if (is_fullscreen) {
+    // === FULLSCREEN MODE: Stacked (Preview 80%, Editor 20%) ===
 
-    if (ui->font_mono)
-      nk_style_push_font(ctx, &ui->font_mono->handle);
+    // 1. Top: Preview Area (80%)
+    float preview_h = total_h * 0.8f;
+    nk_layout_row_dynamic(ctx, preview_h, 1);
 
-    nk_edit_string_zero_terminated(ctx, NK_EDIT_BOX | NK_EDIT_MULTILINE, buf,
-                                   sizeof(buf) - 1, nk_filter_default);
+    if (nk_group_begin(ctx, "lua_render", NK_WINDOW_BORDER)) {
+      struct nk_rect r = nk_window_get_content_region(ctx);
+      struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
 
-    if (ui->font_mono)
-      nk_style_pop_font(ctx);
+      // Black background
+      nk_fill_rect(canvas, r, 0, nk_rgb(10, 10, 15));
 
-    if (strcmp(buf, ld->code ? ld->code : "") != 0) {
-      block_lua_set_code(block, buf);
+      if (ld->is_visual && ui->L) {
+        scripting_run_visual(ui->L, ld);
+      } else {
+        if (lua_output_buffer[0] != '\0') {
+          if (ui->font_mono)
+            nk_style_push_font(ctx, &ui->font_mono->handle);
+          struct nk_color out_color =
+              ld->has_error ? nk_rgb(255, 100, 100) : nk_rgb(100, 255, 150);
+          nk_style_push_color(ctx, &ctx->style.edit.text_normal, out_color);
+
+          // Use selectable mode for better copy-paste support if needed, or
+          // simple multiline
+          nk_edit_string_zero_terminated(
+              ctx,
+              NK_EDIT_BOX | NK_EDIT_MULTILINE | NK_EDIT_READ_ONLY |
+                  NK_EDIT_SELECTABLE,
+              lua_output_buffer, sizeof(lua_output_buffer) - 1,
+              nk_filter_default);
+
+          nk_style_pop_color(ctx);
+          if (ui->font_mono)
+            nk_style_pop_font(ctx);
+        } else {
+          nk_draw_text(canvas, nk_rect(r.x + 10, r.y + 10, r.w, 20),
+                       "Preview Area (Empty)", 20, &ui->font_inter->handle,
+                       nk_rgba(0, 0, 0, 0), nk_rgb(70, 70, 80));
+        }
+      }
+      nk_group_end(ctx);
     }
-    nk_group_end(ctx);
-  }
 
-  nk_layout_row_push(ctx, width * 0.35f);
-  // Group for Rendering Preview
-  if (nk_group_begin(ctx, "lua_render", NK_WINDOW_BORDER)) {
-    struct nk_rect r = nk_window_get_content_region(ctx);
-    struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-    nk_fill_rect(canvas, r, 0, nk_rgb(20, 20, 25));
-    nk_draw_text(canvas, nk_rect(r.x + 10, r.y + 10, r.w, 20), "Preview Area",
-                 12, &ui->font_inter->handle, nk_rgba(0, 0, 0, 0),
-                 nk_rgb(100, 100, 120));
+    // 2. Bottom: Editor Area (20%)
+    float editor_h = total_h * 0.2f;
+    nk_layout_row_dynamic(ctx, editor_h, 1);
 
-    // If visualizing, we could call a callback here
-    if (ld->is_visual && ui->L) {
-      scripting_run_visual(ui->L, ld);
+    if (nk_group_begin(ctx, "lua_editor_fs", NK_WINDOW_BORDER)) {
+      nk_layout_row_dynamic(ctx, editor_h - 10, 1);
+      char buf[4096];
+      strncpy(buf, ld->code ? ld->code : "", sizeof(buf) - 1);
+      buf[sizeof(buf) - 1] = '\0';
+
+      if (ui->font_mono)
+        nk_style_push_font(ctx, &ui->font_mono->handle);
+      nk_edit_string_zero_terminated(ctx, NK_EDIT_BOX | NK_EDIT_MULTILINE, buf,
+                                     sizeof(buf) - 1, nk_filter_default);
+      if (ui->font_mono)
+        nk_style_pop_font(ctx);
+
+      if (strcmp(buf, ld->code ? ld->code : "") != 0) {
+        block_lua_set_code(block, buf);
+      }
+      nk_group_end(ctx);
     }
 
-    nk_group_end(ctx);
+  } else {
+    // === STANDARD MODE: Split (Editor 60%, Preview 40%) ===
+    nk_layout_row_begin(ctx, NK_STATIC, total_h, 2);
+    nk_layout_row_push(ctx, width * 0.6f);
+
+    // Group for Editor
+    if (nk_group_begin(ctx, "lua_editor", NK_WINDOW_NO_SCROLLBAR)) {
+      nk_layout_row_dynamic(ctx, total_h - 10, 1);
+      char buf[4096];
+      strncpy(buf, ld->code ? ld->code : "", sizeof(buf) - 1);
+      buf[sizeof(buf) - 1] = '\0';
+
+      if (ui->font_mono)
+        nk_style_push_font(ctx, &ui->font_mono->handle);
+      nk_edit_string_zero_terminated(ctx, NK_EDIT_BOX | NK_EDIT_MULTILINE, buf,
+                                     sizeof(buf) - 1, nk_filter_default);
+      if (ui->font_mono)
+        nk_style_pop_font(ctx);
+
+      if (strcmp(buf, ld->code ? ld->code : "") != 0) {
+        block_lua_set_code(block, buf);
+      }
+      nk_group_end(ctx);
+    }
+
+    nk_layout_row_push(ctx, width * 0.35f);
+    // Group for Rendering Preview
+    if (nk_group_begin(ctx, "lua_render", NK_WINDOW_BORDER)) {
+      struct nk_rect r = nk_window_get_content_region(ctx);
+      struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+
+      // Black background
+      nk_fill_rect(canvas, r, 0, nk_rgb(10, 10, 15));
+
+      if (ld->is_visual && ui->L) {
+        scripting_run_visual(ui->L, ld);
+      } else {
+        if (lua_output_buffer[0] != '\0') {
+          if (ui->font_mono)
+            nk_style_push_font(ctx, &ui->font_mono->handle);
+          struct nk_color out_color =
+              ld->has_error ? nk_rgb(255, 100, 100) : nk_rgb(100, 255, 150);
+          nk_style_push_color(ctx, &ctx->style.edit.text_normal, out_color);
+
+          nk_edit_string_zero_terminated(
+              ctx,
+              NK_EDIT_BOX | NK_EDIT_MULTILINE | NK_EDIT_READ_ONLY |
+                  NK_EDIT_SELECTABLE,
+              lua_output_buffer, sizeof(lua_output_buffer) - 1,
+              nk_filter_default);
+
+          nk_style_pop_color(ctx);
+          if (ui->font_mono)
+            nk_style_pop_font(ctx);
+        } else {
+          nk_draw_text(canvas, nk_rect(r.x + 10, r.y + 10, r.w, 20),
+                       "Preview Area", 12, &ui->font_inter->handle,
+                       nk_rgba(0, 0, 0, 0), nk_rgb(70, 70, 80));
+        }
+      }
+      nk_group_end(ctx);
+    }
+    nk_layout_row_end(ctx);
   }
-  nk_layout_row_end(ctx);
 
   // --- CONSOLE (Bottom) ---
   if (ld->output && ld->output_len > 0) {
