@@ -4604,21 +4604,15 @@ void ui_render_block_lua(UIHost *ui, Engine *engine, struct nk_context *ctx,
             nk_style_push_font(ctx, &ui->font_mono->handle);
           struct nk_color out_color =
               ld->has_error ? nk_rgb(255, 100, 100) : nk_rgb(100, 255, 150);
-          nk_style_push_color(ctx, &ctx->style.edit.text_normal, out_color);
 
-          // Use selectable mode for better copy-paste support if needed, or
-          // simple multiline
-          nk_edit_string_zero_terminated(
-              ctx,
-              NK_EDIT_BOX | NK_EDIT_MULTILINE | NK_EDIT_READ_ONLY |
-                  NK_EDIT_SELECTABLE,
-              lua_output_buffer, sizeof(lua_output_buffer) - 1,
-              nk_filter_default);
-
-          nk_style_pop_color(ctx);
+          // Use a dynamic row that can accommodate multiple labels or a single
+          // wrapped one We use a large enough height or just wrap
+          nk_layout_row_dynamic(ctx, 18.0f * 10, 1); // Room for ~10 lines
+          nk_label_colored_wrap(ctx, lua_output_buffer, out_color);
           if (ui->font_mono)
             nk_style_pop_font(ctx);
         } else {
+          nk_layout_row_dynamic(ctx, 20, 1);
           nk_draw_text(canvas, nk_rect(r.x + 10, r.y + 10, r.w, 20),
                        "Preview Area (Empty)", 20, &ui->font_inter->handle,
                        nk_rgba(0, 0, 0, 0), nk_rgb(70, 70, 80));
@@ -4692,16 +4686,9 @@ void ui_render_block_lua(UIHost *ui, Engine *engine, struct nk_context *ctx,
             nk_style_push_font(ctx, &ui->font_mono->handle);
           struct nk_color out_color =
               ld->has_error ? nk_rgb(255, 100, 100) : nk_rgb(100, 255, 150);
-          nk_style_push_color(ctx, &ctx->style.edit.text_normal, out_color);
 
-          nk_edit_string_zero_terminated(
-              ctx,
-              NK_EDIT_BOX | NK_EDIT_MULTILINE | NK_EDIT_READ_ONLY |
-                  NK_EDIT_SELECTABLE,
-              lua_output_buffer, sizeof(lua_output_buffer) - 1,
-              nk_filter_default);
-
-          nk_style_pop_color(ctx);
+          nk_layout_row_dynamic(ctx, total_h * 0.7f, 1);
+          nk_label_colored_wrap(ctx, lua_output_buffer, out_color);
           if (ui->font_mono)
             nk_style_pop_font(ctx);
         } else {

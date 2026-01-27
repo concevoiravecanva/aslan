@@ -620,13 +620,60 @@ static int l_notebook_get_cell(lua_State *L) {
 // Redirige la fonction print de Lua vers le buffer global
 static int l_aslan_print(lua_State *L) {
   int n = lua_gettop(L);
-  if (n == 0)
+  if (n == 0) {
+    strncat(lua_output_buffer, "\n",
+            sizeof(lua_output_buffer) - strlen(lua_output_buffer) - 1);
+    // Garde quand même la version par bloc pour la persistance si
+    // g_current_running_lua est set
+    if (g_current_running_lua) {
+      if (!g_current_running_lua->output) {
+        g_current_running_lua->output_cap = 4096;
+        g_current_running_lua->output =
+            calloc(1, g_current_running_lua->output_cap);
+        g_current_running_lua->output_len = 0;
+      }
+      if (g_current_running_lua->output) {
+        strncat(g_current_running_lua->output, "\n",
+                g_current_running_lua->output_cap -
+                    g_current_running_lua->output_len - 1);
+        g_current_running_lua->output_len =
+            strlen(g_current_running_lua->output);
+      }
+    }
+    printf("[LUA PRINT BRIDGE]\n");
     return 0;
+  }
 
-  const char *msg = luaL_checkstring(L, 1);
+  // Build the message for the global buffer
+  char temp_msg_buffer[4096] = {
+      0}; // Temporary buffer for the current print line
+  size_t current_temp_len = 0;
+
+  for (int i = 1; i <= n; i++) {
+    size_t len;
+    const char *s = luaL_tolstring(L, i, &len); // Converts any value to string
+    if (s == NULL) { // Should not happen with luaL_tolstring, but for safety
+      s = "nil";
+      len = 3;
+    }
+
+    if (i > 1) {
+      if (current_temp_len + 1 < sizeof(temp_msg_buffer)) {
+        strncat(temp_msg_buffer, "\t",
+                sizeof(temp_msg_buffer) - current_temp_len - 1);
+        current_temp_len++;
+      }
+    }
+    if (current_temp_len + len < sizeof(temp_msg_buffer)) {
+      strncat(temp_msg_buffer, s,
+              sizeof(temp_msg_buffer) - current_temp_len - 1);
+      current_temp_len += len;
+    }
+    lua_pop(L, 1); // Pop the string returned by luaL_tolstring
+  }
 
   // Concatène dans le buffer global (limité à 4096)
-  strncat(lua_output_buffer, msg,
+  strncat(lua_output_buffer, temp_msg_buffer,
           sizeof(lua_output_buffer) - strlen(lua_output_buffer) - 1);
   strncat(lua_output_buffer, "\n",
           sizeof(lua_output_buffer) - strlen(lua_output_buffer) - 1);
@@ -634,7 +681,7 @@ static int l_aslan_print(lua_State *L) {
   // Garde quand même la version par bloc pour la persistance si
   // g_current_running_lua est set
   if (g_current_running_lua) {
-    size_t len = strlen(msg);
+    size_t msg_len = strlen(temp_msg_buffer);
     if (!g_current_running_lua->output) {
       g_current_running_lua->output_cap = 4096;
       g_current_running_lua->output =
@@ -642,21 +689,35 @@ static int l_aslan_print(lua_State *L) {
       g_current_running_lua->output_len = 0;
     }
 
-    if (g_current_running_lua->output_len + len + 2 >=
+    // Check if there's enough space for the new message + newline + null
+    // terminator
+    if (g_current_running_lua->output_len + msg_len + 2 >=
         g_current_running_lua->output_cap) {
       g_current_running_lua->output_cap *= 2;
       g_current_running_lua->output = realloc(
           g_current_running_lua->output, g_current_running_lua->output_cap);
+      if (!g_current_running_lua->output) {
+        // Handle realloc failure
+        g_current_running_lua->output_cap = 0;
+        g_current_running_lua->output_len = 0;
+        return 0;
+      }
     }
 
     if (g_current_running_lua->output) {
-      strcat(g_current_running_lua->output, msg);
-      strcat(g_current_running_lua->output, "\n");
+      strncat(g_current_running_lua->output, temp_msg_buffer,
+              g_current_running_lua->output_cap -
+                  g_current_running_lua->output_len - 1);
+      strncat(g_current_running_lua->output, "\n",
+              g_current_running_lua->output_cap -
+                  strlen(g_current_running_lua->output) - 1);
       g_current_running_lua->output_len = strlen(g_current_running_lua->output);
     }
   }
 
-  printf("[LUA NOTEBOOK] %s\n", msg);
+  // Debug dans le terminal avec un préfixe reconnaissable
+  printf("[LUA PRINT BRIDGE] %s\n", temp_msg_buffer);
+
   return 0;
 }
 
@@ -747,6 +808,8 @@ lua_State *scripting_init(Engine *engine) {
   luaL_setfuncs(L, aslan_funcs, 0);
   lua_setglobal(L, "aslan");
 
+  // CRITICAL: Redirect standard print to our buffer bridge
+  lua_register(L, "print", l_aslan_print);
   // Store engine reference
   g_current_engine = engine;
   if (engine) {
@@ -821,6 +884,14 @@ int scripting_run_code(lua_State *L, void *lua_data) {
 
   // Set redirection context
   g_current_running_lua = ld;
+
+  // Clear global buffer on start of new run if it's too full
+  if (strlen(lua_output_buffer) > 3500) {
+    lua_output_buffer[0] = '\0';
+  }
+
+  strncat(lua_output_buffer, "--- Run Start ---\n",
+          sizeof(lua_output_buffer) - strlen(lua_output_buffer) - 1);
 
   // Step 1: Compile (check syntax)
   if (luaL_loadstring(L, ld->code) != LUA_OK) {
