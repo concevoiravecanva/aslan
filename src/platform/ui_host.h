@@ -65,38 +65,38 @@ typedef struct {
 
   // Drawing/creating state
   int is_creating;
-  float create_start_x, create_start_y;  // World coords
-  float create_end_x, create_end_y;      // World coords
+  float create_start_x, create_start_y; // World coords
+  float create_end_x, create_end_y;     // World coords
 
   // Dragging state
   int is_dragging_node;
-  float drag_offset_x, drag_offset_y;    // Offset from node origin
+  float drag_offset_x, drag_offset_y; // Offset from node origin
 
   // Mouse state for click detection
-  int mouse_just_pressed;   // Left button just pressed this frame
-  int mouse_just_released;  // Left button just released this frame
+  int mouse_just_pressed;  // Left button just pressed this frame
+  int mouse_just_released; // Left button just released this frame
 
   // Forms menu state
   int show_forms_menu;
 
   // Pending element creation (from toolbar click)
-  int pending_create;  // 0=none, 1=text, 2=note, 3=image, 10+shape_index=form
+  int pending_create; // 0=none, 1=text, 2=note, 3=image, 10+shape_index=form
 
   // Resize state
   int is_resizing;
-  int resize_handle;  // Which handle: 0=SE, 1=SW, 2=NW, 3=NE
+  int resize_handle; // Which handle: 0=SE, 1=SW, 2=NW, 3=NE
   float resize_start_w, resize_start_h;
-  float resize_start_x, resize_start_y;      // Mouse start pos
+  float resize_start_x, resize_start_y;           // Mouse start pos
   float resize_start_node_x, resize_start_node_y; // Node start pos
 
   // Target canvas block
   uint32_t active_canvas_id;
-  Block *active_block;      // Direct pointer for convenience
+  Block *active_block; // Direct pointer for convenience
 
   // Pen Tool State
-  uint32_t pen_color;       // RGBA
+  uint32_t pen_color; // RGBA
   float pen_thickness;
-  int pen_is_marker;        // 0=Pen, 1=Marker
+  int pen_is_marker;             // 0=Pen, 1=Marker
   struct Stroke *current_stroke; // Active stroke being drawn
   uint32_t stroke_block_id;      // Block ID where stroke started
 } CanvasInteraction;
@@ -129,7 +129,6 @@ typedef struct UIHost {
   // Selection state
   Node *selected_node; // Selected node in canvas/design block
 
-
   // Status message
   char status[128];
 
@@ -141,6 +140,10 @@ typedef struct UIHost {
 
   // Tool mode: 0=select, 1=create rect, 2=create text
   int tool_mode;
+
+  // Current Window Dimensions (updated in ui_render)
+  int win_width;
+  int win_height;
 
   // Modal states
   int show_new_page_modal;
@@ -156,9 +159,9 @@ typedef struct UIHost {
   int text_input_active;
 
   // Canvas node text editing
-  Node *editing_node;        // Node being text-edited (NULL=none)
-  char edit_buffer[512];     // Text buffer for editing
-  int show_text_edit_popup;  // Show text edit popup
+  Node *editing_node;       // Node being text-edited (NULL=none)
+  char edit_buffer[512];    // Text buffer for editing
+  int show_text_edit_popup; // Show text edit popup
 
   // Canvas/Design interaction
   float drag_start_x, drag_start_y;
@@ -182,7 +185,7 @@ typedef struct UIHost {
   // Design interaction state (simpler than canvas - no pan/zoom/pen)
   struct DesignInteraction {
     int show_forms_menu;
-    int pending_create;       // 0=none, 1=text, 2=image, 10+=forms
+    int pending_create; // 0=none, 1=text, 2=image, 10+=forms
     int mouse_just_pressed;
     int mouse_just_released;
     int is_dragging_node;
@@ -201,19 +204,32 @@ typedef struct UIHost {
     uint32_t active_video_id;
     Block *active_block;
     int mouse_just_pressed;
-    int pending_import;       // 1 if import dialog should open
-    int pending_transcribe;   // 1 if transcription should start
+    int pending_import;     // 1 if import dialog should open
+    int pending_transcribe; // 1 if transcription should start
   } video_state;
 
   // Audio block interaction state
   struct {
-    Block *active_block;      // Currently focused audio block
+    Block *active_block; // Currently focused audio block
     int mouse_just_pressed;
   } audio_state;
 
   // Mouse state for canvas
   float mouse_x, mouse_y;
   int mouse_buttons; // Bitmask: 1=left, 2=middle, 4=right
+
+  // Table interaction state
+  struct {
+    uint32_t active_block_id;
+    int show_col_menu;
+    int show_col_settings;
+    int show_footer_menu;
+    int active_col_idx;
+    int active_row_idx;  // Keyboard navigation
+    int is_editing_cell; // Prevent nav while typing
+    float menu_pos_x, menu_pos_y;
+    char rename_buffer[64];
+  } table_state;
 
 } UIHost;
 
@@ -298,24 +314,24 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_FULLSCREEN_EXIT "\xEE\xB6\x9A" // ri-fullscreen-exit-line
 
 // Canvas tools icons
-#define ICON_CURSOR "\xEE\xAA\x8A"      // ri-cursor-line (select tool)
-#define ICON_SHAPE "\xEE\xAD\xA4"       // ri-checkbox-blank-line (rect tool)
-#define ICON_PENCIL "\xEE\xBF\x8F"      // ri-pencil-line (pen tool)
-#define ICON_TEXT_TOOL "\xEE\x87\x98"   // ri-text (text tool)
-#define ICON_STICKY "\xEF\x83\xBC"      // ri-sticky-note-line (sticky note)
-#define ICON_HAND "\xEE\xB7\xBB"        // ri-hand (pan tool)
+#define ICON_CURSOR "\xEE\xAA\x8A"    // ri-cursor-line (select tool)
+#define ICON_SHAPE "\xEE\xAD\xA4"     // ri-checkbox-blank-line (rect tool)
+#define ICON_PENCIL "\xEE\xBF\x8F"    // ri-pencil-line (pen tool)
+#define ICON_TEXT_TOOL "\xEE\x87\x98" // ri-text (text tool)
+#define ICON_STICKY "\xEF\x83\xBC"    // ri-sticky-note-line (sticky note)
+#define ICON_HAND "\xEE\xB7\xBB"      // ri-hand (pan tool)
 
 // Table column type icons
-#define ICON_COL_TEXT "\xEE\x87\x98"      // ri-text
-#define ICON_COL_NUMBER "\xEE\xB7\xA4"    // ri-hashtag
-#define ICON_COL_CHECKBOX "\xEE\xAD\xB6"  // ri-checkbox-line
-#define ICON_COL_SELECT "\xEE\xA9\x8B"    // ri-arrow-down-s-line
-#define ICON_COL_DATE "\xEE\xAA\xB2"      // ri-calendar-line
-#define ICON_COL_RELATION "\xEE\xB0\xB5"  // ri-links-line
-#define ICON_COL_FORMULA "\xEE\xB6\xBA"   // ri-functions
+#define ICON_COL_TEXT "\xEE\x87\x98"     // ri-text
+#define ICON_COL_NUMBER "\xEE\xB7\xA4"   // ri-hashtag
+#define ICON_COL_CHECKBOX "\xEE\xAD\xB6" // ri-checkbox-line
+#define ICON_COL_SELECT "\xEE\xA9\x8B"   // ri-arrow-down-s-line
+#define ICON_COL_DATE "\xEE\xAA\xB2"     // ri-calendar-line
+#define ICON_COL_RELATION "\xEE\xB0\xB5" // ri-links-line
+#define ICON_COL_FORMULA "\xEE\xB6\xBA"  // ri-functions
 
 // Sort icons
-#define ICON_SORT_ASC "\xEE\xA9\xB8"      // ri-arrow-up-s-line
-#define ICON_SORT_DESC "\xEE\xA9\x8B"     // ri-arrow-down-s-line
+#define ICON_SORT_ASC "\xEE\xA9\xB8"  // ri-arrow-up-s-line
+#define ICON_SORT_DESC "\xEE\xA9\x8B" // ri-arrow-down-s-line
 
 #endif // UI_HOST_H

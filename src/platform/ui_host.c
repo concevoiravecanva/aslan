@@ -6,10 +6,10 @@
 #define NK_IMPLEMENTATION
 #include "ui_host.h"
 #include "../document/aslan_table.h"
-#include "../scripting/lua_host.h"
-#include "mac_image.h"
 #include "../media/ffmpeg_pipe.h"
 #include "../media/whisper.h"
+#include "../scripting/lua_host.h"
+#include "mac_image.h"
 #include <SDL.h>
 #include <errno.h>
 #include <math.h>
@@ -180,7 +180,7 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
 
   FILE *log = fopen("ui_debug.log", "w");
   if (log) {
-    fprintf(log, "UI Init started\n");
+    fprintf(log, "UI Init started (Aslan v0.1.5)\n");
     fflush(log);
   }
 
@@ -346,8 +346,8 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     if (evt->button.button == SDL_BUTTON_LEFT) {
       ui->mouse_buttons |= 1;
       cs->mouse_just_pressed = 1;
-      ui->design_state.mouse_just_pressed = 1;  // Also track for design
-      ui->video_state.mouse_just_pressed = 1;   // Also track for video
+      ui->design_state.mouse_just_pressed = 1; // Also track for design
+      ui->video_state.mouse_just_pressed = 1;  // Also track for video
 
       // Start panning with space + left click
       if (cs->space_held && cs->mouse_in_canvas) {
@@ -385,7 +385,7 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     if (evt->button.button == SDL_BUTTON_LEFT) {
       ui->mouse_buttons &= ~1;
       cs->mouse_just_released = 1;
-      ui->design_state.mouse_just_released = 1;  // Also track for design
+      ui->design_state.mouse_just_released = 1; // Also track for design
 
       // Stop panning if was space+left panning
       if (cs->space_held) {
@@ -424,9 +424,11 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
   // Inline text editing keyboard handling (Freeform-style)
   if (ui->editing_node) {
     if (evt->type == SDL_KEYDOWN) {
-      if (evt->key.keysym.sym == SDLK_RETURN || evt->key.keysym.sym == SDLK_KP_ENTER) {
+      if (evt->key.keysym.sym == SDLK_RETURN ||
+          evt->key.keysym.sym == SDLK_KP_ENTER) {
         // Confirm edit and exit editing mode
-        strncpy(ui->editing_node->text, ui->edit_buffer, sizeof(ui->editing_node->text) - 1);
+        strncpy(ui->editing_node->text, ui->edit_buffer,
+                sizeof(ui->editing_node->text) - 1);
         ui->editing_node->text[sizeof(ui->editing_node->text) - 1] = '\0';
         ui->editing_node = NULL;
       } else if (evt->key.keysym.sym == SDLK_ESCAPE) {
@@ -462,12 +464,13 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
   }
 
   // Delete video transcript segment (Backspace or Delete)
-  if (evt->type == SDL_KEYDOWN &&
-      (evt->key.keysym.sym == SDLK_BACKSPACE || evt->key.keysym.sym == SDLK_DELETE)) {
+  if (evt->type == SDL_KEYDOWN && (evt->key.keysym.sym == SDLK_BACKSPACE ||
+                                   evt->key.keysym.sym == SDLK_DELETE)) {
     if (ui->video_state.active_block &&
         ui->video_state.active_block->type == BLOCK_VIDEO) {
       VideoData *vd = &ui->video_state.active_block->data.video;
-      if (vd->selected_segment >= 0 && vd->selected_segment < vd->transcript_count) {
+      if (vd->selected_segment >= 0 &&
+          vd->selected_segment < vd->transcript_count) {
         vd->transcript[vd->selected_segment].is_deleted = 1;
       }
     }
@@ -478,19 +481,21 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     if (ui->video_state.active_block &&
         ui->video_state.active_block->type == BLOCK_VIDEO) {
       VideoData *vd = &ui->video_state.active_block->data.video;
-      if (vd->selected_segment >= 0 && vd->selected_segment < vd->transcript_count) {
+      if (vd->selected_segment >= 0 &&
+          vd->selected_segment < vd->transcript_count) {
         vd->transcript[vd->selected_segment].is_deleted = 0;
       }
     }
   }
 
   // Delete audio transcript segment (Backspace or Delete)
-  if (evt->type == SDL_KEYDOWN &&
-      (evt->key.keysym.sym == SDLK_BACKSPACE || evt->key.keysym.sym == SDLK_DELETE)) {
+  if (evt->type == SDL_KEYDOWN && (evt->key.keysym.sym == SDLK_BACKSPACE ||
+                                   evt->key.keysym.sym == SDLK_DELETE)) {
     if (ui->audio_state.active_block &&
         ui->audio_state.active_block->type == BLOCK_AUDIO) {
       AudioData *ad = &ui->audio_state.active_block->data.audio;
-      if (ad->selected_segment >= 0 && ad->selected_segment < ad->transcript_count) {
+      if (ad->selected_segment >= 0 &&
+          ad->selected_segment < ad->transcript_count) {
         ad->transcript[ad->selected_segment].is_deleted = 1;
       }
     }
@@ -501,7 +506,8 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     if (ui->audio_state.active_block &&
         ui->audio_state.active_block->type == BLOCK_AUDIO) {
       AudioData *ad = &ui->audio_state.active_block->data.audio;
-      if (ad->selected_segment >= 0 && ad->selected_segment < ad->transcript_count) {
+      if (ad->selected_segment >= 0 &&
+          ad->selected_segment < ad->transcript_count) {
         ad->transcript[ad->selected_segment].is_deleted = 0;
       }
     }
@@ -579,16 +585,18 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
     // Calculate centering: 7 icons at 36px each = 252px total
     float icons_total_w = 7 * btn_w;
     float left_margin = ((float)win_w - icons_total_w) / 2.0f;
-    if (left_margin < btn_w + 10) left_margin = btn_w + 10; // Min space for home
+    if (left_margin < btn_w + 10)
+      left_margin = btn_w + 10; // Min space for home
 
     // Use template layout: [Home] [flex space] [7 icons centered] [flex space]
     nk_layout_row_template_begin(ctx, btn_h);
-    nk_layout_row_template_push_static(ctx, btn_w);           // Home
-    nk_layout_row_template_push_static(ctx, left_margin - btn_w - 5); // Left spacer
+    nk_layout_row_template_push_static(ctx, btn_w); // Home
+    nk_layout_row_template_push_static(ctx,
+                                       left_margin - btn_w - 5); // Left spacer
     for (int i = 0; i < 7; i++) {
-      nk_layout_row_template_push_static(ctx, btn_w);         // 7 icons
+      nk_layout_row_template_push_static(ctx, btn_w); // 7 icons
     }
-    nk_layout_row_template_push_variable(ctx, 1);             // Right spacer (fills rest)
+    nk_layout_row_template_push_variable(ctx, 1); // Right spacer (fills rest)
     nk_layout_row_template_end(ctx);
 
     // Home button (icon)
@@ -830,13 +838,15 @@ void ui_render_block_text(UIHost *ui, struct nk_context *ctx, Block *block,
   int line_count = 1;
   if (block->text) {
     for (const char *p = block->text; *p; p++) {
-      if (*p == '\n') line_count++;
+      if (*p == '\n')
+        line_count++;
     }
   }
 
   // Dynamic height based on content (minimum 1 line)
   float edit_height = line_h * (line_count > 0 ? line_count : 1);
-  if (edit_height < line_h) edit_height = line_h;
+  if (edit_height < line_h)
+    edit_height = line_h;
 
   nk_layout_row_dynamic(ctx, edit_height, 1);
 
@@ -856,15 +866,17 @@ void ui_render_block_text(UIHost *ui, struct nk_context *ctx, Block *block,
   strncpy(buf, block->text ? block->text : "", sizeof(buf) - 1);
   buf[sizeof(buf) - 1] = '\0';
 
-  // NK_EDIT_BOX for multiline (Enter = newline), NK_EDIT_SELECTABLE for text selection
+  // NK_EDIT_BOX for multiline (Enter = newline), NK_EDIT_SELECTABLE for text
+  // selection
   nk_flags flags = NK_EDIT_BOX | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD;
-  nk_flags state = nk_edit_string_zero_terminated(ctx, flags, buf, (int)sizeof(buf) - 1,
-                                                   nk_filter_default);
+  nk_flags state = nk_edit_string_zero_terminated(
+      ctx, flags, buf, (int)sizeof(buf) - 1, nk_filter_default);
 
-  // Draw placeholder text if buffer is empty and not active (check buf AFTER edit)
+  // Draw placeholder text if buffer is empty and not active (check buf AFTER
+  // edit)
   if (buf[0] == '\0' && !(state & NK_EDIT_ACTIVE)) {
-    struct nk_color placeholder_color = ui->dark_mode ? nk_rgb(100, 100, 110)
-                                                       : nk_rgb(180, 180, 185);
+    struct nk_color placeholder_color =
+        ui->dark_mode ? nk_rgb(100, 100, 110) : nk_rgb(180, 180, 185);
     const char *placeholder = "Write something...";
     float text_x = bounds.x + 8;
     float text_y = bounds.y + (bounds.h - line_h) / 2 + 4;
@@ -934,28 +946,44 @@ void ui_render_block_separator(UIHost *ui, struct nk_context *ctx, Block *block,
 // Helper: Get icon for column type
 static const char *table_col_type_icon(AslanColumnType type) {
   switch (type) {
-    case ASLAN_COL_TEXT:     return ICON_COL_TEXT;
-    case ASLAN_COL_NUMBER:   return ICON_COL_NUMBER;
-    case ASLAN_COL_CHECKBOX: return ICON_COL_CHECKBOX;
-    case ASLAN_COL_SELECT:   return ICON_COL_SELECT;
-    case ASLAN_COL_DATE:     return ICON_COL_DATE;
-    case ASLAN_COL_RELATION: return ICON_COL_RELATION;
-    case ASLAN_COL_FORMULA:  return ICON_COL_FORMULA;
-    default: return ICON_COL_TEXT;
+  case ASLAN_COL_TEXT:
+    return ICON_COL_TEXT;
+  case ASLAN_COL_NUMBER:
+    return ICON_COL_NUMBER;
+  case ASLAN_COL_CHECKBOX:
+    return ICON_COL_CHECKBOX;
+  case ASLAN_COL_SELECT:
+    return ICON_COL_SELECT;
+  case ASLAN_COL_DATE:
+    return ICON_COL_DATE;
+  case ASLAN_COL_RELATION:
+    return ICON_COL_RELATION;
+  case ASLAN_COL_FORMULA:
+    return ICON_COL_FORMULA;
+  default:
+    return ICON_COL_TEXT;
   }
 }
 
 // Helper: Get column type name
 static const char *table_col_type_name(AslanColumnType type) {
   switch (type) {
-    case ASLAN_COL_TEXT:     return "Text";
-    case ASLAN_COL_NUMBER:   return "Number";
-    case ASLAN_COL_CHECKBOX: return "Checkbox";
-    case ASLAN_COL_SELECT:   return "Select";
-    case ASLAN_COL_DATE:     return "Date";
-    case ASLAN_COL_RELATION: return "Relation";
-    case ASLAN_COL_FORMULA:  return "Formula";
-    default: return "Text";
+  case ASLAN_COL_TEXT:
+    return "Text";
+  case ASLAN_COL_NUMBER:
+    return "Number";
+  case ASLAN_COL_CHECKBOX:
+    return "Checkbox";
+  case ASLAN_COL_SELECT:
+    return "Select";
+  case ASLAN_COL_DATE:
+    return "Date";
+  case ASLAN_COL_RELATION:
+    return "Relation";
+  case ASLAN_COL_FORMULA:
+    return "Formula";
+  default:
+    return "Text";
   }
 }
 
@@ -978,21 +1006,56 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
   const float toolbar_h = 32.0f;
 
   // Colors
-  struct nk_color header_bg = ui->dark_mode ?
-    nk_rgb(45, 47, 52) : nk_rgb(245, 245, 248);
-  struct nk_color row_alt = ui->dark_mode ?
-    nk_rgb(35, 37, 42) : nk_rgb(252, 252, 253);
-  struct nk_color row_normal = ui->dark_mode ?
-    nk_rgb(30, 32, 36) : nk_rgb(255, 255, 255);
-  struct nk_color border_color = ui->dark_mode ?
-    nk_rgb(60, 62, 68) : nk_rgb(220, 220, 225);
-  struct nk_color footer_bg = ui->dark_mode ?
-    nk_rgb(40, 42, 48) : nk_rgb(248, 248, 250);
+  struct nk_color header_bg =
+      ui->dark_mode ? nk_rgb(15, 15, 18) : nk_rgb(180, 180, 185);
+  struct nk_color row_alt =
+      ui->dark_mode ? nk_rgb(35, 37, 42) : nk_rgb(252, 252, 253);
+  struct nk_color row_normal =
+      ui->dark_mode ? nk_rgb(30, 32, 36) : nk_rgb(255, 255, 255);
+  struct nk_color border_color =
+      ui->dark_mode ? nk_rgb(60, 62, 68) : nk_rgb(220, 220, 225);
+  struct nk_color footer_bg =
+      ui->dark_mode ? nk_rgb(40, 42, 48) : nk_rgb(248, 248, 250);
 
   // Expand/collapse toggle
   ui_render_expand_toggle(ui, ctx, block);
 
-  if (block->is_collapsed) return;
+  if (block->is_collapsed)
+    return;
+
+  // =========================================================================
+  // KEYBOARD NAVIGATION (Phase 8)
+  // =========================================================================
+  if (ui->table_state.active_block_id == block->id &&
+      !ui->table_state.is_editing_cell) {
+    if (nk_input_is_key_pressed(&ctx->input, NK_KEY_UP)) {
+      ui->table_state.active_row_idx = (ui->table_state.active_row_idx > 0)
+                                           ? ui->table_state.active_row_idx - 1
+                                           : 0;
+    }
+    if (nk_input_is_key_pressed(&ctx->input, NK_KEY_DOWN)) {
+      // Bounds check should be against view_count, but loose check is okay for
+      // now
+      ui->table_state.active_row_idx++;
+    }
+    if (nk_input_is_key_pressed(&ctx->input, NK_KEY_LEFT)) {
+      ui->table_state.active_col_idx = (ui->table_state.active_col_idx > 0)
+                                           ? ui->table_state.active_col_idx - 1
+                                           : 0;
+    }
+    if (nk_input_is_key_pressed(&ctx->input, NK_KEY_RIGHT)) {
+      ui->table_state.active_col_idx =
+          (ui->table_state.active_col_idx < (int)tbl->column_count - 1)
+              ? ui->table_state.active_col_idx + 1
+              : (int)tbl->column_count - 1;
+    }
+    if (nk_input_is_key_pressed(&ctx->input, NK_KEY_ENTER)) {
+      ui->table_state.is_editing_cell = 1;
+    }
+  }
+  if (nk_input_is_key_pressed(&ctx->input, NK_KEY_TEXT_RESET_MODE)) {
+    ui->table_state.is_editing_cell = 0;
+  }
 
   // =========================================================================
   // TOOLBAR: Add Column, Add Row
@@ -1016,51 +1079,16 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     }
 
     // Add Column button (opens type menu)
-    static int show_col_menu = 0;
-    static uint32_t menu_block_id = 0;
     if (nk_button_label(ctx, "+ Column")) {
-      show_col_menu = !show_col_menu;
-      menu_block_id = block->id;
+      struct nk_rect b = nk_widget_bounds(ctx);
+      ui->table_state.active_block_id = block->id;
+      ui->table_state.show_col_menu = !ui->table_state.show_col_menu;
+      ui->table_state.show_footer_menu = 0;
+      ui->table_state.menu_pos_x = b.x;
+      ui->table_state.menu_pos_y = b.y;
     }
 
     nk_spacing(ctx, 1);
-
-    // Column type menu
-    if (show_col_menu && menu_block_id == block->id) {
-      struct nk_rect bounds = nk_widget_bounds(ctx);
-      if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Add Column",
-                         NK_WINDOW_NO_SCROLLBAR,
-                         nk_rect(bounds.x, bounds.y + 30, 150, 200))) {
-        nk_layout_row_dynamic(ctx, 24, 1);
-
-        const char *types[] = {"Text", "Number", "Checkbox", "Select", "Date", "Formula"};
-        AslanColumnType type_vals[] = {
-          ASLAN_COL_TEXT, ASLAN_COL_NUMBER, ASLAN_COL_CHECKBOX,
-          ASLAN_COL_SELECT, ASLAN_COL_DATE, ASLAN_COL_FORMULA
-        };
-
-        for (int i = 0; i < 6; i++) {
-          char label[64];
-          snprintf(label, sizeof(label), "%s %s",
-                   table_col_type_icon(type_vals[i]), types[i]);
-          if (nk_button_label(ctx, label)) {
-            if (tbl) {
-              char col_name[32];
-              snprintf(col_name, sizeof(col_name), "Column %d",
-                       (int)tbl->column_count + 1);
-              aslan_table_add_column(tbl, col_name, type_vals[i]);
-            } else {
-              block_table_insert_col(block, td->cols);
-            }
-            show_col_menu = 0;
-            nk_popup_close(ctx);
-          }
-        }
-        nk_popup_end(ctx);
-      } else {
-        show_col_menu = 0;
-      }
-    }
 
     nk_group_end(ctx);
   }
@@ -1077,8 +1105,10 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     float total_w = row_num_w;
     for (size_t c = 0; c < col_count; c++) {
       float w = (float)tbl->columns[c].width_px;
-      if (w < min_col_w) w = min_col_w;
-      if (w > max_col_w) w = max_col_w;
+      if (w < min_col_w)
+        w = min_col_w;
+      if (w > max_col_w)
+        w = max_col_w;
       col_widths[c] = w;
       total_w += w;
     }
@@ -1088,7 +1118,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       float scale = (width - 20 - row_num_w) / (total_w - row_num_w);
       for (size_t c = 0; c < col_count; c++) {
         col_widths[c] *= scale;
-        if (col_widths[c] < 60) col_widths[c] = 60;
+        if (col_widths[c] < 60)
+          col_widths[c] = 60;
       }
     }
 
@@ -1110,25 +1141,53 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       nk_fill_rect(nk_window_get_canvas(ctx), hdr_bounds, 0, header_bg);
       nk_stroke_rect(nk_window_get_canvas(ctx), hdr_bounds, 0, 1, border_color);
 
-      // Header with icon, name, and sort indicator
-      char header_text[128];
-      const char *sort_icon = "";
-      if (tbl->sort_column == (int)c) {
-        sort_icon = tbl->sort_ascending ? ICON_SORT_ASC : ICON_SORT_DESC;
+      // Hidden button for settings/sorting
+      if (nk_button_label(ctx, "")) {
+        ui->table_state.active_block_id = block->id;
+        ui->table_state.active_col_idx = (int)c;
+        ui->table_state.show_col_settings = !ui->table_state.show_col_settings;
+        ui->table_state.show_col_menu = 0;
+        ui->table_state.show_footer_menu = 0;
+        ui->table_state.menu_pos_x = hdr_bounds.x;
+        ui->table_state.menu_pos_y = hdr_bounds.y;
+        strncpy(ui->table_state.rename_buffer, tbl->columns[c].name, 63);
+        ui->table_state.rename_buffer[63] = '\0';
       }
-      snprintf(header_text, sizeof(header_text), "%s %s %s",
-               table_col_type_icon(tbl->columns[c].type),
-               tbl->columns[c].name,
-               sort_icon);
 
-      // Make header clickable for sorting
-      if (nk_button_label(ctx, header_text)) {
-        if (tbl->sort_column == (int)c) {
-          // Toggle sort direction
-          aslan_table_sort(tbl, (int)c, !tbl->sort_ascending);
-        } else {
-          // Sort by this column ascending
-          aslan_table_sort(tbl, (int)c, true);
+      // Notion Style Header: Anthracite gray text, slightly transparent icons
+      struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+      const char *icon = table_col_type_icon(tbl->columns[c].type);
+      struct nk_color header_text_col = nk_rgb(55, 53, 47);
+      struct nk_color icon_col = nk_rgba(55, 53, 47, 128); // 50% opacity
+
+      // Draw Icon and Text manually with font switching
+      if (ui->font_icons) {
+        nk_style_set_font(ctx, &ui->font_icons->handle);
+        nk_draw_text(canvas,
+                     nk_rect(hdr_bounds.x + 8, hdr_bounds.y + 6, 20, 20), icon,
+                     strlen(icon), &ui->font_icons->handle, nk_rgba(0, 0, 0, 0),
+                     icon_col);
+        nk_style_set_font(ctx, &ui->font_inter->handle);
+      }
+
+      nk_draw_text(
+          canvas,
+          nk_rect(hdr_bounds.x + 30, hdr_bounds.y + 6, hdr_bounds.w - 34, 20),
+          tbl->columns[c].name, strlen(tbl->columns[c].name),
+          &ui->font_inter->handle, nk_rgba(0, 0, 0, 0), header_text_col);
+
+      // Sort indicator
+      if (tbl->sort_column == (int)c) {
+        const char *sort_icon =
+            tbl->sort_ascending ? ICON_SORT_ASC : ICON_SORT_DESC;
+        if (ui->font_icons) {
+          nk_style_set_font(ctx, &ui->font_icons->handle);
+          nk_draw_text(canvas,
+                       nk_rect(hdr_bounds.x + hdr_bounds.w - 20,
+                               hdr_bounds.y + 6, 16, 20),
+                       sort_icon, strlen(sort_icon), &ui->font_icons->handle,
+                       nk_rgba(0, 0, 0, 0), COLOR_ACCENT);
+          nk_style_set_font(ctx, &ui->font_inter->handle);
         }
       }
     }
@@ -1137,50 +1196,108 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     // -----------------------------------------------------------------------
     // DATA ROWS
     // -----------------------------------------------------------------------
-    for (size_t v = 0; v < view_count && v < 100; v++) {  // Limit visible rows
+    struct nk_color notion_white = nk_rgb(255, 255, 255);
+    struct nk_color notion_border = nk_rgb(235, 236, 237);
+    struct nk_color notion_text = nk_rgb(55, 53, 47);
+
+    for (size_t v = 0; v < view_count && v < 100; v++) { // Limit visible rows
       uint64_t row_id = aslan_table_view_row_id(tbl, (int)v);
-      if (row_id == 0) continue;
+      if (row_id == 0)
+        continue;
 
-      struct nk_color row_bg = (v % 2 == 0) ? row_normal : row_alt;
+      // Notion style: Pure white background for everything
+      struct nk_color row_bg = notion_white;
 
-      nk_layout_row_begin(ctx, NK_STATIC, row_h, (int)col_count + 1);
+      // Data Row Layout Template
+      nk_layout_row_template_begin(ctx, row_h);
+      nk_layout_row_template_push_static(ctx, row_num_w);
+      for (size_t c = 0; c < col_count; c++) {
+        nk_layout_row_template_push_static(ctx, col_widths[c]);
+      }
+      nk_layout_row_template_end(ctx);
 
       // Row number
-      nk_layout_row_push(ctx, row_num_w);
-      struct nk_rect row_bounds = nk_widget_bounds(ctx);
-      nk_fill_rect(nk_window_get_canvas(ctx), row_bounds, 0, row_bg);
+      struct nk_rect row_num_bounds = nk_widget_bounds(ctx);
+      nk_fill_rect(nk_window_get_canvas(ctx), row_num_bounds, 0, row_bg);
+      // Bottom border only
+      nk_stroke_line(nk_window_get_canvas(ctx), row_num_bounds.x,
+                     row_num_bounds.y + row_num_bounds.h,
+                     row_num_bounds.x + row_num_bounds.w,
+                     row_num_bounds.y + row_num_bounds.h, 1.0f, notion_border);
+
       char row_num[16];
       snprintf(row_num, sizeof(row_num), "%zu", v + 1);
       nk_label(ctx, row_num, NK_TEXT_CENTERED);
 
       // Cells
       for (size_t c = 0; c < col_count; c++) {
-        nk_layout_row_push(ctx, col_widths[c]);
-        row_bounds = nk_widget_bounds(ctx);
-        nk_fill_rect(nk_window_get_canvas(ctx), row_bounds, 0, row_bg);
-        nk_stroke_rect(nk_window_get_canvas(ctx), row_bounds, 0, 0.5f, border_color);
+        char cell_id[64];
+        snprintf(cell_id, sizeof(cell_id), "cell_%llu_%zu",
+                 (unsigned long long)row_id, c);
 
-        AslanColumnType type = tbl->columns[c].type;
+        // Scope each cell with a group to avoid widget ID conflicts
+        if (nk_group_begin(ctx, cell_id, NK_WINDOW_NO_SCROLLBAR)) {
+          nk_layout_row_dynamic(ctx, row_h, 1);
+          struct nk_rect row_bounds = nk_widget_bounds(ctx);
+          struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
 
-        switch (type) {
+          // Notion Aesthetic: Only horizontal bottom border
+          nk_stroke_line(canvas, 0, row_h - 1, col_widths[c], row_h - 1, 1.0f,
+                         notion_border);
+
+          AslanColumnType type = tbl->columns[c].type;
+          int is_active = (ui->table_state.active_row_idx == (int)v &&
+                           ui->table_state.active_col_idx == (int)c);
+          int is_editing = (is_active && ui->table_state.is_editing_cell);
+
+          // Interaction: Detect click to select/edit
+          if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
+                                              nk_layout_space_bounds(ctx))) {
+            if (is_active) {
+              ui->table_state.is_editing_cell = 1;
+            } else {
+              ui->table_state.active_row_idx = (int)v;
+              ui->table_state.active_col_idx = (int)c;
+              ui->table_state.is_editing_cell = 0;
+            }
+          }
+
+          // Active Cell Highlight (Notion-blue tint)
+          if (is_active) {
+            nk_fill_rect(canvas, nk_layout_space_bounds(ctx), 0,
+                         nk_rgba(35, 131, 226, 20)); // Subtle blue
+          }
+
+          // Notion Aesthetic: Horizontal bottom border + faint vertical lines
+          nk_stroke_line(canvas, 0, row_h - 1, col_widths[c], row_h - 1, 1.0f,
+                         notion_border);
+          nk_stroke_line(canvas, col_widths[c] - 1, 0, col_widths[c] - 1, row_h,
+                         1.0f,
+                         nk_rgb(245, 246, 247)); // Faint vertical separator
+
+          // Global padding for cell content: 10px left
+          nk_style_push_vec2(ctx, &ctx->style.text.padding, nk_vec2(10, 0));
+
+          switch (type) {
           case ASLAN_COL_TEXT: {
-            // Editable text field
             char buf[256];
             const char *val = aslan_table_get_text(tbl, (int)c, row_id);
             strncpy(buf, val ? val : "", sizeof(buf) - 1);
             buf[sizeof(buf) - 1] = '\0';
 
-            nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, buf,
-                                           sizeof(buf) - 1, nk_filter_default);
-
-            if (strcmp(buf, val ? val : "") != 0) {
-              aslan_table_set_text(tbl, (int)c, row_id, buf);
+            if (is_editing) {
+              nk_edit_string_zero_terminated(
+                  ctx, NK_EDIT_FIELD, buf, sizeof(buf) - 1, nk_filter_default);
+              if (strcmp(buf, val ? val : "") != 0) {
+                aslan_table_set_text(tbl, (int)c, row_id, buf);
+              }
+            } else {
+              nk_label(ctx, buf[0] ? buf : "", NK_TEXT_LEFT);
             }
             break;
           }
 
           case ASLAN_COL_NUMBER: {
-            // Editable number field
             char buf[64];
             double val = aslan_table_get_number(tbl, (int)c, row_id);
             if (val == (int64_t)val) {
@@ -1189,47 +1306,68 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               snprintf(buf, sizeof(buf), "%.2f", val);
             }
 
-            nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, buf,
-                                           sizeof(buf) - 1, nk_filter_decimal);
-
-            double new_val = strtod(buf, NULL);
-            if (new_val != val) {
-              aslan_table_set_number(tbl, (int)c, row_id, new_val);
+            if (is_editing) {
+              nk_edit_string_zero_terminated(
+                  ctx, NK_EDIT_FIELD, buf, sizeof(buf) - 1, nk_filter_decimal);
+              double new_val = strtod(buf, NULL);
+              if (new_val != val) {
+                aslan_table_set_number(tbl, (int)c, row_id, new_val);
+              }
+            } else {
+              nk_label(ctx, buf, NK_TEXT_LEFT);
             }
             break;
           }
 
           case ASLAN_COL_CHECKBOX: {
-            // Checkbox
-            nk_bool checked = aslan_table_get_checkbox(tbl, (int)c, row_id) ? nk_true : nk_false;
-            if (nk_checkbox_label(ctx, "", &checked)) {
-              aslan_table_set_checkbox(tbl, (int)c, row_id, checked ? true : false);
+            // Checkbox logic (Notion style: simple square)
+            bool is_checked = aslan_table_get_checkbox(tbl, (int)c, row_id);
+            struct nk_rect b = nk_widget_bounds(ctx);
+            float size = 18.0f;
+            struct nk_rect box =
+                nk_rect(b.x + 10, b.y + (b.h - size) / 2, size, size);
+
+            if (nk_button_label(ctx, "")) {
+              aslan_table_set_checkbox(tbl, (int)c, row_id, !is_checked);
+            }
+
+            struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+            if (is_checked) {
+              nk_fill_rect(canvas, box, 2.0f, nk_rgb(35, 131, 226)); // Blue
+              if (ui->font_icons) {
+                nk_style_set_font(ctx, &ui->font_icons->handle);
+                nk_draw_text(canvas,
+                             nk_rect(box.x + 2, box.y + 2, size - 4, size - 4),
+                             ICON_COL_CHECKBOX, strlen(ICON_COL_CHECKBOX),
+                             &ui->font_icons->handle, nk_rgba(0, 0, 0, 0),
+                             nk_rgb(255, 255, 255));
+                nk_style_set_font(ctx, &ui->font_inter->handle);
+              }
+            } else {
+              nk_stroke_rect(canvas, box, 2.0f, 1.5f, border_color);
             }
             break;
           }
 
           case ASLAN_COL_SELECT: {
-            // Dropdown
             AslanColumn *col = &tbl->columns[c];
             int sel = aslan_table_get_select(tbl, (int)c, row_id);
-
-            // Build options string
             char options[512] = "";
             char *p = options;
             for (int i = 0; i < col->option_count && i < 10; i++) {
-              if (i > 0) *p++ = '\0';
+              if (i > 0)
+                *p++ = '\0';
               strncpy(p, col->options[i].label, 60);
               p += strlen(p);
             }
-            if (col->option_count > 0) {
+            if (col->option_count > 0)
               *p++ = '\0';
-            }
 
             if (col->option_count > 0) {
               int new_sel = sel < 0 ? 0 : sel;
-              new_sel = nk_combo_string(ctx, options, new_sel,
-                                        col->option_count,
-                                        (int)row_h, nk_vec2(col_widths[c], 150));
+              new_sel =
+                  nk_combo_string(ctx, options, new_sel, col->option_count,
+                                  (int)row_h, nk_vec2(col_widths[c], 150));
               if (new_sel != sel) {
                 aslan_table_set_select(tbl, (int)c, row_id, new_sel);
               }
@@ -1240,18 +1378,64 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           }
 
           case ASLAN_COL_DATE: {
-            // Date display (simplified - just show formatted date)
             char buf[32];
+            int64_t ts = aslan_table_get_date(tbl, (int)c, row_id);
+            if (ts > 0) {
+              time_t t = (time_t)(ts / 1000);
+              struct tm *tm = localtime(&t);
+              strftime(buf, sizeof(buf), "%Y-%m-%d", tm);
+            } else {
+              buf[0] = '\0';
+            }
+
+            if (is_editing) {
+              nk_flags res = nk_edit_string_zero_terminated(
+                  ctx, NK_EDIT_FIELD, buf, sizeof(buf) - 1, nk_filter_ascii);
+              if (res & NK_EDIT_COMMITED || (buf[0] && strlen(buf) == 10)) {
+                struct tm tm = {0};
+                if (sscanf(buf, "%d-%d-%d", &tm.tm_year, &tm.tm_mon,
+                           &tm.tm_mday) == 3) {
+                  tm.tm_year -= 1900;
+                  tm.tm_mon -= 1;
+                  time_t new_t = mktime(&tm);
+                  if (new_t != -1) {
+                    int64_t new_ts = (int64_t)new_t * 1000;
+                    if (new_ts != ts)
+                      aslan_table_set_date(tbl, (int)c, row_id, new_ts);
+                  }
+                }
+              }
+            } else {
+              nk_label(ctx, buf[0] ? buf : "0000-00-00", NK_TEXT_LEFT);
+            }
+            break;
+          }
+
+          case ASLAN_COL_RELATION: {
+            char buf[64];
             aslan_table_get_cell_display(tbl, (int)c, row_id, buf, sizeof(buf));
-            nk_label(ctx, buf[0] ? buf : "-", NK_TEXT_LEFT);
+            if (ui->font_icons) {
+              nk_style_set_font(ctx, &ui->font_icons->handle);
+              nk_draw_text(nk_window_get_canvas(ctx), nk_rect(10, 6, 20, 20),
+                           ICON_COL_RELATION, strlen(ICON_COL_RELATION),
+                           &ui->font_icons->handle, nk_rgba(0, 0, 0, 0),
+                           notion_text);
+              nk_style_set_font(ctx, &ui->font_inter->handle);
+              nk_draw_text(nk_window_get_canvas(ctx),
+                           nk_rect(30, 6, col_widths[c] - 34, 20),
+                           buf[0] ? buf : "-", buf[0] ? strlen(buf) : 1,
+                           &ui->font_inter->handle, nk_rgba(0, 0, 0, 0),
+                           notion_text);
+            } else {
+              nk_label(ctx, buf[0] ? buf : "-", NK_TEXT_LEFT);
+            }
             break;
           }
 
           case ASLAN_COL_FORMULA: {
-            // Formula result (read-only)
             char buf[64];
             aslan_table_get_cell_display(tbl, (int)c, row_id, buf, sizeof(buf));
-            nk_label(ctx, buf, NK_TEXT_RIGHT);
+            nk_label(ctx, buf, NK_TEXT_LEFT);
             break;
           }
 
@@ -1261,9 +1445,13 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             nk_label(ctx, buf, NK_TEXT_LEFT);
             break;
           }
+          }
+          nk_style_pop_vec2(ctx); // Pop cell content padding
+          nk_group_end(ctx);
+        } else {
+          nk_spacing(ctx, 1);
         }
       }
-      nk_layout_row_end(ctx);
     }
 
     // -----------------------------------------------------------------------
@@ -1282,40 +1470,34 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       nk_layout_row_push(ctx, col_widths[c]);
       ftr_bounds = nk_widget_bounds(ctx);
       nk_fill_rect(nk_window_get_canvas(ctx), ftr_bounds, 0, footer_bg);
-      nk_stroke_rect(nk_window_get_canvas(ctx), ftr_bounds, 0, 0.5f, border_color);
+      nk_stroke_rect(nk_window_get_canvas(ctx), ftr_bounds, 0, 0.5f,
+                     border_color);
 
       char footer_text[64];
-      aslan_table_get_footer_display(tbl, (int)c, footer_text, sizeof(footer_text));
+      aslan_table_get_footer_display(tbl, (int)c, footer_text,
+                                     sizeof(footer_text));
 
       if (footer_text[0]) {
-        nk_label(ctx, footer_text, NK_TEXT_RIGHT);
+        // Show aggregation value
+        if (nk_button_label(ctx, footer_text)) {
+          struct nk_rect b = nk_widget_bounds(ctx);
+          ui->table_state.active_block_id = block->id;
+          ui->table_state.active_col_idx = (int)c;
+          ui->table_state.show_footer_menu = !ui->table_state.show_footer_menu;
+          ui->table_state.show_col_menu = 0;
+          ui->table_state.menu_pos_x = b.x;
+          ui->table_state.menu_pos_y = b.y;
+        }
       } else {
         // Click to set aggregation
         if (nk_button_label(ctx, "...")) {
-          // Cycle through aggregation types
-          AslanAggregationType curr = aslan_table_get_footer_agg(tbl, (int)c);
-          AslanColumnType type = tbl->columns[c].type;
-
-          AslanAggregationType next = ASLAN_AGG_NONE;
-          if (type == ASLAN_COL_NUMBER || type == ASLAN_COL_FORMULA) {
-            // Cycle: None -> Sum -> Avg -> Min -> Max -> Count -> None
-            if (curr == ASLAN_AGG_NONE) next = ASLAN_AGG_SUM;
-            else if (curr == ASLAN_AGG_SUM) next = ASLAN_AGG_AVG;
-            else if (curr == ASLAN_AGG_AVG) next = ASLAN_AGG_MIN;
-            else if (curr == ASLAN_AGG_MIN) next = ASLAN_AGG_MAX;
-            else if (curr == ASLAN_AGG_MAX) next = ASLAN_AGG_COUNT;
-            else next = ASLAN_AGG_NONE;
-          } else if (type == ASLAN_COL_CHECKBOX) {
-            // Cycle: None -> Percent -> Count -> None
-            if (curr == ASLAN_AGG_NONE) next = ASLAN_AGG_PERCENT;
-            else if (curr == ASLAN_AGG_PERCENT) next = ASLAN_AGG_COUNT;
-            else next = ASLAN_AGG_NONE;
-          } else {
-            // Cycle: None -> Count -> None
-            if (curr == ASLAN_AGG_NONE) next = ASLAN_AGG_COUNT;
-            else next = ASLAN_AGG_NONE;
-          }
-          aslan_table_set_footer_agg(tbl, (int)c, next);
+          struct nk_rect b = nk_widget_bounds(ctx);
+          ui->table_state.active_block_id = block->id;
+          ui->table_state.active_col_idx = (int)c;
+          ui->table_state.show_footer_menu = !ui->table_state.show_footer_menu;
+          ui->table_state.show_col_menu = 0;
+          ui->table_state.menu_pos_x = b.x;
+          ui->table_state.menu_pos_y = b.y;
         }
       }
     }
@@ -1326,14 +1508,14 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     char info[64];
     snprintf(info, sizeof(info), "%zu rows", view_count);
     nk_label(ctx, info, NK_TEXT_LEFT);
-
   } else {
     // =========================================================================
     // LEGACY TABLE RENDERING (fallback for old tables)
     // =========================================================================
     if (td->rows <= 0 || td->cols <= 0) {
       nk_layout_row_dynamic(ctx, 30, 1);
-      nk_label(ctx, "Empty table - click '+ Row' to add data", NK_TEXT_CENTERED);
+      nk_label(ctx, "Empty table - click '+ Row' to add data",
+               NK_TEXT_CENTERED);
       return;
     }
 
@@ -1346,12 +1528,207 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         strncpy(buf, cell ? cell : "", sizeof(buf) - 1);
         buf[sizeof(buf) - 1] = '\0';
 
-        nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, buf,
-                                       sizeof(buf) - 1, nk_filter_default);
+        nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, buf, sizeof(buf) - 1,
+                                       nk_filter_default);
 
         if (strcmp(buf, cell ? cell : "") != 0) {
           block_table_set_cell(block, r, c, buf);
         }
+      }
+    }
+  }
+
+  // =========================================================================
+  // RENDER PENDING POPUPS (To avoid clipping inside layouts)
+  // =========================================================================
+  if (ui->table_state.active_block_id == block->id) {
+    if (ui->table_state.show_col_menu) {
+      if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Add Column",
+                         NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER,
+                         nk_rect(ui->table_state.menu_pos_x - 100,
+                                 ui->table_state.menu_pos_y + 30, 160, 250))) {
+        nk_layout_row_dynamic(ctx, 24, 1);
+        const char *types[] = {"Text",   "Number", "Checkbox",
+                               "Select", "Date",   "Formula"};
+        AslanColumnType type_vals[] = {ASLAN_COL_TEXT,     ASLAN_COL_NUMBER,
+                                       ASLAN_COL_CHECKBOX, ASLAN_COL_SELECT,
+                                       ASLAN_COL_DATE,     ASLAN_COL_FORMULA};
+        for (int i = 0; i < 6; i++) {
+          struct nk_rect item_rect = nk_widget_bounds(ctx);
+          if (nk_button_label(ctx, "")) {
+            if (tbl) {
+              char col_name[32];
+              snprintf(col_name, sizeof(col_name), "Column %d",
+                       (int)tbl->column_count + 1);
+              aslan_table_add_column(tbl, col_name, type_vals[i]);
+            }
+            ui->table_state.show_col_menu = 0;
+            nk_popup_close(ctx);
+          }
+          // Draw icon and text on top of button
+          struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+          const char *icon = table_col_type_icon(type_vals[i]);
+          if (ui->font_icons) {
+            nk_draw_text(canvas,
+                         nk_rect(item_rect.x + 4, item_rect.y + 4, 20, 20),
+                         icon, strlen(icon), &ui->font_icons->handle,
+                         nk_rgba(0, 0, 0, 0), COLOR_TEXT);
+          }
+          nk_draw_text(
+              canvas,
+              nk_rect(item_rect.x + 28, item_rect.y + 4, item_rect.w - 32, 20),
+              types[i], strlen(types[i]), &ui->font_inter->handle,
+              nk_rgba(0, 0, 0, 0), COLOR_TEXT);
+        }
+        nk_popup_end(ctx);
+      } else {
+        ui->table_state.show_col_menu = 0;
+      }
+    }
+
+    if (ui->table_state.show_footer_menu &&
+        ui->table_state.active_col_idx >= 0 &&
+        ui->table_state.active_col_idx < (int)tbl->column_count) {
+
+      // Smart Placement: Check if there is space below
+      struct nk_rect b =
+          nk_rect(ui->table_state.menu_pos_x, ui->table_state.menu_pos_y, 0,
+                  0); // Origin button
+      float win_height = (float)ui->win_height;
+      if (win_height == 0)
+        win_height = 800; // Fallback
+
+      float menu_h = 250.0f;
+      float popup_y = ui->table_state.menu_pos_y;
+
+      // Hotfix v0.1.6: Position Aggregation Menu ALWAYS ABOVE the footer
+      popup_y = ui->table_state.menu_pos_y - menu_h;
+      if (popup_y < 0)
+        popup_y = 0;
+
+      if (nk_popup_begin(
+              ctx, NK_POPUP_STATIC, "Aggregation",
+              NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER,
+              nk_rect(ui->table_state.menu_pos_x, popup_y, 180, menu_h))) {
+        nk_layout_row_dynamic(ctx, 28, 1);
+        int c = ui->table_state.active_col_idx;
+        AslanColumnType type = tbl->columns[c].type;
+
+        if (nk_button_label(ctx, "None")) {
+          aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_NONE);
+          ui->table_state.show_footer_menu = 0;
+          nk_popup_close(ctx);
+        }
+
+        if (nk_button_label(ctx, "# Count")) {
+          aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_COUNT);
+          ui->table_state.show_footer_menu = 0;
+          nk_popup_close(ctx);
+        }
+
+        if (type == ASLAN_COL_NUMBER || type == ASLAN_COL_FORMULA) {
+          if (nk_button_label(ctx, "Σ Sum")) {
+            aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_SUM);
+            ui->table_state.show_footer_menu = 0;
+            nk_popup_close(ctx);
+          }
+          if (nk_button_label(ctx, "μ Average")) {
+            aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_AVG);
+            ui->table_state.show_footer_menu = 0;
+            nk_popup_close(ctx);
+          }
+          if (nk_button_label(ctx, "Min")) {
+            aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_MIN);
+            ui->table_state.show_footer_menu = 0;
+            nk_popup_close(ctx);
+          }
+          if (nk_button_label(ctx, "Max")) {
+            aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_MAX);
+            ui->table_state.show_footer_menu = 0;
+            nk_popup_close(ctx);
+          }
+        }
+
+        if (type == ASLAN_COL_CHECKBOX) {
+          if (nk_button_label(ctx, "% Percent")) {
+            aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_PERCENT);
+            ui->table_state.show_footer_menu = 0;
+            nk_popup_close(ctx);
+          }
+        }
+
+        if (type == ASLAN_COL_CHECKBOX) {
+          if (nk_button_label(ctx, "% Percent")) {
+            aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_PERCENT);
+            ui->table_state.show_footer_menu = 0;
+            nk_popup_close(ctx);
+          }
+        }
+
+        if (nk_button_label(ctx, "# Count")) {
+          aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_COUNT);
+          ui->table_state.show_footer_menu = 0;
+          nk_popup_close(ctx);
+        }
+      }
+    }
+
+    if (ui->table_state.show_col_settings &&
+        ui->table_state.active_col_idx >= 0 &&
+        ui->table_state.active_col_idx < (int)tbl->column_count) {
+      int c = ui->table_state.active_col_idx;
+      if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Column Settings",
+                         NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER,
+                         nk_rect(ui->table_state.menu_pos_x,
+                                 ui->table_state.menu_pos_y + 32, 200, 350))) {
+        nk_layout_row_dynamic(ctx, 24, 1);
+        nk_label(ctx, "Name:", NK_TEXT_LEFT);
+        nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD,
+                                       ui->table_state.rename_buffer, 63,
+                                       nk_filter_default);
+        if (nk_button_label(ctx, "Apply Name")) {
+          strncpy(tbl->columns[c].name, ui->table_state.rename_buffer, 63);
+          ui->table_state.show_col_settings = 0;
+          nk_popup_close(ctx);
+        }
+
+        nk_label(ctx, "Change Type:", NK_TEXT_LEFT);
+        const char *types[] = {"Text",   "Number", "Checkbox",
+                               "Select", "Date",   "Formula"};
+        AslanColumnType type_vals[] = {ASLAN_COL_TEXT,     ASLAN_COL_NUMBER,
+                                       ASLAN_COL_CHECKBOX, ASLAN_COL_SELECT,
+                                       ASLAN_COL_DATE,     ASLAN_COL_FORMULA};
+        for (int i = 0; i < 6; i++) {
+          struct nk_rect item_rect = nk_widget_bounds(ctx);
+          if (nk_button_label(ctx, "")) {
+            tbl->columns[c].type = type_vals[i];
+            ui->table_state.show_col_settings = 0;
+            nk_popup_close(ctx);
+          }
+          struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+          const char *icon = table_col_type_icon(type_vals[i]);
+          if (ui->font_icons) {
+            nk_draw_text(canvas,
+                         nk_rect(item_rect.x + 4, item_rect.y + 4, 20, 20),
+                         icon, strlen(icon), &ui->font_icons->handle,
+                         nk_rgba(0, 0, 0, 0), COLOR_TEXT);
+          }
+          nk_draw_text(
+              canvas,
+              nk_rect(item_rect.x + 28, item_rect.y + 4, item_rect.w - 32, 20),
+              types[i], strlen(types[i]), &ui->font_inter->handle,
+              nk_rgba(0, 0, 0, 0), COLOR_TEXT);
+        }
+
+        nk_spacing(ctx, 1);
+        if (nk_button_label(ctx, "Delete Column")) {
+          aslan_table_remove_column(tbl, c);
+          ui->table_state.show_col_settings = 0;
+          nk_popup_close(ctx);
+        }
+        nk_popup_end(ctx);
+      } else {
+        ui->table_state.show_col_settings = 0;
       }
     }
   }
@@ -1442,7 +1819,8 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
   // 5 buttons: Forms, Text, Note, Image, Pen
   const float btn_size = 32.0f;
   const float btn_spacing = 6.0f;
-  const float toolbar_w = 4 * btn_size + 3 * btn_spacing + 24.0f;  // 4 buttons now
+  const float toolbar_w =
+      4 * btn_size + 3 * btn_spacing + 24.0f; // 4 buttons now
   const float toolbar_h = 44.0f;
   const float margin = 16.0f;
 
@@ -1519,19 +1897,19 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
         cs->show_forms_menu = !cs->show_forms_menu;
         // If switching to forms menu, ensure we are in select mode (exit pen)
         if (cs->show_forms_menu) {
-            cs->tool = CANVAS_TOOL_SELECT;
+          cs->tool = CANVAS_TOOL_SELECT;
         }
       } else if (i == 3) {
         // Pen tool - toggle
         if (cs->tool == CANVAS_TOOL_PEN) {
-            cs->tool = CANVAS_TOOL_SELECT; // Toggle off
+          cs->tool = CANVAS_TOOL_SELECT; // Toggle off
         } else {
-            cs->tool = CANVAS_TOOL_PEN;
-            cs->show_forms_menu = 0;
-            if (cs->pen_thickness < 0.1f)
-              cs->pen_thickness = 2.0f;
-            if (cs->pen_color == 0)
-              cs->pen_color = 0x000000FF;
+          cs->tool = CANVAS_TOOL_PEN;
+          cs->show_forms_menu = 0;
+          if (cs->pen_thickness < 0.1f)
+            cs->pen_thickness = 2.0f;
+          if (cs->pen_color == 0)
+            cs->pen_color = 0x000000FF;
         }
       } else {
         // Create element directly in center of visible canvas
@@ -1560,17 +1938,17 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
 
     // Render Pen Settings manually (since we are inside canvas drawing)
     // 1. Color Palette
-    uint32_t colors[] = {0x000000FF, 0xD93025FF, 0xF9AB00FF, 0x1E8E3EFF,
-                         0x1A73E8FF, 0xA142F4FF};
+    uint32_t colors[] = {0x000000FF, 0xD93025FF, 0xF9AB00FF,
+                         0x1E8E3EFF, 0x1A73E8FF, 0xA142F4FF};
     float cx = menu_x + 12.0f;
     float cy = menu_y + 12.0f;
     float sz = 24.0f;
 
     for (int c = 0; c < 6; c++) {
       struct nk_rect cr = nk_rect(cx + c * (sz + 6), cy, sz, sz);
-      struct nk_color col = nk_rgba((colors[c] >> 24) & 0xFF,
-                                    (colors[c] >> 16) & 0xFF,
-                                    (colors[c] >> 8) & 0xFF, colors[c] & 0xFF);
+      struct nk_color col =
+          nk_rgba((colors[c] >> 24) & 0xFF, (colors[c] >> 16) & 0xFF,
+                  (colors[c] >> 8) & 0xFF, colors[c] & 0xFF);
       nk_fill_circle(canvas_buf, cr, col);
 
       // Selected indicator
@@ -1621,18 +1999,21 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     cy += 30.0f;
     struct nk_rect mr = nk_rect(cx, cy, 80, 24);
     nk_fill_rect(canvas_buf, mr, 4.0f,
-                 cs->pen_is_marker ? nk_rgb(200, 220, 255) : nk_rgb(240, 240, 240));
+                 cs->pen_is_marker ? nk_rgb(200, 220, 255)
+                                   : nk_rgb(240, 240, 240));
     nk_stroke_rect(canvas_buf, mr, 4.0f, 1.0f, nk_rgb(200, 200, 200));
-    
+
     // Text "Marker"
     if (ui->font_inter)
-       nk_draw_text(canvas_buf, nk_rect(cx + 10, cy + 4, 60, 16), "Marker", 6, &ui->font_inter->handle, nk_rgba(0,0,0,0), nk_rgb(50,50,50));
+      nk_draw_text(canvas_buf, nk_rect(cx + 10, cy + 4, 60, 16), "Marker", 6,
+                   &ui->font_inter->handle, nk_rgba(0, 0, 0, 0),
+                   nk_rgb(50, 50, 50));
 
     if (cs->mouse_just_pressed) {
-        if (ui->mouse_x >= mr.x && ui->mouse_x < mr.x + mr.w &&
-            ui->mouse_y >= mr.y && ui->mouse_y < mr.y + mr.h) {
-            cs->pen_is_marker = !cs->pen_is_marker;
-        }
+      if (ui->mouse_x >= mr.x && ui->mouse_x < mr.x + mr.w &&
+          ui->mouse_y >= mr.y && ui->mouse_y < mr.y + mr.h) {
+        cs->pen_is_marker = !cs->pen_is_marker;
+      }
     }
   }
 
@@ -1856,22 +2237,22 @@ static SDL_Texture *get_image_texture(UIHost *ui, const char *path) {
     char full_path[512];
     snprintf(full_path, sizeof(full_path), "assets/%s", path);
     pixels = mac_load_image_rgba(full_path, &w, &h);
-    
+
     // Debug
     FILE *f = fopen("ui_debug.log", "a");
     if (f) {
-        fprintf(f, "get_image_texture failed for %s, trying %s -> %p\n", path, full_path, pixels);
-        fclose(f);
+      fprintf(f, "get_image_texture failed for %s, trying %s -> %p\n", path,
+              full_path, pixels);
+      fclose(f);
     }
   }
 
-  if (!pixels) return NULL;
+  if (!pixels)
+    return NULL;
 
   // Create texture
-  SDL_Texture *tex = SDL_CreateTexture(ui->renderer,
-                                       SDL_PIXELFORMAT_RGBA32,
-                                       SDL_TEXTUREACCESS_STATIC,
-                                       w, h);
+  SDL_Texture *tex = SDL_CreateTexture(ui->renderer, SDL_PIXELFORMAT_RGBA32,
+                                       SDL_TEXTUREACCESS_STATIC, w, h);
   if (tex) {
     SDL_UpdateTexture(tex, NULL, pixels, w * 4);
     SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
@@ -1879,7 +2260,8 @@ static SDL_Texture *get_image_texture(UIHost *ui, const char *path) {
 
   free(pixels);
 
-  if (!tex) return NULL;
+  if (!tex)
+    return NULL;
 
   // Find slot in cache
   int slot = -1;
@@ -2016,7 +2398,8 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
       // Image - open file dialog
       char selected_path[512] = {0};
       if (open_image_file_dialog(selected_path, sizeof(selected_path))) {
-        // Get document directory from engine (if available) or use current dir
+        // Get document directory from engine (if available) or use current
+        // dir
         char doc_dir[256] = ".";
         // For now, use the current working directory
         // In a real implementation, this would come from the document's
@@ -2100,26 +2483,34 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
     float hsize = 40.0f; // Interaction size
 
     // SE
-    if (ui->mouse_x >= sx + sw - hsize/2 && ui->mouse_x < sx + sw + hsize/2 &&
-        ui->mouse_y >= sy + sh - hsize/2 && ui->mouse_y < sy + sh + hsize/2) {
-      on_resize_handle = 1; hit_handle_index = 0;
+    if (ui->mouse_x >= sx + sw - hsize / 2 &&
+        ui->mouse_x < sx + sw + hsize / 2 &&
+        ui->mouse_y >= sy + sh - hsize / 2 &&
+        ui->mouse_y < sy + sh + hsize / 2) {
+      on_resize_handle = 1;
+      hit_handle_index = 0;
     }
     // SW
-    else if (ui->mouse_x >= sx - hsize/2 && ui->mouse_x < sx + hsize/2 &&
-             ui->mouse_y >= sy + sh - hsize/2 && ui->mouse_y < sy + sh + hsize/2) {
-      on_resize_handle = 1; hit_handle_index = 1;
+    else if (ui->mouse_x >= sx - hsize / 2 && ui->mouse_x < sx + hsize / 2 &&
+             ui->mouse_y >= sy + sh - hsize / 2 &&
+             ui->mouse_y < sy + sh + hsize / 2) {
+      on_resize_handle = 1;
+      hit_handle_index = 1;
     }
     // NW
-    else if (ui->mouse_x >= sx - hsize/2 && ui->mouse_x < sx + hsize/2 &&
-             ui->mouse_y >= sy - hsize/2 && ui->mouse_y < sy + hsize/2) {
-      on_resize_handle = 1; hit_handle_index = 2;
+    else if (ui->mouse_x >= sx - hsize / 2 && ui->mouse_x < sx + hsize / 2 &&
+             ui->mouse_y >= sy - hsize / 2 && ui->mouse_y < sy + hsize / 2) {
+      on_resize_handle = 1;
+      hit_handle_index = 2;
     }
     // NE
-    else if (ui->mouse_x >= sx + sw - hsize/2 && ui->mouse_x < sx + sw + hsize/2 &&
-             ui->mouse_y >= sy - hsize/2 && ui->mouse_y < sy + hsize/2) {
-      on_resize_handle = 1; hit_handle_index = 3;
+    else if (ui->mouse_x >= sx + sw - hsize / 2 &&
+             ui->mouse_x < sx + sw + hsize / 2 &&
+             ui->mouse_y >= sy - hsize / 2 && ui->mouse_y < sy + hsize / 2) {
+      on_resize_handle = 1;
+      hit_handle_index = 3;
     }
-    
+
     // Check property menu hit
     float menu_w = 220.0f;
     float menu_h = 45.0f;
@@ -2127,9 +2518,12 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
     float menu_y = sy - menu_h - 10.0f;
 
     // Keep within canvas bounds (Match logic with render)
-    if (menu_x < bounds.x) menu_x = bounds.x;
-    if (menu_x + menu_w > bounds.x + bounds.w) menu_x = bounds.x + bounds.w - menu_w;
-    if (menu_y < bounds.y) menu_y = sy + sh + 10.0f; 
+    if (menu_x < bounds.x)
+      menu_x = bounds.x;
+    if (menu_x + menu_w > bounds.x + bounds.w)
+      menu_x = bounds.x + bounds.w - menu_w;
+    if (menu_y < bounds.y)
+      menu_y = sy + sh + 10.0f;
 
     if (ui->mouse_x >= menu_x && ui->mouse_x < menu_x + menu_w &&
         ui->mouse_y >= menu_y && ui->mouse_y < menu_y + menu_h) {
@@ -2149,9 +2543,10 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
     cs->resize_start_node_x = ui->selected_node->x;
     cs->resize_start_node_y = ui->selected_node->y;
   }
-  // Handle other mouse press in canvas (not toolbar, not forms menu, not resizing)
-  else if (cs->mouse_in_canvas && !in_toolbar && !in_forms_menu && !cs->is_panning &&
-           cs->mouse_just_pressed && !on_resize_handle) {
+  // Handle other mouse press in canvas (not toolbar, not forms menu, not
+  // resizing)
+  else if (cs->mouse_in_canvas && !in_toolbar && !in_forms_menu &&
+           !cs->is_panning && cs->mouse_just_pressed && !on_resize_handle) {
 
     if (on_property_menu) {
       // Let property menu handle the click
@@ -2164,14 +2559,17 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       // If we were editing and clicked elsewhere, save the text
       if (ui->editing_node && ui->editing_node != hit) {
-        strncpy(ui->editing_node->text, ui->edit_buffer, sizeof(ui->editing_node->text) - 1);
+        strncpy(ui->editing_node->text, ui->edit_buffer,
+                sizeof(ui->editing_node->text) - 1);
         ui->editing_node->text[sizeof(ui->editing_node->text) - 1] = '\0';
         ui->editing_node = NULL;
       }
 
       if (hit) {
-        // Check if clicking on text node to edit (already selected = start editing)
-        if (hit->type == NODE_TYPE_TEXT && ui->selected_node == hit && !ui->editing_node) {
+        // Check if clicking on text node to edit (already selected = start
+        // editing)
+        if (hit->type == NODE_TYPE_TEXT && ui->selected_node == hit &&
+            !ui->editing_node) {
           // Start inline text editing
           ui->editing_node = hit;
           strncpy(ui->edit_buffer, hit->text, sizeof(ui->edit_buffer) - 1);
@@ -2202,7 +2600,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
   if (cs->is_resizing && ui->selected_node) {
     float dx = (ui->mouse_x - cs->resize_start_x) / zoom;
     float dy = (ui->mouse_y - cs->resize_start_y) / zoom;
-    
+
     float start_w = cs->resize_start_w;
     float start_h = cs->resize_start_h;
     float new_w = start_w;
@@ -2211,29 +2609,31 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
     float new_y = cs->resize_start_node_y;
 
     if (cs->resize_handle == 0) { // SE
-        new_w = start_w + dx;
-        new_h = start_h + dy;
+      new_w = start_w + dx;
+      new_h = start_h + dy;
     } else if (cs->resize_handle == 1) { // SW
-        new_w = start_w - dx;
-        new_h = start_h + dy;
+      new_w = start_w - dx;
+      new_h = start_h + dy;
     } else if (cs->resize_handle == 2) { // NW
-        new_w = start_w - dx;
-        new_h = start_h - dy;
+      new_w = start_w - dx;
+      new_h = start_h - dy;
     } else if (cs->resize_handle == 3) { // NE
-        new_w = start_w + dx;
-        new_h = start_h - dy;
+      new_w = start_w + dx;
+      new_h = start_h - dy;
     }
 
     // Minimum size
-    if (new_w < 20.0f) new_w = 20.0f;
-    if (new_h < 20.0f) new_h = 20.0f;
-    
+    if (new_w < 20.0f)
+      new_w = 20.0f;
+    if (new_h < 20.0f)
+      new_h = 20.0f;
+
     // Adjust Position for Left/Top handles
     if (cs->resize_handle == 1 || cs->resize_handle == 2) { // SW or NW
-        new_x = cs->resize_start_node_x + (start_w - new_w);
+      new_x = cs->resize_start_node_x + (start_w - new_w);
     }
     if (cs->resize_handle == 2 || cs->resize_handle == 3) { // NW or NE
-        new_y = cs->resize_start_node_y + (start_h - new_h);
+      new_y = cs->resize_start_node_y + (start_h - new_h);
     }
 
     ui->selected_node->width = new_w;
@@ -2268,11 +2668,14 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
             (Point *)calloc(cs->current_stroke->capacity, sizeof(Point));
         cs->current_stroke->color = cs->pen_color;
         cs->current_stroke->thickness = cs->pen_thickness;
-        cs->current_stroke->type = cs->pen_is_marker ? STROKE_TYPE_MARKER : STROKE_TYPE_PEN;
+        cs->current_stroke->type =
+            cs->pen_is_marker ? STROKE_TYPE_MARKER : STROKE_TYPE_PEN;
 
         // Apply alpha for markers if they are opaque
-        if (cs->current_stroke->type == STROKE_TYPE_MARKER && (cs->current_stroke->color & 0xFF) == 0xFF) {
-            cs->current_stroke->color = (cs->current_stroke->color & 0xFFFFFF00) | 0x64; // ~40% opacity
+        if (cs->current_stroke->type == STROKE_TYPE_MARKER &&
+            (cs->current_stroke->color & 0xFF) == 0xFF) {
+          cs->current_stroke->color =
+              (cs->current_stroke->color & 0xFFFFFF00) | 0x64; // ~40% opacity
         }
 
         // Add first point
@@ -2286,8 +2689,9 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
         // Continue stroke
         if (cs->current_stroke->count >= cs->current_stroke->capacity) {
           cs->current_stroke->capacity *= 2;
-          cs->current_stroke->points = (Point *)realloc(
-              cs->current_stroke->points, cs->current_stroke->capacity * sizeof(Point));
+          cs->current_stroke->points =
+              (Point *)realloc(cs->current_stroke->points,
+                               cs->current_stroke->capacity * sizeof(Point));
         }
 
         // Simple distance check to avoid too many points
@@ -2333,9 +2737,11 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       // Convert points to screen space and draw
       // Simple polyline for now, upgrade to Catmull-Rom next step for
-      // smoothness Allocating screen points array on stack if small, else heap
+      // smoothness Allocating screen points array on stack if small, else
+      // heap
 
-      if ((s->type == STROKE_TYPE_PEN || s->type == STROKE_TYPE_MARKER) && s->count > 3) {
+      if ((s->type == STROKE_TYPE_PEN || s->type == STROKE_TYPE_MARKER) &&
+          s->count > 3) {
         // Smooth render
         struct nk_vec2 *screen_pts = (struct nk_vec2 *)malloc(
             s->count * 10 * sizeof(struct nk_vec2)); // ~10 samples per segment
@@ -2356,7 +2762,8 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
             pt_idx++;
           }
         }
-        nk_stroke_polyline(canvas_buf, (float*)screen_pts, pt_idx, s->thickness * zoom, col);
+        nk_stroke_polyline(canvas_buf, (float *)screen_pts, pt_idx,
+                           s->thickness * zoom, col);
         free(screen_pts);
       } else {
         // Fallback / Fast render
@@ -2366,7 +2773,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           screen_pts[i].x = bounds.x + (s->points[i].x - cam_x) * zoom;
           screen_pts[i].y = bounds.y + (s->points[i].y - cam_y) * zoom;
         }
-        nk_stroke_polyline(canvas_buf, (float*)screen_pts, s->count,
+        nk_stroke_polyline(canvas_buf, (float *)screen_pts, s->count,
                            s->thickness * zoom, col);
         free(screen_pts);
       }
@@ -2435,10 +2842,10 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
         if (tex) {
           struct nk_image img = nk_image_ptr(tex);
           nk_draw_image(canvas_buf, nr, &img, nk_rgba(255, 255, 255, 255));
-          
+
           // Draw border if selected
           if (ui->selected_node == node) {
-             nk_stroke_rect(canvas_buf, nr, 0.0f, 2.0f, nk_rgb(66, 133, 244));
+            nk_stroke_rect(canvas_buf, nr, 0.0f, 2.0f, nk_rgb(66, 133, 244));
           }
         } else {
           // Placeholder
@@ -2447,7 +2854,8 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           }
           // Debug info for image loading failure
           if (ui->selected_node == node) {
-             snprintf(ui->status, sizeof(ui->status), "Failed to load: %s", node->image_path);
+            snprintf(ui->status, sizeof(ui->status), "Failed to load: %s",
+                     node->image_path);
           }
           nk_stroke_rect(canvas_buf, nr, 4.0f, 1.0f, stroke);
           // Draw image icon in center
@@ -2469,16 +2877,19 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           display_text = ui->edit_buffer;
 
           // Draw subtle editing background
-          nk_fill_rect(canvas_buf, nk_rect(nr.x - 4, nr.y - 2, nr.w + 8, nr.h + 4),
-                       4.0f, nk_rgba(66, 133, 244, 20));
-          nk_stroke_rect(canvas_buf, nk_rect(nr.x - 4, nr.y - 2, nr.w + 8, nr.h + 4),
-                         4.0f, 1.5f, nk_rgb(66, 133, 244));
+          nk_fill_rect(canvas_buf,
+                       nk_rect(nr.x - 4, nr.y - 2, nr.w + 8, nr.h + 4), 4.0f,
+                       nk_rgba(66, 133, 244, 20));
+          nk_stroke_rect(canvas_buf,
+                         nk_rect(nr.x - 4, nr.y - 2, nr.w + 8, nr.h + 4), 4.0f,
+                         1.5f, nk_rgb(66, 133, 244));
         }
 
         // Draw text
-        struct nk_user_font *font = ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
-        nk_draw_text(canvas_buf, nr, display_text, strlen(display_text),
-                     font, nk_rgba(0, 0, 0, 0), nk_rgb(30, 30, 30));
+        struct nk_user_font *font =
+            ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
+        nk_draw_text(canvas_buf, nr, display_text, strlen(display_text), font,
+                     nk_rgba(0, 0, 0, 0), nk_rgb(30, 30, 30));
 
         // Draw blinking cursor when editing
         if (is_editing) {
@@ -2493,8 +2904,8 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           static int blink_counter = 0;
           blink_counter++;
           if ((blink_counter / 30) % 2 == 0) {
-            nk_stroke_line(canvas_buf, cursor_x, cursor_y, cursor_x, cursor_y + cursor_h,
-                           2.0f, nk_rgb(66, 133, 244));
+            nk_stroke_line(canvas_buf, cursor_x, cursor_y, cursor_x,
+                           cursor_y + cursor_h, 2.0f, nk_rgb(66, 133, 244));
           }
         }
       } else {
@@ -2579,24 +2990,29 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
     float menu_y = sy - menu_h - 10.0f;
 
     // Keep within canvas bounds
-    if (menu_x < bounds.x) menu_x = bounds.x;
-    if (menu_x + menu_w > bounds.x + bounds.w) menu_x = bounds.x + bounds.w - menu_w;
-    if (menu_y < bounds.y) menu_y = sy + sel->height * zoom + 10.0f; // Show below if no space above
+    if (menu_x < bounds.x)
+      menu_x = bounds.x;
+    if (menu_x + menu_w > bounds.x + bounds.w)
+      menu_x = bounds.x + bounds.w - menu_w;
+    if (menu_y < bounds.y)
+      menu_y = sy + sel->height * zoom + 10.0f; // Show below if no space above
 
     // Draw menu background
-    nk_fill_rect(canvas_buf, nk_rect(menu_x, menu_y, menu_w, menu_h), 5.0f, nk_rgba(40, 40, 40, 230));
-    nk_stroke_rect(canvas_buf, nk_rect(menu_x, menu_y, menu_w, menu_h), 5.0f, 1.0f, nk_rgba(100, 100, 100, 255));
+    nk_fill_rect(canvas_buf, nk_rect(menu_x, menu_y, menu_w, menu_h), 5.0f,
+                 nk_rgba(40, 40, 40, 230));
+    nk_stroke_rect(canvas_buf, nk_rect(menu_x, menu_y, menu_w, menu_h), 5.0f,
+                   1.0f, nk_rgba(100, 100, 100, 255));
 
     // Colors to pick from
     uint32_t colors[] = {
-      0xFFFFFFFF, // White
-      0x000000FF, // Black
-      0xFF0000FF, // Red
-      0x00FF00FF, // Green
-      0x0000FFFF, // Blue
-      0xFFFF00FF, // Yellow
-      0xFF00FFFF, // Magenta
-      0x00FFFFFF  // Cyan
+        0xFFFFFFFF, // White
+        0x000000FF, // Black
+        0xFF0000FF, // Red
+        0x00FF00FF, // Green
+        0x0000FFFF, // Blue
+        0xFFFF00FF, // Yellow
+        0xFF00FFFF, // Magenta
+        0x00FFFFFF  // Cyan
     };
     int num_colors = 8;
     float circle_size = 24.0f;
@@ -2606,37 +3022,37 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     for (int i = 0; i < num_colors; i++) {
       float cx = start_x + i * (circle_size + 4.0f);
-      struct nk_rect circle_rect = nk_rect(cx, cy - circle_size/2, circle_size, circle_size);
+      struct nk_rect circle_rect =
+          nk_rect(cx, cy - circle_size / 2, circle_size, circle_size);
 
-      struct nk_color c = {
-        (colors[i] >> 24) & 0xFF,
-        (colors[i] >> 16) & 0xFF,
-        (colors[i] >> 8) & 0xFF,
-        colors[i] & 0xFF
-      };
+      struct nk_color c = {(colors[i] >> 24) & 0xFF, (colors[i] >> 16) & 0xFF,
+                           (colors[i] >> 8) & 0xFF, colors[i] & 0xFF};
 
       // Draw color circle
       nk_fill_circle(canvas_buf, circle_rect, c);
-      
+
       // Selection indicator
       if (sel->fill_color == colors[i]) {
-         nk_stroke_circle(canvas_buf, circle_rect, 2.0f, nk_rgb(255, 255, 255));
+        nk_stroke_circle(canvas_buf, circle_rect, 2.0f, nk_rgb(255, 255, 255));
       } else {
-         nk_stroke_circle(canvas_buf, circle_rect, 1.0f, nk_rgba(255, 255, 255, 100));
+        nk_stroke_circle(canvas_buf, circle_rect, 1.0f,
+                         nk_rgba(255, 255, 255, 100));
       }
 
       // Interaction
       if (cs->mouse_in_canvas && !in_toolbar && !in_forms_menu &&
-          ui->mouse_x >= circle_rect.x && ui->mouse_x < circle_rect.x + circle_rect.w &&
-          ui->mouse_y >= circle_rect.y && ui->mouse_y < circle_rect.y + circle_rect.h &&
+          ui->mouse_x >= circle_rect.x &&
+          ui->mouse_x < circle_rect.x + circle_rect.w &&
+          ui->mouse_y >= circle_rect.y &&
+          ui->mouse_y < circle_rect.y + circle_rect.h &&
           cs->mouse_just_pressed) {
-            
-          // Set color (Fill and Stroke for now, or just Fill?)
-          // User asked "changer sa couleur".
-          sel->fill_color = colors[i];
-          // Also set stroke to black or white for contrast if needed, or keep as is.
-          // Let's keep stroke as is, or maybe default to black stroke if it was transparent?
-          // For now just change fill.
+
+        // Set color (Fill and Stroke for now, or just Fill?)
+        // User asked "changer sa couleur".
+        sel->fill_color = colors[i];
+        // Also set stroke to black or white for contrast if needed, or keep
+        // as is. Let's keep stroke as is, or maybe default to black stroke if
+        // it was transparent? For now just change fill.
       }
     }
   }
@@ -2828,7 +3244,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
   } else {
     display_h = nk_window_get_height(ctx) - 80.0f;
     scale = display_h / (float)dd->height;
-    if (scale > 1.0f) scale = 1.0f;
+    if (scale > 1.0f)
+      scale = 1.0f;
   }
 
   // Include toolbar in layout height
@@ -2876,10 +3293,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       struct nk_color fill = {
           (node->fill_color >> 24) & 0xFF, (node->fill_color >> 16) & 0xFF,
           (node->fill_color >> 8) & 0xFF, node->fill_color & 0xFF};
-      struct nk_color stroke = {(node->stroke_color >> 24) & 0xFF,
-                                (node->stroke_color >> 16) & 0xFF,
-                                (node->stroke_color >> 8) & 0xFF,
-                                node->stroke_color & 0xFF};
+      struct nk_color stroke = {
+          (node->stroke_color >> 24) & 0xFF, (node->stroke_color >> 16) & 0xFF,
+          (node->stroke_color >> 8) & 0xFF, node->stroke_color & 0xFF};
 
       int has_fill = (node->fill_color & 0xFF) > 10;
 
@@ -2900,9 +3316,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         (void)cx;
         (void)cy;
       } else if (node->type == NODE_TYPE_TRIANGLE) {
-        float pts[6] = {sx + sw / 2, sy,     // Top
-                        sx, sy + sh,          // Bottom-left
-                        sx + sw, sy + sh};    // Bottom-right
+        float pts[6] = {sx + sw / 2, sy,       // Top
+                        sx,          sy + sh,  // Bottom-left
+                        sx + sw,     sy + sh}; // Bottom-right
         if (has_fill)
           nk_fill_polygon(canvas_buf, pts, 3, fill);
         if (node->stroke_width > 0)
@@ -2913,10 +3329,12 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         int is_editing = (ui->editing_node == node);
         if (is_editing) {
           display_text = ui->edit_buffer;
-          nk_fill_rect(canvas_buf, nk_rect(nr.x - 2, nr.y - 1, nr.w + 4, nr.h + 2),
-                       2.0f, nk_rgba(66, 133, 244, 20));
-          nk_stroke_rect(canvas_buf, nk_rect(nr.x - 2, nr.y - 1, nr.w + 4, nr.h + 2),
-                         2.0f, 1.0f, nk_rgb(66, 133, 244));
+          nk_fill_rect(canvas_buf,
+                       nk_rect(nr.x - 2, nr.y - 1, nr.w + 4, nr.h + 2), 2.0f,
+                       nk_rgba(66, 133, 244, 20));
+          nk_stroke_rect(canvas_buf,
+                         nk_rect(nr.x - 2, nr.y - 1, nr.w + 4, nr.h + 2), 2.0f,
+                         1.0f, nk_rgb(66, 133, 244));
         }
         if (display_text && strlen(display_text) > 0) {
           struct nk_user_font *font =
@@ -2928,9 +3346,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                    strlen(display_text));
             int show_cursor = ((int)(SDL_GetTicks() / 500) % 2 == 0);
             if (show_cursor) {
-              nk_stroke_line(canvas_buf, nr.x + tw + 1, nr.y + 2,
-                             nr.x + tw + 1, nr.y + nr.h - 2, 1.5f,
-                             nk_rgb(66, 133, 244));
+              nk_stroke_line(canvas_buf, nr.x + tw + 1, nr.y + 2, nr.x + tw + 1,
+                             nr.y + nr.h - 2, 1.5f, nk_rgb(66, 133, 244));
             }
           }
         }
@@ -2940,8 +3357,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         const char *fname = node->text[0] ? node->text : "Image";
         nk_draw_text(canvas_buf,
                      nk_rect(nr.x + 4, nr.y + nr.h / 2 - 8, nr.w - 8, 16),
-                     fname, strlen(fname), ctx->style.font,
-                     nk_rgba(0, 0, 0, 0), nk_rgb(100, 100, 100));
+                     fname, strlen(fname), ctx->style.font, nk_rgba(0, 0, 0, 0),
+                     nk_rgb(100, 100, 100));
       }
 
       // Selection highlight
@@ -2953,30 +3370,39 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         float hsz = 8.0f;
         struct nk_color hc = nk_rgb(66, 133, 244);
         // SE
-        nk_fill_rect(canvas_buf, nk_rect(sx + sw - hsz / 2, sy + sh - hsz / 2, hsz, hsz), 2.0f, hc);
+        nk_fill_rect(canvas_buf,
+                     nk_rect(sx + sw - hsz / 2, sy + sh - hsz / 2, hsz, hsz),
+                     2.0f, hc);
         // SW
-        nk_fill_rect(canvas_buf, nk_rect(sx - hsz / 2, sy + sh - hsz / 2, hsz, hsz), 2.0f, hc);
+        nk_fill_rect(canvas_buf,
+                     nk_rect(sx - hsz / 2, sy + sh - hsz / 2, hsz, hsz), 2.0f,
+                     hc);
         // NW
-        nk_fill_rect(canvas_buf, nk_rect(sx - hsz / 2, sy - hsz / 2, hsz, hsz), 2.0f, hc);
+        nk_fill_rect(canvas_buf, nk_rect(sx - hsz / 2, sy - hsz / 2, hsz, hsz),
+                     2.0f, hc);
         // NE
-        nk_fill_rect(canvas_buf, nk_rect(sx + sw - hsz / 2, sy - hsz / 2, hsz, hsz), 2.0f, hc);
+        nk_fill_rect(canvas_buf,
+                     nk_rect(sx + sw - hsz / 2, sy - hsz / 2, hsz, hsz), 2.0f,
+                     hc);
       }
     }
   }
 
   // --- Toolbar (expanded for page navigation) ---
-  float toolbar_w = 3 * 40.0f + 4 * 12.0f + 150.0f;  // Extra space for page nav
+  float toolbar_w = 3 * 40.0f + 4 * 12.0f + 150.0f; // Extra space for page nav
   float toolbar_x = bounds.x + (bounds.w - toolbar_w) / 2.0f;
   float toolbar_y = bounds.y + bounds.h + 8.0f;
   struct nk_color toolbar_bg = nk_rgba(255, 255, 255, 245);
   struct nk_color toolbar_border = nk_rgba(200, 200, 200, 200);
 
-  nk_fill_rect(canvas_buf, nk_rect(toolbar_x - 2, toolbar_y + 2, toolbar_w, toolbar_h),
+  nk_fill_rect(canvas_buf,
+               nk_rect(toolbar_x - 2, toolbar_y + 2, toolbar_w, toolbar_h),
                12.0f, nk_rgba(0, 0, 0, 20));
   nk_fill_rect(canvas_buf, nk_rect(toolbar_x, toolbar_y, toolbar_w, toolbar_h),
                12.0f, toolbar_bg);
-  nk_stroke_rect(canvas_buf, nk_rect(toolbar_x, toolbar_y, toolbar_w, toolbar_h),
-                 12.0f, 1.0f, toolbar_border);
+  nk_stroke_rect(canvas_buf,
+                 nk_rect(toolbar_x, toolbar_y, toolbar_w, toolbar_h), 12.0f,
+                 1.0f, toolbar_border);
 
   float btn_size = 32.0f;
   float btn_spacing = 8.0f;
@@ -2989,8 +3415,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
   int tool_count = 3;
 
   for (int i = 0; i < tool_count; i++) {
-    struct nk_rect btn =
-        nk_rect(btn_x + i * (btn_size + btn_spacing), btn_y, btn_size, btn_size);
+    struct nk_rect btn = nk_rect(btn_x + i * (btn_size + btn_spacing), btn_y,
+                                 btn_size, btn_size);
 
     int is_active = (i == 0 && ds->show_forms_menu);
     int hovered = (ui->mouse_x >= btn.x && ui->mouse_x < btn.x + btn.w &&
@@ -3033,8 +3459,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     // Previous page button
     struct nk_rect prev_btn = nk_rect(nav_x, nav_y, nav_btn_size, nav_btn_size);
-    int prev_hover = (ui->mouse_x >= prev_btn.x && ui->mouse_x < prev_btn.x + prev_btn.w &&
-                      ui->mouse_y >= prev_btn.y && ui->mouse_y < prev_btn.y + prev_btn.h);
+    int prev_hover =
+        (ui->mouse_x >= prev_btn.x && ui->mouse_x < prev_btn.x + prev_btn.w &&
+         ui->mouse_y >= prev_btn.y && ui->mouse_y < prev_btn.y + prev_btn.h);
     int prev_enabled = (dd->current_page > 0);
 
     if (prev_hover && prev_enabled)
@@ -3043,14 +3470,16 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                  "<", 1, ctx->style.font, nk_rgba(0, 0, 0, 0),
                  prev_enabled ? nk_rgb(60, 60, 60) : nk_rgb(180, 180, 180));
 
-    if (prev_hover && ds->mouse_just_pressed && prev_enabled && is_active_design) {
+    if (prev_hover && ds->mouse_just_pressed && prev_enabled &&
+        is_active_design) {
       block_design_goto_page(block, dd->current_page - 1);
       ui->selected_node = NULL;
     }
 
     // Page counter (e.g., "1 / 3")
     char page_str[32];
-    snprintf(page_str, sizeof(page_str), "%d / %d", dd->current_page + 1, dd->page_count);
+    snprintf(page_str, sizeof(page_str), "%d / %d", dd->current_page + 1,
+             dd->page_count);
     float counter_x = nav_x + nav_btn_size + 4.0f;
     float counter_w = 50.0f;
     nk_draw_text(canvas_buf, nk_rect(counter_x, nav_y + 2, counter_w, 20),
@@ -3058,9 +3487,11 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                  nk_rgba(0, 0, 0, 0), nk_rgb(80, 80, 80));
 
     // Next page button
-    struct nk_rect next_btn = nk_rect(counter_x + counter_w, nav_y, nav_btn_size, nav_btn_size);
-    int next_hover = (ui->mouse_x >= next_btn.x && ui->mouse_x < next_btn.x + next_btn.w &&
-                      ui->mouse_y >= next_btn.y && ui->mouse_y < next_btn.y + next_btn.h);
+    struct nk_rect next_btn =
+        nk_rect(counter_x + counter_w, nav_y, nav_btn_size, nav_btn_size);
+    int next_hover =
+        (ui->mouse_x >= next_btn.x && ui->mouse_x < next_btn.x + next_btn.w &&
+         ui->mouse_y >= next_btn.y && ui->mouse_y < next_btn.y + next_btn.h);
     int next_enabled = (dd->current_page < dd->page_count - 1);
 
     if (next_hover && next_enabled)
@@ -3069,21 +3500,23 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                  ">", 1, ctx->style.font, nk_rgba(0, 0, 0, 0),
                  next_enabled ? nk_rgb(60, 60, 60) : nk_rgb(180, 180, 180));
 
-    if (next_hover && ds->mouse_just_pressed && next_enabled && is_active_design) {
+    if (next_hover && ds->mouse_just_pressed && next_enabled &&
+        is_active_design) {
       block_design_goto_page(block, dd->current_page + 1);
       ui->selected_node = NULL;
     }
 
     // Add page button (+)
-    struct nk_rect add_btn = nk_rect(next_btn.x + nav_btn_size + 8.0f, nav_y, nav_btn_size, nav_btn_size);
-    int add_hover = (ui->mouse_x >= add_btn.x && ui->mouse_x < add_btn.x + add_btn.w &&
-                     ui->mouse_y >= add_btn.y && ui->mouse_y < add_btn.y + add_btn.h);
+    struct nk_rect add_btn = nk_rect(next_btn.x + nav_btn_size + 8.0f, nav_y,
+                                     nav_btn_size, nav_btn_size);
+    int add_hover =
+        (ui->mouse_x >= add_btn.x && ui->mouse_x < add_btn.x + add_btn.w &&
+         ui->mouse_y >= add_btn.y && ui->mouse_y < add_btn.y + add_btn.h);
 
     if (add_hover)
       nk_fill_rect(canvas_buf, add_btn, 4.0f, nk_rgba(66, 133, 244, 30));
-    nk_draw_text(canvas_buf, nk_rect(add_btn.x + 6, add_btn.y + 2, 16, 20),
-                 "+", 1, ctx->style.font, nk_rgba(0, 0, 0, 0),
-                 nk_rgb(66, 133, 244));
+    nk_draw_text(canvas_buf, nk_rect(add_btn.x + 6, add_btn.y + 2, 16, 20), "+",
+                 1, ctx->style.font, nk_rgba(0, 0, 0, 0), nk_rgb(66, 133, 244));
 
     if (add_hover && ds->mouse_just_pressed && is_active_design) {
       int new_idx = block_design_add_page(block);
@@ -3118,33 +3551,37 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     for (int i = 0; i < 4; i++) {
       struct nk_rect item_rect =
           nk_rect(menu_x + 8, menu_y + 8 + i * item_h, menu_w - 16, item_h);
-      int item_hover =
-          (ui->mouse_x >= item_rect.x &&
-           ui->mouse_x < item_rect.x + item_rect.w &&
-           ui->mouse_y >= item_rect.y && ui->mouse_y < item_rect.y + item_rect.h);
+      int item_hover = (ui->mouse_x >= item_rect.x &&
+                        ui->mouse_x < item_rect.x + item_rect.w &&
+                        ui->mouse_y >= item_rect.y &&
+                        ui->mouse_y < item_rect.y + item_rect.h);
 
       if (item_hover)
         nk_fill_rect(canvas_buf, item_rect, 4.0f, nk_rgba(66, 133, 244, 30));
 
-      nk_draw_text(canvas_buf,
-                   nk_rect(item_rect.x + 8, item_rect.y + 6, item_rect.w - 16, 20),
-                   form_labels[i], strlen(form_labels[i]), ctx->style.font,
-                   nk_rgba(0, 0, 0, 0), nk_rgb(60, 60, 60));
+      nk_draw_text(
+          canvas_buf,
+          nk_rect(item_rect.x + 8, item_rect.y + 6, item_rect.w - 16, 20),
+          form_labels[i], strlen(form_labels[i]), ctx->style.font,
+          nk_rgba(0, 0, 0, 0), nk_rgb(60, 60, 60));
 
       if (item_hover && ds->mouse_just_pressed && is_active_design) {
-        ds->pending_create = 10 + i; // 10=rect, 11=ellipse, 12=triangle, 13=line
+        ds->pending_create =
+            10 + i; // 10=rect, 11=ellipse, 12=triangle, 13=line
         ds->show_forms_menu = 0;
       }
     }
   }
 
   // Check toolbar area
-  int in_toolbar = (ui->mouse_x >= toolbar_x && ui->mouse_x < toolbar_x + toolbar_w &&
-                    ui->mouse_y >= toolbar_y && ui->mouse_y < toolbar_y + toolbar_h);
+  int in_toolbar =
+      (ui->mouse_x >= toolbar_x && ui->mouse_x < toolbar_x + toolbar_w &&
+       ui->mouse_y >= toolbar_y && ui->mouse_y < toolbar_y + toolbar_h);
 
   // Check mouse in design area
-  int mouse_in_design = (ui->mouse_x >= bounds.x && ui->mouse_x < bounds.x + bounds.w &&
-                         ui->mouse_y >= bounds.y && ui->mouse_y < bounds.y + bounds.h);
+  int mouse_in_design =
+      (ui->mouse_x >= bounds.x && ui->mouse_x < bounds.x + bounds.w &&
+       ui->mouse_y >= bounds.y && ui->mouse_y < bounds.y + bounds.h);
 
   // --- Handle resize ---
   int on_resize_handle = 0;
@@ -3159,14 +3596,17 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     float hsize = 30.0f;
 
     // SE
-    if (ui->mouse_x >= sx + sw - hsize / 2 && ui->mouse_x < sx + sw + hsize / 2 &&
-        ui->mouse_y >= sy + sh - hsize / 2 && ui->mouse_y < sy + sh + hsize / 2) {
+    if (ui->mouse_x >= sx + sw - hsize / 2 &&
+        ui->mouse_x < sx + sw + hsize / 2 &&
+        ui->mouse_y >= sy + sh - hsize / 2 &&
+        ui->mouse_y < sy + sh + hsize / 2) {
       on_resize_handle = 1;
       hit_handle_index = 0;
     }
     // SW
     else if (ui->mouse_x >= sx - hsize / 2 && ui->mouse_x < sx + hsize / 2 &&
-             ui->mouse_y >= sy + sh - hsize / 2 && ui->mouse_y < sy + sh + hsize / 2) {
+             ui->mouse_y >= sy + sh - hsize / 2 &&
+             ui->mouse_y < sy + sh + hsize / 2) {
       on_resize_handle = 1;
       hit_handle_index = 1;
     }
@@ -3177,7 +3617,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       hit_handle_index = 2;
     }
     // NE
-    else if (ui->mouse_x >= sx + sw - hsize / 2 && ui->mouse_x < sx + sw + hsize / 2 &&
+    else if (ui->mouse_x >= sx + sw - hsize / 2 &&
+             ui->mouse_x < sx + sw + hsize / 2 &&
              ui->mouse_y >= sy - hsize / 2 && ui->mouse_y < sy + hsize / 2) {
       on_resize_handle = 1;
       hit_handle_index = 3;
@@ -3268,10 +3709,10 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     ui->selected_node->y = design_y - ds->drag_offset_y;
 
     // Clamp to design bounds
-    ui->selected_node->x =
-        fmaxf(0, fminf(ui->selected_node->x, dd->width - ui->selected_node->width));
-    ui->selected_node->y =
-        fmaxf(0, fminf(ui->selected_node->y, dd->height - ui->selected_node->height));
+    ui->selected_node->x = fmaxf(
+        0, fminf(ui->selected_node->x, dd->width - ui->selected_node->width));
+    ui->selected_node->y = fmaxf(
+        0, fminf(ui->selected_node->y, dd->height - ui->selected_node->height));
 
     if (ds->mouse_just_released) {
       ds->is_dragging_node = 0;
@@ -3279,7 +3720,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
   }
 
   // Close forms menu if clicking elsewhere
-  if (ds->mouse_just_pressed && !in_toolbar && !in_forms_menu && is_active_design) {
+  if (ds->mouse_just_pressed && !in_toolbar && !in_forms_menu &&
+      is_active_design) {
     ds->show_forms_menu = 0;
   }
 
@@ -3293,8 +3735,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     if (ds->pending_create == 1) {
       // Text
-      new_node = design_create_styled_node(dd, NODE_STYLE_TEXT, center_x, center_y,
-                                           120.0f, 30.0f);
+      new_node = design_create_styled_node(dd, NODE_STYLE_TEXT, center_x,
+                                           center_y, 120.0f, 30.0f);
     } else if (ds->pending_create == 2) {
       // Image - for now create placeholder
       Node *img = (Node *)calloc(1, sizeof(Node));
@@ -3324,11 +3766,11 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                 NODE_STYLE_TRIANGLE, NODE_STYLE_LINE};
       int idx = ds->pending_create - 10;
       if (idx == 3) {
-        new_node = design_create_styled_node(dd, styles[idx], center_x, center_y,
-                                             150.0f, 4.0f);
+        new_node = design_create_styled_node(dd, styles[idx], center_x,
+                                             center_y, 150.0f, 4.0f);
       } else {
-        new_node = design_create_styled_node(dd, styles[idx], center_x, center_y,
-                                             def_w, def_h);
+        new_node = design_create_styled_node(dd, styles[idx], center_x,
+                                             center_y, def_w, def_h);
       }
     }
 
@@ -3362,12 +3804,14 @@ void ui_render_block_video(UIHost *ui, Engine *engine, struct nk_context *ctx,
       if (result->success) {
         free(vd->transcript);
         vd->transcript_capacity = result->segment_count;
-        vd->transcript = (TranscriptSeg *)calloc(vd->transcript_capacity, sizeof(TranscriptSeg));
+        vd->transcript = (TranscriptSeg *)calloc(vd->transcript_capacity,
+                                                 sizeof(TranscriptSeg));
         vd->transcript_count = 0;
         for (int i = 0; i < result->segment_count; i++) {
           vd->transcript[i].start_ms = result->segments[i].start_ms;
           vd->transcript[i].end_ms = result->segments[i].end_ms;
-          strncpy(vd->transcript[i].text, result->segments[i].text, sizeof(vd->transcript[i].text) - 1);
+          strncpy(vd->transcript[i].text, result->segments[i].text,
+                  sizeof(vd->transcript[i].text) - 1);
           vd->transcript[i].is_deleted = 0;
           vd->transcript_count++;
         }
@@ -3384,7 +3828,8 @@ void ui_render_block_video(UIHost *ui, Engine *engine, struct nk_context *ctx,
   float transcript_h = 0.0f;
   if (vd->transcript_count > 0) {
     transcript_h = vd->transcript_count * 28.0f + 20.0f;
-    if (transcript_h > 300.0f) transcript_h = 300.0f;
+    if (transcript_h > 300.0f)
+      transcript_h = 300.0f;
   }
 
   float total_height = 160.0f + transcript_h;
@@ -3407,35 +3852,41 @@ void ui_render_block_video(UIHost *ui, Engine *engine, struct nk_context *ctx,
   {
     // Title
     const char *title = vd->clip_count > 0 ? "Video Montage" : "Video Block";
-    nk_draw_text(canvas, nk_rect(bounds.x + 16, y_offset, 150, 24),
-                 title, strlen(title), ctx->style.font,
-                 nk_rgba(0, 0, 0, 0), nk_rgb(60, 60, 60));
+    nk_draw_text(canvas, nk_rect(bounds.x + 16, y_offset, 150, 24), title,
+                 strlen(title), ctx->style.font, nk_rgba(0, 0, 0, 0),
+                 nk_rgb(60, 60, 60));
 
     // Import button
     float btn_x = bounds.x + bounds.w - 220.0f;
     struct nk_rect import_btn = nk_rect(btn_x, y_offset - 2, 80, 26);
-    int import_hover = (ui->mouse_x >= import_btn.x && ui->mouse_x < import_btn.x + import_btn.w &&
-                        ui->mouse_y >= import_btn.y && ui->mouse_y < import_btn.y + import_btn.h);
+    int import_hover = (ui->mouse_x >= import_btn.x &&
+                        ui->mouse_x < import_btn.x + import_btn.w &&
+                        ui->mouse_y >= import_btn.y &&
+                        ui->mouse_y < import_btn.y + import_btn.h);
     nk_fill_rect(canvas, import_btn, 4.0f,
                  import_hover ? nk_rgb(66, 133, 244) : nk_rgb(100, 100, 100));
     nk_draw_text(canvas, nk_rect(import_btn.x + 12, import_btn.y + 5, 60, 16),
-                 "Import", 6, ctx->style.font, nk_rgba(0, 0, 0, 0), nk_rgb(255, 255, 255));
+                 "Import", 6, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                 nk_rgb(255, 255, 255));
 
     // Transcribe button (only if video imported)
     if (vd->clip_count > 0 && !vd->is_transcribing) {
       struct nk_rect trans_btn = nk_rect(btn_x + 90, y_offset - 2, 100, 26);
-      int trans_hover = (ui->mouse_x >= trans_btn.x && ui->mouse_x < trans_btn.x + trans_btn.w &&
-                         ui->mouse_y >= trans_btn.y && ui->mouse_y < trans_btn.y + trans_btn.h);
+      int trans_hover = (ui->mouse_x >= trans_btn.x &&
+                         ui->mouse_x < trans_btn.x + trans_btn.w &&
+                         ui->mouse_y >= trans_btn.y &&
+                         ui->mouse_y < trans_btn.y + trans_btn.h);
       nk_fill_rect(canvas, trans_btn, 4.0f,
                    trans_hover ? nk_rgb(52, 168, 83) : nk_rgb(80, 160, 80));
-      const char *trans_label = vd->transcript_count > 0 ? "Re-transcribe" : "Transcribe";
+      const char *trans_label =
+          vd->transcript_count > 0 ? "Re-transcribe" : "Transcribe";
       nk_draw_text(canvas, nk_rect(trans_btn.x + 8, trans_btn.y + 5, 90, 16),
                    trans_label, strlen(trans_label), ctx->style.font,
                    nk_rgba(0, 0, 0, 0), nk_rgb(255, 255, 255));
     } else if (vd->is_transcribing) {
       nk_draw_text(canvas, nk_rect(btn_x + 90, y_offset + 3, 100, 16),
-                   "Transcribing...", 15, ctx->style.font,
-                   nk_rgba(0, 0, 0, 0), nk_rgb(150, 150, 150));
+                   "Transcribing...", 15, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                   nk_rgb(150, 150, 150));
     }
 
     y_offset += 36.0f;
@@ -3443,38 +3894,43 @@ void ui_render_block_video(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   // --- Video info / placeholder ---
   if (vd->clip_count == 0) {
-    struct nk_rect placeholder = nk_rect(bounds.x + 16, y_offset, bounds.w - 32, 80);
+    struct nk_rect placeholder =
+        nk_rect(bounds.x + 16, y_offset, bounds.w - 32, 80);
     nk_fill_rect(canvas, placeholder, 8.0f, nk_rgb(240, 240, 240));
     nk_stroke_rect(canvas, placeholder, 8.0f, 1.0f, nk_rgb(200, 200, 200));
-    nk_draw_text(canvas, nk_rect(placeholder.x + placeholder.w/2 - 60, placeholder.y + 30, 120, 20),
-                 "Drop video here", 15, ctx->style.font,
-                 nk_rgba(0, 0, 0, 0), nk_rgb(150, 150, 150));
+    nk_draw_text(canvas,
+                 nk_rect(placeholder.x + placeholder.w / 2 - 60,
+                         placeholder.y + 30, 120, 20),
+                 "Drop video here", 15, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                 nk_rgb(150, 150, 150));
     y_offset += 90.0f;
   } else {
     // Show video path
     char info[128];
     snprintf(info, sizeof(info), "Source: %s", vd->clips[0].source_path);
     nk_draw_text(canvas, nk_rect(bounds.x + 16, y_offset, bounds.w - 32, 18),
-                 info, strlen(info), ctx->style.font,
-                 nk_rgba(0, 0, 0, 0), nk_rgb(100, 100, 100));
+                 info, strlen(info), ctx->style.font, nk_rgba(0, 0, 0, 0),
+                 nk_rgb(100, 100, 100));
     y_offset += 24.0f;
   }
 
   // --- Transcript (Descript-style) ---
   if (vd->transcript_count > 0) {
     nk_draw_text(canvas, nk_rect(bounds.x + 16, y_offset, 100, 18),
-                 "Transcript:", 11, ctx->style.font,
-                 nk_rgba(0, 0, 0, 0), nk_rgb(80, 80, 80));
+                 "Transcript:", 11, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                 nk_rgb(80, 80, 80));
     y_offset += 24.0f;
 
     // Transcript segments
-    struct nk_rect transcript_area = nk_rect(bounds.x + 16, y_offset,
-                                              bounds.w - 32, transcript_h - 44.0f);
+    struct nk_rect transcript_area =
+        nk_rect(bounds.x + 16, y_offset, bounds.w - 32, transcript_h - 44.0f);
     nk_fill_rect(canvas, transcript_area, 4.0f, nk_rgb(255, 255, 255));
     nk_stroke_rect(canvas, transcript_area, 4.0f, 1.0f, nk_rgb(230, 230, 230));
 
     float seg_y = transcript_area.y + 8.0f;
-    for (int i = 0; i < vd->transcript_count && seg_y < transcript_area.y + transcript_area.h - 20.0f; i++) {
+    for (int i = 0; i < vd->transcript_count &&
+                    seg_y < transcript_area.y + transcript_area.h - 20.0f;
+         i++) {
       TranscriptSeg *seg = &vd->transcript[i];
 
       // Timestamp
@@ -3482,47 +3938,58 @@ void ui_render_block_video(UIHost *ui, Engine *engine, struct nk_context *ctx,
       int mins = seg->start_ms / 60000;
       int secs = (seg->start_ms / 1000) % 60;
       snprintf(ts, sizeof(ts), "%02d:%02d", mins, secs);
-      nk_draw_text(canvas, nk_rect(transcript_area.x + 8, seg_y, 40, 18),
-                   ts, strlen(ts), ctx->style.font,
-                   nk_rgba(0, 0, 0, 0), nk_rgb(150, 150, 150));
+      nk_draw_text(canvas, nk_rect(transcript_area.x + 8, seg_y, 40, 18), ts,
+                   strlen(ts), ctx->style.font, nk_rgba(0, 0, 0, 0),
+                   nk_rgb(150, 150, 150));
 
       // Text (with strikethrough if deleted)
-      struct nk_rect text_rect = nk_rect(transcript_area.x + 55, seg_y,
-                                          transcript_area.w - 70, 20);
+      struct nk_rect text_rect =
+          nk_rect(transcript_area.x + 55, seg_y, transcript_area.w - 70, 20);
 
       int is_selected = (vd->selected_segment == i);
-      int is_hovered = (ui->mouse_x >= text_rect.x && ui->mouse_x < text_rect.x + text_rect.w &&
-                        ui->mouse_y >= text_rect.y && ui->mouse_y < text_rect.y + text_rect.h);
+      int is_hovered = (ui->mouse_x >= text_rect.x &&
+                        ui->mouse_x < text_rect.x + text_rect.w &&
+                        ui->mouse_y >= text_rect.y &&
+                        ui->mouse_y < text_rect.y + text_rect.h);
 
       // Highlight selected/hovered
       if (is_selected) {
-        nk_fill_rect(canvas, nk_rect(text_rect.x - 4, text_rect.y - 2, text_rect.w + 8, text_rect.h + 4),
+        nk_fill_rect(canvas,
+                     nk_rect(text_rect.x - 4, text_rect.y - 2, text_rect.w + 8,
+                             text_rect.h + 4),
                      2.0f, nk_rgba(66, 133, 244, 30));
       } else if (is_hovered) {
-        nk_fill_rect(canvas, nk_rect(text_rect.x - 4, text_rect.y - 2, text_rect.w + 8, text_rect.h + 4),
+        nk_fill_rect(canvas,
+                     nk_rect(text_rect.x - 4, text_rect.y - 2, text_rect.w + 8,
+                             text_rect.h + 4),
                      2.0f, nk_rgba(0, 0, 0, 10));
       }
 
-      struct nk_color text_color = seg->is_deleted ? nk_rgb(180, 180, 180) : nk_rgb(40, 40, 40);
+      struct nk_color text_color =
+          seg->is_deleted ? nk_rgb(180, 180, 180) : nk_rgb(40, 40, 40);
       nk_draw_text(canvas, text_rect, seg->text, strlen(seg->text),
                    ctx->style.font, nk_rgba(0, 0, 0, 0), text_color);
 
       // Strikethrough for deleted segments
       if (seg->is_deleted) {
-        float tw = ctx->style.font->width(ctx->style.font->userdata, ctx->style.font->height,
-                                          seg->text, strlen(seg->text));
-        if (tw > text_rect.w - 10) tw = text_rect.w - 10;
-        nk_stroke_line(canvas, text_rect.x, text_rect.y + 9,
-                       text_rect.x + tw, text_rect.y + 9, 1.0f, nk_rgb(180, 180, 180));
+        float tw = ctx->style.font->width(ctx->style.font->userdata,
+                                          ctx->style.font->height, seg->text,
+                                          strlen(seg->text));
+        if (tw > text_rect.w - 10)
+          tw = text_rect.w - 10;
+        nk_stroke_line(canvas, text_rect.x, text_rect.y + 9, text_rect.x + tw,
+                       text_rect.y + 9, 1.0f, nk_rgb(180, 180, 180));
       }
 
       seg_y += 26.0f;
     }
 
     // Instructions
-    nk_draw_text(canvas, nk_rect(bounds.x + 16, bounds.y + bounds.h - 24, bounds.w - 32, 16),
-                 "Click segment to select, Delete/Backspace to cut, R to restore",
-                 61, ctx->style.font, nk_rgba(0, 0, 0, 0), nk_rgb(150, 150, 150));
+    nk_draw_text(
+        canvas,
+        nk_rect(bounds.x + 16, bounds.y + bounds.h - 24, bounds.w - 32, 16),
+        "Click segment to select, Delete/Backspace to cut, R to restore", 61,
+        ctx->style.font, nk_rgba(0, 0, 0, 0), nk_rgb(150, 150, 150));
   }
 
   // --- Click handling ---
@@ -3531,8 +3998,10 @@ void ui_render_block_video(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     // Check import button
     struct nk_rect import_btn = nk_rect(btn_x, bounds.y + 10.0f, 80, 26);
-    if (ui->mouse_x >= import_btn.x && ui->mouse_x < import_btn.x + import_btn.w &&
-        ui->mouse_y >= import_btn.y && ui->mouse_y < import_btn.y + import_btn.h) {
+    if (ui->mouse_x >= import_btn.x &&
+        ui->mouse_x < import_btn.x + import_btn.w &&
+        ui->mouse_y >= import_btn.y &&
+        ui->mouse_y < import_btn.y + import_btn.h) {
       // Open video file dialog
       char video_path[512];
       if (open_video_file_dialog(video_path, sizeof(video_path))) {
@@ -3540,7 +4009,8 @@ void ui_render_block_video(UIHost *ui, Engine *engine, struct nk_context *ctx,
           block_video_add_clip(block, video_path);
         } else {
           // Replace existing
-          strncpy(vd->clips[0].source_path, video_path, sizeof(vd->clips[0].source_path) - 1);
+          strncpy(vd->clips[0].source_path, video_path,
+                  sizeof(vd->clips[0].source_path) - 1);
         }
         // Clear old transcript
         free(vd->transcript);
@@ -3553,8 +4023,10 @@ void ui_render_block_video(UIHost *ui, Engine *engine, struct nk_context *ctx,
     // Check transcribe button - START async transcription
     if (vd->clip_count > 0 && !vd->is_transcribing) {
       struct nk_rect trans_btn = nk_rect(btn_x + 90, bounds.y + 10.0f, 100, 26);
-      if (ui->mouse_x >= trans_btn.x && ui->mouse_x < trans_btn.x + trans_btn.w &&
-          ui->mouse_y >= trans_btn.y && ui->mouse_y < trans_btn.y + trans_btn.h) {
+      if (ui->mouse_x >= trans_btn.x &&
+          ui->mouse_x < trans_btn.x + trans_btn.w &&
+          ui->mouse_y >= trans_btn.y &&
+          ui->mouse_y < trans_btn.y + trans_btn.h) {
         // Start async transcription (non-blocking)
         if (whisper_transcribe_async(vd->clips[0].source_path)) {
           vd->is_transcribing = 1;
@@ -3566,14 +4038,17 @@ void ui_render_block_video(UIHost *ui, Engine *engine, struct nk_context *ctx,
     // Check transcript segment clicks
     if (vd->transcript_count > 0) {
       float transcript_start_y = bounds.y + 96.0f;
-      if (vd->clip_count == 0) transcript_start_y += 66.0f;
+      if (vd->clip_count == 0)
+        transcript_start_y += 66.0f;
 
       float seg_y = transcript_start_y + 8.0f;
       for (int i = 0; i < vd->transcript_count; i++) {
-        struct nk_rect text_rect = nk_rect(bounds.x + 71, seg_y,
-                                           bounds.w - 102, 20);
-        if (ui->mouse_x >= text_rect.x && ui->mouse_x < text_rect.x + text_rect.w &&
-            ui->mouse_y >= text_rect.y && ui->mouse_y < text_rect.y + text_rect.h) {
+        struct nk_rect text_rect =
+            nk_rect(bounds.x + 71, seg_y, bounds.w - 102, 20);
+        if (ui->mouse_x >= text_rect.x &&
+            ui->mouse_x < text_rect.x + text_rect.w &&
+            ui->mouse_y >= text_rect.y &&
+            ui->mouse_y < text_rect.y + text_rect.h) {
           vd->selected_segment = i;
           break;
         }
@@ -3597,11 +4072,13 @@ static SDL_AudioDeviceID audio_recording_device = 0;
 static Block *audio_recording_block = NULL;
 
 static void start_audio_recording(Block *block) {
-  if (!block || block->type != BLOCK_AUDIO) return;
+  if (!block || block->type != BLOCK_AUDIO)
+    return;
   AudioData *ad = &block->data.audio;
 
   // Don't start if already recording
-  if (ad->is_recording) return;
+  if (ad->is_recording)
+    return;
 
   // List available recording devices
   int num_devices = SDL_GetNumAudioDevices(1); // 1 = recording devices
@@ -3613,16 +4090,18 @@ static void start_audio_recording(Block *block) {
   // Use queue-based recording (no callback)
   SDL_AudioSpec want, have;
   SDL_zero(want);
-  want.freq = 16000;       // 16kHz for whisper
+  want.freq = 16000; // 16kHz for whisper
   want.format = AUDIO_F32;
   want.channels = 1;
   want.samples = 1024;
-  want.callback = NULL;    // Queue-based capture
+  want.callback = NULL; // Queue-based capture
 
   // Open default recording device (NULL = default)
-  audio_recording_device = SDL_OpenAudioDevice(NULL, 1, &want, &have, SDL_AUDIO_ALLOW_FORMAT_CHANGE);
+  audio_recording_device =
+      SDL_OpenAudioDevice(NULL, 1, &want, &have, SDL_AUDIO_ALLOW_FORMAT_CHANGE);
   if (audio_recording_device == 0) {
-    fprintf(stderr, "[audio] Failed to open audio device: %s\n", SDL_GetError());
+    fprintf(stderr, "[audio] Failed to open audio device: %s\n",
+            SDL_GetError());
     return;
   }
 
@@ -3642,35 +4121,42 @@ static void start_audio_recording(Block *block) {
 
 // Call this every frame to collect recorded samples
 static void poll_audio_recording(void) {
-  if (!audio_recording_block || audio_recording_device == 0) return;
+  if (!audio_recording_block || audio_recording_device == 0)
+    return;
 
   AudioData *ad = &audio_recording_block->data.audio;
-  if (!ad->is_recording) return;
+  if (!ad->is_recording)
+    return;
 
   // Check how much audio is queued
   Uint32 queued = SDL_GetQueuedAudioSize(audio_recording_device);
-  if (queued == 0) return;
+  if (queued == 0)
+    return;
 
   int sample_count = queued / sizeof(float);
 
   // Ensure capacity
   if (ad->sample_count + sample_count > ad->sample_capacity) {
     int new_cap = ad->sample_capacity == 0 ? 16000 : ad->sample_capacity * 2;
-    while (new_cap < ad->sample_count + sample_count) new_cap *= 2;
+    while (new_cap < ad->sample_count + sample_count)
+      new_cap *= 2;
     ad->samples = (float *)realloc(ad->samples, new_cap * sizeof(float));
     ad->sample_capacity = new_cap;
   }
 
   // Dequeue recorded audio
-  SDL_DequeueAudio(audio_recording_device, ad->samples + ad->sample_count, queued);
+  SDL_DequeueAudio(audio_recording_device, ad->samples + ad->sample_count,
+                   queued);
   ad->sample_count += sample_count;
 }
 
 static void stop_audio_recording(Block *block) {
-  if (!block || block->type != BLOCK_AUDIO) return;
+  if (!block || block->type != BLOCK_AUDIO)
+    return;
   AudioData *ad = &block->data.audio;
 
-  if (!ad->is_recording) return;
+  if (!ad->is_recording)
+    return;
 
   SDL_PauseAudioDevice(audio_recording_device, 1);
   SDL_CloseAudioDevice(audio_recording_device);
@@ -3714,8 +4200,10 @@ static void stop_audio_recording(Block *block) {
       // Convert float to int16
       for (int i = 0; i < ad->sample_count; i++) {
         float s = ad->samples[i];
-        if (s > 1.0f) s = 1.0f;
-        if (s < -1.0f) s = -1.0f;
+        if (s > 1.0f)
+          s = 1.0f;
+        if (s < -1.0f)
+          s = -1.0f;
         int16_t val = (int16_t)(s * 32767.0f);
         fwrite(&val, 2, 1, f);
       }
@@ -3746,12 +4234,14 @@ void ui_render_block_audio(UIHost *ui, Engine *engine, struct nk_context *ctx,
       if (result->success) {
         free(ad->transcript);
         ad->transcript_capacity = result->segment_count;
-        ad->transcript = (TranscriptSeg *)calloc(ad->transcript_capacity, sizeof(TranscriptSeg));
+        ad->transcript = (TranscriptSeg *)calloc(ad->transcript_capacity,
+                                                 sizeof(TranscriptSeg));
         ad->transcript_count = 0;
         for (int i = 0; i < result->segment_count; i++) {
           ad->transcript[i].start_ms = result->segments[i].start_ms;
           ad->transcript[i].end_ms = result->segments[i].end_ms;
-          strncpy(ad->transcript[i].text, result->segments[i].text, sizeof(ad->transcript[i].text) - 1);
+          strncpy(ad->transcript[i].text, result->segments[i].text,
+                  sizeof(ad->transcript[i].text) - 1);
           ad->transcript[i].is_deleted = 0;
           ad->transcript_count++;
         }
@@ -3770,7 +4260,8 @@ void ui_render_block_audio(UIHost *ui, Engine *engine, struct nk_context *ctx,
   float transcript_h = 0.0f;
   if (ad->transcript_count > 0) {
     transcript_h = ad->transcript_count * 28.0f + 20.0f;
-    if (transcript_h > 250.0f) transcript_h = 250.0f;
+    if (transcript_h > 250.0f)
+      transcript_h = 250.0f;
   }
 
   float total_height = 140.0f + transcript_h;
@@ -3789,46 +4280,54 @@ void ui_render_block_audio(UIHost *ui, Engine *engine, struct nk_context *ctx,
   {
     // Title with microphone indicator
     const char *title = ad->is_recording ? "Recording..." : "Voice Note";
-    struct nk_color title_color = ad->is_recording ? nk_rgb(220, 50, 50) : nk_rgb(60, 60, 60);
-    nk_draw_text(canvas, nk_rect(bounds.x + 16, y_offset, 150, 24),
-                 title, strlen(title), ctx->style.font,
-                 nk_rgba(0, 0, 0, 0), title_color);
+    struct nk_color title_color =
+        ad->is_recording ? nk_rgb(220, 50, 50) : nk_rgb(60, 60, 60);
+    nk_draw_text(canvas, nk_rect(bounds.x + 16, y_offset, 150, 24), title,
+                 strlen(title), ctx->style.font, nk_rgba(0, 0, 0, 0),
+                 title_color);
 
     // Record/Stop button
     float btn_x = bounds.x + bounds.w - 220.0f;
     struct nk_rect rec_btn = nk_rect(btn_x, y_offset - 2, 80, 26);
-    int rec_hover = (ui->mouse_x >= rec_btn.x && ui->mouse_x < rec_btn.x + rec_btn.w &&
-                     ui->mouse_y >= rec_btn.y && ui->mouse_y < rec_btn.y + rec_btn.h);
+    int rec_hover =
+        (ui->mouse_x >= rec_btn.x && ui->mouse_x < rec_btn.x + rec_btn.w &&
+         ui->mouse_y >= rec_btn.y && ui->mouse_y < rec_btn.y + rec_btn.h);
 
     if (ad->is_recording) {
       // Stop button (red)
       nk_fill_rect(canvas, rec_btn, 4.0f,
                    rec_hover ? nk_rgb(200, 50, 50) : nk_rgb(220, 70, 70));
       nk_draw_text(canvas, nk_rect(rec_btn.x + 18, rec_btn.y + 5, 50, 16),
-                   "Stop", 4, ctx->style.font, nk_rgba(0, 0, 0, 0), nk_rgb(255, 255, 255));
+                   "Stop", 4, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                   nk_rgb(255, 255, 255));
     } else {
       // Record button (blue)
       nk_fill_rect(canvas, rec_btn, 4.0f,
                    rec_hover ? nk_rgb(66, 133, 244) : nk_rgb(100, 140, 200));
       nk_draw_text(canvas, nk_rect(rec_btn.x + 10, rec_btn.y + 5, 60, 16),
-                   "Record", 6, ctx->style.font, nk_rgba(0, 0, 0, 0), nk_rgb(255, 255, 255));
+                   "Record", 6, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                   nk_rgb(255, 255, 255));
     }
 
     // Transcribe button (only if audio recorded and not transcribing)
-    if (ad->audio_path[0] != '\0' && !ad->is_recording && !ad->is_transcribing) {
+    if (ad->audio_path[0] != '\0' && !ad->is_recording &&
+        !ad->is_transcribing) {
       struct nk_rect trans_btn = nk_rect(btn_x + 90, y_offset - 2, 100, 26);
-      int trans_hover = (ui->mouse_x >= trans_btn.x && ui->mouse_x < trans_btn.x + trans_btn.w &&
-                         ui->mouse_y >= trans_btn.y && ui->mouse_y < trans_btn.y + trans_btn.h);
+      int trans_hover = (ui->mouse_x >= trans_btn.x &&
+                         ui->mouse_x < trans_btn.x + trans_btn.w &&
+                         ui->mouse_y >= trans_btn.y &&
+                         ui->mouse_y < trans_btn.y + trans_btn.h);
       nk_fill_rect(canvas, trans_btn, 4.0f,
                    trans_hover ? nk_rgb(52, 168, 83) : nk_rgb(80, 160, 80));
-      const char *trans_label = ad->transcript_count > 0 ? "Re-transcribe" : "Transcribe";
+      const char *trans_label =
+          ad->transcript_count > 0 ? "Re-transcribe" : "Transcribe";
       nk_draw_text(canvas, nk_rect(trans_btn.x + 8, trans_btn.y + 5, 90, 16),
                    trans_label, strlen(trans_label), ctx->style.font,
                    nk_rgba(0, 0, 0, 0), nk_rgb(255, 255, 255));
     } else if (ad->is_transcribing) {
       nk_draw_text(canvas, nk_rect(btn_x + 90, y_offset + 3, 100, 16),
-                   "Transcribing...", 15, ctx->style.font,
-                   nk_rgba(0, 0, 0, 0), nk_rgb(150, 150, 150));
+                   "Transcribing...", 15, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                   nk_rgb(150, 150, 150));
     }
 
     y_offset += 36.0f;
@@ -3836,29 +4335,36 @@ void ui_render_block_audio(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   // --- Audio info / waveform placeholder ---
   {
-    struct nk_rect waveform = nk_rect(bounds.x + 16, y_offset, bounds.w - 32, 50);
+    struct nk_rect waveform =
+        nk_rect(bounds.x + 16, y_offset, bounds.w - 32, 50);
     nk_fill_rect(canvas, waveform, 8.0f, nk_rgb(240, 243, 250));
     nk_stroke_rect(canvas, waveform, 8.0f, 1.0f, nk_rgb(200, 210, 230));
 
     if (ad->is_recording) {
       // Animated recording indicator
-      nk_fill_circle(canvas, nk_rect(waveform.x + waveform.w/2 - 8, waveform.y + 17, 16, 16),
-                     nk_rgb(220, 50, 50));
+      nk_fill_circle(
+          canvas,
+          nk_rect(waveform.x + waveform.w / 2 - 8, waveform.y + 17, 16, 16),
+          nk_rgb(220, 50, 50));
     } else if (ad->sample_count > 0) {
       // Simple waveform visualization
       float step = (float)ad->sample_count / (waveform.w - 20);
       float center_y = waveform.y + waveform.h / 2;
       for (float x = 0; x < waveform.w - 20; x += 2) {
         int idx = (int)(x * step);
-        if (idx >= ad->sample_count) break;
+        if (idx >= ad->sample_count)
+          break;
         float amp = ad->samples[idx] * 20.0f;
         nk_stroke_line(canvas, waveform.x + 10 + x, center_y - amp,
-                       waveform.x + 10 + x, center_y + amp, 1.0f, nk_rgb(100, 140, 200));
+                       waveform.x + 10 + x, center_y + amp, 1.0f,
+                       nk_rgb(100, 140, 200));
       }
     } else {
-      nk_draw_text(canvas, nk_rect(waveform.x + waveform.w/2 - 60, waveform.y + 17, 120, 16),
-                   "Click Record to start", 21, ctx->style.font,
-                   nk_rgba(0, 0, 0, 0), nk_rgb(150, 150, 170));
+      nk_draw_text(
+          canvas,
+          nk_rect(waveform.x + waveform.w / 2 - 60, waveform.y + 17, 120, 16),
+          "Click Record to start", 21, ctx->style.font, nk_rgba(0, 0, 0, 0),
+          nk_rgb(150, 150, 170));
     }
 
     // Duration display
@@ -3868,9 +4374,11 @@ void ui_render_block_audio(UIHost *ui, Engine *engine, struct nk_context *ctx,
       int secs = (duration_ms / 1000) % 60;
       char dur[32];
       snprintf(dur, sizeof(dur), "%02d:%02d", mins, secs);
-      nk_draw_text(canvas, nk_rect(waveform.x + waveform.w - 50, waveform.y + waveform.h - 20, 40, 16),
-                   dur, strlen(dur), ctx->style.font,
-                   nk_rgba(0, 0, 0, 0), nk_rgb(100, 100, 120));
+      nk_draw_text(canvas,
+                   nk_rect(waveform.x + waveform.w - 50,
+                           waveform.y + waveform.h - 20, 40, 16),
+                   dur, strlen(dur), ctx->style.font, nk_rgba(0, 0, 0, 0),
+                   nk_rgb(100, 100, 120));
     }
 
     y_offset += 60.0f;
@@ -3879,17 +4387,19 @@ void ui_render_block_audio(UIHost *ui, Engine *engine, struct nk_context *ctx,
   // --- Transcript (Descript-style) ---
   if (ad->transcript_count > 0) {
     nk_draw_text(canvas, nk_rect(bounds.x + 16, y_offset, 100, 18),
-                 "Transcript:", 11, ctx->style.font,
-                 nk_rgba(0, 0, 0, 0), nk_rgb(80, 80, 100));
+                 "Transcript:", 11, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                 nk_rgb(80, 80, 100));
     y_offset += 24.0f;
 
-    struct nk_rect transcript_area = nk_rect(bounds.x + 16, y_offset,
-                                             bounds.w - 32, transcript_h - 44.0f);
+    struct nk_rect transcript_area =
+        nk_rect(bounds.x + 16, y_offset, bounds.w - 32, transcript_h - 44.0f);
     nk_fill_rect(canvas, transcript_area, 4.0f, nk_rgb(255, 255, 255));
     nk_stroke_rect(canvas, transcript_area, 4.0f, 1.0f, nk_rgb(220, 225, 235));
 
     float seg_y = transcript_area.y + 8.0f;
-    for (int i = 0; i < ad->transcript_count && seg_y < transcript_area.y + transcript_area.h - 20.0f; i++) {
+    for (int i = 0; i < ad->transcript_count &&
+                    seg_y < transcript_area.y + transcript_area.h - 20.0f;
+         i++) {
       TranscriptSeg *seg = &ad->transcript[i];
 
       // Timestamp
@@ -3897,37 +4407,46 @@ void ui_render_block_audio(UIHost *ui, Engine *engine, struct nk_context *ctx,
       int mins = seg->start_ms / 60000;
       int secs = (seg->start_ms / 1000) % 60;
       snprintf(ts, sizeof(ts), "%02d:%02d", mins, secs);
-      nk_draw_text(canvas, nk_rect(transcript_area.x + 8, seg_y, 40, 18),
-                   ts, strlen(ts), ctx->style.font,
-                   nk_rgba(0, 0, 0, 0), nk_rgb(140, 140, 160));
+      nk_draw_text(canvas, nk_rect(transcript_area.x + 8, seg_y, 40, 18), ts,
+                   strlen(ts), ctx->style.font, nk_rgba(0, 0, 0, 0),
+                   nk_rgb(140, 140, 160));
 
       // Text (with strikethrough if deleted)
-      struct nk_rect text_rect = nk_rect(transcript_area.x + 55, seg_y,
-                                         transcript_area.w - 70, 20);
+      struct nk_rect text_rect =
+          nk_rect(transcript_area.x + 55, seg_y, transcript_area.w - 70, 20);
 
       int is_selected = (ad->selected_segment == i);
-      int is_hovered = (ui->mouse_x >= text_rect.x && ui->mouse_x < text_rect.x + text_rect.w &&
-                        ui->mouse_y >= text_rect.y && ui->mouse_y < text_rect.y + text_rect.h);
+      int is_hovered = (ui->mouse_x >= text_rect.x &&
+                        ui->mouse_x < text_rect.x + text_rect.w &&
+                        ui->mouse_y >= text_rect.y &&
+                        ui->mouse_y < text_rect.y + text_rect.h);
 
       if (is_selected) {
-        nk_fill_rect(canvas, nk_rect(text_rect.x - 4, text_rect.y - 2, text_rect.w + 8, text_rect.h + 4),
+        nk_fill_rect(canvas,
+                     nk_rect(text_rect.x - 4, text_rect.y - 2, text_rect.w + 8,
+                             text_rect.h + 4),
                      2.0f, nk_rgba(100, 140, 200, 30));
       } else if (is_hovered) {
-        nk_fill_rect(canvas, nk_rect(text_rect.x - 4, text_rect.y - 2, text_rect.w + 8, text_rect.h + 4),
+        nk_fill_rect(canvas,
+                     nk_rect(text_rect.x - 4, text_rect.y - 2, text_rect.w + 8,
+                             text_rect.h + 4),
                      2.0f, nk_rgba(0, 0, 0, 10));
       }
 
-      struct nk_color text_color = seg->is_deleted ? nk_rgb(170, 170, 180) : nk_rgb(40, 40, 50);
+      struct nk_color text_color =
+          seg->is_deleted ? nk_rgb(170, 170, 180) : nk_rgb(40, 40, 50);
       nk_draw_text(canvas, text_rect, seg->text, strlen(seg->text),
                    ctx->style.font, nk_rgba(0, 0, 0, 0), text_color);
 
       // Strikethrough for deleted
       if (seg->is_deleted) {
-        float tw = ctx->style.font->width(ctx->style.font->userdata, ctx->style.font->height,
-                                          seg->text, strlen(seg->text));
-        if (tw > text_rect.w - 10) tw = text_rect.w - 10;
-        nk_stroke_line(canvas, text_rect.x, text_rect.y + 9,
-                       text_rect.x + tw, text_rect.y + 9, 1.0f, nk_rgb(170, 170, 180));
+        float tw = ctx->style.font->width(ctx->style.font->userdata,
+                                          ctx->style.font->height, seg->text,
+                                          strlen(seg->text));
+        if (tw > text_rect.w - 10)
+          tw = text_rect.w - 10;
+        nk_stroke_line(canvas, text_rect.x, text_rect.y + 9, text_rect.x + tw,
+                       text_rect.y + 9, 1.0f, nk_rgb(170, 170, 180));
       }
 
       seg_y += 26.0f;
@@ -3935,11 +4454,13 @@ void ui_render_block_audio(UIHost *ui, Engine *engine, struct nk_context *ctx,
   }
 
   // --- Click handling ---
-  int mouse_in_bounds = (ui->mouse_x >= bounds.x && ui->mouse_x < bounds.x + bounds.w &&
-                         ui->mouse_y >= bounds.y && ui->mouse_y < bounds.y + bounds.h);
+  int mouse_in_bounds =
+      (ui->mouse_x >= bounds.x && ui->mouse_x < bounds.x + bounds.w &&
+       ui->mouse_y >= bounds.y && ui->mouse_y < bounds.y + bounds.h);
   static int audio_mouse_was_down = 0;
   int mouse_down = (ui->mouse_buttons & 1);
-  int mouse_just_pressed = mouse_down && !audio_mouse_was_down && mouse_in_bounds;
+  int mouse_just_pressed =
+      mouse_down && !audio_mouse_was_down && mouse_in_bounds;
   audio_mouse_was_down = mouse_down;
 
   if (mouse_just_pressed) {
@@ -3957,10 +4478,13 @@ void ui_render_block_audio(UIHost *ui, Engine *engine, struct nk_context *ctx,
     }
 
     // Check transcribe button
-    if (ad->audio_path[0] != '\0' && !ad->is_recording && !ad->is_transcribing) {
+    if (ad->audio_path[0] != '\0' && !ad->is_recording &&
+        !ad->is_transcribing) {
       struct nk_rect trans_btn = nk_rect(btn_x + 90, bounds.y + 10.0f, 100, 26);
-      if (ui->mouse_x >= trans_btn.x && ui->mouse_x < trans_btn.x + trans_btn.w &&
-          ui->mouse_y >= trans_btn.y && ui->mouse_y < trans_btn.y + trans_btn.h) {
+      if (ui->mouse_x >= trans_btn.x &&
+          ui->mouse_x < trans_btn.x + trans_btn.w &&
+          ui->mouse_y >= trans_btn.y &&
+          ui->mouse_y < trans_btn.y + trans_btn.h) {
         // Start async transcription (non-blocking)
         if (whisper_transcribe_async(ad->audio_path)) {
           ad->is_transcribing = 1;
@@ -3974,9 +4498,12 @@ void ui_render_block_audio(UIHost *ui, Engine *engine, struct nk_context *ctx,
       float transcript_start_y = bounds.y + 120.0f;
       float seg_y = transcript_start_y + 8.0f;
       for (int i = 0; i < ad->transcript_count; i++) {
-        struct nk_rect text_rect = nk_rect(bounds.x + 71, seg_y, bounds.w - 102, 20);
-        if (ui->mouse_x >= text_rect.x && ui->mouse_x < text_rect.x + text_rect.w &&
-            ui->mouse_y >= text_rect.y && ui->mouse_y < text_rect.y + text_rect.h) {
+        struct nk_rect text_rect =
+            nk_rect(bounds.x + 71, seg_y, bounds.w - 102, 20);
+        if (ui->mouse_x >= text_rect.x &&
+            ui->mouse_x < text_rect.x + text_rect.w &&
+            ui->mouse_y >= text_rect.y &&
+            ui->mouse_y < text_rect.y + text_rect.h) {
           ad->selected_segment = i;
           break;
         }
@@ -4126,7 +4653,7 @@ static void ui_apply_theme(UIHost *ui) {
 
     s->window.background = bg;
     s->window.fixed_background = nk_style_item_color(bg);
-    s->window.border_color = bg;  // Match background to hide borders
+    s->window.border_color = bg; // Match background to hide borders
     s->window.border = 0;
 
     s->button.normal = nk_style_item_color(button);
@@ -4162,7 +4689,7 @@ static void ui_apply_theme(UIHost *ui) {
 
     s->window.background = bg;
     s->window.fixed_background = nk_style_item_color(bg);
-    s->window.border_color = bg;  // Match background to hide borders
+    s->window.border_color = bg; // Match background to hide borders
     s->window.border = 0;
 
     s->button.normal = nk_style_item_color(button);
@@ -4194,6 +4721,9 @@ static void ui_apply_theme(UIHost *ui) {
 // -----------------------------------------------------------------------------
 
 void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
+  // Update window dims for smart placement
+  ui->win_width = win_w;
+  ui->win_height = win_h;
   if (!ui || !engine)
     return;
 
@@ -4303,7 +4833,8 @@ static void home_create_new_document(UIHost *ui, Engine *engine) {
       engine_execute_command(engine, cmd);
     }
     if (txt) {
-      snprintf(cmd, sizeof(cmd), "block_create %u %u text", new_page->id, txt->id);
+      snprintf(cmd, sizeof(cmd), "block_create %u %u text", new_page->id,
+               txt->id);
       engine_execute_command(engine, cmd);
     }
   }
@@ -4317,25 +4848,35 @@ void ui_render_home(UIHost *ui, Engine *engine, struct nk_context *ctx,
   float content_h = (float)win_h - 36.0f;
 
   // Full-screen background
-  if (nk_begin(ctx, "HomeBackground",
-               nk_rect(0, 0, (float)win_w, content_h),
+  if (nk_begin(ctx, "HomeBackground", nk_rect(0, 0, (float)win_w, content_h),
                NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
 
     struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
     struct nk_rect bounds = nk_rect(0, 0, (float)win_w, content_h);
 
     // Theme colors
-    struct nk_color bg_color = ui->dark_mode ? nk_rgb(30, 30, 35) : nk_rgb(252, 252, 253);
-    struct nk_color text_primary = ui->dark_mode ? nk_rgb(240, 240, 245) : nk_rgb(50, 50, 55);
-    struct nk_color text_secondary = ui->dark_mode ? nk_rgb(140, 140, 150) : nk_rgb(150, 150, 150);
-    struct nk_color text_muted = ui->dark_mode ? nk_rgb(100, 100, 110) : nk_rgb(180, 180, 185);
-    struct nk_color card_bg = ui->dark_mode ? nk_rgb(40, 40, 48) : nk_rgb(248, 248, 250);
-    struct nk_color card_border = ui->dark_mode ? nk_rgb(55, 55, 65) : nk_rgb(230, 230, 235);
-    struct nk_color btn_secondary_bg = ui->dark_mode ? nk_rgb(50, 50, 58) : nk_rgb(245, 245, 248);
-    struct nk_color btn_secondary_hover = ui->dark_mode ? nk_rgb(60, 60, 70) : nk_rgb(235, 235, 240);
-    struct nk_color btn_secondary_border = ui->dark_mode ? nk_rgb(70, 70, 80) : nk_rgb(210, 210, 215);
-    struct nk_color btn_secondary_text = ui->dark_mode ? nk_rgb(200, 200, 210) : nk_rgb(80, 80, 85);
-    struct nk_color hover_bg = ui->dark_mode ? nk_rgb(50, 52, 60) : nk_rgb(245, 247, 250);
+    struct nk_color bg_color =
+        ui->dark_mode ? nk_rgb(30, 30, 35) : nk_rgb(252, 252, 253);
+    struct nk_color text_primary =
+        ui->dark_mode ? nk_rgb(240, 240, 245) : nk_rgb(50, 50, 55);
+    struct nk_color text_secondary =
+        ui->dark_mode ? nk_rgb(140, 140, 150) : nk_rgb(150, 150, 150);
+    struct nk_color text_muted =
+        ui->dark_mode ? nk_rgb(100, 100, 110) : nk_rgb(180, 180, 185);
+    struct nk_color card_bg =
+        ui->dark_mode ? nk_rgb(40, 40, 48) : nk_rgb(248, 248, 250);
+    struct nk_color card_border =
+        ui->dark_mode ? nk_rgb(55, 55, 65) : nk_rgb(230, 230, 235);
+    struct nk_color btn_secondary_bg =
+        ui->dark_mode ? nk_rgb(50, 50, 58) : nk_rgb(245, 245, 248);
+    struct nk_color btn_secondary_hover =
+        ui->dark_mode ? nk_rgb(60, 60, 70) : nk_rgb(235, 235, 240);
+    struct nk_color btn_secondary_border =
+        ui->dark_mode ? nk_rgb(70, 70, 80) : nk_rgb(210, 210, 215);
+    struct nk_color btn_secondary_text =
+        ui->dark_mode ? nk_rgb(200, 200, 210) : nk_rgb(80, 80, 85);
+    struct nk_color hover_bg =
+        ui->dark_mode ? nk_rgb(50, 52, 60) : nk_rgb(245, 247, 250);
     struct nk_color accent = nk_rgb(55, 120, 250);
     struct nk_color accent_hover = nk_rgb(45, 105, 220);
 
@@ -4357,43 +4898,50 @@ void ui_render_home(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     // Section title
     nk_draw_text(canvas, nk_rect(left_x, left_y, col_left_w - padding, 20),
-                 "ACTION", 6, ctx->style.font,
-                 nk_rgba(0,0,0,0), text_secondary);
+                 "ACTION", 6, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                 text_secondary);
     left_y += 30;
 
     // --- New Document Button (Large) ---
     struct nk_rect new_btn = nk_rect(left_x, left_y, col_left_w - padding, 50);
-    int new_hover = (ui->mouse_x >= new_btn.x && ui->mouse_x < new_btn.x + new_btn.w &&
-                     ui->mouse_y >= new_btn.y && ui->mouse_y < new_btn.y + new_btn.h);
+    int new_hover =
+        (ui->mouse_x >= new_btn.x && ui->mouse_x < new_btn.x + new_btn.w &&
+         ui->mouse_y >= new_btn.y && ui->mouse_y < new_btn.y + new_btn.h);
     nk_fill_rect(canvas, new_btn, 8.0f, new_hover ? accent_hover : accent);
-    nk_draw_text(canvas, nk_rect(new_btn.x + 20, new_btn.y + 15, new_btn.w - 40, 20),
-                 "+ New Document", 14, ctx->style.font,
-                 nk_rgba(0,0,0,0), nk_rgb(255, 255, 255));
+    nk_draw_text(canvas,
+                 nk_rect(new_btn.x + 20, new_btn.y + 15, new_btn.w - 40, 20),
+                 "+ New Document", 14, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                 nk_rgb(255, 255, 255));
     left_y += 60;
 
     // --- Open Button ---
     struct nk_rect open_btn = nk_rect(left_x, left_y, col_left_w - padding, 40);
-    int open_hover = (ui->mouse_x >= open_btn.x && ui->mouse_x < open_btn.x + open_btn.w &&
-                      ui->mouse_y >= open_btn.y && ui->mouse_y < open_btn.y + open_btn.h);
-    nk_fill_rect(canvas, open_btn, 6.0f, open_hover ? btn_secondary_hover : btn_secondary_bg);
+    int open_hover =
+        (ui->mouse_x >= open_btn.x && ui->mouse_x < open_btn.x + open_btn.w &&
+         ui->mouse_y >= open_btn.y && ui->mouse_y < open_btn.y + open_btn.h);
+    nk_fill_rect(canvas, open_btn, 6.0f,
+                 open_hover ? btn_secondary_hover : btn_secondary_bg);
     nk_stroke_rect(canvas, open_btn, 6.0f, 1.0f, btn_secondary_border);
-    nk_draw_text(canvas, nk_rect(open_btn.x + 16, open_btn.y + 11, open_btn.w - 32, 18),
-                 "Open...", 7, ctx->style.font,
-                 nk_rgba(0,0,0,0), btn_secondary_text);
+    nk_draw_text(
+        canvas, nk_rect(open_btn.x + 16, open_btn.y + 11, open_btn.w - 32, 18),
+        "Open...", 7, ctx->style.font, nk_rgba(0, 0, 0, 0), btn_secondary_text);
     left_y += 60;
 
     // --- Templates Section ---
     nk_draw_text(canvas, nk_rect(left_x, left_y, col_left_w - padding, 18),
-                 "TEMPLATES", 9, ctx->style.font,
-                 nk_rgba(0,0,0,0), text_secondary);
+                 "TEMPLATES", 9, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                 text_secondary);
     left_y += 28;
 
-    struct nk_rect templates_box = nk_rect(left_x, left_y, col_left_w - padding, 100);
+    struct nk_rect templates_box =
+        nk_rect(left_x, left_y, col_left_w - padding, 100);
     nk_fill_rect(canvas, templates_box, 6.0f, card_bg);
     nk_stroke_rect(canvas, templates_box, 6.0f, 1.0f, card_border);
-    nk_draw_text(canvas, nk_rect(templates_box.x + 12, templates_box.y + 40, templates_box.w - 24, 18),
-                 "No templates yet", 16, ctx->style.font,
-                 nk_rgba(0,0,0,0), text_muted);
+    nk_draw_text(canvas,
+                 nk_rect(templates_box.x + 12, templates_box.y + 40,
+                         templates_box.w - 24, 18),
+                 "No templates yet", 16, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                 text_muted);
 
     // =======================================================================
     // CENTER COLUMN: HISTORY (Recent Documents)
@@ -4402,18 +4950,22 @@ void ui_render_home(UIHost *ui, Engine *engine, struct nk_context *ctx,
     float center_y = top_margin;
 
     nk_draw_text(canvas, nk_rect(center_x, center_y, col_center_w - 40, 20),
-                 "RECENT", 6, ctx->style.font,
-                 nk_rgba(0,0,0,0), text_secondary);
+                 "RECENT", 6, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                 text_secondary);
     center_y += 35;
 
     // Recent documents list
     int recent_count = 0;
     for (int p = 0; p < 32; p++) {
-      if (!engine->doc->pages[p].in_use) continue;
+      if (!engine->doc->pages[p].in_use)
+        continue;
 
-      struct nk_rect item_rect = nk_rect(center_x, center_y, col_center_w - 60, 44);
-      int item_hover = (ui->mouse_x >= item_rect.x && ui->mouse_x < item_rect.x + item_rect.w &&
-                        ui->mouse_y >= item_rect.y && ui->mouse_y < item_rect.y + item_rect.h);
+      struct nk_rect item_rect =
+          nk_rect(center_x, center_y, col_center_w - 60, 44);
+      int item_hover = (ui->mouse_x >= item_rect.x &&
+                        ui->mouse_x < item_rect.x + item_rect.w &&
+                        ui->mouse_y >= item_rect.y &&
+                        ui->mouse_y < item_rect.y + item_rect.h);
 
       if (item_hover) {
         nk_fill_rect(canvas, item_rect, 6.0f, hover_bg);
@@ -4424,21 +4976,25 @@ void ui_render_home(UIHost *ui, Engine *engine, struct nk_context *ctx,
                    4.0f, accent);
 
       // Document name
-      nk_draw_text(canvas, nk_rect(item_rect.x + 48, item_rect.y + 13, item_rect.w - 60, 20),
-                   engine->doc->pages[p].name, strlen(engine->doc->pages[p].name),
-                   ctx->style.font, nk_rgba(0,0,0,0), text_primary);
+      nk_draw_text(
+          canvas,
+          nk_rect(item_rect.x + 48, item_rect.y + 13, item_rect.w - 60, 20),
+          engine->doc->pages[p].name, strlen(engine->doc->pages[p].name),
+          ctx->style.font, nk_rgba(0, 0, 0, 0), text_primary);
 
       center_y += 48;
       recent_count++;
 
       // Max 10 items visible
-      if (recent_count >= 10) break;
+      if (recent_count >= 10)
+        break;
     }
 
     if (recent_count == 0) {
-      nk_draw_text(canvas, nk_rect(center_x + 12, center_y + 20, col_center_w - 60, 20),
+      nk_draw_text(canvas,
+                   nk_rect(center_x + 12, center_y + 20, col_center_w - 60, 20),
                    "No documents yet. Create one!", 29, ctx->style.font,
-                   nk_rgba(0,0,0,0), text_secondary);
+                   nk_rgba(0, 0, 0, 0), text_secondary);
     }
 
     // =======================================================================
@@ -4450,34 +5006,44 @@ void ui_render_home(UIHost *ui, Engine *engine, struct nk_context *ctx,
     // --- Dark/Light Mode Toggle ---
     float toggle_y = right_bottom - 60;
     nk_draw_text(canvas, nk_rect(right_x, toggle_y, col_right_w - padding, 16),
-                 "APPEARANCE", 10, ctx->style.font,
-                 nk_rgba(0,0,0,0), ui->dark_mode ? nk_rgb(120, 120, 130) : nk_rgb(150, 150, 150));
+                 "APPEARANCE", 10, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                 ui->dark_mode ? nk_rgb(120, 120, 130) : nk_rgb(150, 150, 150));
     toggle_y += 24;
 
     struct nk_rect light_btn = nk_rect(right_x, toggle_y, 70, 32);
     struct nk_rect dark_btn = nk_rect(right_x + 75, toggle_y, 70, 32);
 
-    int light_hover = (ui->mouse_x >= light_btn.x && ui->mouse_x < light_btn.x + light_btn.w &&
-                       ui->mouse_y >= light_btn.y && ui->mouse_y < light_btn.y + light_btn.h);
-    int dark_hover = (ui->mouse_x >= dark_btn.x && ui->mouse_x < dark_btn.x + dark_btn.w &&
-                      ui->mouse_y >= dark_btn.y && ui->mouse_y < dark_btn.y + dark_btn.h);
+    int light_hover =
+        (ui->mouse_x >= light_btn.x &&
+         ui->mouse_x < light_btn.x + light_btn.w &&
+         ui->mouse_y >= light_btn.y && ui->mouse_y < light_btn.y + light_btn.h);
+    int dark_hover =
+        (ui->mouse_x >= dark_btn.x && ui->mouse_x < dark_btn.x + dark_btn.w &&
+         ui->mouse_y >= dark_btn.y && ui->mouse_y < dark_btn.y + dark_btn.h);
 
     // Light button
-    struct nk_color light_bg = !ui->dark_mode ? nk_rgb(55, 120, 250) :
-                               (light_hover ? nk_rgb(60, 60, 70) : nk_rgb(50, 50, 58));
-    struct nk_color light_text = !ui->dark_mode ? nk_rgb(255, 255, 255) :
-                                 (ui->dark_mode ? nk_rgb(180, 180, 190) : nk_rgb(80, 80, 85));
+    struct nk_color light_bg =
+        !ui->dark_mode
+            ? nk_rgb(55, 120, 250)
+            : (light_hover ? nk_rgb(60, 60, 70) : nk_rgb(50, 50, 58));
+    struct nk_color light_text =
+        !ui->dark_mode
+            ? nk_rgb(255, 255, 255)
+            : (ui->dark_mode ? nk_rgb(180, 180, 190) : nk_rgb(80, 80, 85));
     nk_fill_rect(canvas, light_btn, 4.0f, light_bg);
     nk_draw_text(canvas, nk_rect(light_btn.x + 14, light_btn.y + 8, 50, 16),
-                 "Light", 5, ctx->style.font, nk_rgba(0,0,0,0), light_text);
+                 "Light", 5, ctx->style.font, nk_rgba(0, 0, 0, 0), light_text);
 
     // Dark button
-    struct nk_color dark_bg = ui->dark_mode ? nk_rgb(55, 120, 250) :
-                              (dark_hover ? nk_rgb(235, 235, 240) : nk_rgb(245, 245, 248));
-    struct nk_color dark_text = ui->dark_mode ? nk_rgb(255, 255, 255) : nk_rgb(80, 80, 85);
+    struct nk_color dark_bg =
+        ui->dark_mode
+            ? nk_rgb(55, 120, 250)
+            : (dark_hover ? nk_rgb(235, 235, 240) : nk_rgb(245, 245, 248));
+    struct nk_color dark_text =
+        ui->dark_mode ? nk_rgb(255, 255, 255) : nk_rgb(80, 80, 85);
     nk_fill_rect(canvas, dark_btn, 4.0f, dark_bg);
     nk_draw_text(canvas, nk_rect(dark_btn.x + 16, dark_btn.y + 8, 50, 16),
-                 "Dark", 4, ctx->style.font, nk_rgba(0,0,0,0), dark_text);
+                 "Dark", 4, ctx->style.font, nk_rgba(0, 0, 0, 0), dark_text);
 
     // =======================================================================
     // CLICK HANDLING
@@ -4503,22 +5069,29 @@ void ui_render_home(UIHost *ui, Engine *engine, struct nk_context *ctx,
       // Recent documents
       float check_y = top_margin + 35;
       for (int p = 0; p < 32; p++) {
-        if (!engine->doc->pages[p].in_use) continue;
+        if (!engine->doc->pages[p].in_use)
+          continue;
 
-        struct nk_rect item_rect = nk_rect(center_x, check_y, col_center_w - 60, 44);
-        if (ui->mouse_x >= item_rect.x && ui->mouse_x < item_rect.x + item_rect.w &&
-            ui->mouse_y >= item_rect.y && ui->mouse_y < item_rect.y + item_rect.h) {
+        struct nk_rect item_rect =
+            nk_rect(center_x, check_y, col_center_w - 60, 44);
+        if (ui->mouse_x >= item_rect.x &&
+            ui->mouse_x < item_rect.x + item_rect.w &&
+            ui->mouse_y >= item_rect.y &&
+            ui->mouse_y < item_rect.y + item_rect.h) {
           doc_page_activate(engine->doc, engine->doc->pages[p].id);
           ui->screen = 1;
           break;
         }
         check_y += 48;
-        if (check_y > top_margin + 35 + 48 * 10) break;
+        if (check_y > top_margin + 35 + 48 * 10)
+          break;
       }
 
       // Light mode button
-      if (ui->mouse_x >= light_btn.x && ui->mouse_x < light_btn.x + light_btn.w &&
-          ui->mouse_y >= light_btn.y && ui->mouse_y < light_btn.y + light_btn.h) {
+      if (ui->mouse_x >= light_btn.x &&
+          ui->mouse_x < light_btn.x + light_btn.w &&
+          ui->mouse_y >= light_btn.y &&
+          ui->mouse_y < light_btn.y + light_btn.h) {
         ui->dark_mode = 0;
       }
 

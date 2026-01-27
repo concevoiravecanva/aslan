@@ -163,7 +163,7 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
     // 6. Present frame
     renderer_end(renderer);
 
-    SDL_Delay(16);  // ~60 FPS
+    SDL_Delay(16); // ~60 FPS
   }
 }
 
@@ -176,7 +176,7 @@ int main(int argc, char **argv) {
   (void)argv;
 
   platform_init();
-  platform_log("Starting Aslan Visual Engine...");
+  platform_log("Starting Aslan Visual Engine v0.1.7 (Interactive Phase 8)...");
 
   // 1. Initialize Engine (Core)
   Engine *engine = engine_create();
