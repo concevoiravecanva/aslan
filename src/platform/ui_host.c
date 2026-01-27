@@ -417,7 +417,10 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     ui->canvas_state.space_held = 1;
   }
   if (evt->type == SDL_KEYUP && evt->key.keysym.sym == SDLK_SPACE) {
-    ui->canvas_state.space_held = 0;
+    // Only clear space_held if pan wasn't activated from menu
+    if (!ui->canvas_state.pan_from_menu) {
+      ui->canvas_state.space_held = 0;
+    }
     ui->canvas_state.is_panning = 0;
   }
 
@@ -1871,7 +1874,15 @@ static void canvas_render_sub_menu(UIHost *ui, struct nk_context *ctx,
   const char *icons[8];
   CanvasSubOption sub_opts[8];
 
-  if (cat == CANVAS_CAT_SHAPES) {
+  if (cat == CANVAS_CAT_SELECT) {
+    items[0] = "Select";
+    icons[0] = ICON_CURSOR;
+    sub_opts[0] = CANVAS_SUB_NONE; // Will set tool to SELECT
+    items[1] = "Pan";
+    icons[1] = ICON_HAND;
+    sub_opts[1] = CANVAS_SUB_NONE + 1; // Will toggle space_held
+    item_count = 2;
+  } else if (cat == CANVAS_CAT_SHAPES) {
     items[0] = "Rectangle";
     icons[0] = ICON_SHAPE;
     sub_opts[0] = CANVAS_SUB_SHAPE_RECT;
@@ -1937,20 +1948,42 @@ static void canvas_render_sub_menu(UIHost *ui, struct nk_context *ctx,
       nk_fill_rect(canvas_buf, item_r, 6.0f, nk_rgba(0, 0, 0, 15));
       if (cs->mouse_just_pressed) {
         // Handle sub-option selection
-        if (cat == CANVAS_CAT_SHAPES) {
+        if (cat == CANVAS_CAT_SELECT) {
+          if (i == 0) {
+            cs->tool = CANVAS_TOOL_SELECT;
+            cs->space_held = 0;    // Disable pan mode
+            cs->pan_from_menu = 0; // Clear menu pan
+          } else if (i == 1) {
+            cs->pan_from_menu = 1; // Enable pan mode from menu
+            cs->space_held = 1;    // Enable pan mode (hand tool)
+          }
+        } else if (cat == CANVAS_CAT_SHAPES) {
+          // Set pending_create to 10-13 for shapes
+          cs->space_held = 0;    // Disable pan mode
+          cs->pan_from_menu = 0; // Clear menu pan
           if (sub_opts[i] == CANVAS_SUB_SHAPE_RECT)
-            cs->tool = CANVAS_TOOL_FORM_RECT;
+            cs->pending_create = 10;
           else if (sub_opts[i] == CANVAS_SUB_SHAPE_ELLIPSE)
-            cs->tool = CANVAS_TOOL_FORM_ELLIPSE;
+            cs->pending_create = 11;
           else if (sub_opts[i] == CANVAS_SUB_SHAPE_TRIANGLE)
-            cs->tool = CANVAS_TOOL_FORM_TRIANGLE;
+            cs->pending_create = 12;
           else if (sub_opts[i] == CANVAS_SUB_SHAPE_LINE)
-            cs->tool = CANVAS_TOOL_FORM_LINE;
+            cs->pending_create = 13;
         } else if (cat == CANVAS_CAT_TEXT) {
           cs->tool = CANVAS_TOOL_SELECT;
-          cs->pending_create = (sub_opts[i] == CANVAS_SUB_TEXT_STICKY) ? 2 : 1;
+          cs->space_held = 0;    // Disable pan mode
+          cs->pan_from_menu = 0; // Clear menu pan
+          // H1=6, Body=1, Sticky=2
+          if (sub_opts[i] == CANVAS_SUB_TEXT_HEADING)
+            cs->pending_create = 6;
+          else if (sub_opts[i] == CANVAS_SUB_TEXT_BODY)
+            cs->pending_create = 1;
+          else if (sub_opts[i] == CANVAS_SUB_TEXT_STICKY)
+            cs->pending_create = 2;
         } else if (cat == CANVAS_CAT_MEDIA) {
           cs->tool = CANVAS_TOOL_SELECT;
+          cs->space_held = 0;    // Disable pan mode
+          cs->pan_from_menu = 0; // Clear menu pan
           if (sub_opts[i] == CANVAS_SUB_MEDIA_IMAGE)
             cs->pending_create = 3;
           else if (sub_opts[i] == CANVAS_SUB_MEDIA_VIDEO)
@@ -2043,9 +2076,7 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
         cs->show_sub_menu = !cs->show_sub_menu;
       } else {
         cs->active_cat = (CanvasCategory)i;
-        cs->show_sub_menu = (i > 0); // Open sub-menu for Shapes, Text, Media
-        if (i == 0)
-          cs->tool = CANVAS_TOOL_SELECT;
+        cs->show_sub_menu = 1; // Open sub-menu for all buttons
       }
     }
 
@@ -2345,10 +2376,21 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
     float nx = center_world_x - def_w / 2.0f,
           ny = center_world_y - def_h / 2.0f;
 
-    if (cs->pending_create == 1)
+    if (cs->pending_create == 1) {
+      // Body text
       new_node =
-          canvas_create_styled_node(cd, NODE_STYLE_TEXT, nx, ny, 120.0f, 30.0f);
-    else if (cs->pending_create == 2) {
+          canvas_create_styled_node(cd, NODE_STYLE_TEXT, nx, ny, 200.0f, 40.0f);
+      if (new_node) {
+        strncpy(new_node->text, "Body text", sizeof(new_node->text) - 1);
+      }
+    } else if (cs->pending_create == 6) {
+      // H1 Heading
+      new_node =
+          canvas_create_styled_node(cd, NODE_STYLE_TEXT, nx, ny, 300.0f, 60.0f);
+      if (new_node) {
+        strncpy(new_node->text, "Heading", sizeof(new_node->text) - 1);
+      }
+    } else if (cs->pending_create == 2) {
       new_node = canvas_create_styled_node(cd, NODE_STYLE_RECT, nx, ny, 120.0f,
                                            120.0f);
       if (new_node) {
@@ -2761,7 +2803,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     scale = 1.0f;
 
   float display_h = (float)dd->height * scale;
-  float toolbar_h = 48.0f;
+  float toolbar_h = 52.0f;
 
   // Limit height unless expanded
   if (ui->expanded_block_id != block->id) {
@@ -2914,67 +2956,38 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     }
   }
 
-  // --- Toolbar (expanded for page navigation) ---
-  float toolbar_w = 3 * 40.0f + 4 * 12.0f + 150.0f; // Extra space for page nav
+  // --- Toolbar (same as Canvas) ---
+  float toolbar_w =
+      4 * 36.0f + 3 * 8.0f + 24.0f; // Standard canvas toolbar width
   float toolbar_x = bounds.x + (bounds.w - toolbar_w) / 2.0f;
-  float toolbar_y = bounds.y + bounds.h + 8.0f;
-  struct nk_color toolbar_bg = nk_rgba(255, 255, 255, 245);
-  struct nk_color toolbar_border = nk_rgba(200, 200, 200, 200);
+  float toolbar_y = bounds.y + bounds.h;
 
-  nk_fill_rect(canvas_buf,
-               nk_rect(toolbar_x - 2, toolbar_y + 2, toolbar_w, toolbar_h),
-               12.0f, nk_rgba(0, 0, 0, 20));
-  nk_fill_rect(canvas_buf, nk_rect(toolbar_x, toolbar_y, toolbar_w, toolbar_h),
-               12.0f, toolbar_bg);
-  nk_stroke_rect(canvas_buf,
-                 nk_rect(toolbar_x, toolbar_y, toolbar_w, toolbar_h), 12.0f,
-                 1.0f, toolbar_border);
+  // Render Toolbar using Canvas logic (with state swapping)
+  {
+    CanvasInteraction temp_cs = ui->canvas_state;
 
-  float btn_size = 32.0f;
-  float btn_spacing = 8.0f;
-  float btn_x = toolbar_x + 12.0f;
-  float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
+    // Map Design state to Canvas state
+    ui->canvas_state.active_cat = ds->active_cat;
+    ui->canvas_state.show_sub_menu = ds->show_sub_menu;
+    ui->canvas_state.pending_create = ds->pending_create;
+    ui->canvas_state.mouse_just_pressed = ds->mouse_just_pressed;
+    ui->canvas_state.space_held = ds->space_held;
+    ui->canvas_state.pan_from_menu = ds->pan_from_menu;
 
-  // Tool icons: 0: Forms, 1: Text, 2: Image
-  const char *tool_icons[] = {ICON_SHAPE, "A", "\xEE\xB9\xA4"};
-  int use_icon_font[] = {1, 0, 1};
-  int tool_count = 3;
+    // Check if mouse in toolbar for Design interaction
+    canvas_render_toolbar(
+        ui, ctx, nk_rect(bounds.x, bounds.y, bounds.w, bounds.h + toolbar_h),
+        block);
 
-  for (int i = 0; i < tool_count; i++) {
-    struct nk_rect btn = nk_rect(btn_x + i * (btn_size + btn_spacing), btn_y,
-                                 btn_size, btn_size);
+    // Copy back relevant state
+    ds->active_cat = ui->canvas_state.active_cat;
+    ds->show_sub_menu = ui->canvas_state.show_sub_menu;
+    ds->pending_create = ui->canvas_state.pending_create;
+    ds->space_held = ui->canvas_state.space_held;
+    ds->pan_from_menu = ui->canvas_state.pan_from_menu;
 
-    int is_active = (i == 0 && ds->show_forms_menu);
-    int hovered = (ui->mouse_x >= btn.x && ui->mouse_x < btn.x + btn.w &&
-                   ui->mouse_y >= btn.y && ui->mouse_y < btn.y + btn.h);
-
-    struct nk_color bg_color = is_active ? nk_rgba(66, 133, 244, 80)
-                               : hovered ? nk_rgba(0, 0, 0, 20)
-                                         : nk_rgba(0, 0, 0, 0);
-    nk_fill_rect(canvas_buf, btn, 6.0f, bg_color);
-
-    struct nk_color icon_color =
-        is_active ? nk_rgb(66, 133, 244) : nk_rgb(80, 80, 80);
-    if (use_icon_font[i] && ui->font_icons) {
-      nk_draw_text(canvas_buf,
-                   nk_rect(btn.x + 6, btn.y + 6, btn_size - 12, btn_size - 12),
-                   tool_icons[i], strlen(tool_icons[i]),
-                   &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), icon_color);
-    } else {
-      nk_draw_text(canvas_buf,
-                   nk_rect(btn.x + 8, btn.y + 4, btn_size - 16, btn_size - 8),
-                   tool_icons[i], strlen(tool_icons[i]), ctx->style.font,
-                   nk_rgba(0, 0, 0, 0), icon_color);
-    }
-
-    if (hovered && ds->mouse_just_pressed && is_active_design) {
-      if (i == 0) {
-        ds->show_forms_menu = !ds->show_forms_menu;
-      } else {
-        ds->show_forms_menu = 0;
-        ds->pending_create = i; // 1=Text, 2=Image
-      }
-    }
+    // Restore Canvas state
+    ui->canvas_state = temp_cs;
   }
 
   // --- Page Navigation (right side of toolbar) ---
@@ -3053,56 +3066,11 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     }
   }
 
-  // --- Forms Dropdown Menu ---
-  int in_forms_menu = 0;
-  if (ds->show_forms_menu) {
-    float menu_w = 160.0f;
-    float menu_h = 140.0f;
-    float menu_x = toolbar_x;
-    float menu_y = toolbar_y - menu_h - 8.0f;
-
-    in_forms_menu = (ui->mouse_x >= menu_x && ui->mouse_x < menu_x + menu_w &&
-                     ui->mouse_y >= menu_y && ui->mouse_y < menu_y + menu_h);
-
-    nk_fill_rect(canvas_buf, nk_rect(menu_x + 2, menu_y + 3, menu_w, menu_h),
-                 10.0f, nk_rgba(0, 0, 0, 25));
-    nk_fill_rect(canvas_buf, nk_rect(menu_x, menu_y, menu_w, menu_h), 10.0f,
-                 toolbar_bg);
-    nk_stroke_rect(canvas_buf, nk_rect(menu_x, menu_y, menu_w, menu_h), 10.0f,
-                   1.0f, toolbar_border);
-
-    const char *form_labels[] = {"Rectangle", "Ellipse", "Triangle", "Line"};
-    float item_h = 30.0f;
-
-    for (int i = 0; i < 4; i++) {
-      struct nk_rect item_rect =
-          nk_rect(menu_x + 8, menu_y + 8 + i * item_h, menu_w - 16, item_h);
-      int item_hover = (ui->mouse_x >= item_rect.x &&
-                        ui->mouse_x < item_rect.x + item_rect.w &&
-                        ui->mouse_y >= item_rect.y &&
-                        ui->mouse_y < item_rect.y + item_rect.h);
-
-      if (item_hover)
-        nk_fill_rect(canvas_buf, item_rect, 4.0f, nk_rgba(66, 133, 244, 30));
-
-      nk_draw_text(
-          canvas_buf,
-          nk_rect(item_rect.x + 8, item_rect.y + 6, item_rect.w - 16, 20),
-          form_labels[i], strlen(form_labels[i]), ctx->style.font,
-          nk_rgba(0, 0, 0, 0), nk_rgb(60, 60, 60));
-
-      if (item_hover && ds->mouse_just_pressed && is_active_design) {
-        ds->pending_create =
-            10 + i; // 10=rect, 11=ellipse, 12=triangle, 13=line
-        ds->show_forms_menu = 0;
-      }
-    }
-  }
-
-  // Check toolbar area
+  // Check if in toolbar area (using existing toolbar_x, toolbar_y, toolbar_w)
   int in_toolbar =
       (ui->mouse_x >= toolbar_x && ui->mouse_x < toolbar_x + toolbar_w &&
        ui->mouse_y >= toolbar_y && ui->mouse_y < toolbar_y + toolbar_h);
+  int in_forms_menu = ds->show_forms_menu;
 
   // Check mouse in design area
   int mouse_in_design =

@@ -92,6 +92,7 @@ typedef struct {
   // Pan state
   int is_panning;
   int space_held;
+  int pan_from_menu; // Track if pan was activated from menu (not keyboard)
   float pan_start_x, pan_start_y;
   float cam_start_x, cam_start_y;
 
@@ -216,8 +217,15 @@ typedef struct UIHost {
 
   // Design interaction state (simpler than canvas - no pan/zoom/pen)
   struct DesignInteraction {
-    int show_forms_menu;
-    int pending_create; // 0=none, 1=text, 2=image, 10+=forms
+    // Toolbar state (same as canvas)
+    CanvasCategory active_cat;
+    int show_sub_menu;
+
+    int space_held;    // For compatibility with Canvas toolbar
+    int pan_from_menu; // For compatibility with Canvas toolbar
+
+    int show_forms_menu; // Legacy, will be replaced
+    int pending_create;  // 0=none, 1=text, 2=image, 6=H1, 10+=forms
     int mouse_just_pressed;
     int mouse_just_released;
     int is_dragging_node;
