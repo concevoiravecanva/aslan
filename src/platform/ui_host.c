@@ -152,6 +152,8 @@ static struct nk_color COLOR_HIGHLIGHT_YELLOW = {255, 240, 100, 80};
 static struct nk_color COLOR_HIGHLIGHT_BLUE = {100, 180, 255, 80};
 static struct nk_color COLOR_HIGHLIGHT_GREEN = {100, 220, 140, 80};
 
+static const float UI_SIDE_PADDING = 40.0f;
+
 // -----------------------------------------------------------------------------
 // UI Initialization
 // -----------------------------------------------------------------------------
@@ -522,30 +524,22 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
     Page *page = doc_page_get_active(engine->doc);
     uint32_t page_id = page ? page->id : 0;
 
-    // Calculate centering: 8 icons at 36px each = 288px total
-    float icons_total_w = 8 * btn_w;
-    float left_margin = ((float)win_w - icons_total_w) / 2.0f;
-    if (left_margin < btn_w + 10)
-      left_margin = btn_w + 10; // Min space for home
-
-    // Use template layout: [Home] [flex space] [7 icons centered] [flex space]
+    // Layout: [FLEX spacer] [7 Icons Cluster] [FLEX spacer]
     nk_layout_row_template_begin(ctx, btn_h);
-    nk_layout_row_template_push_static(ctx, btn_w); // Home
-    nk_layout_row_template_push_static(ctx,
-                                       left_margin - btn_w - 5); // Left spacer
-    for (int i = 0; i < 8; i++) {
-      nk_layout_row_template_push_static(ctx, btn_w); // 8 icons
+    nk_layout_row_template_push_variable(ctx, 1); // Left centering spacer
+    for (int i = 0; i < 7; i++) {
+      nk_layout_row_template_push_static(ctx, btn_w); // 7 icons
     }
-    nk_layout_row_template_push_variable(ctx, 1); // Right spacer (fills rest)
+    nk_layout_row_template_push_variable(ctx, 1); // Right centering spacer
     nk_layout_row_template_end(ctx);
 
-    // Home button (icon)
+    // Left FLEX spacer
+    nk_spacing(ctx, 1);
+
+    // Home button (icon) - Now first in centered cluster
     if (ui_icon_button(ui, ICON_HOME)) {
       ui->screen = 0;
     }
-
-    // Left spacer (empty widget)
-    nk_spacing(ctx, 1);
 
     // Text block
     if (ui_icon_button(ui, ICON_TEXT)) {
@@ -568,20 +562,6 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
           page_append_block(page, b);
           char cmd[128];
           snprintf(cmd, sizeof(cmd), "block_create %u %u h1", page_id, b->id);
-          engine_execute_command(engine, cmd);
-        }
-      }
-    }
-
-    // Lua script (icon)
-    if (ui_icon_button(ui, ICON_LUA)) {
-      if (page) {
-        Block *b = block_create(page, BLOCK_LUA);
-        if (b) {
-          block_lua_init(b);
-          page_append_block(page, b);
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u lua", page_id, b->id);
           engine_execute_command(engine, cmd);
         }
       }
@@ -632,7 +612,21 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     }
 
-    // Right spacer consumes remaining space
+    // Lua script (icon) - Now last
+    if (ui_icon_button(ui, ICON_LUA)) {
+      if (page) {
+        Block *b = block_create(page, BLOCK_LUA);
+        if (b) {
+          block_lua_init(b);
+          page_append_block(page, b);
+          char cmd[128];
+          snprintf(cmd, sizeof(cmd), "block_create %u %u lua", page_id, b->id);
+          engine_execute_command(engine, cmd);
+        }
+      }
+    }
+
+    // Right FLEX spacer
     nk_spacing(ctx, 1);
   }
   nk_end(ctx);
@@ -658,7 +652,17 @@ void ui_render_bottom_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
     int page_count = engine->doc->page_count;
     int col_count = page_count + 1; // +1 for [+] button
 
-    nk_layout_row_static(ctx, bar_h - 8, (int)tab_w, col_count);
+    // Use padding aligned with document content
+    nk_layout_row_template_begin(ctx, bar_h - 8);
+    nk_layout_row_template_push_static(ctx, UI_SIDE_PADDING);
+    for (int i = 0; i < col_count; i++) {
+      nk_layout_row_template_push_static(ctx, tab_w);
+    }
+    nk_layout_row_template_push_variable(ctx, 1); // Right spacer
+    nk_layout_row_template_end(ctx);
+
+    // margin spacer
+    nk_spacing(ctx, 1);
 
     // Render page tabs
     for (int i = 0; i < 32; i++) {
@@ -710,10 +714,7 @@ void ui_render_bottom_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     }
 
-    // Home button
-    if (ui_icon_button(ui, ICON_HOME)) {
-      ui->screen = 0;
-    }
+    // Home removed from bottom per request
   }
   nk_end(ctx);
 }
@@ -3714,6 +3715,9 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
 // Helper: Create new document with default setup
 static void home_create_new_document(UIHost *ui, Engine *engine) {
+  // Clear current document state and history
+  engine_execute_command(engine, "clear");
+
   char name[64] = "New Note";
   Page *new_page = doc_page_create(engine->doc, name);
   if (new_page) {
