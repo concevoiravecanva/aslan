@@ -13,7 +13,7 @@
 // Philosophy: Single document type with mixed blocks (Notion-like)
 // All content is a sequence of blocks within pages.
 // Blocks can be: Text, Headings, Separators, Lua Scripts, Tables,
-//                Canvas (infinite), Design (finite), Video.
+//                Canvas (infinite), Design (finite).
 //
 // =============================================================================
 
@@ -41,8 +41,6 @@ typedef enum {
   BLOCK_CANVAS,    // Infinite canvas (Miro-style)
   BLOCK_DESIGN,    // Finite design surface (Canva-style)
 
-  BLOCK_VIDEO = 10,
-  BLOCK_AUDIO, // Voice recording block with transcription
   BLOCK_COUNT
 } BlockType;
 
@@ -62,13 +60,11 @@ typedef enum {
   NODE_TYPE_RECT = 1,
   NODE_TYPE_TEXT = 2,
   NODE_TYPE_IMAGE = 3,
-  NODE_TYPE_FRAME = 4,    // Container frame (Figma-like)
-  NODE_TYPE_GROUP = 5,    // Logical grouping
-  NODE_TYPE_LINE = 6,     // Line/arrow
-  NODE_TYPE_ELLIPSE = 7,  // Circle/ellipse
-  NODE_TYPE_TRIANGLE = 8, // Triangle
-  NODE_TYPE_VIDEO = 9,
-  NODE_TYPE_AUDIO = 10
+  NODE_TYPE_FRAME = 4,   // Container frame (Figma-like)
+  NODE_TYPE_GROUP = 5,   // Logical grouping
+  NODE_TYPE_LINE = 6,    // Line/arrow
+  NODE_TYPE_ELLIPSE = 7, // Circle/ellipse
+  NODE_TYPE_TRIANGLE = 8
 } NodeType;
 
 // =============================================================================
@@ -186,59 +182,6 @@ typedef struct {
   Node *root;
 } DesignData;
 
-// --- Transcript Segment (for video/audio transcription) ---
-typedef struct {
-  int start_ms;   // Start time in milliseconds
-  int end_ms;     // End time in milliseconds
-  char text[512]; // Transcribed text
-  int word_count; // Number of words
-  int is_deleted; // 1 if user deleted this segment (Descript-style)
-} TranscriptSeg;
-
-// --- Video Block Data (Descript-style) ---
-typedef struct {
-  char source_path[256];
-  double start_time;
-  double end_time;
-  bool is_selected;
-  char comment[256];
-} VideoClip;
-
-typedef struct {
-  VideoClip *clips;
-  int clip_count;
-  int clip_cap;
-  int active_index;
-  double playhead;
-  bool is_playing;
-  bool is_fullscreen;
-
-  // Transcript (Descript-style editing)
-  TranscriptSeg *transcript;
-  int transcript_count;
-  int transcript_capacity;
-  int is_transcribing;  // 1 if transcription in progress
-  int selected_segment; // Currently selected segment (-1 = none)
-  char language[8];     // Detected language
-} VideoData;
-
-// --- Audio Block Data (Voice recording with transcription) ---
-typedef struct {
-  char audio_path[256]; // Path to recorded audio file
-  float *samples;       // Audio samples (16kHz mono float32)
-  int sample_count;
-  int sample_capacity;
-  int is_recording; // 1 if currently recording
-  int is_playing;
-
-  // Transcript
-  TranscriptSeg *transcript;
-  int transcript_count;
-  int transcript_capacity;
-  int is_transcribing;
-  int selected_segment;
-} AudioData;
-
 // --- Lua Script Block Data ---
 typedef struct {
   char *code; // Lua source code
@@ -271,8 +214,6 @@ typedef struct Block {
     TableData table;
     CanvasData canvas;
     DesignData design;
-    VideoData video;
-    AudioData audio;
     LuaData lua;
   } data;
 
@@ -449,39 +390,6 @@ bool block_design_delete_page(Block *block, int page_idx);
 void block_design_goto_page(Block *block, int page_idx);
 
 // =============================================================================
-// VIDEO BLOCK API
-// =============================================================================
-
-void block_video_init(Block *block);
-void block_video_destroy(Block *block);
-int block_video_add_clip(Block *block, const char *path);
-bool block_video_delete_clip(Block *block, int index);
-bool block_video_set_clip_range(Block *block, int index, double start,
-                                double end);
-bool block_video_set_clip_comment(Block *block, int index, const char *comment);
-double block_video_total_duration(const Block *block);
-void block_video_set_playhead(Block *block, double time);
-void block_video_toggle_play(Block *block);
-void block_video_toggle_fullscreen(Block *block);
-
-// Transcript (Descript-style editing)
-void block_video_set_transcript(Block *block, TranscriptSeg *segs, int count);
-void block_video_delete_segment(Block *block, int segment_idx);
-void block_video_restore_segment(Block *block, int segment_idx);
-
-// =============================================================================
-// AUDIO BLOCK API
-// =============================================================================
-
-void block_audio_init(Block *block);
-void block_audio_destroy(Block *block);
-void block_audio_start_recording(Block *block);
-void block_audio_stop_recording(Block *block);
-void block_audio_set_transcript(Block *block, TranscriptSeg *segs, int count);
-void block_audio_delete_segment(Block *block, int segment_idx);
-void block_audio_toggle_play(Block *block);
-
-// =============================================================================
 // LUA BLOCK API
 // =============================================================================
 
@@ -582,12 +490,6 @@ NodeType node_type_from_string(const char *str);
 // block_design_bg <page_id> <block_id> <rgba>
 // block_design_node <page_id> <block_id> ... (same as canvas_node)
 //
-// # Video Block
-// block_video_clip_add <page_id> <block_id> "<path>"
-// block_video_clip_delete <page_id> <block_id> <clip_idx>
-// block_video_clip_range <page_id> <block_id> <clip_idx> <start> <end>
-// block_video_clip_comment <page_id> <block_id> <clip_idx> "<comment>"
-// block_video_playhead <page_id> <block_id> <time>
 //
 // # Lua Block
 // block_lua_code <page_id> <block_id> "<code>"

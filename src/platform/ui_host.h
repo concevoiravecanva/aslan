@@ -64,9 +64,7 @@ typedef enum {
   CANVAS_SUB_TEXT_BODY,
   CANVAS_SUB_TEXT_STICKY,
   // Media
-  CANVAS_SUB_MEDIA_IMAGE,
-  CANVAS_SUB_MEDIA_VIDEO,
-  CANVAS_SUB_MEDIA_AUDIO
+  CANVAS_SUB_MEDIA_IMAGE
 } CanvasSubOption;
 
 // -----------------------------------------------------------------------------
@@ -138,8 +136,6 @@ typedef struct {
 // UI Host Structure
 // -----------------------------------------------------------------------------
 
-#include "../media/ffmpeg_pipe.h"
-
 typedef struct UIHost {
   // Nuklear context
   struct nk_context *ctx;
@@ -147,7 +143,6 @@ typedef struct UIHost {
   lua_State *L;
 
   // Thumbnail Cache for Images/Videos
-  ThumbnailCache thumb_cache;
   struct nk_font_atlas *atlas;
 
   // Fonts
@@ -239,21 +234,6 @@ typedef struct UIHost {
     Block *active_block;
   } design_state;
 
-  // Video block interaction state
-  struct {
-    uint32_t active_video_id;
-    Block *active_block;
-    int mouse_just_pressed;
-    int pending_import;     // 1 if import dialog should open
-    int pending_transcribe; // 1 if transcription should start
-  } video_state;
-
-  // Audio block interaction state
-  struct {
-    Block *active_block; // Currently focused audio block
-    int mouse_just_pressed;
-  } audio_state;
-
   // Mouse state for canvas
   float mouse_x, mouse_y;
   int mouse_buttons; // Bitmask: 1=left, 2=middle, 4=right
@@ -306,10 +286,6 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
                             Block *block, float width);
 void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                             Block *block, float width);
-void ui_render_block_video(UIHost *ui, Engine *engine, struct nk_context *ctx,
-                           Block *block, float width);
-void ui_render_block_audio(UIHost *ui, Engine *engine, struct nk_context *ctx,
-                           Block *block, float width);
 void ui_render_block_lua(UIHost *ui, Engine *engine, struct nk_context *ctx,
                          Block *block, float width);
 
@@ -337,9 +313,6 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_TABLE "\xEF\x87\x9A"     // ri-table-2
 #define ICON_CANVAS "\xEE\xA9\xBA"    // ri-artboard-2-line
 #define ICON_DESIGN "\xEE\xBA\x83"    // ri-layout-4-line
-#define ICON_VIDEO "\xEF\x8A\x82"     // ri-video-line
-#define ICON_MIC "\xEE\xBD\x9E"       // ri-mic-line (audio block)
-#define ICON_VOLUME "\xEF\x84\x8B"    // ri-volume-up-line (voice note)
 
 #define ICON_ADD "\xEE\xA8\x93"             // ri-add-line
 #define ICON_STOP "\xEF\x83\xA7"            // ri-stop-line

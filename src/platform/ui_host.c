@@ -6,8 +6,6 @@
 #define NK_IMPLEMENTATION
 #include "ui_host.h"
 #include "../document/aslan_table.h"
-#include "../media/ffmpeg_pipe.h"
-#include "../media/whisper.h"
 #include "../scripting/lua_host.h"
 #include "mac_image.h"
 #include <SDL.h>
@@ -267,10 +265,6 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
   ctx->style.edit.border_color = COLOR_BORDER;
   ctx->style.edit.text_normal = COLOR_TEXT;
 
-  // Initialize whisper for transcription (multilingual model)
-  whisper_init("vendor/whisper.cpp/build/bin/whisper-cli",
-               "vendor/whisper.cpp/models/ggml-small.bin");
-
   return ui;
 }
 
@@ -347,7 +341,6 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       ui->mouse_buttons |= 1;
       cs->mouse_just_pressed = 1;
       ui->design_state.mouse_just_pressed = 1; // Also track for design
-      ui->video_state.mouse_just_pressed = 1;  // Also track for video
 
       // Start panning with space + left click
       if (cs->space_held && cs->mouse_in_canvas) {
@@ -464,90 +457,36 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     }
   }
 
-  // Delete video transcript segment (Backspace or Delete)
-  if (evt->type == SDL_KEYDOWN && (evt->key.keysym.sym == SDLK_BACKSPACE ||
-                                   evt->key.keysym.sym == SDLK_DELETE)) {
-    if (ui->video_state.active_block &&
-        ui->video_state.active_block->type == BLOCK_VIDEO) {
-      VideoData *vd = &ui->video_state.active_block->data.video;
-      if (vd->selected_segment >= 0 &&
-          vd->selected_segment < vd->transcript_count) {
-        vd->transcript[vd->selected_segment].is_deleted = 1;
-      }
+  CanvasInteraction *cs = &ui->canvas_state;
+  // Initialize zoom if not set
+  if (cs->zoom < 0.01f)
+    cs->zoom = 1.0f;
+  if (cs->mouse_in_canvas) {
+    float old_zoom = cs->zoom;
+    float zoom_factor = 1.15f;
+
+    if (evt->wheel.y > 0) {
+      cs->zoom *= zoom_factor;
+    } else if (evt->wheel.y < 0) {
+      cs->zoom /= zoom_factor;
     }
-  }
 
-  // Restore video transcript segment (R key)
-  if (evt->type == SDL_KEYDOWN && evt->key.keysym.sym == SDLK_r) {
-    if (ui->video_state.active_block &&
-        ui->video_state.active_block->type == BLOCK_VIDEO) {
-      VideoData *vd = &ui->video_state.active_block->data.video;
-      if (vd->selected_segment >= 0 &&
-          vd->selected_segment < vd->transcript_count) {
-        vd->transcript[vd->selected_segment].is_deleted = 0;
-      }
-    }
-  }
+    // Clamp zoom
+    if (cs->zoom < 0.1f)
+      cs->zoom = 0.1f;
+    if (cs->zoom > 5.0f)
+      cs->zoom = 5.0f;
 
-  // Delete audio transcript segment (Backspace or Delete)
-  if (evt->type == SDL_KEYDOWN && (evt->key.keysym.sym == SDLK_BACKSPACE ||
-                                   evt->key.keysym.sym == SDLK_DELETE)) {
-    if (ui->audio_state.active_block &&
-        ui->audio_state.active_block->type == BLOCK_AUDIO) {
-      AudioData *ad = &ui->audio_state.active_block->data.audio;
-      if (ad->selected_segment >= 0 &&
-          ad->selected_segment < ad->transcript_count) {
-        ad->transcript[ad->selected_segment].is_deleted = 1;
-      }
-    }
-  }
+    // Zoom toward mouse cursor
+    float mouse_rel_x = ui->mouse_x - cs->bounds_x;
+    float mouse_rel_y = ui->mouse_y - cs->bounds_y;
 
-  // Restore audio transcript segment (R key)
-  if (evt->type == SDL_KEYDOWN && evt->key.keysym.sym == SDLK_r) {
-    if (ui->audio_state.active_block &&
-        ui->audio_state.active_block->type == BLOCK_AUDIO) {
-      AudioData *ad = &ui->audio_state.active_block->data.audio;
-      if (ad->selected_segment >= 0 &&
-          ad->selected_segment < ad->transcript_count) {
-        ad->transcript[ad->selected_segment].is_deleted = 0;
-      }
-    }
-  }
+    // World position under mouse before zoom
+    float world_x = cs->cam_x + mouse_rel_x / old_zoom;
+    float world_y = cs->cam_y + mouse_rel_y / old_zoom;
 
-  // Mouse wheel zoom toward cursor
-  if (evt->type == SDL_MOUSEWHEEL) {
-    CanvasInteraction *cs = &ui->canvas_state;
-    // Initialize zoom if not set
-    if (cs->zoom < 0.01f)
-      cs->zoom = 1.0f;
-    if (cs->mouse_in_canvas) {
-      float old_zoom = cs->zoom;
-      float zoom_factor = 1.15f;
-
-      if (evt->wheel.y > 0) {
-        cs->zoom *= zoom_factor;
-      } else if (evt->wheel.y < 0) {
-        cs->zoom /= zoom_factor;
-      }
-
-      // Clamp zoom
-      if (cs->zoom < 0.1f)
-        cs->zoom = 0.1f;
-      if (cs->zoom > 5.0f)
-        cs->zoom = 5.0f;
-
-      // Zoom toward mouse cursor
-      float mouse_rel_x = ui->mouse_x - cs->bounds_x;
-      float mouse_rel_y = ui->mouse_y - cs->bounds_y;
-
-      // World position under mouse before zoom
-      float world_x = cs->cam_x + mouse_rel_x / old_zoom;
-      float world_y = cs->cam_y + mouse_rel_y / old_zoom;
-
-      // Adjust camera so same world point stays under mouse
-      cs->cam_x = world_x - mouse_rel_x / cs->zoom;
-      cs->cam_y = world_y - mouse_rel_y / cs->zoom;
-    }
+    // Adjust camera so same world point stays under mouse
+    cs->cam_x = world_x - mouse_rel_x / cs->zoom;
   }
 }
 
@@ -583,8 +522,8 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
     Page *page = doc_page_get_active(engine->doc);
     uint32_t page_id = page ? page->id : 0;
 
-    // Calculate centering: 7 icons at 36px each = 252px total
-    float icons_total_w = 7 * btn_w;
+    // Calculate centering: 8 icons at 36px each = 288px total
+    float icons_total_w = 8 * btn_w;
     float left_margin = ((float)win_w - icons_total_w) / 2.0f;
     if (left_margin < btn_w + 10)
       left_margin = btn_w + 10; // Min space for home
@@ -594,8 +533,8 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
     nk_layout_row_template_push_static(ctx, btn_w); // Home
     nk_layout_row_template_push_static(ctx,
                                        left_margin - btn_w - 5); // Left spacer
-    for (int i = 0; i < 7; i++) {
-      nk_layout_row_template_push_static(ctx, btn_w); // 7 icons
+    for (int i = 0; i < 8; i++) {
+      nk_layout_row_template_push_static(ctx, btn_w); // 8 icons
     }
     nk_layout_row_template_push_variable(ctx, 1); // Right spacer (fills rest)
     nk_layout_row_template_end(ctx);
@@ -607,6 +546,19 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     // Left spacer (empty widget)
     nk_spacing(ctx, 1);
+
+    // Text block
+    if (ui_icon_button(ui, ICON_TEXT)) {
+      if (page) {
+        Block *b = block_create(page, BLOCK_TEXT);
+        if (b) {
+          page_append_block(page, b);
+          char cmd[128];
+          snprintf(cmd, sizeof(cmd), "block_create %u %u text", page_id, b->id);
+          engine_execute_command(engine, cmd);
+        }
+      }
+    }
 
     // H1 block (keep text)
     if (nk_button_label(ctx, "H1")) {
@@ -674,36 +626,6 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
           page_append_block(page, b);
           char cmd[128];
           snprintf(cmd, sizeof(cmd), "block_create %u %u design", page_id,
-                   b->id);
-          engine_execute_command(engine, cmd);
-        }
-      }
-    }
-
-    // Video (icon)
-    if (ui_icon_button(ui, ICON_VIDEO)) {
-      if (page) {
-        Block *b = block_create(page, BLOCK_VIDEO);
-        if (b) {
-          block_video_init(b);
-          page_append_block(page, b);
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u video", page_id,
-                   b->id);
-          engine_execute_command(engine, cmd);
-        }
-      }
-    }
-
-    // Audio (volume icon)
-    if (ui_icon_button(ui, ICON_VOLUME)) {
-      if (page) {
-        Block *b = block_create(page, BLOCK_AUDIO);
-        if (b) {
-          block_audio_init(b);
-          page_append_block(page, b);
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u audio", page_id,
                    b->id);
           engine_execute_command(engine, cmd);
         }
@@ -1909,13 +1831,7 @@ static void canvas_render_sub_menu(UIHost *ui, struct nk_context *ctx,
     items[0] = "Image";
     icons[0] = "\xEE\xB9\xA4";
     sub_opts[0] = CANVAS_SUB_MEDIA_IMAGE;
-    items[1] = "Video";
-    icons[1] = ICON_VIDEO;
-    sub_opts[1] = CANVAS_SUB_MEDIA_VIDEO;
-    items[2] = "Audio";
-    icons[2] = ICON_MIC;
-    sub_opts[2] = CANVAS_SUB_MEDIA_AUDIO;
-    item_count = 3;
+    item_count = 1;
   }
 
   if (item_count == 0)
@@ -1988,10 +1904,6 @@ static void canvas_render_sub_menu(UIHost *ui, struct nk_context *ctx,
           cs->is_panning = 0;    // Stop any active panning
           if (sub_opts[i] == CANVAS_SUB_MEDIA_IMAGE)
             cs->pending_create = 3;
-          else if (sub_opts[i] == CANVAS_SUB_MEDIA_VIDEO)
-            cs->pending_create = 4;
-          else if (sub_opts[i] == CANVAS_SUB_MEDIA_AUDIO)
-            cs->pending_create = 5;
         }
         cs->show_sub_menu = 0;
       }
@@ -2047,7 +1959,7 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
   float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
 
   const char *tool_icons[] = {ICON_CURSOR, ICON_SHAPE, ICON_TEXT_TOOL,
-                              ICON_VIDEO};
+                              "\xEE\xB9\xA4"};
   int tool_count = 4;
 
   for (int i = 0; i < tool_count; i++) {
@@ -2508,7 +2420,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
       new_node = canvas_create_styled_node(cd, NODE_STYLE_RECT, nx, ny, 200.0f,
                                            120.0f);
       if (new_node)
-        new_node->type = NODE_TYPE_VIDEO;
+        new_node->type = NODE_TYPE_IMAGE;
     } else if (cs->pending_create >= 10 && cs->pending_create <= 13) {
       NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
                                 NODE_STYLE_TRIANGLE, NODE_STYLE_LINE};
@@ -3375,282 +3287,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
   nk_spacing(ctx, 1);
 }
 
-void ui_render_block_video(UIHost *ui, Engine *engine, struct nk_context *ctx,
-                           Block *block, float width) {
-  (void)engine;
-  (void)width;
-  if (!block || block->type != BLOCK_VIDEO)
-    return;
-
-  VideoData *vd = &block->data.video;
-
-  // Poll for async transcription completion
-  if (vd->is_transcribing && ui->video_state.active_block == block) {
-    TranscriptResult *result = whisper_get_async_result();
-    if (result) {
-      // Transcription finished - copy results
-      if (result->success) {
-        free(vd->transcript);
-        vd->transcript_capacity = result->segment_count;
-        vd->transcript = (TranscriptSeg *)calloc(vd->transcript_capacity,
-                                                 sizeof(TranscriptSeg));
-        vd->transcript_count = 0;
-        for (int i = 0; i < result->segment_count; i++) {
-          vd->transcript[i].start_ms = result->segments[i].start_ms;
-          vd->transcript[i].end_ms = result->segments[i].end_ms;
-          strncpy(vd->transcript[i].text, result->segments[i].text,
-                  sizeof(vd->transcript[i].text) - 1);
-          vd->transcript[i].is_deleted = 0;
-          vd->transcript_count++;
-        }
-        strncpy(vd->language, result->language, sizeof(vd->language) - 1);
-      }
-      whisper_free_result(result);
-      vd->is_transcribing = 0;
-    }
-  }
-
-  ui_render_expand_toggle(ui, ctx, block);
-
-  // Calculate heights based on content
-  float transcript_h = 0.0f;
-  if (vd->transcript_count > 0) {
-    transcript_h = vd->transcript_count * 28.0f + 20.0f;
-    if (transcript_h > 300.0f)
-      transcript_h = 300.0f;
-  }
-
-  float total_height = 160.0f + transcript_h;
-  if (ui->expanded_block_id == block->id) {
-    total_height = nk_window_get_height(ctx) - 40.0f;
-  }
-
-  nk_layout_row_dynamic(ctx, total_height, 1);
-
-  struct nk_rect bounds = nk_widget_bounds(ctx);
-  struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-
-  // Background
-  nk_fill_rect(canvas, bounds, 4.0f, nk_rgb(250, 250, 250));
-  nk_stroke_rect(canvas, bounds, 4.0f, 1.0f, nk_rgb(220, 220, 220));
-
-  float y_offset = bounds.y + 12.0f;
-
-  // --- Header with controls ---
-  {
-    // Title
-    const char *title = vd->clip_count > 0 ? "Video Montage" : "Video Block";
-    nk_draw_text(canvas, nk_rect(bounds.x + 16, y_offset, 150, 24), title,
-                 strlen(title), ctx->style.font, nk_rgba(0, 0, 0, 0),
-                 nk_rgb(60, 60, 60));
-
-    // Import button
-    float btn_x = bounds.x + bounds.w - 220.0f;
-    struct nk_rect import_btn = nk_rect(btn_x, y_offset - 2, 80, 26);
-    int import_hover = (ui->mouse_x >= import_btn.x &&
-                        ui->mouse_x < import_btn.x + import_btn.w &&
-                        ui->mouse_y >= import_btn.y &&
-                        ui->mouse_y < import_btn.y + import_btn.h);
-    nk_fill_rect(canvas, import_btn, 4.0f,
-                 import_hover ? nk_rgb(66, 133, 244) : nk_rgb(100, 100, 100));
-    nk_draw_text(canvas, nk_rect(import_btn.x + 12, import_btn.y + 5, 60, 16),
-                 "Import", 6, ctx->style.font, nk_rgba(0, 0, 0, 0),
-                 nk_rgb(255, 255, 255));
-
-    // Transcribe button (only if video imported)
-    if (vd->clip_count > 0 && !vd->is_transcribing) {
-      struct nk_rect trans_btn = nk_rect(btn_x + 90, y_offset - 2, 100, 26);
-      int trans_hover = (ui->mouse_x >= trans_btn.x &&
-                         ui->mouse_x < trans_btn.x + trans_btn.w &&
-                         ui->mouse_y >= trans_btn.y &&
-                         ui->mouse_y < trans_btn.y + trans_btn.h);
-      nk_fill_rect(canvas, trans_btn, 4.0f,
-                   trans_hover ? nk_rgb(52, 168, 83) : nk_rgb(80, 160, 80));
-      const char *trans_label =
-          vd->transcript_count > 0 ? "Re-transcribe" : "Transcribe";
-      nk_draw_text(canvas, nk_rect(trans_btn.x + 8, trans_btn.y + 5, 90, 16),
-                   trans_label, strlen(trans_label), ctx->style.font,
-                   nk_rgba(0, 0, 0, 0), nk_rgb(255, 255, 255));
-    } else if (vd->is_transcribing) {
-      nk_draw_text(canvas, nk_rect(btn_x + 90, y_offset + 3, 100, 16),
-                   "Transcribing...", 15, ctx->style.font, nk_rgba(0, 0, 0, 0),
-                   nk_rgb(150, 150, 150));
-    }
-
-    y_offset += 36.0f;
-  }
-
-  // --- Video info / placeholder ---
-  if (vd->clip_count == 0) {
-    struct nk_rect placeholder =
-        nk_rect(bounds.x + 16, y_offset, bounds.w - 32, 80);
-    nk_fill_rect(canvas, placeholder, 8.0f, nk_rgb(240, 240, 240));
-    nk_stroke_rect(canvas, placeholder, 8.0f, 1.0f, nk_rgb(200, 200, 200));
-    nk_draw_text(canvas,
-                 nk_rect(placeholder.x + placeholder.w / 2 - 60,
-                         placeholder.y + 30, 120, 20),
-                 "Drop video here", 15, ctx->style.font, nk_rgba(0, 0, 0, 0),
-                 nk_rgb(150, 150, 150));
-    y_offset += 90.0f;
-  } else {
-    // Show video path
-    char info[128];
-    snprintf(info, sizeof(info), "Source: %s", vd->clips[0].source_path);
-    nk_draw_text(canvas, nk_rect(bounds.x + 16, y_offset, bounds.w - 32, 18),
-                 info, strlen(info), ctx->style.font, nk_rgba(0, 0, 0, 0),
-                 nk_rgb(100, 100, 100));
-    y_offset += 24.0f;
-  }
-
-  // --- Transcript (Descript-style) ---
-  if (vd->transcript_count > 0) {
-    nk_draw_text(canvas, nk_rect(bounds.x + 16, y_offset, 100, 18),
-                 "Transcript:", 11, ctx->style.font, nk_rgba(0, 0, 0, 0),
-                 nk_rgb(80, 80, 80));
-    y_offset += 24.0f;
-
-    // Transcript segments
-    struct nk_rect transcript_area =
-        nk_rect(bounds.x + 16, y_offset, bounds.w - 32, transcript_h - 44.0f);
-    nk_fill_rect(canvas, transcript_area, 4.0f, nk_rgb(255, 255, 255));
-    nk_stroke_rect(canvas, transcript_area, 4.0f, 1.0f, nk_rgb(230, 230, 230));
-
-    float seg_y = transcript_area.y + 8.0f;
-    for (int i = 0; i < vd->transcript_count &&
-                    seg_y < transcript_area.y + transcript_area.h - 20.0f;
-         i++) {
-      TranscriptSeg *seg = &vd->transcript[i];
-
-      // Timestamp
-      char ts[32];
-      int mins = seg->start_ms / 60000;
-      int secs = (seg->start_ms / 1000) % 60;
-      snprintf(ts, sizeof(ts), "%02d:%02d", mins, secs);
-      nk_draw_text(canvas, nk_rect(transcript_area.x + 8, seg_y, 40, 18), ts,
-                   strlen(ts), ctx->style.font, nk_rgba(0, 0, 0, 0),
-                   nk_rgb(150, 150, 150));
-
-      // Text (with strikethrough if deleted)
-      struct nk_rect text_rect =
-          nk_rect(transcript_area.x + 55, seg_y, transcript_area.w - 70, 20);
-
-      int is_selected = (vd->selected_segment == i);
-      int is_hovered = (ui->mouse_x >= text_rect.x &&
-                        ui->mouse_x < text_rect.x + text_rect.w &&
-                        ui->mouse_y >= text_rect.y &&
-                        ui->mouse_y < text_rect.y + text_rect.h);
-
-      // Highlight selected/hovered
-      if (is_selected) {
-        nk_fill_rect(canvas,
-                     nk_rect(text_rect.x - 4, text_rect.y - 2, text_rect.w + 8,
-                             text_rect.h + 4),
-                     2.0f, nk_rgba(66, 133, 244, 30));
-      } else if (is_hovered) {
-        nk_fill_rect(canvas,
-                     nk_rect(text_rect.x - 4, text_rect.y - 2, text_rect.w + 8,
-                             text_rect.h + 4),
-                     2.0f, nk_rgba(0, 0, 0, 10));
-      }
-
-      struct nk_color text_color =
-          seg->is_deleted ? nk_rgb(180, 180, 180) : nk_rgb(40, 40, 40);
-      nk_draw_text(canvas, text_rect, seg->text, strlen(seg->text),
-                   ctx->style.font, nk_rgba(0, 0, 0, 0), text_color);
-
-      // Strikethrough for deleted segments
-      if (seg->is_deleted) {
-        float tw = ctx->style.font->width(ctx->style.font->userdata,
-                                          ctx->style.font->height, seg->text,
-                                          strlen(seg->text));
-        if (tw > text_rect.w - 10)
-          tw = text_rect.w - 10;
-        nk_stroke_line(canvas, text_rect.x, text_rect.y + 9, text_rect.x + tw,
-                       text_rect.y + 9, 1.0f, nk_rgb(180, 180, 180));
-      }
-
-      seg_y += 26.0f;
-    }
-
-    // Instructions
-    nk_draw_text(
-        canvas,
-        nk_rect(bounds.x + 16, bounds.y + bounds.h - 24, bounds.w - 32, 16),
-        "Click segment to select, Delete/Backspace to cut, R to restore", 61,
-        ctx->style.font, nk_rgba(0, 0, 0, 0), nk_rgb(150, 150, 150));
-  }
-
-  // --- Click handling ---
-  if (ui->video_state.mouse_just_pressed) {
-    float btn_x = bounds.x + bounds.w - 220.0f;
-
-    // Check import button
-    struct nk_rect import_btn = nk_rect(btn_x, bounds.y + 10.0f, 80, 26);
-    if (ui->mouse_x >= import_btn.x &&
-        ui->mouse_x < import_btn.x + import_btn.w &&
-        ui->mouse_y >= import_btn.y &&
-        ui->mouse_y < import_btn.y + import_btn.h) {
-      // Open video file dialog
-      char video_path[512];
-      if (open_video_file_dialog(video_path, sizeof(video_path))) {
-        if (vd->clip_count == 0) {
-          block_video_add_clip(block, video_path);
-        } else {
-          // Replace existing
-          strncpy(vd->clips[0].source_path, video_path,
-                  sizeof(vd->clips[0].source_path) - 1);
-        }
-        // Clear old transcript
-        free(vd->transcript);
-        vd->transcript = NULL;
-        vd->transcript_count = 0;
-        vd->selected_segment = -1;
-      }
-    }
-
-    // Check transcribe button - START async transcription
-    if (vd->clip_count > 0 && !vd->is_transcribing) {
-      struct nk_rect trans_btn = nk_rect(btn_x + 90, bounds.y + 10.0f, 100, 26);
-      if (ui->mouse_x >= trans_btn.x &&
-          ui->mouse_x < trans_btn.x + trans_btn.w &&
-          ui->mouse_y >= trans_btn.y &&
-          ui->mouse_y < trans_btn.y + trans_btn.h) {
-        // Start async transcription (non-blocking)
-        if (whisper_transcribe_async(vd->clips[0].source_path)) {
-          vd->is_transcribing = 1;
-          ui->video_state.active_block = block;
-        }
-      }
-    }
-
-    // Check transcript segment clicks
-    if (vd->transcript_count > 0) {
-      float transcript_start_y = bounds.y + 96.0f;
-      if (vd->clip_count == 0)
-        transcript_start_y += 66.0f;
-
-      float seg_y = transcript_start_y + 8.0f;
-      for (int i = 0; i < vd->transcript_count; i++) {
-        struct nk_rect text_rect =
-            nk_rect(bounds.x + 71, seg_y, bounds.w - 102, 20);
-        if (ui->mouse_x >= text_rect.x &&
-            ui->mouse_x < text_rect.x + text_rect.w &&
-            ui->mouse_y >= text_rect.y &&
-            ui->mouse_y < text_rect.y + text_rect.h) {
-          vd->selected_segment = i;
-          break;
-        }
-        seg_y += 26.0f;
-      }
-    }
-  }
-
-  // Reset mouse_just_pressed at end of frame
-  ui->video_state.mouse_just_pressed = 0;
-
-  nk_spacing(ctx, 1);
-}
-
 // -----------------------------------------------------------------------------
 // Audio Block - Voice Recording with Transcription
 // -----------------------------------------------------------------------------
@@ -3658,450 +3294,6 @@ void ui_render_block_video(UIHost *ui, Engine *engine, struct nk_context *ctx,
 // SDL audio recording state (using queue-based capture, not callbacks)
 static SDL_AudioDeviceID audio_recording_device = 0;
 static Block *audio_recording_block = NULL;
-
-static void start_audio_recording(Block *block) {
-  if (!block || block->type != BLOCK_AUDIO)
-    return;
-  AudioData *ad = &block->data.audio;
-
-  // Don't start if already recording
-  if (ad->is_recording)
-    return;
-
-  // List available recording devices
-  int num_devices = SDL_GetNumAudioDevices(1); // 1 = recording devices
-  fprintf(stderr, "[audio] Found %d recording devices:\n", num_devices);
-  for (int i = 0; i < num_devices; i++) {
-    fprintf(stderr, "[audio]   %d: %s\n", i, SDL_GetAudioDeviceName(i, 1));
-  }
-
-  // Use queue-based recording (no callback)
-  SDL_AudioSpec want, have;
-  SDL_zero(want);
-  want.freq = 16000; // 16kHz for whisper
-  want.format = AUDIO_F32;
-  want.channels = 1;
-  want.samples = 1024;
-  want.callback = NULL; // Queue-based capture
-
-  // Open default recording device (NULL = default)
-  audio_recording_device =
-      SDL_OpenAudioDevice(NULL, 1, &want, &have, SDL_AUDIO_ALLOW_FORMAT_CHANGE);
-  if (audio_recording_device == 0) {
-    fprintf(stderr, "[audio] Failed to open audio device: %s\n",
-            SDL_GetError());
-    return;
-  }
-
-  fprintf(stderr, "[audio] Opened device %d: freq=%d, format=%d, channels=%d\n",
-          audio_recording_device, have.freq, have.format, have.channels);
-
-  // Clear old samples
-  free(ad->samples);
-  ad->samples = NULL;
-  ad->sample_count = 0;
-  ad->sample_capacity = 0;
-
-  audio_recording_block = block;
-  ad->is_recording = 1;
-  SDL_PauseAudioDevice(audio_recording_device, 0); // Start recording
-}
-
-// Call this every frame to collect recorded samples
-static void poll_audio_recording(void) {
-  if (!audio_recording_block || audio_recording_device == 0)
-    return;
-
-  AudioData *ad = &audio_recording_block->data.audio;
-  if (!ad->is_recording)
-    return;
-
-  // Check how much audio is queued
-  Uint32 queued = SDL_GetQueuedAudioSize(audio_recording_device);
-  if (queued == 0)
-    return;
-
-  int sample_count = queued / sizeof(float);
-
-  // Ensure capacity
-  if (ad->sample_count + sample_count > ad->sample_capacity) {
-    int new_cap = ad->sample_capacity == 0 ? 16000 : ad->sample_capacity * 2;
-    while (new_cap < ad->sample_count + sample_count)
-      new_cap *= 2;
-    ad->samples = (float *)realloc(ad->samples, new_cap * sizeof(float));
-    ad->sample_capacity = new_cap;
-  }
-
-  // Dequeue recorded audio
-  SDL_DequeueAudio(audio_recording_device, ad->samples + ad->sample_count,
-                   queued);
-  ad->sample_count += sample_count;
-}
-
-static void stop_audio_recording(Block *block) {
-  if (!block || block->type != BLOCK_AUDIO)
-    return;
-  AudioData *ad = &block->data.audio;
-
-  if (!ad->is_recording)
-    return;
-
-  SDL_PauseAudioDevice(audio_recording_device, 1);
-  SDL_CloseAudioDevice(audio_recording_device);
-  audio_recording_device = 0;
-  audio_recording_block = NULL;
-  ad->is_recording = 0;
-
-  // Save to temp file for whisper
-  if (ad->sample_count > 0) {
-    char tmp_path[256];
-    snprintf(tmp_path, sizeof(tmp_path), "/tmp/aslan_audio_%u.wav", block->id);
-
-    // Write simple WAV file
-    FILE *f = fopen(tmp_path, "wb");
-    if (f) {
-      // WAV header
-      int data_size = ad->sample_count * sizeof(int16_t);
-      int file_size = 36 + data_size;
-
-      fwrite("RIFF", 1, 4, f);
-      fwrite(&file_size, 4, 1, f);
-      fwrite("WAVE", 1, 4, f);
-      fwrite("fmt ", 1, 4, f);
-      int fmt_size = 16;
-      fwrite(&fmt_size, 4, 1, f);
-      short audio_format = 1; // PCM
-      fwrite(&audio_format, 2, 1, f);
-      short channels = 1;
-      fwrite(&channels, 2, 1, f);
-      int sample_rate = 16000;
-      fwrite(&sample_rate, 4, 1, f);
-      int byte_rate = sample_rate * channels * 2;
-      fwrite(&byte_rate, 4, 1, f);
-      short block_align = channels * 2;
-      fwrite(&block_align, 2, 1, f);
-      short bits_per_sample = 16;
-      fwrite(&bits_per_sample, 2, 1, f);
-      fwrite("data", 1, 4, f);
-      fwrite(&data_size, 4, 1, f);
-
-      // Convert float to int16
-      for (int i = 0; i < ad->sample_count; i++) {
-        float s = ad->samples[i];
-        if (s > 1.0f)
-          s = 1.0f;
-        if (s < -1.0f)
-          s = -1.0f;
-        int16_t val = (int16_t)(s * 32767.0f);
-        fwrite(&val, 2, 1, f);
-      }
-      fclose(f);
-      strncpy(ad->audio_path, tmp_path, sizeof(ad->audio_path) - 1);
-    }
-  }
-}
-
-void ui_render_block_audio(UIHost *ui, Engine *engine, struct nk_context *ctx,
-                           Block *block, float width) {
-  (void)engine;
-  (void)width;
-  if (!block || block->type != BLOCK_AUDIO)
-    return;
-
-  AudioData *ad = &block->data.audio;
-
-  // Poll for recorded audio samples (if recording)
-  if (ad->is_recording && audio_recording_block == block) {
-    poll_audio_recording();
-  }
-
-  // Poll for async transcription completion
-  if (ad->is_transcribing && ui->audio_state.active_block == block) {
-    TranscriptResult *result = whisper_get_async_result();
-    if (result) {
-      if (result->success) {
-        free(ad->transcript);
-        ad->transcript_capacity = result->segment_count;
-        ad->transcript = (TranscriptSeg *)calloc(ad->transcript_capacity,
-                                                 sizeof(TranscriptSeg));
-        ad->transcript_count = 0;
-        for (int i = 0; i < result->segment_count; i++) {
-          ad->transcript[i].start_ms = result->segments[i].start_ms;
-          ad->transcript[i].end_ms = result->segments[i].end_ms;
-          strncpy(ad->transcript[i].text, result->segments[i].text,
-                  sizeof(ad->transcript[i].text) - 1);
-          ad->transcript[i].is_deleted = 0;
-          ad->transcript_count++;
-        }
-      }
-      whisper_free_result(result);
-      ad->is_transcribing = 0;
-    }
-  }
-
-  // Track active audio block for keyboard handling
-  if (ad->selected_segment >= 0 || ad->is_recording) {
-    ui->audio_state.active_block = block;
-  }
-
-  // Calculate heights based on content
-  float transcript_h = 0.0f;
-  if (ad->transcript_count > 0) {
-    transcript_h = ad->transcript_count * 28.0f + 20.0f;
-    if (transcript_h > 250.0f)
-      transcript_h = 250.0f;
-  }
-
-  float total_height = 140.0f + transcript_h;
-  nk_layout_row_dynamic(ctx, total_height, 1);
-
-  struct nk_rect bounds = nk_widget_bounds(ctx);
-  struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-
-  // Background - light blue tint for audio
-  nk_fill_rect(canvas, bounds, 4.0f, nk_rgb(248, 250, 255));
-  nk_stroke_rect(canvas, bounds, 4.0f, 1.0f, nk_rgb(200, 210, 230));
-
-  float y_offset = bounds.y + 12.0f;
-
-  // --- Header with controls ---
-  {
-    // Title with microphone indicator
-    const char *title = ad->is_recording ? "Recording..." : "Voice Note";
-    struct nk_color title_color =
-        ad->is_recording ? nk_rgb(220, 50, 50) : nk_rgb(60, 60, 60);
-    nk_draw_text(canvas, nk_rect(bounds.x + 16, y_offset, 150, 24), title,
-                 strlen(title), ctx->style.font, nk_rgba(0, 0, 0, 0),
-                 title_color);
-
-    // Record/Stop button
-    float btn_x = bounds.x + bounds.w - 220.0f;
-    struct nk_rect rec_btn = nk_rect(btn_x, y_offset - 2, 80, 26);
-    int rec_hover =
-        (ui->mouse_x >= rec_btn.x && ui->mouse_x < rec_btn.x + rec_btn.w &&
-         ui->mouse_y >= rec_btn.y && ui->mouse_y < rec_btn.y + rec_btn.h);
-
-    if (ad->is_recording) {
-      // Stop button (red)
-      nk_fill_rect(canvas, rec_btn, 4.0f,
-                   rec_hover ? nk_rgb(200, 50, 50) : nk_rgb(220, 70, 70));
-      nk_draw_text(canvas, nk_rect(rec_btn.x + 18, rec_btn.y + 5, 50, 16),
-                   "Stop", 4, ctx->style.font, nk_rgba(0, 0, 0, 0),
-                   nk_rgb(255, 255, 255));
-    } else {
-      // Record button (blue)
-      nk_fill_rect(canvas, rec_btn, 4.0f,
-                   rec_hover ? nk_rgb(66, 133, 244) : nk_rgb(100, 140, 200));
-      nk_draw_text(canvas, nk_rect(rec_btn.x + 10, rec_btn.y + 5, 60, 16),
-                   "Record", 6, ctx->style.font, nk_rgba(0, 0, 0, 0),
-                   nk_rgb(255, 255, 255));
-    }
-
-    // Transcribe button (only if audio recorded and not transcribing)
-    if (ad->audio_path[0] != '\0' && !ad->is_recording &&
-        !ad->is_transcribing) {
-      struct nk_rect trans_btn = nk_rect(btn_x + 90, y_offset - 2, 100, 26);
-      int trans_hover = (ui->mouse_x >= trans_btn.x &&
-                         ui->mouse_x < trans_btn.x + trans_btn.w &&
-                         ui->mouse_y >= trans_btn.y &&
-                         ui->mouse_y < trans_btn.y + trans_btn.h);
-      nk_fill_rect(canvas, trans_btn, 4.0f,
-                   trans_hover ? nk_rgb(52, 168, 83) : nk_rgb(80, 160, 80));
-      const char *trans_label =
-          ad->transcript_count > 0 ? "Re-transcribe" : "Transcribe";
-      nk_draw_text(canvas, nk_rect(trans_btn.x + 8, trans_btn.y + 5, 90, 16),
-                   trans_label, strlen(trans_label), ctx->style.font,
-                   nk_rgba(0, 0, 0, 0), nk_rgb(255, 255, 255));
-    } else if (ad->is_transcribing) {
-      nk_draw_text(canvas, nk_rect(btn_x + 90, y_offset + 3, 100, 16),
-                   "Transcribing...", 15, ctx->style.font, nk_rgba(0, 0, 0, 0),
-                   nk_rgb(150, 150, 150));
-    }
-
-    y_offset += 36.0f;
-  }
-
-  // --- Audio info / waveform placeholder ---
-  {
-    struct nk_rect waveform =
-        nk_rect(bounds.x + 16, y_offset, bounds.w - 32, 50);
-    nk_fill_rect(canvas, waveform, 8.0f, nk_rgb(240, 243, 250));
-    nk_stroke_rect(canvas, waveform, 8.0f, 1.0f, nk_rgb(200, 210, 230));
-
-    if (ad->is_recording) {
-      // Animated recording indicator
-      nk_fill_circle(
-          canvas,
-          nk_rect(waveform.x + waveform.w / 2 - 8, waveform.y + 17, 16, 16),
-          nk_rgb(220, 50, 50));
-    } else if (ad->sample_count > 0) {
-      // Simple waveform visualization
-      float step = (float)ad->sample_count / (waveform.w - 20);
-      float center_y = waveform.y + waveform.h / 2;
-      for (float x = 0; x < waveform.w - 20; x += 2) {
-        int idx = (int)(x * step);
-        if (idx >= ad->sample_count)
-          break;
-        float amp = ad->samples[idx] * 20.0f;
-        nk_stroke_line(canvas, waveform.x + 10 + x, center_y - amp,
-                       waveform.x + 10 + x, center_y + amp, 1.0f,
-                       nk_rgb(100, 140, 200));
-      }
-    } else {
-      nk_draw_text(
-          canvas,
-          nk_rect(waveform.x + waveform.w / 2 - 60, waveform.y + 17, 120, 16),
-          "Click Record to start", 21, ctx->style.font, nk_rgba(0, 0, 0, 0),
-          nk_rgb(150, 150, 170));
-    }
-
-    // Duration display
-    if (ad->sample_count > 0) {
-      int duration_ms = (ad->sample_count * 1000) / 16000;
-      int mins = duration_ms / 60000;
-      int secs = (duration_ms / 1000) % 60;
-      char dur[32];
-      snprintf(dur, sizeof(dur), "%02d:%02d", mins, secs);
-      nk_draw_text(canvas,
-                   nk_rect(waveform.x + waveform.w - 50,
-                           waveform.y + waveform.h - 20, 40, 16),
-                   dur, strlen(dur), ctx->style.font, nk_rgba(0, 0, 0, 0),
-                   nk_rgb(100, 100, 120));
-    }
-
-    y_offset += 60.0f;
-  }
-
-  // --- Transcript (Descript-style) ---
-  if (ad->transcript_count > 0) {
-    nk_draw_text(canvas, nk_rect(bounds.x + 16, y_offset, 100, 18),
-                 "Transcript:", 11, ctx->style.font, nk_rgba(0, 0, 0, 0),
-                 nk_rgb(80, 80, 100));
-    y_offset += 24.0f;
-
-    struct nk_rect transcript_area =
-        nk_rect(bounds.x + 16, y_offset, bounds.w - 32, transcript_h - 44.0f);
-    nk_fill_rect(canvas, transcript_area, 4.0f, nk_rgb(255, 255, 255));
-    nk_stroke_rect(canvas, transcript_area, 4.0f, 1.0f, nk_rgb(220, 225, 235));
-
-    float seg_y = transcript_area.y + 8.0f;
-    for (int i = 0; i < ad->transcript_count &&
-                    seg_y < transcript_area.y + transcript_area.h - 20.0f;
-         i++) {
-      TranscriptSeg *seg = &ad->transcript[i];
-
-      // Timestamp
-      char ts[32];
-      int mins = seg->start_ms / 60000;
-      int secs = (seg->start_ms / 1000) % 60;
-      snprintf(ts, sizeof(ts), "%02d:%02d", mins, secs);
-      nk_draw_text(canvas, nk_rect(transcript_area.x + 8, seg_y, 40, 18), ts,
-                   strlen(ts), ctx->style.font, nk_rgba(0, 0, 0, 0),
-                   nk_rgb(140, 140, 160));
-
-      // Text (with strikethrough if deleted)
-      struct nk_rect text_rect =
-          nk_rect(transcript_area.x + 55, seg_y, transcript_area.w - 70, 20);
-
-      int is_selected = (ad->selected_segment == i);
-      int is_hovered = (ui->mouse_x >= text_rect.x &&
-                        ui->mouse_x < text_rect.x + text_rect.w &&
-                        ui->mouse_y >= text_rect.y &&
-                        ui->mouse_y < text_rect.y + text_rect.h);
-
-      if (is_selected) {
-        nk_fill_rect(canvas,
-                     nk_rect(text_rect.x - 4, text_rect.y - 2, text_rect.w + 8,
-                             text_rect.h + 4),
-                     2.0f, nk_rgba(100, 140, 200, 30));
-      } else if (is_hovered) {
-        nk_fill_rect(canvas,
-                     nk_rect(text_rect.x - 4, text_rect.y - 2, text_rect.w + 8,
-                             text_rect.h + 4),
-                     2.0f, nk_rgba(0, 0, 0, 10));
-      }
-
-      struct nk_color text_color =
-          seg->is_deleted ? nk_rgb(170, 170, 180) : nk_rgb(40, 40, 50);
-      nk_draw_text(canvas, text_rect, seg->text, strlen(seg->text),
-                   ctx->style.font, nk_rgba(0, 0, 0, 0), text_color);
-
-      // Strikethrough for deleted
-      if (seg->is_deleted) {
-        float tw = ctx->style.font->width(ctx->style.font->userdata,
-                                          ctx->style.font->height, seg->text,
-                                          strlen(seg->text));
-        if (tw > text_rect.w - 10)
-          tw = text_rect.w - 10;
-        nk_stroke_line(canvas, text_rect.x, text_rect.y + 9, text_rect.x + tw,
-                       text_rect.y + 9, 1.0f, nk_rgb(170, 170, 180));
-      }
-
-      seg_y += 26.0f;
-    }
-  }
-
-  // --- Click handling ---
-  int mouse_in_bounds =
-      (ui->mouse_x >= bounds.x && ui->mouse_x < bounds.x + bounds.w &&
-       ui->mouse_y >= bounds.y && ui->mouse_y < bounds.y + bounds.h);
-  static int audio_mouse_was_down = 0;
-  int mouse_down = (ui->mouse_buttons & 1);
-  int mouse_just_pressed =
-      mouse_down && !audio_mouse_was_down && mouse_in_bounds;
-  audio_mouse_was_down = mouse_down;
-
-  if (mouse_just_pressed) {
-    float btn_x = bounds.x + bounds.w - 220.0f;
-
-    // Check record/stop button
-    struct nk_rect rec_btn = nk_rect(btn_x, bounds.y + 10.0f, 80, 26);
-    if (ui->mouse_x >= rec_btn.x && ui->mouse_x < rec_btn.x + rec_btn.w &&
-        ui->mouse_y >= rec_btn.y && ui->mouse_y < rec_btn.y + rec_btn.h) {
-      if (ad->is_recording) {
-        stop_audio_recording(block);
-      } else {
-        start_audio_recording(block);
-      }
-    }
-
-    // Check transcribe button
-    if (ad->audio_path[0] != '\0' && !ad->is_recording &&
-        !ad->is_transcribing) {
-      struct nk_rect trans_btn = nk_rect(btn_x + 90, bounds.y + 10.0f, 100, 26);
-      if (ui->mouse_x >= trans_btn.x &&
-          ui->mouse_x < trans_btn.x + trans_btn.w &&
-          ui->mouse_y >= trans_btn.y &&
-          ui->mouse_y < trans_btn.y + trans_btn.h) {
-        // Start async transcription (non-blocking)
-        if (whisper_transcribe_async(ad->audio_path)) {
-          ad->is_transcribing = 1;
-          ui->audio_state.active_block = block;
-        }
-      }
-    }
-
-    // Check transcript segment clicks
-    if (ad->transcript_count > 0) {
-      float transcript_start_y = bounds.y + 120.0f;
-      float seg_y = transcript_start_y + 8.0f;
-      for (int i = 0; i < ad->transcript_count; i++) {
-        struct nk_rect text_rect =
-            nk_rect(bounds.x + 71, seg_y, bounds.w - 102, 20);
-        if (ui->mouse_x >= text_rect.x &&
-            ui->mouse_x < text_rect.x + text_rect.w &&
-            ui->mouse_y >= text_rect.y &&
-            ui->mouse_y < text_rect.y + text_rect.h) {
-          ad->selected_segment = i;
-          break;
-        }
-        seg_y += 26.0f;
-      }
-    }
-  }
-
-  nk_spacing(ctx, 1);
-}
 
 // -----------------------------------------------------------------------------
 // Lua Host (scripting_run_visual and scripting_load_plugins are in
@@ -4344,12 +3536,6 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
   case BLOCK_DESIGN:
     ui_render_block_design(ui, engine, ctx, block, width);
     break;
-  case BLOCK_VIDEO:
-    ui_render_block_video(ui, engine, ctx, block, width);
-    break;
-  case BLOCK_AUDIO:
-    ui_render_block_audio(ui, engine, ctx, block, width);
-    break;
   default:
     break;
   }
@@ -4550,6 +3736,11 @@ static void home_create_new_document(UIHost *ui, Engine *engine) {
     char cmd[128];
     snprintf(cmd, sizeof(cmd), "page_create %u \"%s\"", new_page->id, name);
     engine_execute_command(engine, cmd);
+
+    // Add to recents if matched to a file (for now just use general log)
+    recents_add(&ui->recents, "history.log");
+    recents_save(&ui->recents, "recents.log");
+
     if (h1) {
       snprintf(cmd, sizeof(cmd), "block_create %u %u h1", new_page->id, h1->id);
       engine_execute_command(engine, cmd);
@@ -4575,6 +3766,14 @@ void ui_render_home(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
     struct nk_rect bounds = nk_rect(0, 0, (float)win_w, content_h);
+
+    // =======================================================================
+    // CLICK DETECTION (Early for use in items)
+    // =======================================================================
+    static int home_mouse_was_down = 0;
+    int mouse_down = (ui->mouse_buttons & 1);
+    int mouse_just_pressed = mouse_down && !home_mouse_was_down;
+    home_mouse_was_down = mouse_down;
 
     // Theme colors
     struct nk_color bg_color =
@@ -4678,9 +3877,10 @@ void ui_render_home(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     // Recent documents list
     int recent_count = 0;
-    for (int p = 0; p < 32; p++) {
-      if (!engine->doc->pages[p].in_use)
-        continue;
+    for (int i = 0; i < ui->recents.count; i++) {
+      const char *path = ui->recents.paths[i];
+      const char *filename = strrchr(path, '/');
+      filename = filename ? filename + 1 : path;
 
       struct nk_rect item_rect =
           nk_rect(center_x, center_y, col_center_w - 60, 44);
@@ -4691,6 +3891,11 @@ void ui_render_home(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       if (item_hover) {
         nk_fill_rect(canvas, item_rect, 6.0f, hover_bg);
+        if (mouse_just_pressed) {
+          // TODO: Load this specific file
+          // For now, it stays in history.log and just switches to editor
+          ui->screen = 1;
+        }
       }
 
       // Document icon (simple rectangle)
@@ -4701,8 +3906,8 @@ void ui_render_home(UIHost *ui, Engine *engine, struct nk_context *ctx,
       nk_draw_text(
           canvas,
           nk_rect(item_rect.x + 48, item_rect.y + 13, item_rect.w - 60, 20),
-          engine->doc->pages[p].name, strlen(engine->doc->pages[p].name),
-          ctx->style.font, nk_rgba(0, 0, 0, 0), text_primary);
+          filename, strlen(filename), ctx->style.font, nk_rgba(0, 0, 0, 0),
+          text_primary);
 
       center_y += 48;
       recent_count++;
@@ -4767,14 +3972,6 @@ void ui_render_home(UIHost *ui, Engine *engine, struct nk_context *ctx,
     nk_draw_text(canvas, nk_rect(dark_btn.x + 16, dark_btn.y + 8, 50, 16),
                  "Dark", 4, ctx->style.font, nk_rgba(0, 0, 0, 0), dark_text);
 
-    // =======================================================================
-    // CLICK HANDLING
-    // =======================================================================
-    static int home_mouse_was_down = 0;
-    int mouse_down = (ui->mouse_buttons & 1);
-    int mouse_just_pressed = mouse_down && !home_mouse_was_down;
-    home_mouse_was_down = mouse_down;
-
     if (mouse_just_pressed) {
       // New Document button
       if (ui->mouse_x >= new_btn.x && ui->mouse_x < new_btn.x + new_btn.w &&
@@ -4786,27 +3983,6 @@ void ui_render_home(UIHost *ui, Engine *engine, struct nk_context *ctx,
       if (ui->mouse_x >= open_btn.x && ui->mouse_x < open_btn.x + open_btn.w &&
           ui->mouse_y >= open_btn.y && ui->mouse_y < open_btn.y + open_btn.h) {
         // TODO: Open file dialog
-      }
-
-      // Recent documents
-      float check_y = top_margin + 35;
-      for (int p = 0; p < 32; p++) {
-        if (!engine->doc->pages[p].in_use)
-          continue;
-
-        struct nk_rect item_rect =
-            nk_rect(center_x, check_y, col_center_w - 60, 44);
-        if (ui->mouse_x >= item_rect.x &&
-            ui->mouse_x < item_rect.x + item_rect.w &&
-            ui->mouse_y >= item_rect.y &&
-            ui->mouse_y < item_rect.y + item_rect.h) {
-          doc_page_activate(engine->doc, engine->doc->pages[p].id);
-          ui->screen = 1;
-          break;
-        }
-        check_y += 48;
-        if (check_y > top_margin + 35 + 48 * 10)
-          break;
       }
 
       // Light mode button

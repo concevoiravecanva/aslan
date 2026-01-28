@@ -19,11 +19,7 @@ CORE_SRC = src/document/document.c \
            src/platform/renderer.c \
            src/platform/ui_host.c \
            src/platform/recents.c \
-           src/core/engine.c \
-           src/media/ffmpeg_pipe.c \
-           src/media/export.c \
-           src/media/note_timeline.c \
-           src/media/whisper.c
+           src/core/engine.c
 
 OBJC_SRC = src/platform/mac_image.m
 

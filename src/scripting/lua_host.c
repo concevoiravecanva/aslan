@@ -334,9 +334,6 @@ static int l_create_block(lua_State *L) {
     case BLOCK_DESIGN:
       block_design_init(block, 800, 600);
       break;
-    case BLOCK_VIDEO:
-      block_video_init(block);
-      break;
     case BLOCK_LUA:
       block_lua_init(block);
       break;

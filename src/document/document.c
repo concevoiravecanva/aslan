@@ -65,10 +65,6 @@ const char *block_type_to_string(BlockType type) {
     return "canvas";
   case BLOCK_DESIGN:
     return "design";
-  case BLOCK_VIDEO:
-    return "video";
-  case BLOCK_AUDIO:
-    return "audio";
   default:
     return "unknown";
   }
@@ -95,10 +91,6 @@ BlockType block_type_from_string(const char *str) {
     return BLOCK_CANVAS;
   if (strcmp(str, "design") == 0)
     return BLOCK_DESIGN;
-  if (strcmp(str, "video") == 0)
-    return BLOCK_VIDEO;
-  if (strcmp(str, "audio") == 0)
-    return BLOCK_AUDIO;
   return BLOCK_TEXT;
 }
 
@@ -512,12 +504,6 @@ void block_destroy(Block *block) {
   case BLOCK_DESIGN:
     block_design_destroy(block);
     break;
-  case BLOCK_VIDEO:
-    block_video_destroy(block);
-    break;
-  case BLOCK_AUDIO:
-    block_audio_destroy(block);
-    break;
   case BLOCK_LUA:
     block_lua_destroy(block);
     break;
@@ -802,12 +788,6 @@ void block_convert_to(Block *block, BlockType new_type) {
     break;
   case BLOCK_DESIGN:
     block_design_destroy(block);
-    break;
-  case BLOCK_VIDEO:
-    block_video_destroy(block);
-    break;
-  case BLOCK_AUDIO:
-    block_audio_destroy(block);
     break;
   case BLOCK_LUA:
     block_lua_destroy(block);
@@ -1599,299 +1579,6 @@ void block_design_set_bg_color(Block *block, uint32_t color) {
 }
 
 // -----------------------------------------------------------------------------
-// Video Block API
-// -----------------------------------------------------------------------------
-
-void block_video_init(Block *block) {
-  if (!block || block->type != BLOCK_VIDEO)
-    return;
-
-  VideoData *vd = &block->data.video;
-  vd->clips = NULL;
-  vd->clip_count = 0;
-  vd->clip_cap = 0;
-  vd->active_index = -1;
-  vd->playhead = 0.0;
-  vd->is_playing = false;
-  vd->is_fullscreen = false;
-
-  // Transcript
-  vd->transcript = NULL;
-  vd->transcript_count = 0;
-  vd->transcript_capacity = 0;
-  vd->is_transcribing = 0;
-  vd->selected_segment = -1;
-  vd->language[0] = '\0';
-}
-
-void block_video_destroy(Block *block) {
-  if (!block)
-    return;
-
-  VideoData *vd = &block->data.video;
-  free(vd->clips);
-  vd->clips = NULL;
-  vd->clip_count = 0;
-  vd->clip_cap = 0;
-
-  // Free transcript
-  free(vd->transcript);
-  vd->transcript = NULL;
-  vd->transcript_count = 0;
-}
-
-int block_video_add_clip(Block *block, const char *path) {
-  if (!block || block->type != BLOCK_VIDEO)
-    return -1;
-
-  VideoData *vd = &block->data.video;
-
-  if (vd->clip_count >= vd->clip_cap) {
-    int new_cap = vd->clip_cap < 8 ? 8 : vd->clip_cap * 2;
-    VideoClip *new_clips =
-        (VideoClip *)realloc(vd->clips, new_cap * sizeof(VideoClip));
-    if (!new_clips)
-      return -1;
-    vd->clips = new_clips;
-    vd->clip_cap = new_cap;
-  }
-
-  int idx = vd->clip_count;
-  VideoClip *clip = &vd->clips[idx];
-  memset(clip, 0, sizeof(VideoClip));
-
-  if (path) {
-    safe_strcpy(clip->source_path, path, sizeof(clip->source_path));
-  }
-  clip->start_time = 0.0;
-  clip->end_time = 10.0;
-  clip->is_selected = false;
-
-  vd->clip_count++;
-  return idx;
-}
-
-bool block_video_delete_clip(Block *block, int index) {
-  if (!block || block->type != BLOCK_VIDEO)
-    return false;
-
-  VideoData *vd = &block->data.video;
-  if (index < 0 || index >= vd->clip_count)
-    return false;
-
-  for (int i = index; i < vd->clip_count - 1; i++) {
-    vd->clips[i] = vd->clips[i + 1];
-  }
-  vd->clip_count--;
-
-  if (vd->active_index >= vd->clip_count) {
-    vd->active_index = vd->clip_count - 1;
-  }
-
-  return true;
-}
-
-bool block_video_set_clip_range(Block *block, int index, double start,
-                                double end) {
-  if (!block || block->type != BLOCK_VIDEO)
-    return false;
-
-  VideoData *vd = &block->data.video;
-  if (index < 0 || index >= vd->clip_count)
-    return false;
-
-  if (start < 0.0)
-    start = 0.0;
-  if (end < start)
-    end = start;
-
-  vd->clips[index].start_time = start;
-  vd->clips[index].end_time = end;
-  return true;
-}
-
-bool block_video_set_clip_comment(Block *block, int index,
-                                  const char *comment) {
-  if (!block || block->type != BLOCK_VIDEO)
-    return false;
-
-  VideoData *vd = &block->data.video;
-  if (index < 0 || index >= vd->clip_count)
-    return false;
-
-  safe_strcpy(vd->clips[index].comment, comment,
-              sizeof(vd->clips[index].comment));
-  return true;
-}
-
-double block_video_total_duration(const Block *block) {
-  if (!block || block->type != BLOCK_VIDEO)
-    return 0.0;
-
-  const VideoData *vd = &block->data.video;
-  double total = 0.0;
-  for (int i = 0; i < vd->clip_count; i++) {
-    double dur = vd->clips[i].end_time - vd->clips[i].start_time;
-    if (dur > 0.0)
-      total += dur;
-  }
-  return total;
-}
-
-void block_video_set_playhead(Block *block, double time) {
-  if (!block || block->type != BLOCK_VIDEO)
-    return;
-  block->data.video.playhead = time;
-}
-
-void block_video_toggle_play(Block *block) {
-  if (!block || block->type != BLOCK_VIDEO)
-    return;
-  block->data.video.is_playing = !block->data.video.is_playing;
-}
-
-void block_video_toggle_fullscreen(Block *block) {
-  if (!block || block->type != BLOCK_VIDEO)
-    return;
-  block->data.video.is_fullscreen = !block->data.video.is_fullscreen;
-}
-
-void block_video_set_transcript(Block *block, TranscriptSeg *segs, int count) {
-  if (!block || block->type != BLOCK_VIDEO)
-    return;
-
-  VideoData *vd = &block->data.video;
-
-  // Free existing transcript
-  free(vd->transcript);
-
-  // Copy segments
-  vd->transcript_capacity = count > 0 ? count : 1;
-  vd->transcript =
-      (TranscriptSeg *)calloc(vd->transcript_capacity, sizeof(TranscriptSeg));
-  if (vd->transcript && segs) {
-    memcpy(vd->transcript, segs, count * sizeof(TranscriptSeg));
-    vd->transcript_count = count;
-  } else {
-    vd->transcript_count = 0;
-  }
-  vd->is_transcribing = 0;
-}
-
-void block_video_delete_segment(Block *block, int segment_idx) {
-  if (!block || block->type != BLOCK_VIDEO)
-    return;
-
-  VideoData *vd = &block->data.video;
-  if (segment_idx < 0 || segment_idx >= vd->transcript_count)
-    return;
-
-  vd->transcript[segment_idx].is_deleted = 1;
-}
-
-void block_video_restore_segment(Block *block, int segment_idx) {
-  if (!block || block->type != BLOCK_VIDEO)
-    return;
-
-  VideoData *vd = &block->data.video;
-  if (segment_idx < 0 || segment_idx >= vd->transcript_count)
-    return;
-
-  vd->transcript[segment_idx].is_deleted = 0;
-}
-
-// -----------------------------------------------------------------------------
-// Audio Block API
-// -----------------------------------------------------------------------------
-
-void block_audio_init(Block *block) {
-  if (!block || block->type != BLOCK_AUDIO)
-    return;
-
-  AudioData *ad = &block->data.audio;
-  ad->audio_path[0] = '\0';
-  ad->samples = NULL;
-  ad->sample_count = 0;
-  ad->sample_capacity = 0;
-  ad->is_recording = 0;
-  ad->is_playing = 0;
-  ad->transcript = NULL;
-  ad->transcript_count = 0;
-  ad->transcript_capacity = 0;
-  ad->is_transcribing = 0;
-  ad->selected_segment = -1;
-}
-
-void block_audio_destroy(Block *block) {
-  if (!block)
-    return;
-
-  AudioData *ad = &block->data.audio;
-  free(ad->samples);
-  ad->samples = NULL;
-  free(ad->transcript);
-  ad->transcript = NULL;
-}
-
-void block_audio_start_recording(Block *block) {
-  if (!block || block->type != BLOCK_AUDIO)
-    return;
-
-  AudioData *ad = &block->data.audio;
-  ad->is_recording = 1;
-
-  // Allocate initial sample buffer (16kHz, 30 seconds)
-  ad->sample_capacity = 16000 * 30;
-  ad->samples =
-      (float *)realloc(ad->samples, ad->sample_capacity * sizeof(float));
-  ad->sample_count = 0;
-}
-
-void block_audio_stop_recording(Block *block) {
-  if (!block || block->type != BLOCK_AUDIO)
-    return;
-
-  AudioData *ad = &block->data.audio;
-  ad->is_recording = 0;
-}
-
-void block_audio_set_transcript(Block *block, TranscriptSeg *segs, int count) {
-  if (!block || block->type != BLOCK_AUDIO)
-    return;
-
-  AudioData *ad = &block->data.audio;
-  free(ad->transcript);
-
-  ad->transcript_capacity = count > 0 ? count : 1;
-  ad->transcript =
-      (TranscriptSeg *)calloc(ad->transcript_capacity, sizeof(TranscriptSeg));
-  if (ad->transcript && segs) {
-    memcpy(ad->transcript, segs, count * sizeof(TranscriptSeg));
-    ad->transcript_count = count;
-  } else {
-    ad->transcript_count = 0;
-  }
-  ad->is_transcribing = 0;
-}
-
-void block_audio_delete_segment(Block *block, int segment_idx) {
-  if (!block || block->type != BLOCK_AUDIO)
-    return;
-
-  AudioData *ad = &block->data.audio;
-  if (segment_idx < 0 || segment_idx >= ad->transcript_count)
-    return;
-
-  ad->transcript[segment_idx].is_deleted = 1;
-}
-
-void block_audio_toggle_play(Block *block) {
-  if (!block || block->type != BLOCK_AUDIO)
-    return;
-  block->data.audio.is_playing = !block->data.audio.is_playing;
-}
-
-// -----------------------------------------------------------------------------
 // Lua Block API
 // -----------------------------------------------------------------------------
 
@@ -2132,24 +1819,6 @@ void doc_save_aof(const Document *doc, FILE *fp) {
         if (dd->root) {
           for (Node *n = dd->root->first_child; n; n = n->next_sibling) {
             save_node_recursive(fp, page->id, b->id, "block_design", n);
-          }
-        }
-        break;
-      }
-      case BLOCK_VIDEO: {
-        const VideoData *vd = &b->data.video;
-        for (int i = 0; i < vd->clip_count; i++) {
-          const VideoClip *clip = &vd->clips[i];
-          fprintf(fp, "block_video_clip_add %u %u ", page->id, b->id);
-          escape_string(fp, clip->source_path);
-          fprintf(fp, "\n");
-          fprintf(fp, "block_video_clip_range %u %u %d %.3f %.3f\n", page->id,
-                  b->id, i, clip->start_time, clip->end_time);
-          if (clip->comment[0]) {
-            fprintf(fp, "block_video_clip_comment %u %u %d ", page->id, b->id,
-                    i);
-            escape_string(fp, clip->comment);
-            fprintf(fp, "\n");
           }
         }
         break;
