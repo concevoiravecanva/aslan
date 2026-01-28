@@ -3668,7 +3668,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     nk_end(ctx);
   } else {
     const float top_h = 40.0f;
-    const float bottom_h = 36.0f;
+    const float bottom_h = 0.0f; // Bottom bar removed
     const float content_h = (float)win_h - top_h - bottom_h;
     const float padding = 40.0f;
     const float content_w = (float)win_w - padding * 2;
@@ -3696,10 +3696,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     nk_end(ctx);
   }
 
-  // Bottom bar
-  if (ui->screen != 0 && ui->expanded_block_id == 0) {
-    ui_render_bottom_bar(ui, engine, ctx, win_w, win_h);
-  }
+  // Bottom bar removed in single-page mode
 
   // Reset per-frame canvas input state (after all processing is done)
   ui->canvas_state.mouse_just_pressed = 0;

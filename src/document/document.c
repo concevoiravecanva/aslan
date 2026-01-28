@@ -152,6 +152,9 @@ Document *doc_create(void) {
   doc->doc_width = 800;
   doc->doc_height = 600;
 
+  // Always create at least one page
+  doc_page_create(doc, "Page 1");
+
   return doc;
 }
 
@@ -282,6 +285,14 @@ Page *doc_page_create(Document *doc, const char *name) {
   if (!doc)
     return NULL;
 
+  // Single Page Mode: Reuse the first slot if it's already in use
+  if (doc->pages[0].in_use) {
+    if (name && name[0]) {
+      safe_strcpy(doc->pages[0].name, name, sizeof(doc->pages[0].name));
+    }
+    return &doc->pages[0];
+  }
+
   int slot = page_find_free_slot(doc);
   if (slot < 0)
     return NULL;
@@ -301,10 +312,8 @@ Page *doc_page_create(Document *doc, const char *name) {
 
   doc->page_count++;
 
-  // Auto-activate if first page
-  if (doc->active_page_idx < 0) {
-    doc->active_page_idx = slot;
-  }
+  // Always active index 0 in single-page mode
+  doc->active_page_idx = 0;
 
   return page;
 }
@@ -356,9 +365,12 @@ Page *doc_page_get(Document *doc, uint32_t page_id) {
 }
 
 Page *doc_page_get_active(Document *doc) {
-  if (!doc || doc->active_page_idx < 0)
+  if (!doc)
     return NULL;
-  return &doc->pages[doc->active_page_idx];
+  // In single-page mode, index 0 is always the active page
+  if (doc->pages[0].in_use)
+    return &doc->pages[0];
+  return NULL;
 }
 
 Page *doc_page_get_by_index(Document *doc, int index) {
@@ -372,6 +384,10 @@ Page *doc_page_get_by_index(Document *doc, int index) {
 bool doc_page_delete(Document *doc, uint32_t page_id) {
   int idx = page_find_by_id(doc, page_id);
   if (idx < 0)
+    return false;
+
+  // Single Page Mode: Cannot delete the primary page
+  if (idx == 0)
     return false;
 
   Page *page = &doc->pages[idx];
@@ -412,9 +428,9 @@ bool doc_page_rename(Document *doc, uint32_t page_id, const char *name) {
 }
 
 void doc_page_activate(Document *doc, uint32_t page_id) {
-  int idx = page_find_by_id(doc, page_id);
-  if (idx >= 0) {
-    doc->active_page_idx = idx;
+  (void)page_id;
+  if (doc) {
+    doc->active_page_idx = 0;
   }
 }
 
