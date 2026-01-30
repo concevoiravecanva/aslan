@@ -415,6 +415,8 @@ void node_set_fill_color(Node *node, uint32_t rgba);
 void node_set_stroke(Node *node, uint32_t rgba, float width);
 void node_bring_to_front(Node *node);
 void node_send_to_back(Node *node);
+void node_move_up(Node *node);
+void node_move_down(Node *node);
 
 // =============================================================================
 // PERSISTENCE

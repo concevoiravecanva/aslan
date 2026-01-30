@@ -1912,6 +1912,154 @@ static void canvas_render_sub_menu(UIHost *ui, struct nk_context *ctx,
   }
 }
 
+// -----------------------------------------------------------------------------
+// Sidebar Helpers
+// -----------------------------------------------------------------------------
+
+static void ui_render_sidebar_properties(UIHost *ui, struct nk_context *ctx,
+                                         Block *block) {
+  if (!ui->selected_node) {
+    nk_layout_row_dynamic(ctx, 30, 1);
+    nk_label(ctx, "No element selected", NK_TEXT_LEFT);
+    return;
+  }
+
+  Node *node = ui->selected_node;
+
+  // Node Name
+  nk_layout_row_dynamic(ctx, 25, 1);
+  nk_label(ctx, "Name", NK_TEXT_LEFT);
+  nk_layout_row_dynamic(ctx, 30, 1);
+  nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD | NK_EDIT_SIG_ENTER,
+                                 node->name, sizeof(node->name) - 1,
+                                 nk_filter_default);
+
+  // Position and Size
+  nk_layout_row_dynamic(ctx, 25, 2);
+  nk_label(ctx, "X", NK_TEXT_LEFT);
+  nk_label(ctx, "Y", NK_TEXT_LEFT);
+  nk_layout_row_dynamic(ctx, 30, 2);
+  nk_property_float(ctx, "#", -10000.0f, &node->x, 10000.0f, 1.0f, 1.0f);
+  nk_property_float(ctx, "#", -10000.0f, &node->y, 10000.0f, 1.0f, 1.0f);
+
+  nk_layout_row_dynamic(ctx, 25, 2);
+  nk_label(ctx, "Width", NK_TEXT_LEFT);
+  nk_label(ctx, "Height", NK_TEXT_LEFT);
+  nk_layout_row_dynamic(ctx, 30, 2);
+  nk_property_float(ctx, "#", 1.0f, &node->width, 10000.0f, 1.0f, 1.0f);
+  nk_property_float(ctx, "#", 1.0f, &node->height, 10000.0f, 1.0f, 1.0f);
+
+  // Fill Color
+  nk_layout_row_dynamic(ctx, 25, 1);
+  nk_label(ctx, "Fill Color", NK_TEXT_LEFT);
+  nk_layout_row_dynamic(ctx, 30, 1);
+  struct nk_color combo_color =
+      nk_rgba((node->fill_color >> 24) & 0xFF, (node->fill_color >> 16) & 0xFF,
+              (node->fill_color >> 8) & 0xFF, node->fill_color & 0xFF);
+  if (nk_combo_begin_color(ctx, combo_color, nk_vec2(200, 400))) {
+    struct nk_colorf combo_colorf = nk_color_cf(combo_color);
+    nk_layout_row_dynamic(ctx, 180, 1);
+    combo_colorf = nk_color_picker(ctx, combo_colorf, NK_RGBA);
+    nk_layout_row_dynamic(ctx, 25, 1);
+    combo_colorf.r =
+        nk_propertyf(ctx, "#R:", 0, combo_colorf.r, 1, 0.01f, 0.005f);
+    combo_colorf.g =
+        nk_propertyf(ctx, "#G:", 0, combo_colorf.g, 1, 0.01f, 0.005f);
+    combo_colorf.b =
+        nk_propertyf(ctx, "#B:", 0, combo_colorf.b, 1, 0.01f, 0.005f);
+    combo_colorf.a =
+        nk_propertyf(ctx, "#A:", 0, combo_colorf.a, 1, 0.01f, 0.005f);
+    nk_combo_end(ctx);
+    combo_color =
+        nk_rgba((int)(combo_colorf.r * 255.0f), (int)(combo_colorf.g * 255.0f),
+                (int)(combo_colorf.b * 255.0f), (int)(combo_colorf.a * 255.0f));
+    node->fill_color = ((uint32_t)combo_color.r << 24) |
+                       ((uint32_t)combo_color.g << 16) |
+                       ((uint32_t)combo_color.b << 8) | (uint32_t)combo_color.a;
+  }
+
+  // Node-specific Text
+  if (node->type == NODE_TYPE_TEXT) {
+    nk_layout_row_dynamic(ctx, 25, 1);
+    nk_label(ctx, "Text", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 60, 1);
+    nk_edit_string_zero_terminated(ctx, NK_EDIT_BOX, node->text,
+                                   sizeof(node->text) - 1, nk_filter_default);
+  }
+}
+
+static void ui_render_sidebar_layers(UIHost *ui, struct nk_context *ctx,
+                                     Block *block) {
+  Node *root = NULL;
+  if (block->type == BLOCK_CANVAS)
+    root = block->data.canvas.root;
+  else if (block->type == BLOCK_DESIGN)
+    root = block->data.design.root;
+
+  if (!root)
+    return;
+
+  // List nodes in reverse order (drawn top to bottom in UI)
+  Node *nodes[1024];
+  int count = 0;
+  for (Node *node = root->first_child; node && count < 1024;
+       node = node->next_sibling) {
+    nodes[count++] = node;
+  }
+
+  for (int i = count - 1; i >= 0; i--) {
+    Node *node = nodes[i];
+
+    nk_layout_row_template_begin(ctx, 30);
+    nk_layout_row_template_push_static(ctx, 25);   // Eye (Visibility)
+    nk_layout_row_template_push_variable(ctx, 80); // Name
+    nk_layout_row_template_push_static(ctx, 25);   // Up
+    nk_layout_row_template_push_static(ctx, 25);   // Down
+    nk_layout_row_template_push_static(ctx, 25);   // Delete
+    nk_layout_row_template_end(ctx);
+
+    // Visibility toggle
+    if (ui_icon_button(ui, node->visible ? ICON_EYE : ICON_EYE_OFF)) {
+      node->visible = !node->visible;
+    }
+
+    // Selection / Name
+    int is_selected = (ui->selected_node == node);
+    struct nk_style_button bstyle = ctx->style.button;
+    if (is_selected) {
+      bstyle.normal = nk_style_item_color(COLOR_ACCENT);
+      bstyle.hover = nk_style_item_color(COLOR_ACCENT);
+      bstyle.active = nk_style_item_color(COLOR_ACCENT);
+    } else {
+      bstyle.normal = nk_style_item_color(nk_rgb(50, 52, 56));
+    }
+    bstyle.padding = nk_vec2(4, 4);
+
+    if (nk_button_label_styled(ctx, &bstyle,
+                               node->name[0] ? node->name : "Untitled")) {
+      ui->selected_node = node;
+    }
+
+    // Reordering
+    if (ui_icon_button(ui, ICON_COLLAPSE)) { // Up arrow
+      node_move_up(node);
+    }
+    if (ui_icon_button(ui, ICON_EXPAND)) { // Down arrow
+      node_move_down(node);
+    }
+
+    // Delete
+    if (ui_icon_button(ui, ICON_DELETE)) {
+      if (block->type == BLOCK_CANVAS)
+        block_canvas_delete_node(block, node->id);
+      else if (block->type == BLOCK_DESIGN)
+        block_design_delete_node(block, node->id);
+      if (ui->selected_node == node)
+        ui->selected_node = NULL;
+    }
+  }
+}
+
 static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
                                   struct nk_rect bounds, Block *block) {
   (void)block;
@@ -2695,19 +2843,9 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
       // Properties section
       nk_layout_row_dynamic(ctx, 30, 1);
       nk_label(ctx, "Properties", NK_TEXT_LEFT);
-
       nk_layout_row_dynamic(ctx, 2, 1);
       nk_spacing(ctx, 1);
-
-      nk_layout_row_dynamic(ctx, 100, 1);
-      struct nk_rect props_area = nk_widget_bounds(ctx);
-      struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
-      nk_fill_rect(canvas_buf, props_area, 4.0f, nk_rgb(245, 245, 245));
-      nk_draw_text(
-          canvas_buf,
-          nk_rect(props_area.x + 10, props_area.y + 40, props_area.w - 20, 20),
-          "(placeholder)", 13, ctx->style.font, nk_rgba(0, 0, 0, 0),
-          nk_rgb(150, 150, 150));
+      ui_render_sidebar_properties(ui, ctx, block);
 
       // Spacing between sections
       nk_layout_row_dynamic(ctx, 20, 1);
@@ -2716,18 +2854,9 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
       // Layers section
       nk_layout_row_dynamic(ctx, 30, 1);
       nk_label(ctx, "Layers", NK_TEXT_LEFT);
-
       nk_layout_row_dynamic(ctx, 2, 1);
       nk_spacing(ctx, 1);
-
-      nk_layout_row_dynamic(ctx, 200, 1);
-      struct nk_rect layers_area = nk_widget_bounds(ctx);
-      nk_fill_rect(canvas_buf, layers_area, 4.0f, nk_rgb(245, 245, 245));
-      nk_draw_text(canvas_buf,
-                   nk_rect(layers_area.x + 10, layers_area.y + 90,
-                           layers_area.w - 20, 20),
-                   "(placeholder)", 13, ctx->style.font, nk_rgba(0, 0, 0, 0),
-                   nk_rgb(150, 150, 150));
+      ui_render_sidebar_layers(ui, ctx, block);
 
       nk_group_end(ctx);
     }
@@ -3353,18 +3482,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       // Properties section
       nk_layout_row_dynamic(ctx, 30, 1);
       nk_label(ctx, "Properties", NK_TEXT_LEFT);
-
       nk_layout_row_dynamic(ctx, 2, 1);
       nk_spacing(ctx, 1);
-
-      nk_layout_row_dynamic(ctx, 100, 1);
-      struct nk_rect props_area = nk_widget_bounds(ctx);
-      nk_fill_rect(sidebar_buf, props_area, 4.0f, nk_rgb(245, 245, 245));
-      nk_draw_text(
-          sidebar_buf,
-          nk_rect(props_area.x + 10, props_area.y + 40, props_area.w - 20, 20),
-          "(placeholder)", 13, ctx->style.font, nk_rgba(0, 0, 0, 0),
-          nk_rgb(150, 150, 150));
+      ui_render_sidebar_properties(ui, ctx, block);
 
       // Spacing between sections
       nk_layout_row_dynamic(ctx, 20, 1);
@@ -3373,18 +3493,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       // Layers section
       nk_layout_row_dynamic(ctx, 30, 1);
       nk_label(ctx, "Layers", NK_TEXT_LEFT);
-
       nk_layout_row_dynamic(ctx, 2, 1);
       nk_spacing(ctx, 1);
-
-      nk_layout_row_dynamic(ctx, 200, 1);
-      struct nk_rect layers_area = nk_widget_bounds(ctx);
-      nk_fill_rect(sidebar_buf, layers_area, 4.0f, nk_rgb(245, 245, 245));
-      nk_draw_text(sidebar_buf,
-                   nk_rect(layers_area.x + 10, layers_area.y + 90,
-                           layers_area.w - 20, 20),
-                   "(placeholder)", 13, ctx->style.font, nk_rgba(0, 0, 0, 0),
-                   nk_rgb(150, 150, 150));
+      ui_render_sidebar_layers(ui, ctx, block);
 
       nk_group_end(ctx);
     }

@@ -1241,6 +1241,76 @@ void node_send_to_back(Node *node) {
   node->parent = parent;
 }
 
+void node_move_up(Node *node) {
+  if (!node || !node->parent)
+    return;
+
+  Node *parent = node->parent;
+  if (!node->next_sibling)
+    return; // Already at the end (top-most)
+
+  Node *next = node->next_sibling;
+  Node *after_next = next->next_sibling;
+
+  // Find node before 'node'
+  Node *prev = NULL;
+  if (parent->first_child != node) {
+    Node *cur = parent->first_child;
+    while (cur && cur->next_sibling != node) {
+      prev = cur;
+      cur = cur->next_sibling;
+    }
+  }
+
+  // Before: prev -> node -> next -> after_next
+  // After:  prev -> next -> node -> after_next
+
+  if (prev) {
+    prev->next_sibling = next;
+  } else {
+    parent->first_child = next;
+  }
+
+  next->next_sibling = node;
+  node->next_sibling = after_next;
+}
+
+void node_move_down(Node *node) {
+  if (!node || !node->parent)
+    return;
+
+  Node *parent = node->parent;
+  if (parent->first_child == node)
+    return; // Already at the beginning (bottom-most)
+
+  // Find node before 'node'
+  Node *prev = NULL;
+  Node *pre_prev = NULL;
+  Node *cur = parent->first_child;
+  while (cur && cur->next_sibling != node) {
+    pre_prev = prev;
+    prev = cur;
+    cur = cur->next_sibling;
+  }
+
+  if (!prev)
+    return;
+
+  // Before: pre_prev -> prev -> node -> next
+  // After:  pre_prev -> node -> prev -> next
+
+  Node *next = node->next_sibling;
+
+  if (pre_prev) {
+    pre_prev->next_sibling = node;
+  } else {
+    parent->first_child = node;
+  }
+
+  node->next_sibling = prev;
+  prev->next_sibling = next;
+}
+
 // -----------------------------------------------------------------------------
 // Canvas Block API
 // -----------------------------------------------------------------------------

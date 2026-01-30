@@ -325,6 +325,8 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_LUA "\xEF\x87\xB6"             // ri-terminal-box-line
 #define ICON_FULLSCREEN "\xEE\xB6\x9C"      // ri-fullscreen-line
 #define ICON_FULLSCREEN_EXIT "\xEE\xB6\x9A" // ri-fullscreen-exit-line
+#define ICON_EYE "\xEE\xB5\x9F"             // ri-eye-line
+#define ICON_EYE_OFF "\xEE\xB5\xA3"         // ri-eye-off-line
 
 // Canvas tools icons
 #define ICON_CURSOR "\xEE\xAA\x8A"    // ri-cursor-line (select tool)
