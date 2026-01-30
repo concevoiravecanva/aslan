@@ -1739,7 +1739,7 @@ static int canvas_point_in_toolbar(struct nk_rect bounds, float mx, float my,
                                    CanvasInteraction *cs) {
   const float btn_size = 36.0f;
   const float btn_spacing = 8.0f;
-  const float toolbar_w = 4 * btn_size + 3 * btn_spacing + 24.0f;
+  const float toolbar_w = 3 * btn_size + 2 * btn_spacing + 24.0f; // 3 buttons
   const float toolbar_h = 52.0f;
   const float margin = 20.0f;
 
@@ -1916,10 +1916,10 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
                                   struct nk_rect bounds, Block *block) {
   (void)block;
 
-  // 4 buttons: Select, Shapes, Text, Media
+  // 3 buttons: Shapes, Text, Media (Select removed - always in select mode)
   const float btn_size = 36.0f;
   const float btn_spacing = 8.0f;
-  const float toolbar_w = 4 * btn_size + 3 * btn_spacing + 24.0f;
+  const float toolbar_w = 3 * btn_size + 2 * btn_spacing + 24.0f;
   const float toolbar_h = 52.0f;
   const float margin = 20.0f;
 
@@ -1947,15 +1947,16 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
   float btn_x = toolbar_x + 12.0f;
   float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
 
-  const char *tool_icons[] = {ICON_CURSOR, ICON_SHAPE, ICON_TEXT_TOOL,
-                              "\xEE\xB9\xA4"};
-  int tool_count = 4;
+  // Skip ICON_CURSOR (Select) - start with Shapes
+  const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT_TOOL, "\xEE\xB9\xA4"};
+  int tool_count = 3;
 
   for (int i = 0; i < tool_count; i++) {
     struct nk_rect btn = nk_rect(btn_x + i * (btn_size + btn_spacing), btn_y,
                                  btn_size, btn_size);
 
-    int is_active = (cs->active_cat == (CanvasCategory)i);
+    // Map button index to category (skip CANVAS_CAT_SELECT)
+    int is_active = (cs->active_cat == (CanvasCategory)(i + 1));
     int hovered = (ui->mouse_x >= btn.x && ui->mouse_x < btn.x + btn.w &&
                    ui->mouse_y >= btn.y && ui->mouse_y < btn.y + btn.h);
 
@@ -1975,10 +1976,11 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     }
 
     if (hovered && cs->mouse_just_pressed) {
-      if (cs->active_cat == (CanvasCategory)i) {
+      CanvasCategory cat = (CanvasCategory)(i + 1); // Skip CANVAS_CAT_SELECT
+      if (cs->active_cat == cat) {
         cs->show_sub_menu = !cs->show_sub_menu;
       } else {
-        cs->active_cat = (CanvasCategory)i;
+        cs->active_cat = cat;
         cs->show_sub_menu = 1; // Open sub-menu for all buttons
       }
     }
@@ -1986,7 +1988,7 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     // Render sub-menu if active
     if (is_active && cs->show_sub_menu) {
       canvas_render_sub_menu(ui, ctx, canvas_buf, btn.x, btn.y,
-                             (CanvasCategory)i);
+                             (CanvasCategory)(i + 1)); // Skip CANVAS_CAT_SELECT
     }
   }
 }
