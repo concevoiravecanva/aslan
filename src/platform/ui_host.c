@@ -2031,8 +2031,11 @@ static void ui_render_sidebar_layers(UIHost *ui, struct nk_context *ctx,
       bstyle.hover = nk_style_item_color(COLOR_ACCENT);
       bstyle.active = nk_style_item_color(COLOR_ACCENT);
     } else {
-      bstyle.normal = nk_style_item_color(nk_rgb(50, 52, 56));
+      bstyle.normal = ctx->style.button.normal;
     }
+    bstyle.text_normal = COLOR_TEXT;
+    bstyle.text_hover = COLOR_TEXT;
+    bstyle.text_active = COLOR_TEXT;
     bstyle.padding = nk_vec2(4, 4);
 
     if (nk_button_label_styled(ctx, &bstyle,
@@ -2839,7 +2842,8 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   // Right sidebar (only in fullscreen mode)
   if (is_expanded) {
-    if (nk_group_begin(ctx, "canvas_sidebar", NK_WINDOW_BORDER)) {
+    if (nk_group_begin(ctx, "canvas_sidebar",
+                       NK_WINDOW_BORDER | NK_WINDOW_SCROLL_AUTO_HIDE)) {
       // Properties section
       nk_layout_row_dynamic(ctx, 30, 1);
       nk_label(ctx, "Properties", NK_TEXT_LEFT);
@@ -3466,17 +3470,14 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ds->pending_create = 0;
     }
 
-    // Reset per-frame mouse state
-    ds->mouse_just_pressed = 0;
-    ds->mouse_just_released = 0;
-
     // Close Design content group
     nk_group_end(ctx);
   }
 
   // Right sidebar (only in fullscreen mode)
   if (is_fullscreen) {
-    if (nk_group_begin(ctx, "design_sidebar", NK_WINDOW_BORDER)) {
+    if (nk_group_begin(ctx, "design_sidebar",
+                       NK_WINDOW_BORDER | NK_WINDOW_SCROLL_AUTO_HIDE)) {
       struct nk_command_buffer *sidebar_buf = nk_window_get_canvas(ctx);
 
       // Properties section
@@ -3914,9 +3915,11 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
   // Bottom bar removed in single-page mode
 
-  // Reset per-frame canvas input state (after all processing is done)
+  // Reset per-frame input state (after all processing is done)
   ui->canvas_state.mouse_just_pressed = 0;
   ui->canvas_state.mouse_just_released = 0;
+  ui->design_state.mouse_just_pressed = 0;
+  ui->design_state.mouse_just_released = 0;
 
   // Render Nuklear
   nk_sdl_render(NK_ANTI_ALIASING_ON);
