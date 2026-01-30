@@ -1948,7 +1948,7 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
   float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
 
   // Skip ICON_CURSOR (Select) - start with Shapes
-  const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT_TOOL, "\xEE\xB9\xA4"};
+  const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT, "\xEE\xB9\xA4"};
   int tool_count = 3;
 
   for (int i = 0; i < tool_count; i++) {
@@ -2320,8 +2320,8 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   if (is_expanded) {
     total_h = nk_window_get_height(ctx) - 80.0f;
-    preview_h = total_h * 0.8f;
-    editor_h = total_h * 0.2f;
+    preview_h = total_h; // Use 100% for canvas in fullscreen
+    editor_h = 0.0f;     // No editor in fullscreen
   }
 
   // Preview Area (Canvas)
@@ -2679,23 +2679,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
     nk_group_end(ctx);
   }
 
-  // Editor Area
-  if (is_expanded && editor_h > 0) {
-    nk_layout_row_dynamic(ctx, editor_h, 1);
-    if (nk_group_begin(ctx, "canvas_editor", NK_WINDOW_BORDER)) {
-      nk_label(ctx, "Canvas Explorer", NK_TEXT_LEFT);
-      if (ui->selected_node) {
-        nk_layout_row_dynamic(ctx, 25, 2);
-        nk_label(ctx, "Selected Item:", NK_TEXT_LEFT);
-        nk_property_float(ctx, "#X:", -10000, &ui->selected_node->x, 10000, 1,
-                          1);
-        nk_property_float(ctx, "#Y:", -10000, &ui->selected_node->y, 10000, 1,
-                          1);
-      }
-      nk_group_end(ctx);
-    }
-  }
-
+  // Update canvas view state
   cd->view_x = cs->cam_x;
   cd->view_y = cs->cam_y;
   cd->zoom = cs->zoom;
