@@ -1799,13 +1799,8 @@ static void canvas_render_sub_menu(UIHost *ui, struct nk_context *ctx,
   CanvasSubOption sub_opts[8];
 
   if (cat == CANVAS_CAT_SELECT) {
-    items[0] = "Select";
-    icons[0] = ICON_CURSOR;
-    sub_opts[0] = CANVAS_SUB_NONE; // Will set tool to SELECT
-    items[1] = "Pan";
-    icons[1] = ICON_HAND;
-    sub_opts[1] = CANVAS_SUB_NONE + 1; // Will toggle space_held
-    item_count = 2;
+    // Pan is now automatic when dragging background, so no menu needed
+    item_count = 0; // Hide the menu entirely
   } else if (cat == CANVAS_CAT_SHAPES) {
     items[0] = "Rectangle";
     icons[0] = ICON_SHAPE;
@@ -1866,17 +1861,7 @@ static void canvas_render_sub_menu(UIHost *ui, struct nk_context *ctx,
       nk_fill_rect(canvas_buf, item_r, 6.0f, nk_rgba(0, 0, 0, 15));
       if (cs->mouse_just_pressed) {
         // Handle sub-option selection
-        if (cat == CANVAS_CAT_SELECT) {
-          if (i == 0) {
-            cs->tool = CANVAS_TOOL_SELECT;
-            cs->space_held = 0;    // Disable pan mode
-            cs->pan_from_menu = 0; // Clear menu pan
-            cs->is_panning = 0;    // Stop any active panning
-          } else if (i == 1) {
-            cs->pan_from_menu = 1; // Enable pan mode from menu
-            cs->space_held = 1;    // Enable pan mode (hand tool)
-          }
-        } else if (cat == CANVAS_CAT_SHAPES) {
+        if (cat == CANVAS_CAT_SHAPES) {
           // Set pending_create to 10-13 for shapes
           cs->space_held = 0;    // Disable pan mode
           cs->pan_from_menu = 0; // Clear menu pan
@@ -2503,6 +2488,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           cs->drag_offset_y = wy - hit->y;
         }
       } else {
+        // Clicked on background - start panning automatically
         ui->selected_node = NULL;
         if (ui->editing_node) {
           strncpy(ui->editing_node->text, ui->edit_buffer,
@@ -2510,6 +2496,12 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           ui->editing_node = NULL;
           SDL_StopTextInput();
         }
+        // Start pan mode automatically
+        cs->is_panning = 1;
+        cs->pan_start_x = ui->mouse_x;
+        cs->pan_start_y = ui->mouse_y;
+        cs->cam_start_x = cs->cam_x;
+        cs->cam_start_y = cs->cam_y;
       }
     }
   }
