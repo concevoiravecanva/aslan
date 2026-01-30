@@ -459,36 +459,39 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     }
   }
 
-  CanvasInteraction *cs = &ui->canvas_state;
-  // Initialize zoom if not set
-  if (cs->zoom < 0.01f)
-    cs->zoom = 1.0f;
-  if (cs->mouse_in_canvas) {
-    float old_zoom = cs->zoom;
-    float zoom_factor = 1.15f;
+  // Handle canvas zoom with mouse wheel
+  if (evt->type == SDL_MOUSEWHEEL) {
+    CanvasInteraction *cs = &ui->canvas_state;
+    // Initialize zoom if not set
+    if (cs->zoom < 0.01f)
+      cs->zoom = 1.0f;
+    if (cs->mouse_in_canvas) {
+      float old_zoom = cs->zoom;
+      float zoom_factor = 1.15f;
 
-    if (evt->wheel.y > 0) {
-      cs->zoom *= zoom_factor;
-    } else if (evt->wheel.y < 0) {
-      cs->zoom /= zoom_factor;
+      if (evt->wheel.y > 0) {
+        cs->zoom *= zoom_factor;
+      } else if (evt->wheel.y < 0) {
+        cs->zoom /= zoom_factor;
+      }
+
+      // Clamp zoom
+      if (cs->zoom < 0.1f)
+        cs->zoom = 0.1f;
+      if (cs->zoom > 5.0f)
+        cs->zoom = 5.0f;
+
+      // Zoom toward mouse cursor
+      float mouse_rel_x = ui->mouse_x - cs->bounds_x;
+      float mouse_rel_y = ui->mouse_y - cs->bounds_y;
+
+      // World position under mouse before zoom
+      float world_x = cs->cam_x + mouse_rel_x / old_zoom;
+      float world_y = cs->cam_y + mouse_rel_y / old_zoom;
+
+      // Adjust camera so same world point stays under mouse
+      cs->cam_x = world_x - mouse_rel_x / cs->zoom;
     }
-
-    // Clamp zoom
-    if (cs->zoom < 0.1f)
-      cs->zoom = 0.1f;
-    if (cs->zoom > 5.0f)
-      cs->zoom = 5.0f;
-
-    // Zoom toward mouse cursor
-    float mouse_rel_x = ui->mouse_x - cs->bounds_x;
-    float mouse_rel_y = ui->mouse_y - cs->bounds_y;
-
-    // World position under mouse before zoom
-    float world_x = cs->cam_x + mouse_rel_x / old_zoom;
-    float world_y = cs->cam_y + mouse_rel_y / old_zoom;
-
-    // Adjust camera so same world point stays under mouse
-    cs->cam_x = world_x - mouse_rel_x / cs->zoom;
   }
 }
 
