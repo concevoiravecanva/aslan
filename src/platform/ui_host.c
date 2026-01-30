@@ -2201,11 +2201,15 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
 
     if (hovered && cs->mouse_just_pressed) {
       CanvasCategory cat = (CanvasCategory)(i + 1); // Skip CANVAS_CAT_SELECT
-      if (cs->active_cat == cat) {
+      if (cat == CANVAS_CAT_SHAPES) {
+        // DEFAULT: Just create a rectangle
+        cs->pending_create = 10;
+        cs->show_sub_menu = 0;
+      } else if (cs->active_cat == cat) {
         cs->show_sub_menu = !cs->show_sub_menu;
       } else {
         cs->active_cat = cat;
-        cs->show_sub_menu = 1; // Open sub-menu for all buttons
+        cs->show_sub_menu = 1; // Open sub-menu for others
       }
     }
 
@@ -2854,14 +2858,19 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           (node->stroke_color >> 24) & 0xFF, (node->stroke_color >> 16) & 0xFF,
           (node->stroke_color >> 8) & 0xFF, node->stroke_color & 0xFF);
 
-      if (node->type == NODE_TYPE_ELLIPSE)
+      if (node->type == NODE_TYPE_ELLIPSE) {
         nk_fill_circle(canvas_buf, nr, fill);
-      else if (node->type == NODE_TYPE_TRIANGLE) {
+        if (node->stroke_width > 0)
+          nk_stroke_circle(canvas_buf, nr, node->stroke_width * zoom, stroke);
+      } else if (node->type == NODE_TYPE_TRIANGLE) {
         struct nk_vec2 pts[3];
         pts[0] = nk_vec2(nr.x + nr.w / 2, nr.y);
         pts[1] = nk_vec2(nr.x, nr.y + nr.h);
         pts[2] = nk_vec2(nr.x + nr.w, nr.y + nr.h);
         nk_fill_polygon(canvas_buf, (const float *)pts, 3, fill);
+        if (node->stroke_width > 0)
+          nk_stroke_polygon(canvas_buf, (const float *)pts, 3,
+                            node->stroke_width * zoom, stroke);
       } else if (node->type == NODE_TYPE_PENTAGON) {
         struct nk_vec2 pts[5];
         for (int i = 0; i < 5; i++) {
@@ -2870,6 +2879,9 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           pts[i].y = nr.y + nr.h / 2 + sinf(angle) * nr.h / 2;
         }
         nk_fill_polygon(canvas_buf, (const float *)pts, 5, fill);
+        if (node->stroke_width > 0)
+          nk_stroke_polygon(canvas_buf, (const float *)pts, 5,
+                            node->stroke_width * zoom, stroke);
       } else if (node->type == NODE_TYPE_HEXAGON) {
         struct nk_vec2 pts[6];
         for (int i = 0; i < 6; i++) {
@@ -2878,6 +2890,9 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           pts[i].y = nr.y + nr.h / 2 + sinf(angle) * nr.h / 2;
         }
         nk_fill_polygon(canvas_buf, (const float *)pts, 6, fill);
+        if (node->stroke_width > 0)
+          nk_stroke_polygon(canvas_buf, (const float *)pts, 6,
+                            node->stroke_width * zoom, stroke);
       } else if (node->type == NODE_TYPE_OCTAGON) {
         struct nk_vec2 pts[8];
         for (int i = 0; i < 8; i++) {
@@ -2886,6 +2901,9 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           pts[i].y = nr.y + nr.h / 2 + sinf(angle) * nr.h / 2;
         }
         nk_fill_polygon(canvas_buf, (const float *)pts, 8, fill);
+        if (node->stroke_width > 0)
+          nk_stroke_polygon(canvas_buf, (const float *)pts, 8,
+                            node->stroke_width * zoom, stroke);
       } else if (node->type == NODE_TYPE_STAR) {
         struct nk_vec2 pts[10];
         for (int i = 0; i < 10; i++) {
@@ -2895,18 +2913,27 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           pts[i].y = nr.y + nr.h / 2 + sinf(angle) * r;
         }
         nk_fill_polygon(canvas_buf, (const float *)pts, 10, fill);
+        if (node->stroke_width > 0)
+          nk_stroke_polygon(canvas_buf, (const float *)pts, 10,
+                            node->stroke_width * zoom, stroke);
       } else if (node->type == NODE_TYPE_HEART) {
-        // Simple heart placeholder using two circles and a triangle
-        nk_fill_circle(canvas_buf, nk_rect(nr.x, nr.y, nr.w / 2, nr.h / 2),
-                       fill);
-        nk_fill_circle(canvas_buf,
-                       nk_rect(nr.x + nr.w / 2, nr.y, nr.w / 2, nr.h / 2),
-                       fill);
-        struct nk_vec2 pts[3];
-        pts[0] = nk_vec2(nr.x, nr.y + nr.h / 4);
-        pts[1] = nk_vec2(nr.x + nr.w, nr.y + nr.h / 4);
-        pts[2] = nk_vec2(nr.x + nr.w / 2, nr.y + nr.h);
-        nk_fill_polygon(canvas_buf, (const float *)pts, 3, fill);
+        // Parametric heart: (16sin^3(t), 13cos(t) - 5cos(2t) - 2cos(3t) -
+        // cos(4t))
+        const int heart_pts_count = 48;
+        struct nk_vec2 hpts[48];
+        for (int i = 0; i < heart_pts_count; i++) {
+          float t = (float)i * 2.0f * 3.14159f / (float)heart_pts_count;
+          float hx = 16.0f * powf(sinf(t), 3.0f);
+          float hy = -(13.0f * cosf(t) - 5.0f * cosf(2.0f * t) -
+                       2.0f * cosf(3.0f * t) - cosf(4.0f * t));
+          // Normalize to (-16, 16) and (-13, 17) approx, then scale to nr
+          hpts[i].x = nr.x + nr.w / 2.0f + (hx / 32.0f) * nr.w;
+          hpts[i].y = nr.y + nr.h * 0.45f + (hy / 32.0f) * nr.h;
+        }
+        nk_fill_polygon(canvas_buf, (const float *)hpts, heart_pts_count, fill);
+        if (node->stroke_width > 0)
+          nk_stroke_polygon(canvas_buf, (const float *)hpts, heart_pts_count,
+                            node->stroke_width * zoom, stroke);
       } else if (node->type == NODE_TYPE_IMAGE) {
         SDL_Texture *tex = get_image_texture(ui, node->image_path);
         if (tex) {
@@ -3250,32 +3277,21 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
             nk_stroke_polygon(canvas_buf, (const float *)pts, 10,
                               node->stroke_width, stroke);
         } else if (node->type == NODE_TYPE_HEART) {
-          if (has_fill) {
-            nk_fill_circle(canvas_buf, nk_rect(nr.x, nr.y, nr.w / 2, nr.h / 2),
-                           fill);
-            nk_fill_circle(canvas_buf,
-                           nk_rect(nr.x + nr.w / 2, nr.y, nr.w / 2, nr.h / 2),
-                           fill);
-            struct nk_vec2 pts[3];
-            pts[0] = nk_vec2(nr.x, nr.y + nr.h / 4);
-            pts[1] = nk_vec2(nr.x + nr.w, nr.y + nr.h / 4);
-            pts[2] = nk_vec2(nr.x + nr.w / 2, nr.y + nr.h);
-            nk_fill_polygon(canvas_buf, (const float *)pts, 3, fill);
+          const int hcount = 48;
+          struct nk_vec2 hpts[48];
+          for (int i = 0; i < hcount; i++) {
+            float t = (float)i * 2.0f * 3.14159f / (float)hcount;
+            float hx = 16.0f * powf(sinf(t), 3.0f);
+            float hy = -(13.0f * cosf(t) - 5.0f * cosf(2.0f * t) -
+                         2.0f * cosf(3.0f * t) - cosf(4.0f * t));
+            hpts[i].x = nr.x + nr.w / 2.0f + (hx / 32.0f) * nr.w;
+            hpts[i].y = nr.y + nr.h * 0.45f + (hy / 32.0f) * nr.h;
           }
-          if (node->stroke_width > 0) {
-            nk_stroke_circle(canvas_buf,
-                             nk_rect(nr.x, nr.y, nr.w / 2, nr.h / 2),
-                             node->stroke_width, stroke);
-            nk_stroke_circle(canvas_buf,
-                             nk_rect(nr.x + nr.w / 2, nr.y, nr.w / 2, nr.h / 2),
-                             node->stroke_width, stroke);
-            struct nk_vec2 pts[3];
-            pts[0] = nk_vec2(nr.x, nr.y + nr.h / 4);
-            pts[1] = nk_vec2(nr.x + nr.w, nr.y + nr.h / 4);
-            pts[2] = nk_vec2(nr.x + nr.w / 2, nr.y + nr.h);
-            nk_stroke_polygon(canvas_buf, (const float *)pts, 3,
+          if (has_fill)
+            nk_fill_polygon(canvas_buf, (const float *)hpts, hcount, fill);
+          if (node->stroke_width > 0)
+            nk_stroke_polygon(canvas_buf, (const float *)hpts, hcount,
                               node->stroke_width, stroke);
-          }
         } else if (node->type == NODE_TYPE_LINE) {
           // Text node
 
