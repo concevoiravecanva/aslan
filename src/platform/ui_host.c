@@ -2324,8 +2324,18 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
     editor_h = 0.0f;     // No editor in fullscreen
   }
 
-  // Preview Area (Canvas)
-  nk_layout_row_dynamic(ctx, preview_h, 1);
+  // Preview Area (Canvas) - 2 columns in fullscreen, 1 column otherwise
+  if (is_expanded) {
+    // Fullscreen: Canvas + Sidebar layout
+    nk_layout_row_template_begin(ctx, preview_h);
+    nk_layout_row_template_push_variable(ctx, 75);   // Canvas (flexible)
+    nk_layout_row_template_push_static(ctx, 250.0f); // Sidebar (fixed 250px)
+    nk_layout_row_template_end(ctx);
+  } else {
+    // Normal mode: Single column
+    nk_layout_row_dynamic(ctx, preview_h, 1);
+  }
+
   struct nk_rect bounds = nk_widget_bounds(ctx);
 
   // --- 1. Interaction Logic (Calculations) ---
@@ -2679,6 +2689,50 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
     nk_group_end(ctx);
   }
 
+  // Right sidebar (only in fullscreen mode)
+  if (is_expanded) {
+    if (nk_group_begin(ctx, "canvas_sidebar", NK_WINDOW_BORDER)) {
+      // Properties section
+      nk_layout_row_dynamic(ctx, 30, 1);
+      nk_label(ctx, "Properties", NK_TEXT_LEFT);
+
+      nk_layout_row_dynamic(ctx, 2, 1);
+      nk_spacing(ctx, 1);
+
+      nk_layout_row_dynamic(ctx, 100, 1);
+      struct nk_rect props_area = nk_widget_bounds(ctx);
+      struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
+      nk_fill_rect(canvas_buf, props_area, 4.0f, nk_rgb(245, 245, 245));
+      nk_draw_text(
+          canvas_buf,
+          nk_rect(props_area.x + 10, props_area.y + 40, props_area.w - 20, 20),
+          "(placeholder)", 13, ctx->style.font, nk_rgba(0, 0, 0, 0),
+          nk_rgb(150, 150, 150));
+
+      // Spacing between sections
+      nk_layout_row_dynamic(ctx, 20, 1);
+      nk_spacing(ctx, 1);
+
+      // Layers section
+      nk_layout_row_dynamic(ctx, 30, 1);
+      nk_label(ctx, "Layers", NK_TEXT_LEFT);
+
+      nk_layout_row_dynamic(ctx, 2, 1);
+      nk_spacing(ctx, 1);
+
+      nk_layout_row_dynamic(ctx, 200, 1);
+      struct nk_rect layers_area = nk_widget_bounds(ctx);
+      nk_fill_rect(canvas_buf, layers_area, 4.0f, nk_rgb(245, 245, 245));
+      nk_draw_text(canvas_buf,
+                   nk_rect(layers_area.x + 10, layers_area.y + 90,
+                           layers_area.w - 20, 20),
+                   "(placeholder)", 13, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                   nk_rgb(150, 150, 150));
+
+      nk_group_end(ctx);
+    }
+  }
+
   // Update canvas view state
   cd->view_x = cs->cam_x;
   cd->view_y = cs->cam_y;
@@ -2755,516 +2809,586 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       scale = 1.0f;
   }
 
-  // Include toolbar in layout height
-  nk_layout_row_dynamic(ctx, display_h + toolbar_h + 20.0f, 1);
-
-  struct nk_rect bounds = nk_widget_bounds(ctx);
-  struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
-
-  // Adjust bounds for actual design area (above toolbar)
-  bounds.h = display_h;
-
-  // Design state shorthand
-  struct DesignInteraction *ds = &ui->design_state;
-
-  // Track if this design is active
-  int is_active_design = (ds->active_design_id == block->id);
-  if (!is_active_design && ui->mouse_x >= bounds.x &&
-      ui->mouse_x < bounds.x + bounds.w && ui->mouse_y >= bounds.y &&
-      ui->mouse_y < bounds.y + bounds.h + toolbar_h) {
-    // Mouse entered this design
-    ds->active_design_id = block->id;
-    ds->active_block = block;
-    is_active_design = 1;
+  // Include toolbar in layout height - 2 columns in fullscreen, 1 column
+  // otherwise
+  int is_fullscreen = (ui->expanded_block_id == block->id);
+  if (is_fullscreen) {
+    // Fullscreen: Design + Sidebar layout
+    nk_layout_row_template_begin(ctx, display_h + toolbar_h + 20.0f);
+    nk_layout_row_template_push_variable(ctx, 75);   // Design (flexible)
+    nk_layout_row_template_push_static(ctx, 250.0f); // Sidebar (fixed 250px)
+    nk_layout_row_template_end(ctx);
+  } else {
+    // Normal mode: Single column
+    nk_layout_row_dynamic(ctx, display_h + toolbar_h + 20.0f, 1);
   }
 
-  // Background
-  struct nk_color bg = {(dd->bg_color >> 24) & 0xFF,
-                        (dd->bg_color >> 16) & 0xFF, (dd->bg_color >> 8) & 0xFF,
-                        dd->bg_color & 0xFF};
-  nk_fill_rect(canvas_buf, bounds, 4.0f, bg);
-  nk_stroke_rect(canvas_buf, bounds, 4.0f, 1.0f, nk_rgb(200, 200, 200));
+  // Get bounds BEFORE opening the group (like Canvas does)
+  struct nk_rect bounds = nk_widget_bounds(ctx);
 
-  // --- Handle pending element creation ---
-  if (is_active_design && ds->pending_create > 0) {
-    float nx = (float)dd->width / 2.0f - 50.0f;
-    float ny = (float)dd->height / 2.0f - 40.0f;
-    Node *new_node = NULL;
-    float def_w = 100.0f, def_h = 80.0f;
+  // Wrap all Design content in a group (like Canvas)
+  if (nk_group_begin(ctx, "design_content", NK_WINDOW_NO_SCROLLBAR)) {
+    struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
 
-    if (ds->pending_create == 1) { // Body
-      new_node =
-          design_create_styled_node(dd, NODE_STYLE_TEXT, nx, ny, 200.0f, 40.0f);
-      if (new_node)
-        strncpy(new_node->text, "Body text", sizeof(new_node->text) - 1);
-    } else if (ds->pending_create == 6) { // H1
-      new_node =
-          design_create_styled_node(dd, NODE_STYLE_TEXT, nx, ny, 300.0f, 60.0f);
-      if (new_node)
-        strncpy(new_node->text, "Heading", sizeof(new_node->text) - 1);
-    } else if (ds->pending_create == 2) { // Sticky
-      new_node = design_create_styled_node(dd, NODE_STYLE_RECT, nx, ny, 120.0f,
-                                           120.0f);
-      if (new_node) {
-        new_node->fill_color = 0xFFF9C4FF;
-        new_node->stroke_color = 0xFBC02DFF;
-        new_node->type = NODE_TYPE_TEXT;
-        strncpy(new_node->text, "Note...", sizeof(new_node->text) - 1);
-      }
-    } else if (ds->pending_create >= 10 && ds->pending_create <= 13) {
-      NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
-                                NODE_STYLE_TRIANGLE, NODE_STYLE_LINE};
-      new_node = design_create_styled_node(dd, styles[ds->pending_create - 10],
-                                           nx, ny, def_w, def_h);
+    // Adjust bounds for actual design area (above toolbar)
+    bounds.h = display_h;
+
+    // Design state shorthand
+    struct DesignInteraction *ds = &ui->design_state;
+
+    // Track if this design is active
+    int is_active_design = (ds->active_design_id == block->id);
+    if (!is_active_design && ui->mouse_x >= bounds.x &&
+        ui->mouse_x < bounds.x + bounds.w && ui->mouse_y >= bounds.y &&
+        ui->mouse_y < bounds.y + bounds.h + toolbar_h) {
+      // Mouse entered this design
+      ds->active_design_id = block->id;
+      ds->active_block = block;
+      is_active_design = 1;
     }
 
-    if (new_node)
-      ui->selected_node = new_node;
-    ds->pending_create = 0;
-  }
+    // Background
+    struct nk_color bg = {(dd->bg_color >> 24) & 0xFF,
+                          (dd->bg_color >> 16) & 0xFF,
+                          (dd->bg_color >> 8) & 0xFF, dd->bg_color & 0xFF};
+    nk_fill_rect(canvas_buf, bounds, 4.0f, bg);
+    nk_stroke_rect(canvas_buf, bounds, 4.0f, 1.0f, nk_rgb(200, 200, 200));
 
-  // --- Render nodes ---
-  if (dd->root) {
-    for (Node *node = dd->root->first_child; node; node = node->next_sibling) {
-      if (!node->visible)
-        continue;
+    // --- Handle pending element creation ---
+    if (is_active_design && ds->pending_create > 0) {
+      float nx = (float)dd->width / 2.0f - 50.0f;
+      float ny = (float)dd->height / 2.0f - 40.0f;
+      Node *new_node = NULL;
+      float def_w = 100.0f, def_h = 80.0f;
 
-      float sx = bounds.x + node->x * scale;
-      float sy = bounds.y + node->y * scale;
-      float sw = node->width * scale;
-      float sh = node->height * scale;
-      struct nk_rect nr = nk_rect(sx, sy, sw, sh);
-
-      struct nk_color fill = {
-          (node->fill_color >> 24) & 0xFF, (node->fill_color >> 16) & 0xFF,
-          (node->fill_color >> 8) & 0xFF, node->fill_color & 0xFF};
-      struct nk_color stroke = {
-          (node->stroke_color >> 24) & 0xFF, (node->stroke_color >> 16) & 0xFF,
-          (node->stroke_color >> 8) & 0xFF, node->stroke_color & 0xFF};
-
-      int has_fill = (node->fill_color & 0xFF) > 10;
-
-      if (node->type == NODE_TYPE_RECT) {
-        if (has_fill)
-          nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, fill);
-        if (node->stroke_width > 0)
-          nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale,
-                         node->stroke_width, stroke);
-      } else if (node->type == NODE_TYPE_ELLIPSE) {
-        float cx = sx + sw / 2;
-        float cy = sy + sh / 2;
-        if (has_fill)
-          nk_fill_circle(canvas_buf, nk_rect(sx, sy, sw, sh), fill);
-        if (node->stroke_width > 0)
-          nk_stroke_circle(canvas_buf, nk_rect(sx, sy, sw, sh),
-                           node->stroke_width, stroke);
-        (void)cx;
-        (void)cy;
-      } else if (node->type == NODE_TYPE_TRIANGLE) {
-        float pts[6] = {sx + sw / 2, sy,       // Top
-                        sx,          sy + sh,  // Bottom-left
-                        sx + sw,     sy + sh}; // Bottom-right
-        if (has_fill)
-          nk_fill_polygon(canvas_buf, pts, 3, fill);
-        if (node->stroke_width > 0)
-          nk_stroke_polygon(canvas_buf, pts, 3, node->stroke_width, stroke);
-      } else if (node->type == NODE_TYPE_TEXT) {
-        // Text node
-
-        // Render background for sticky notes / text with bg
-        if (fill.a > 0)
-          nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, fill);
-
-        const char *display_text = node->text;
-        int is_editing = (ui->editing_node == node);
-        if (is_editing) {
-          display_text = ui->edit_buffer;
-          nk_fill_rect(canvas_buf,
-                       nk_rect(nr.x - 2, nr.y - 1, nr.w + 4, nr.h + 2), 2.0f,
-                       nk_rgba(66, 133, 244, 20));
-          nk_stroke_rect(canvas_buf,
-                         nk_rect(nr.x - 2, nr.y - 1, nr.w + 4, nr.h + 2), 2.0f,
-                         1.0f, nk_rgb(66, 133, 244));
+      if (ds->pending_create == 1) { // Body
+        new_node = design_create_styled_node(dd, NODE_STYLE_TEXT, nx, ny,
+                                             200.0f, 40.0f);
+        if (new_node)
+          strncpy(new_node->text, "Body text", sizeof(new_node->text) - 1);
+      } else if (ds->pending_create == 6) { // H1
+        new_node = design_create_styled_node(dd, NODE_STYLE_TEXT, nx, ny,
+                                             300.0f, 60.0f);
+        if (new_node)
+          strncpy(new_node->text, "Heading", sizeof(new_node->text) - 1);
+      } else if (ds->pending_create == 2) { // Sticky
+        new_node = design_create_styled_node(dd, NODE_STYLE_RECT, nx, ny,
+                                             120.0f, 120.0f);
+        if (new_node) {
+          new_node->fill_color = 0xFFF9C4FF;
+          new_node->stroke_color = 0xFBC02DFF;
+          new_node->type = NODE_TYPE_TEXT;
+          strncpy(new_node->text, "Note...", sizeof(new_node->text) - 1);
         }
-        if (display_text && strlen(display_text) > 0) {
-          struct nk_user_font *font =
-              ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
+      } else if (ds->pending_create >= 10 && ds->pending_create <= 13) {
+        NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
+                                  NODE_STYLE_TRIANGLE, NODE_STYLE_LINE};
+        new_node = design_create_styled_node(
+            dd, styles[ds->pending_create - 10], nx, ny, def_w, def_h);
+      }
 
-          // Use H1 font if it looks like a heading
-          if (sh > 40.0f * scale && ui->font_h1) {
-            font = &ui->font_h1->handle;
-          }
+      if (new_node)
+        ui->selected_node = new_node;
+      ds->pending_create = 0;
+    }
 
-          nk_draw_text(canvas_buf, nr, display_text, strlen(display_text), font,
-                       nk_rgba(0, 0, 0, 0), nk_rgb(0, 0, 0));
+    // --- Render nodes ---
+    if (dd->root) {
+      for (Node *node = dd->root->first_child; node;
+           node = node->next_sibling) {
+        if (!node->visible)
+          continue;
+
+        float sx = bounds.x + node->x * scale;
+        float sy = bounds.y + node->y * scale;
+        float sw = node->width * scale;
+        float sh = node->height * scale;
+        struct nk_rect nr = nk_rect(sx, sy, sw, sh);
+
+        struct nk_color fill = {
+            (node->fill_color >> 24) & 0xFF, (node->fill_color >> 16) & 0xFF,
+            (node->fill_color >> 8) & 0xFF, node->fill_color & 0xFF};
+        struct nk_color stroke = {(node->stroke_color >> 24) & 0xFF,
+                                  (node->stroke_color >> 16) & 0xFF,
+                                  (node->stroke_color >> 8) & 0xFF,
+                                  node->stroke_color & 0xFF};
+
+        int has_fill = (node->fill_color & 0xFF) > 10;
+
+        if (node->type == NODE_TYPE_RECT) {
+          if (has_fill)
+            nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, fill);
+          if (node->stroke_width > 0)
+            nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale,
+                           node->stroke_width, stroke);
+        } else if (node->type == NODE_TYPE_ELLIPSE) {
+          float cx = sx + sw / 2;
+          float cy = sy + sh / 2;
+          if (has_fill)
+            nk_fill_circle(canvas_buf, nk_rect(sx, sy, sw, sh), fill);
+          if (node->stroke_width > 0)
+            nk_stroke_circle(canvas_buf, nk_rect(sx, sy, sw, sh),
+                             node->stroke_width, stroke);
+          (void)cx;
+          (void)cy;
+        } else if (node->type == NODE_TYPE_TRIANGLE) {
+          float pts[6] = {sx + sw / 2, sy,       // Top
+                          sx,          sy + sh,  // Bottom-left
+                          sx + sw,     sy + sh}; // Bottom-right
+          if (has_fill)
+            nk_fill_polygon(canvas_buf, pts, 3, fill);
+          if (node->stroke_width > 0)
+            nk_stroke_polygon(canvas_buf, pts, 3, node->stroke_width, stroke);
+        } else if (node->type == NODE_TYPE_TEXT) {
+          // Text node
+
+          // Render background for sticky notes / text with bg
+          if (fill.a > 0)
+            nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, fill);
+
+          const char *display_text = node->text;
+          int is_editing = (ui->editing_node == node);
           if (is_editing) {
-            float tw = font->width(font->userdata, font->height, display_text,
-                                   strlen(display_text));
-            int show_cursor = ((int)(SDL_GetTicks() / 500) % 2 == 0);
-            if (show_cursor) {
-              nk_stroke_line(canvas_buf, nr.x + tw + 1, nr.y + 2, nr.x + tw + 1,
-                             nr.y + nr.h - 2, 1.5f, nk_rgb(66, 133, 244));
+            display_text = ui->edit_buffer;
+            nk_fill_rect(canvas_buf,
+                         nk_rect(nr.x - 2, nr.y - 1, nr.w + 4, nr.h + 2), 2.0f,
+                         nk_rgba(66, 133, 244, 20));
+            nk_stroke_rect(canvas_buf,
+                           nk_rect(nr.x - 2, nr.y - 1, nr.w + 4, nr.h + 2),
+                           2.0f, 1.0f, nk_rgb(66, 133, 244));
+          }
+          if (display_text && strlen(display_text) > 0) {
+            struct nk_user_font *font =
+                ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
+
+            // Use H1 font if it looks like a heading
+            if (sh > 40.0f * scale && ui->font_h1) {
+              font = &ui->font_h1->handle;
+            }
+
+            nk_draw_text(canvas_buf, nr, display_text, strlen(display_text),
+                         font, nk_rgba(0, 0, 0, 0), nk_rgb(0, 0, 0));
+            if (is_editing) {
+              float tw = font->width(font->userdata, font->height, display_text,
+                                     strlen(display_text));
+              int show_cursor = ((int)(SDL_GetTicks() / 500) % 2 == 0);
+              if (show_cursor) {
+                nk_stroke_line(canvas_buf, nr.x + tw + 1, nr.y + 2,
+                               nr.x + tw + 1, nr.y + nr.h - 2, 1.5f,
+                               nk_rgb(66, 133, 244));
+              }
             }
           }
+        } else if (node->type == NODE_TYPE_IMAGE) {
+          nk_fill_rect(canvas_buf, nr, 4.0f, nk_rgb(240, 240, 240));
+          nk_stroke_rect(canvas_buf, nr, 4.0f, 1.0f, nk_rgb(180, 180, 180));
+          const char *fname = node->text[0] ? node->text : "Image";
+          nk_draw_text(canvas_buf,
+                       nk_rect(nr.x + 4, nr.y + nr.h / 2 - 8, nr.w - 8, 16),
+                       fname, strlen(fname), ctx->style.font,
+                       nk_rgba(0, 0, 0, 0), nk_rgb(100, 100, 100));
         }
-      } else if (node->type == NODE_TYPE_IMAGE) {
-        nk_fill_rect(canvas_buf, nr, 4.0f, nk_rgb(240, 240, 240));
-        nk_stroke_rect(canvas_buf, nr, 4.0f, 1.0f, nk_rgb(180, 180, 180));
-        const char *fname = node->text[0] ? node->text : "Image";
-        nk_draw_text(canvas_buf,
-                     nk_rect(nr.x + 4, nr.y + nr.h / 2 - 8, nr.w - 8, 16),
-                     fname, strlen(fname), ctx->style.font, nk_rgba(0, 0, 0, 0),
-                     nk_rgb(100, 100, 100));
-      }
 
-      // Selection highlight
-      if (node == ui->selected_node && is_active_design) {
-        nk_stroke_rect(canvas_buf, nk_rect(sx - 2, sy - 2, sw + 4, sh + 4),
-                       2.0f, 2.0f, nk_rgb(66, 133, 244));
+        // Selection highlight
+        if (node == ui->selected_node && is_active_design) {
+          nk_stroke_rect(canvas_buf, nk_rect(sx - 2, sy - 2, sw + 4, sh + 4),
+                         2.0f, 2.0f, nk_rgb(66, 133, 244));
 
-        // Resize handles
-        float hsz = 8.0f;
-        struct nk_color hc = nk_rgb(66, 133, 244);
-        // SE
-        nk_fill_rect(canvas_buf,
-                     nk_rect(sx + sw - hsz / 2, sy + sh - hsz / 2, hsz, hsz),
-                     2.0f, hc);
-        // SW
-        nk_fill_rect(canvas_buf,
-                     nk_rect(sx - hsz / 2, sy + sh - hsz / 2, hsz, hsz), 2.0f,
-                     hc);
-        // NW
-        nk_fill_rect(canvas_buf, nk_rect(sx - hsz / 2, sy - hsz / 2, hsz, hsz),
-                     2.0f, hc);
-        // NE
-        nk_fill_rect(canvas_buf,
-                     nk_rect(sx + sw - hsz / 2, sy - hsz / 2, hsz, hsz), 2.0f,
-                     hc);
+          // Resize handles
+          float hsz = 8.0f;
+          struct nk_color hc = nk_rgb(66, 133, 244);
+          // SE
+          nk_fill_rect(canvas_buf,
+                       nk_rect(sx + sw - hsz / 2, sy + sh - hsz / 2, hsz, hsz),
+                       2.0f, hc);
+          // SW
+          nk_fill_rect(canvas_buf,
+                       nk_rect(sx - hsz / 2, sy + sh - hsz / 2, hsz, hsz), 2.0f,
+                       hc);
+          // NW
+          nk_fill_rect(canvas_buf,
+                       nk_rect(sx - hsz / 2, sy - hsz / 2, hsz, hsz), 2.0f, hc);
+          // NE
+          nk_fill_rect(canvas_buf,
+                       nk_rect(sx + sw - hsz / 2, sy - hsz / 2, hsz, hsz), 2.0f,
+                       hc);
+        }
       }
     }
-  }
 
-  // --- Toolbar (same as Canvas) ---
-  float toolbar_w =
-      4 * 36.0f + 3 * 8.0f + 24.0f; // Standard canvas toolbar width
-  float toolbar_x = bounds.x + (bounds.w - toolbar_w) / 2.0f;
-  float toolbar_y = bounds.y + bounds.h;
+    // --- Toolbar (same as Canvas) ---
+    float toolbar_w =
+        4 * 36.0f + 3 * 8.0f + 24.0f; // Standard canvas toolbar width
+    float toolbar_x = bounds.x + (bounds.w - toolbar_w) / 2.0f;
+    float toolbar_y = bounds.y + bounds.h;
 
-  // Render Toolbar using Canvas logic (with state swapping)
-  {
-    CanvasInteraction temp_cs = ui->canvas_state;
+    // Render Toolbar using Canvas logic (with state swapping)
+    {
+      CanvasInteraction temp_cs = ui->canvas_state;
 
-    // Map Design state to Canvas state
-    ui->canvas_state.active_cat = ds->active_cat;
-    ui->canvas_state.show_sub_menu = ds->show_sub_menu;
-    ui->canvas_state.pending_create = ds->pending_create;
-    ui->canvas_state.mouse_just_pressed = ds->mouse_just_pressed;
-    ui->canvas_state.space_held = ds->space_held;
-    ui->canvas_state.pan_from_menu = ds->pan_from_menu;
+      // Map Design state to Canvas state
+      ui->canvas_state.active_cat = ds->active_cat;
+      ui->canvas_state.show_sub_menu = ds->show_sub_menu;
+      ui->canvas_state.pending_create = ds->pending_create;
+      ui->canvas_state.mouse_just_pressed = ds->mouse_just_pressed;
+      ui->canvas_state.space_held = ds->space_held;
+      ui->canvas_state.pan_from_menu = ds->pan_from_menu;
 
-    // Check if mouse in toolbar for Design interaction
-    canvas_render_toolbar(
-        ui, ctx, nk_rect(bounds.x, bounds.y, bounds.w, bounds.h + toolbar_h),
-        block);
+      // Check if mouse in toolbar for Design interaction
+      canvas_render_toolbar(
+          ui, ctx, nk_rect(bounds.x, bounds.y, bounds.w, bounds.h + toolbar_h),
+          block);
 
-    // Copy back relevant state
-    ds->active_cat = ui->canvas_state.active_cat;
-    ds->show_sub_menu = ui->canvas_state.show_sub_menu;
-    ds->pending_create = ui->canvas_state.pending_create;
-    ds->space_held = ui->canvas_state.space_held;
-    ds->pan_from_menu = ui->canvas_state.pan_from_menu;
+      // Copy back relevant state
+      ds->active_cat = ui->canvas_state.active_cat;
+      ds->show_sub_menu = ui->canvas_state.show_sub_menu;
+      ds->pending_create = ui->canvas_state.pending_create;
+      ds->space_held = ui->canvas_state.space_held;
+      ds->pan_from_menu = ui->canvas_state.pan_from_menu;
 
-    // Restore Canvas state
-    ui->canvas_state = temp_cs;
-  }
-
-  // --- Page Navigation (right side of toolbar) ---
-  {
-    float nav_x = toolbar_x + toolbar_w - 140.0f;
-    float nav_btn_size = 24.0f;
-    float nav_y = toolbar_y + (toolbar_h - nav_btn_size) / 2.0f;
-
-    // Previous page button
-    struct nk_rect prev_btn = nk_rect(nav_x, nav_y, nav_btn_size, nav_btn_size);
-    int prev_hover =
-        (ui->mouse_x >= prev_btn.x && ui->mouse_x < prev_btn.x + prev_btn.w &&
-         ui->mouse_y >= prev_btn.y && ui->mouse_y < prev_btn.y + prev_btn.h);
-    int prev_enabled = (dd->current_page > 0);
-
-    if (prev_hover && prev_enabled)
-      nk_fill_rect(canvas_buf, prev_btn, 4.0f, nk_rgba(0, 0, 0, 20));
-    nk_draw_text(canvas_buf, nk_rect(prev_btn.x + 6, prev_btn.y + 2, 16, 20),
-                 "<", 1, ctx->style.font, nk_rgba(0, 0, 0, 0),
-                 prev_enabled ? nk_rgb(60, 60, 60) : nk_rgb(180, 180, 180));
-
-    if (prev_hover && ds->mouse_just_pressed && prev_enabled &&
-        is_active_design) {
-      block_design_goto_page(block, dd->current_page - 1);
-      ui->selected_node = NULL;
+      // Restore Canvas state
+      ui->canvas_state = temp_cs;
     }
 
-    // Page counter (e.g., "1 / 3")
-    char page_str[32];
-    snprintf(page_str, sizeof(page_str), "%d / %d", dd->current_page + 1,
-             dd->page_count);
-    float counter_x = nav_x + nav_btn_size + 4.0f;
-    float counter_w = 50.0f;
-    nk_draw_text(canvas_buf, nk_rect(counter_x, nav_y + 2, counter_w, 20),
-                 page_str, strlen(page_str), ctx->style.font,
-                 nk_rgba(0, 0, 0, 0), nk_rgb(80, 80, 80));
+    // --- Page Navigation (right side of toolbar) ---
+    {
+      float nav_x = toolbar_x + toolbar_w - 140.0f;
+      float nav_btn_size = 24.0f;
+      float nav_y = toolbar_y + (toolbar_h - nav_btn_size) / 2.0f;
 
-    // Next page button
-    struct nk_rect next_btn =
-        nk_rect(counter_x + counter_w, nav_y, nav_btn_size, nav_btn_size);
-    int next_hover =
-        (ui->mouse_x >= next_btn.x && ui->mouse_x < next_btn.x + next_btn.w &&
-         ui->mouse_y >= next_btn.y && ui->mouse_y < next_btn.y + next_btn.h);
-    int next_enabled = (dd->current_page < dd->page_count - 1);
+      // Previous page button
+      struct nk_rect prev_btn =
+          nk_rect(nav_x, nav_y, nav_btn_size, nav_btn_size);
+      int prev_hover =
+          (ui->mouse_x >= prev_btn.x && ui->mouse_x < prev_btn.x + prev_btn.w &&
+           ui->mouse_y >= prev_btn.y && ui->mouse_y < prev_btn.y + prev_btn.h);
+      int prev_enabled = (dd->current_page > 0);
 
-    if (next_hover && next_enabled)
-      nk_fill_rect(canvas_buf, next_btn, 4.0f, nk_rgba(0, 0, 0, 20));
-    nk_draw_text(canvas_buf, nk_rect(next_btn.x + 6, next_btn.y + 2, 16, 20),
-                 ">", 1, ctx->style.font, nk_rgba(0, 0, 0, 0),
-                 next_enabled ? nk_rgb(60, 60, 60) : nk_rgb(180, 180, 180));
+      if (prev_hover && prev_enabled)
+        nk_fill_rect(canvas_buf, prev_btn, 4.0f, nk_rgba(0, 0, 0, 20));
+      nk_draw_text(canvas_buf, nk_rect(prev_btn.x + 6, prev_btn.y + 2, 16, 20),
+                   "<", 1, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                   prev_enabled ? nk_rgb(60, 60, 60) : nk_rgb(180, 180, 180));
 
-    if (next_hover && ds->mouse_just_pressed && next_enabled &&
-        is_active_design) {
-      block_design_goto_page(block, dd->current_page + 1);
-      ui->selected_node = NULL;
-    }
-
-    // Add page button (+)
-    struct nk_rect add_btn = nk_rect(next_btn.x + nav_btn_size + 8.0f, nav_y,
-                                     nav_btn_size, nav_btn_size);
-    int add_hover =
-        (ui->mouse_x >= add_btn.x && ui->mouse_x < add_btn.x + add_btn.w &&
-         ui->mouse_y >= add_btn.y && ui->mouse_y < add_btn.y + add_btn.h);
-
-    if (add_hover)
-      nk_fill_rect(canvas_buf, add_btn, 4.0f, nk_rgba(66, 133, 244, 30));
-    nk_draw_text(canvas_buf, nk_rect(add_btn.x + 6, add_btn.y + 2, 16, 20), "+",
-                 1, ctx->style.font, nk_rgba(0, 0, 0, 0), nk_rgb(66, 133, 244));
-
-    if (add_hover && ds->mouse_just_pressed && is_active_design) {
-      int new_idx = block_design_add_page(block);
-      if (new_idx >= 0) {
-        block_design_goto_page(block, new_idx);
+      if (prev_hover && ds->mouse_just_pressed && prev_enabled &&
+          is_active_design) {
+        block_design_goto_page(block, dd->current_page - 1);
         ui->selected_node = NULL;
       }
-    }
-  }
 
-  // Check if in toolbar area (using existing toolbar_x, toolbar_y, toolbar_w)
-  int in_toolbar =
-      (ui->mouse_x >= toolbar_x && ui->mouse_x < toolbar_x + toolbar_w &&
-       ui->mouse_y >= toolbar_y && ui->mouse_y < toolbar_y + toolbar_h);
-  int in_forms_menu = ds->show_forms_menu;
+      // Page counter (e.g., "1 / 3")
+      char page_str[32];
+      snprintf(page_str, sizeof(page_str), "%d / %d", dd->current_page + 1,
+               dd->page_count);
+      float counter_x = nav_x + nav_btn_size + 4.0f;
+      float counter_w = 50.0f;
+      nk_draw_text(canvas_buf, nk_rect(counter_x, nav_y + 2, counter_w, 20),
+                   page_str, strlen(page_str), ctx->style.font,
+                   nk_rgba(0, 0, 0, 0), nk_rgb(80, 80, 80));
 
-  // Check mouse in design area
-  int mouse_in_design =
-      (ui->mouse_x >= bounds.x && ui->mouse_x < bounds.x + bounds.w &&
-       ui->mouse_y >= bounds.y && ui->mouse_y < bounds.y + bounds.h);
+      // Next page button
+      struct nk_rect next_btn =
+          nk_rect(counter_x + counter_w, nav_y, nav_btn_size, nav_btn_size);
+      int next_hover =
+          (ui->mouse_x >= next_btn.x && ui->mouse_x < next_btn.x + next_btn.w &&
+           ui->mouse_y >= next_btn.y && ui->mouse_y < next_btn.y + next_btn.h);
+      int next_enabled = (dd->current_page < dd->page_count - 1);
 
-  // --- Handle resize ---
-  int on_resize_handle = 0;
-  int hit_handle_index = 0;
+      if (next_hover && next_enabled)
+        nk_fill_rect(canvas_buf, next_btn, 4.0f, nk_rgba(0, 0, 0, 20));
+      nk_draw_text(canvas_buf, nk_rect(next_btn.x + 6, next_btn.y + 2, 16, 20),
+                   ">", 1, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                   next_enabled ? nk_rgb(60, 60, 60) : nk_rgb(180, 180, 180));
 
-  if (ui->selected_node && ui->selected_node->visible && is_active_design) {
-    Node *sel = ui->selected_node;
-    float sx = bounds.x + sel->x * scale;
-    float sy = bounds.y + sel->y * scale;
-    float sw = sel->width * scale;
-    float sh = sel->height * scale;
-    float hsize = 30.0f;
-
-    // SE
-    if (ui->mouse_x >= sx + sw - hsize / 2 &&
-        ui->mouse_x < sx + sw + hsize / 2 &&
-        ui->mouse_y >= sy + sh - hsize / 2 &&
-        ui->mouse_y < sy + sh + hsize / 2) {
-      on_resize_handle = 1;
-      hit_handle_index = 0;
-    }
-    // SW
-    else if (ui->mouse_x >= sx - hsize / 2 && ui->mouse_x < sx + hsize / 2 &&
-             ui->mouse_y >= sy + sh - hsize / 2 &&
-             ui->mouse_y < sy + sh + hsize / 2) {
-      on_resize_handle = 1;
-      hit_handle_index = 1;
-    }
-    // NW
-    else if (ui->mouse_x >= sx - hsize / 2 && ui->mouse_x < sx + hsize / 2 &&
-             ui->mouse_y >= sy - hsize / 2 && ui->mouse_y < sy + hsize / 2) {
-      on_resize_handle = 1;
-      hit_handle_index = 2;
-    }
-    // NE
-    else if (ui->mouse_x >= sx + sw - hsize / 2 &&
-             ui->mouse_x < sx + sw + hsize / 2 &&
-             ui->mouse_y >= sy - hsize / 2 && ui->mouse_y < sy + hsize / 2) {
-      on_resize_handle = 1;
-      hit_handle_index = 3;
-    }
-  }
-
-  // Start resize
-  if (mouse_in_design && ds->mouse_just_pressed && on_resize_handle &&
-      ui->selected_node && is_active_design) {
-    ds->is_resizing = 1;
-    ds->resize_handle = hit_handle_index;
-    ds->resize_start_w = ui->selected_node->width;
-    ds->resize_start_h = ui->selected_node->height;
-    ds->resize_start_x = ui->mouse_x;
-    ds->resize_start_y = ui->mouse_y;
-    ds->resize_start_node_x = ui->selected_node->x;
-    ds->resize_start_node_y = ui->selected_node->y;
-  }
-  // Handle resize dragging
-  else if (ds->is_resizing && ui->selected_node && is_active_design) {
-    float dx = (ui->mouse_x - ds->resize_start_x) / scale;
-    float dy = (ui->mouse_y - ds->resize_start_y) / scale;
-    Node *sel = ui->selected_node;
-
-    switch (ds->resize_handle) {
-    case 0: // SE
-      sel->width = fmaxf(20.0f, ds->resize_start_w + dx);
-      sel->height = fmaxf(20.0f, ds->resize_start_h + dy);
-      break;
-    case 1: // SW
-      sel->width = fmaxf(20.0f, ds->resize_start_w - dx);
-      sel->height = fmaxf(20.0f, ds->resize_start_h + dy);
-      sel->x = ds->resize_start_node_x + (ds->resize_start_w - sel->width);
-      break;
-    case 2: // NW
-      sel->width = fmaxf(20.0f, ds->resize_start_w - dx);
-      sel->height = fmaxf(20.0f, ds->resize_start_h - dy);
-      sel->x = ds->resize_start_node_x + (ds->resize_start_w - sel->width);
-      sel->y = ds->resize_start_node_y + (ds->resize_start_h - sel->height);
-      break;
-    case 3: // NE
-      sel->width = fmaxf(20.0f, ds->resize_start_w + dx);
-      sel->height = fmaxf(20.0f, ds->resize_start_h - dy);
-      sel->y = ds->resize_start_node_y + (ds->resize_start_h - sel->height);
-      break;
-    }
-
-    if (ds->mouse_just_released) {
-      ds->is_resizing = 0;
-    }
-  }
-  // Handle click in design area
-  else if (mouse_in_design && !in_toolbar && !in_forms_menu &&
-           ds->mouse_just_pressed && !on_resize_handle && is_active_design) {
-    // Convert to design coordinates
-    float design_x = (ui->mouse_x - bounds.x) / scale;
-    float design_y = (ui->mouse_y - bounds.y) / scale;
-
-    Node *hit = design_find_node_at(dd, design_x, design_y);
-    if (hit) {
-      // Check for double-click on text node
-      if (hit == ui->selected_node && hit->type == NODE_TYPE_TEXT) {
-        // Start inline editing
-        ui->editing_node = hit;
-        strncpy(ui->edit_buffer, hit->text, sizeof(ui->edit_buffer) - 1);
-        SDL_StartTextInput();
+      if (next_hover && ds->mouse_just_pressed && next_enabled &&
+          is_active_design) {
+        block_design_goto_page(block, dd->current_page + 1);
+        ui->selected_node = NULL;
       }
-      ui->selected_node = hit;
-      ds->is_dragging_node = 1;
-      ds->drag_offset_x = design_x - hit->x;
-      ds->drag_offset_y = design_y - hit->y;
-    } else {
-      ui->selected_node = NULL;
-      if (ui->editing_node) {
-        strncpy(ui->editing_node->text, ui->edit_buffer,
-                sizeof(ui->editing_node->text) - 1);
-        ui->editing_node = NULL;
-        SDL_StopTextInput();
-      }
-    }
-  }
 
-  // Handle node dragging
-  if (ds->is_dragging_node && ui->selected_node && is_active_design) {
-    float design_x = (ui->mouse_x - bounds.x) / scale;
-    float design_y = (ui->mouse_y - bounds.y) / scale;
-    ui->selected_node->x = design_x - ds->drag_offset_x;
-    ui->selected_node->y = design_y - ds->drag_offset_y;
+      // Add page button (+)
+      struct nk_rect add_btn = nk_rect(next_btn.x + nav_btn_size + 8.0f, nav_y,
+                                       nav_btn_size, nav_btn_size);
+      int add_hover =
+          (ui->mouse_x >= add_btn.x && ui->mouse_x < add_btn.x + add_btn.w &&
+           ui->mouse_y >= add_btn.y && ui->mouse_y < add_btn.y + add_btn.h);
 
-    // Clamp to design bounds
-    ui->selected_node->x = fmaxf(
-        0, fminf(ui->selected_node->x, dd->width - ui->selected_node->width));
-    ui->selected_node->y = fmaxf(
-        0, fminf(ui->selected_node->y, dd->height - ui->selected_node->height));
+      if (add_hover)
+        nk_fill_rect(canvas_buf, add_btn, 4.0f, nk_rgba(66, 133, 244, 30));
+      nk_draw_text(canvas_buf, nk_rect(add_btn.x + 6, add_btn.y + 2, 16, 20),
+                   "+", 1, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                   nk_rgb(66, 133, 244));
 
-    if (ds->mouse_just_released) {
-      ds->is_dragging_node = 0;
-    }
-  }
-
-  // Close forms menu if clicking elsewhere
-  if (ds->mouse_just_pressed && !in_toolbar && !in_forms_menu &&
-      is_active_design) {
-    ds->show_forms_menu = 0;
-  }
-
-  // --- Handle pending element creation ---
-  if (ds->pending_create > 0 && is_active_design) {
-    float center_x = dd->width / 2.0f - 50.0f;
-    float center_y = dd->height / 2.0f - 40.0f;
-    Node *new_node = NULL;
-    float def_w = 100.0f;
-    float def_h = 80.0f;
-
-    if (ds->pending_create == 1) {
-      // Text
-      new_node = design_create_styled_node(dd, NODE_STYLE_TEXT, center_x,
-                                           center_y, 120.0f, 30.0f);
-    } else if (ds->pending_create == 2) {
-      // Image - for now create placeholder
-      Node *img = (Node *)calloc(1, sizeof(Node));
-      if (img && dd->root) {
-        img->id = dd->next_node_id++;
-        img->type = NODE_TYPE_IMAGE;
-        img->x = center_x;
-        img->y = center_y;
-        img->width = 150.0f;
-        img->height = 100.0f;
-        img->visible = 1;
-        img->parent = dd->root;
-        img->fill_color = 0xFFFFFFFF;
-        strncpy(img->text, "Image", sizeof(img->text) - 1);
-        if (!dd->root->first_child) {
-          dd->root->first_child = img;
-        } else {
-          Node *last = dd->root->first_child;
-          while (last->next_sibling)
-            last = last->next_sibling;
-          last->next_sibling = img;
+      if (add_hover && ds->mouse_just_pressed && is_active_design) {
+        int new_idx = block_design_add_page(block);
+        if (new_idx >= 0) {
+          block_design_goto_page(block, new_idx);
+          ui->selected_node = NULL;
         }
-        new_node = img;
-      }
-    } else if (ds->pending_create >= 10 && ds->pending_create <= 13) {
-      NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
-                                NODE_STYLE_TRIANGLE, NODE_STYLE_LINE};
-      int idx = ds->pending_create - 10;
-      if (idx == 3) {
-        new_node = design_create_styled_node(dd, styles[idx], center_x,
-                                             center_y, 150.0f, 4.0f);
-      } else {
-        new_node = design_create_styled_node(dd, styles[idx], center_x,
-                                             center_y, def_w, def_h);
       }
     }
 
-    if (new_node) {
-      ui->selected_node = new_node;
+    // Check if in toolbar area (using existing toolbar_x, toolbar_y, toolbar_w)
+    int in_toolbar =
+        (ui->mouse_x >= toolbar_x && ui->mouse_x < toolbar_x + toolbar_w &&
+         ui->mouse_y >= toolbar_y && ui->mouse_y < toolbar_y + toolbar_h);
+    int in_forms_menu = ds->show_forms_menu;
+
+    // Check mouse in design area
+    int mouse_in_design =
+        (ui->mouse_x >= bounds.x && ui->mouse_x < bounds.x + bounds.w &&
+         ui->mouse_y >= bounds.y && ui->mouse_y < bounds.y + bounds.h);
+
+    // --- Handle resize ---
+    int on_resize_handle = 0;
+    int hit_handle_index = 0;
+
+    if (ui->selected_node && ui->selected_node->visible && is_active_design) {
+      Node *sel = ui->selected_node;
+      float sx = bounds.x + sel->x * scale;
+      float sy = bounds.y + sel->y * scale;
+      float sw = sel->width * scale;
+      float sh = sel->height * scale;
+      float hsize = 30.0f;
+
+      // SE
+      if (ui->mouse_x >= sx + sw - hsize / 2 &&
+          ui->mouse_x < sx + sw + hsize / 2 &&
+          ui->mouse_y >= sy + sh - hsize / 2 &&
+          ui->mouse_y < sy + sh + hsize / 2) {
+        on_resize_handle = 1;
+        hit_handle_index = 0;
+      }
+      // SW
+      else if (ui->mouse_x >= sx - hsize / 2 && ui->mouse_x < sx + hsize / 2 &&
+               ui->mouse_y >= sy + sh - hsize / 2 &&
+               ui->mouse_y < sy + sh + hsize / 2) {
+        on_resize_handle = 1;
+        hit_handle_index = 1;
+      }
+      // NW
+      else if (ui->mouse_x >= sx - hsize / 2 && ui->mouse_x < sx + hsize / 2 &&
+               ui->mouse_y >= sy - hsize / 2 && ui->mouse_y < sy + hsize / 2) {
+        on_resize_handle = 1;
+        hit_handle_index = 2;
+      }
+      // NE
+      else if (ui->mouse_x >= sx + sw - hsize / 2 &&
+               ui->mouse_x < sx + sw + hsize / 2 &&
+               ui->mouse_y >= sy - hsize / 2 && ui->mouse_y < sy + hsize / 2) {
+        on_resize_handle = 1;
+        hit_handle_index = 3;
+      }
     }
-    ds->pending_create = 0;
+
+    // Start resize
+    if (mouse_in_design && ds->mouse_just_pressed && on_resize_handle &&
+        ui->selected_node && is_active_design) {
+      ds->is_resizing = 1;
+      ds->resize_handle = hit_handle_index;
+      ds->resize_start_w = ui->selected_node->width;
+      ds->resize_start_h = ui->selected_node->height;
+      ds->resize_start_x = ui->mouse_x;
+      ds->resize_start_y = ui->mouse_y;
+      ds->resize_start_node_x = ui->selected_node->x;
+      ds->resize_start_node_y = ui->selected_node->y;
+    }
+    // Handle resize dragging
+    else if (ds->is_resizing && ui->selected_node && is_active_design) {
+      float dx = (ui->mouse_x - ds->resize_start_x) / scale;
+      float dy = (ui->mouse_y - ds->resize_start_y) / scale;
+      Node *sel = ui->selected_node;
+
+      switch (ds->resize_handle) {
+      case 0: // SE
+        sel->width = fmaxf(20.0f, ds->resize_start_w + dx);
+        sel->height = fmaxf(20.0f, ds->resize_start_h + dy);
+        break;
+      case 1: // SW
+        sel->width = fmaxf(20.0f, ds->resize_start_w - dx);
+        sel->height = fmaxf(20.0f, ds->resize_start_h + dy);
+        sel->x = ds->resize_start_node_x + (ds->resize_start_w - sel->width);
+        break;
+      case 2: // NW
+        sel->width = fmaxf(20.0f, ds->resize_start_w - dx);
+        sel->height = fmaxf(20.0f, ds->resize_start_h - dy);
+        sel->x = ds->resize_start_node_x + (ds->resize_start_w - sel->width);
+        sel->y = ds->resize_start_node_y + (ds->resize_start_h - sel->height);
+        break;
+      case 3: // NE
+        sel->width = fmaxf(20.0f, ds->resize_start_w + dx);
+        sel->height = fmaxf(20.0f, ds->resize_start_h - dy);
+        sel->y = ds->resize_start_node_y + (ds->resize_start_h - sel->height);
+        break;
+      }
+
+      if (ds->mouse_just_released) {
+        ds->is_resizing = 0;
+      }
+    }
+    // Handle click in design area
+    else if (mouse_in_design && !in_toolbar && !in_forms_menu &&
+             ds->mouse_just_pressed && !on_resize_handle && is_active_design) {
+      // Convert to design coordinates
+      float design_x = (ui->mouse_x - bounds.x) / scale;
+      float design_y = (ui->mouse_y - bounds.y) / scale;
+
+      Node *hit = design_find_node_at(dd, design_x, design_y);
+      if (hit) {
+        // Check for double-click on text node
+        if (hit == ui->selected_node && hit->type == NODE_TYPE_TEXT) {
+          // Start inline editing
+          ui->editing_node = hit;
+          strncpy(ui->edit_buffer, hit->text, sizeof(ui->edit_buffer) - 1);
+          SDL_StartTextInput();
+        }
+        ui->selected_node = hit;
+        ds->is_dragging_node = 1;
+        ds->drag_offset_x = design_x - hit->x;
+        ds->drag_offset_y = design_y - hit->y;
+      } else {
+        ui->selected_node = NULL;
+        if (ui->editing_node) {
+          strncpy(ui->editing_node->text, ui->edit_buffer,
+                  sizeof(ui->editing_node->text) - 1);
+          ui->editing_node = NULL;
+          SDL_StopTextInput();
+        }
+      }
+    }
+
+    // Handle node dragging
+    if (ds->is_dragging_node && ui->selected_node && is_active_design) {
+      float design_x = (ui->mouse_x - bounds.x) / scale;
+      float design_y = (ui->mouse_y - bounds.y) / scale;
+      ui->selected_node->x = design_x - ds->drag_offset_x;
+      ui->selected_node->y = design_y - ds->drag_offset_y;
+
+      // Clamp to design bounds
+      ui->selected_node->x = fmaxf(
+          0, fminf(ui->selected_node->x, dd->width - ui->selected_node->width));
+      ui->selected_node->y =
+          fmaxf(0, fminf(ui->selected_node->y,
+                         dd->height - ui->selected_node->height));
+
+      if (ds->mouse_just_released) {
+        ds->is_dragging_node = 0;
+      }
+    }
+
+    // Close forms menu if clicking elsewhere
+    if (ds->mouse_just_pressed && !in_toolbar && !in_forms_menu &&
+        is_active_design) {
+      ds->show_forms_menu = 0;
+    }
+
+    // --- Handle pending element creation ---
+    if (ds->pending_create > 0 && is_active_design) {
+      float center_x = dd->width / 2.0f - 50.0f;
+      float center_y = dd->height / 2.0f - 40.0f;
+      Node *new_node = NULL;
+      float def_w = 100.0f;
+      float def_h = 80.0f;
+
+      if (ds->pending_create == 1) {
+        // Text
+        new_node = design_create_styled_node(dd, NODE_STYLE_TEXT, center_x,
+                                             center_y, 120.0f, 30.0f);
+      } else if (ds->pending_create == 2) {
+        // Image - for now create placeholder
+        Node *img = (Node *)calloc(1, sizeof(Node));
+        if (img && dd->root) {
+          img->id = dd->next_node_id++;
+          img->type = NODE_TYPE_IMAGE;
+          img->x = center_x;
+          img->y = center_y;
+          img->width = 150.0f;
+          img->height = 100.0f;
+          img->visible = 1;
+          img->parent = dd->root;
+          img->fill_color = 0xFFFFFFFF;
+          strncpy(img->text, "Image", sizeof(img->text) - 1);
+          if (!dd->root->first_child) {
+            dd->root->first_child = img;
+          } else {
+            Node *last = dd->root->first_child;
+            while (last->next_sibling)
+              last = last->next_sibling;
+            last->next_sibling = img;
+          }
+          new_node = img;
+        }
+      } else if (ds->pending_create >= 10 && ds->pending_create <= 13) {
+        NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
+                                  NODE_STYLE_TRIANGLE, NODE_STYLE_LINE};
+        int idx = ds->pending_create - 10;
+        if (idx == 3) {
+          new_node = design_create_styled_node(dd, styles[idx], center_x,
+                                               center_y, 150.0f, 4.0f);
+        } else {
+          new_node = design_create_styled_node(dd, styles[idx], center_x,
+                                               center_y, def_w, def_h);
+        }
+      }
+
+      if (new_node) {
+        ui->selected_node = new_node;
+      }
+      ds->pending_create = 0;
+    }
+
+    // Reset per-frame mouse state
+    ds->mouse_just_pressed = 0;
+    ds->mouse_just_released = 0;
+
+    // Close Design content group
+    nk_group_end(ctx);
   }
 
-  // Reset per-frame mouse state
-  ds->mouse_just_pressed = 0;
-  ds->mouse_just_released = 0;
+  // Right sidebar (only in fullscreen mode)
+  if (is_fullscreen) {
+    if (nk_group_begin(ctx, "design_sidebar", NK_WINDOW_BORDER)) {
+      struct nk_command_buffer *sidebar_buf = nk_window_get_canvas(ctx);
+
+      // Properties section
+      nk_layout_row_dynamic(ctx, 30, 1);
+      nk_label(ctx, "Properties", NK_TEXT_LEFT);
+
+      nk_layout_row_dynamic(ctx, 2, 1);
+      nk_spacing(ctx, 1);
+
+      nk_layout_row_dynamic(ctx, 100, 1);
+      struct nk_rect props_area = nk_widget_bounds(ctx);
+      nk_fill_rect(sidebar_buf, props_area, 4.0f, nk_rgb(245, 245, 245));
+      nk_draw_text(
+          sidebar_buf,
+          nk_rect(props_area.x + 10, props_area.y + 40, props_area.w - 20, 20),
+          "(placeholder)", 13, ctx->style.font, nk_rgba(0, 0, 0, 0),
+          nk_rgb(150, 150, 150));
+
+      // Spacing between sections
+      nk_layout_row_dynamic(ctx, 20, 1);
+      nk_spacing(ctx, 1);
+
+      // Layers section
+      nk_layout_row_dynamic(ctx, 30, 1);
+      nk_label(ctx, "Layers", NK_TEXT_LEFT);
+
+      nk_layout_row_dynamic(ctx, 2, 1);
+      nk_spacing(ctx, 1);
+
+      nk_layout_row_dynamic(ctx, 200, 1);
+      struct nk_rect layers_area = nk_widget_bounds(ctx);
+      nk_fill_rect(sidebar_buf, layers_area, 4.0f, nk_rgb(245, 245, 245));
+      nk_draw_text(sidebar_buf,
+                   nk_rect(layers_area.x + 10, layers_area.y + 90,
+                           layers_area.w - 20, 20),
+                   "(placeholder)", 13, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                   nk_rgb(150, 150, 150));
+
+      nk_group_end(ctx);
+    }
+  }
 
   nk_spacing(ctx, 1);
 }
