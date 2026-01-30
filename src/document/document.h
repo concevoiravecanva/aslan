@@ -64,7 +64,12 @@ typedef enum {
   NODE_TYPE_GROUP = 5,   // Logical grouping
   NODE_TYPE_LINE = 6,    // Line/arrow
   NODE_TYPE_ELLIPSE = 7, // Circle/ellipse
-  NODE_TYPE_TRIANGLE = 8
+  NODE_TYPE_TRIANGLE = 8,
+  NODE_TYPE_OCTAGON = 9,
+  NODE_TYPE_HEART = 10,
+  NODE_TYPE_PENTAGON = 11,
+  NODE_TYPE_HEXAGON = 12,
+  NODE_TYPE_STAR = 13
 } NodeType;
 
 // =============================================================================

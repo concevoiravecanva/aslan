@@ -251,6 +251,9 @@ typedef struct UIHost {
     char rename_buffer[64];
   } table_state;
 
+  // Sidebar state: 0=Properties/Layers, 1=Shape Selection
+  int sidebar_mode;
+
 } UIHost;
 
 // -----------------------------------------------------------------------------

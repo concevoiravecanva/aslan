@@ -112,6 +112,18 @@ const char *node_type_to_string(NodeType type) {
     return "line";
   case NODE_TYPE_ELLIPSE:
     return "ellipse";
+  case NODE_TYPE_TRIANGLE:
+    return "triangle";
+  case NODE_TYPE_OCTAGON:
+    return "octagon";
+  case NODE_TYPE_HEART:
+    return "heart";
+  case NODE_TYPE_PENTAGON:
+    return "pentagon";
+  case NODE_TYPE_HEXAGON:
+    return "hexagon";
+  case NODE_TYPE_STAR:
+    return "star";
   default:
     return "unknown";
   }
@@ -134,6 +146,18 @@ NodeType node_type_from_string(const char *str) {
     return NODE_TYPE_LINE;
   if (strcmp(str, "ellipse") == 0)
     return NODE_TYPE_ELLIPSE;
+  if (strcmp(str, "triangle") == 0)
+    return NODE_TYPE_TRIANGLE;
+  if (strcmp(str, "octagon") == 0)
+    return NODE_TYPE_OCTAGON;
+  if (strcmp(str, "heart") == 0)
+    return NODE_TYPE_HEART;
+  if (strcmp(str, "pentagon") == 0)
+    return NODE_TYPE_PENTAGON;
+  if (strcmp(str, "hexagon") == 0)
+    return NODE_TYPE_HEXAGON;
+  if (strcmp(str, "star") == 0)
+    return NODE_TYPE_STAR;
   return NODE_TYPE_ROOT;
 }
 

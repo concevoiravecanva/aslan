@@ -166,6 +166,7 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
   ui->L = L;
   ui->screen = 0; // Start in Dashboard
   ui->font_size_px = 16.0f;
+  ui->sidebar_mode = 0; // Standard sidebar (Properties/Layers)
 
   // Load recents
   recents_load(&ui->recents, "recents.log");
@@ -1939,15 +1940,11 @@ static void ui_render_sidebar_properties(UIHost *ui, struct nk_context *ctx,
   nk_label(ctx, "Shape Type", NK_TEXT_LEFT);
   nk_layout_row_dynamic(ctx, 30, 1);
   const char *type_name = node_type_to_string(node->type);
-  nk_label(ctx, type_name ? type_name : "Unknown", NK_TEXT_LEFT);
+  if (nk_button_label(ctx, type_name ? type_name : "Unknown")) {
+    ui->sidebar_mode = 1; // Switch to shape selection
+  }
 
-  // Size
-  nk_layout_row_dynamic(ctx, 25, 2);
-  nk_label(ctx, "Width", NK_TEXT_LEFT);
-  nk_label(ctx, "Height", NK_TEXT_LEFT);
-  nk_layout_row_dynamic(ctx, 30, 2);
-  nk_property_float(ctx, "#", 1.0f, &node->width, 10000.0f, 1.0f, 1.0f);
-  nk_property_float(ctx, "#", 1.0f, &node->height, 10000.0f, 1.0f, 1.0f);
+  // Fill Color (Removed Width/Height)
 
   // Fill Color
   nk_layout_row_dynamic(ctx, 25, 1);
@@ -2100,6 +2097,41 @@ static void ui_render_sidebar_layers(UIHost *ui, struct nk_context *ctx,
         block_design_delete_node(block, node->id);
       if (ui->selected_node == node)
         ui->selected_node = NULL;
+    }
+  }
+}
+
+static void ui_render_sidebar_shape_selection(UIHost *ui,
+                                              struct nk_context *ctx) {
+  if (!ui->selected_node) {
+    ui->sidebar_mode = 0;
+    return;
+  }
+
+  nk_layout_row_dynamic(ctx, 30, 1);
+  if (nk_button_label(ctx, "< Back to Properties")) {
+    ui->sidebar_mode = 0;
+  }
+
+  nk_layout_row_dynamic(ctx, 20, 1);
+  nk_spacing(ctx, 1);
+
+  nk_layout_row_dynamic(ctx, 30, 1);
+  nk_label(ctx, "Choose Shape:", NK_TEXT_LEFT);
+
+  // Grid: 3 items per row
+  NodeType types[] = {NODE_TYPE_RECT,    NODE_TYPE_ELLIPSE,  NODE_TYPE_TRIANGLE,
+                      NODE_TYPE_OCTAGON, NODE_TYPE_PENTAGON, NODE_TYPE_HEXAGON,
+                      NODE_TYPE_STAR,    NODE_TYPE_HEART,    NODE_TYPE_LINE};
+  const char *labels[] = {"Rect",    "Ellipse",  "Triangle",
+                          "Octagon", "Pentagon", "Hexagon",
+                          "Star",    "Heart",    "Line"};
+
+  nk_layout_row_dynamic(ctx, 45, 3);
+  for (int i = 0; i < 9; i++) {
+    if (nk_button_label(ctx, labels[i])) {
+      ui->selected_node->type = types[i];
+      ui->sidebar_mode = 0;
     }
   }
 }
@@ -2824,7 +2856,58 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       if (node->type == NODE_TYPE_ELLIPSE)
         nk_fill_circle(canvas_buf, nr, fill);
-      else if (node->type == NODE_TYPE_IMAGE) {
+      else if (node->type == NODE_TYPE_TRIANGLE) {
+        struct nk_vec2 pts[3];
+        pts[0] = nk_vec2(nr.x + nr.w / 2, nr.y);
+        pts[1] = nk_vec2(nr.x, nr.y + nr.h);
+        pts[2] = nk_vec2(nr.x + nr.w, nr.y + nr.h);
+        nk_fill_polygon(canvas_buf, (const float *)pts, 3, fill);
+      } else if (node->type == NODE_TYPE_PENTAGON) {
+        struct nk_vec2 pts[5];
+        for (int i = 0; i < 5; i++) {
+          float angle = (float)i * 2.0f * 3.14159f / 5.0f - 3.14159f / 2.0f;
+          pts[i].x = nr.x + nr.w / 2 + cosf(angle) * nr.w / 2;
+          pts[i].y = nr.y + nr.h / 2 + sinf(angle) * nr.h / 2;
+        }
+        nk_fill_polygon(canvas_buf, (const float *)pts, 5, fill);
+      } else if (node->type == NODE_TYPE_HEXAGON) {
+        struct nk_vec2 pts[6];
+        for (int i = 0; i < 6; i++) {
+          float angle = (float)i * 2.0f * 3.14159f / 6.0f;
+          pts[i].x = nr.x + nr.w / 2 + cosf(angle) * nr.w / 2;
+          pts[i].y = nr.y + nr.h / 2 + sinf(angle) * nr.h / 2;
+        }
+        nk_fill_polygon(canvas_buf, (const float *)pts, 6, fill);
+      } else if (node->type == NODE_TYPE_OCTAGON) {
+        struct nk_vec2 pts[8];
+        for (int i = 0; i < 8; i++) {
+          float angle = (float)i * 2.0f * 3.14159f / 8.0f + 3.14159f / 8.0f;
+          pts[i].x = nr.x + nr.w / 2 + cosf(angle) * nr.w / 2;
+          pts[i].y = nr.y + nr.h / 2 + sinf(angle) * nr.h / 2;
+        }
+        nk_fill_polygon(canvas_buf, (const float *)pts, 8, fill);
+      } else if (node->type == NODE_TYPE_STAR) {
+        struct nk_vec2 pts[10];
+        for (int i = 0; i < 10; i++) {
+          float angle = (float)i * 2.0f * 3.14159f / 10.0f - 3.14159f / 2.0f;
+          float r = (i % 2 == 0) ? nr.w / 2 : nr.w / 4;
+          pts[i].x = nr.x + nr.w / 2 + cosf(angle) * r;
+          pts[i].y = nr.y + nr.h / 2 + sinf(angle) * r;
+        }
+        nk_fill_polygon(canvas_buf, (const float *)pts, 10, fill);
+      } else if (node->type == NODE_TYPE_HEART) {
+        // Simple heart placeholder using two circles and a triangle
+        nk_fill_circle(canvas_buf, nk_rect(nr.x, nr.y, nr.w / 2, nr.h / 2),
+                       fill);
+        nk_fill_circle(canvas_buf,
+                       nk_rect(nr.x + nr.w / 2, nr.y, nr.w / 2, nr.h / 2),
+                       fill);
+        struct nk_vec2 pts[3];
+        pts[0] = nk_vec2(nr.x, nr.y + nr.h / 4);
+        pts[1] = nk_vec2(nr.x + nr.w, nr.y + nr.h / 4);
+        pts[2] = nk_vec2(nr.x + nr.w / 2, nr.y + nr.h);
+        nk_fill_polygon(canvas_buf, (const float *)pts, 3, fill);
+      } else if (node->type == NODE_TYPE_IMAGE) {
         SDL_Texture *tex = get_image_texture(ui, node->image_path);
         if (tex) {
           struct nk_image img = nk_image_ptr(tex);
@@ -2885,23 +2968,27 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
   if (is_expanded) {
     if (nk_group_begin(ctx, "canvas_sidebar",
                        NK_WINDOW_BORDER | NK_WINDOW_SCROLL_AUTO_HIDE)) {
-      // Properties section
-      nk_layout_row_dynamic(ctx, 30, 1);
-      nk_label(ctx, "Properties", NK_TEXT_LEFT);
-      nk_layout_row_dynamic(ctx, 2, 1);
-      nk_spacing(ctx, 1);
-      ui_render_sidebar_properties(ui, ctx, block);
+      if (ui->sidebar_mode == 1) {
+        ui_render_sidebar_shape_selection(ui, ctx);
+      } else {
+        // Properties section
+        nk_layout_row_dynamic(ctx, 30, 1);
+        nk_label(ctx, "Properties", NK_TEXT_LEFT);
+        nk_layout_row_dynamic(ctx, 2, 1);
+        nk_spacing(ctx, 1);
+        ui_render_sidebar_properties(ui, ctx, block);
 
-      // Spacing between sections
-      nk_layout_row_dynamic(ctx, 20, 1);
-      nk_spacing(ctx, 1);
+        // Spacing between sections
+        nk_layout_row_dynamic(ctx, 20, 1);
+        nk_spacing(ctx, 1);
 
-      // Layers section
-      nk_layout_row_dynamic(ctx, 30, 1);
-      nk_label(ctx, "Layers", NK_TEXT_LEFT);
-      nk_layout_row_dynamic(ctx, 2, 1);
-      nk_spacing(ctx, 1);
-      ui_render_sidebar_layers(ui, ctx, block);
+        // Layers section
+        nk_layout_row_dynamic(ctx, 30, 1);
+        nk_label(ctx, "Layers", NK_TEXT_LEFT);
+        nk_layout_row_dynamic(ctx, 2, 1);
+        nk_spacing(ctx, 1);
+        ui_render_sidebar_layers(ui, ctx, block);
+      }
 
       nk_group_end(ctx);
     }
@@ -3113,7 +3200,83 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
             nk_fill_polygon(canvas_buf, pts, 3, fill);
           if (node->stroke_width > 0)
             nk_stroke_polygon(canvas_buf, pts, 3, node->stroke_width, stroke);
-        } else if (node->type == NODE_TYPE_TEXT) {
+        } else if (node->type == NODE_TYPE_PENTAGON) {
+          struct nk_vec2 pts[5];
+          for (int i = 0; i < 5; i++) {
+            float angle = (float)i * 2.0f * 3.14159f / 5.0f - 3.14159f / 2.0f;
+            pts[i].x = nr.x + nr.w / 2 + cosf(angle) * nr.w / 2;
+            pts[i].y = nr.y + nr.h / 2 + sinf(angle) * nr.h / 2;
+          }
+          if (has_fill)
+            nk_fill_polygon(canvas_buf, (const float *)pts, 5, fill);
+          if (node->stroke_width > 0)
+            nk_stroke_polygon(canvas_buf, (const float *)pts, 5,
+                              node->stroke_width, stroke);
+        } else if (node->type == NODE_TYPE_HEXAGON) {
+          struct nk_vec2 pts[6];
+          for (int i = 0; i < 6; i++) {
+            float angle = (float)i * 2.0f * 3.14159f / 6.0f;
+            pts[i].x = nr.x + nr.w / 2 + cosf(angle) * nr.w / 2;
+            pts[i].y = nr.y + nr.h / 2 + sinf(angle) * nr.h / 2;
+          }
+          if (has_fill)
+            nk_fill_polygon(canvas_buf, (const float *)pts, 6, fill);
+          if (node->stroke_width > 0)
+            nk_stroke_polygon(canvas_buf, (const float *)pts, 6,
+                              node->stroke_width, stroke);
+        } else if (node->type == NODE_TYPE_OCTAGON) {
+          struct nk_vec2 pts[8];
+          for (int i = 0; i < 8; i++) {
+            float angle = (float)i * 2.0f * 3.14159f / 8.0f + 3.14159f / 8.0f;
+            pts[i].x = nr.x + nr.w / 2 + cosf(angle) * nr.w / 2;
+            pts[i].y = nr.y + nr.h / 2 + sinf(angle) * nr.h / 2;
+          }
+          if (has_fill)
+            nk_fill_polygon(canvas_buf, (const float *)pts, 8, fill);
+          if (node->stroke_width > 0)
+            nk_stroke_polygon(canvas_buf, (const float *)pts, 8,
+                              node->stroke_width, stroke);
+        } else if (node->type == NODE_TYPE_STAR) {
+          struct nk_vec2 pts[10];
+          for (int i = 0; i < 10; i++) {
+            float angle = (float)i * 2.0f * 3.14159f / 10.0f - 3.14159f / 2.0f;
+            float r = (i % 2 == 0) ? nr.w / 2 : nr.w / 4;
+            pts[i].x = nr.x + nr.w / 2 + cosf(angle) * r;
+            pts[i].y = nr.y + nr.h / 2 + sinf(angle) * r;
+          }
+          if (has_fill)
+            nk_fill_polygon(canvas_buf, (const float *)pts, 10, fill);
+          if (node->stroke_width > 0)
+            nk_stroke_polygon(canvas_buf, (const float *)pts, 10,
+                              node->stroke_width, stroke);
+        } else if (node->type == NODE_TYPE_HEART) {
+          if (has_fill) {
+            nk_fill_circle(canvas_buf, nk_rect(nr.x, nr.y, nr.w / 2, nr.h / 2),
+                           fill);
+            nk_fill_circle(canvas_buf,
+                           nk_rect(nr.x + nr.w / 2, nr.y, nr.w / 2, nr.h / 2),
+                           fill);
+            struct nk_vec2 pts[3];
+            pts[0] = nk_vec2(nr.x, nr.y + nr.h / 4);
+            pts[1] = nk_vec2(nr.x + nr.w, nr.y + nr.h / 4);
+            pts[2] = nk_vec2(nr.x + nr.w / 2, nr.y + nr.h);
+            nk_fill_polygon(canvas_buf, (const float *)pts, 3, fill);
+          }
+          if (node->stroke_width > 0) {
+            nk_stroke_circle(canvas_buf,
+                             nk_rect(nr.x, nr.y, nr.w / 2, nr.h / 2),
+                             node->stroke_width, stroke);
+            nk_stroke_circle(canvas_buf,
+                             nk_rect(nr.x + nr.w / 2, nr.y, nr.w / 2, nr.h / 2),
+                             node->stroke_width, stroke);
+            struct nk_vec2 pts[3];
+            pts[0] = nk_vec2(nr.x, nr.y + nr.h / 4);
+            pts[1] = nk_vec2(nr.x + nr.w, nr.y + nr.h / 4);
+            pts[2] = nk_vec2(nr.x + nr.w / 2, nr.y + nr.h);
+            nk_stroke_polygon(canvas_buf, (const float *)pts, 3,
+                              node->stroke_width, stroke);
+          }
+        } else if (node->type == NODE_TYPE_LINE) {
           // Text node
 
           // Render background for sticky notes / text with bg
@@ -3519,25 +3682,27 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
   if (is_fullscreen) {
     if (nk_group_begin(ctx, "design_sidebar",
                        NK_WINDOW_BORDER | NK_WINDOW_SCROLL_AUTO_HIDE)) {
-      struct nk_command_buffer *sidebar_buf = nk_window_get_canvas(ctx);
+      if (ui->sidebar_mode == 1) {
+        ui_render_sidebar_shape_selection(ui, ctx);
+      } else {
+        // Properties section
+        nk_layout_row_dynamic(ctx, 30, 1);
+        nk_label(ctx, "Properties", NK_TEXT_LEFT);
+        nk_layout_row_dynamic(ctx, 2, 1);
+        nk_spacing(ctx, 1);
+        ui_render_sidebar_properties(ui, ctx, block);
 
-      // Properties section
-      nk_layout_row_dynamic(ctx, 30, 1);
-      nk_label(ctx, "Properties", NK_TEXT_LEFT);
-      nk_layout_row_dynamic(ctx, 2, 1);
-      nk_spacing(ctx, 1);
-      ui_render_sidebar_properties(ui, ctx, block);
+        // Spacing between sections
+        nk_layout_row_dynamic(ctx, 20, 1);
+        nk_spacing(ctx, 1);
 
-      // Spacing between sections
-      nk_layout_row_dynamic(ctx, 20, 1);
-      nk_spacing(ctx, 1);
-
-      // Layers section
-      nk_layout_row_dynamic(ctx, 30, 1);
-      nk_label(ctx, "Layers", NK_TEXT_LEFT);
-      nk_layout_row_dynamic(ctx, 2, 1);
-      nk_spacing(ctx, 1);
-      ui_render_sidebar_layers(ui, ctx, block);
+        // Layers section
+        nk_layout_row_dynamic(ctx, 30, 1);
+        nk_label(ctx, "Layers", NK_TEXT_LEFT);
+        nk_layout_row_dynamic(ctx, 2, 1);
+        nk_spacing(ctx, 1);
+        ui_render_sidebar_layers(ui, ctx, block);
+      }
 
       nk_group_end(ctx);
     }
