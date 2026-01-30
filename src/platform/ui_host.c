@@ -1934,14 +1934,14 @@ static void ui_render_sidebar_properties(UIHost *ui, struct nk_context *ctx,
                                  node->name, sizeof(node->name) - 1,
                                  nk_filter_default);
 
-  // Position and Size
-  nk_layout_row_dynamic(ctx, 25, 2);
-  nk_label(ctx, "X", NK_TEXT_LEFT);
-  nk_label(ctx, "Y", NK_TEXT_LEFT);
-  nk_layout_row_dynamic(ctx, 30, 2);
-  nk_property_float(ctx, "#", -10000.0f, &node->x, 10000.0f, 1.0f, 1.0f);
-  nk_property_float(ctx, "#", -10000.0f, &node->y, 10000.0f, 1.0f, 1.0f);
+  // Shape Type
+  nk_layout_row_dynamic(ctx, 25, 1);
+  nk_label(ctx, "Shape Type", NK_TEXT_LEFT);
+  nk_layout_row_dynamic(ctx, 30, 1);
+  const char *type_name = node_type_to_string(node->type);
+  nk_label(ctx, type_name ? type_name : "Unknown", NK_TEXT_LEFT);
 
+  // Size
   nk_layout_row_dynamic(ctx, 25, 2);
   nk_label(ctx, "Width", NK_TEXT_LEFT);
   nk_label(ctx, "Height", NK_TEXT_LEFT);
@@ -1978,10 +1978,51 @@ static void ui_render_sidebar_properties(UIHost *ui, struct nk_context *ctx,
                        ((uint32_t)combo_color.b << 8) | (uint32_t)combo_color.a;
   }
 
+  // Stroke
+  nk_layout_row_dynamic(ctx, 25, 1);
+  nk_label(ctx, "Stroke Thickness", NK_TEXT_LEFT);
+  nk_layout_row_dynamic(ctx, 30, 1);
+  nk_property_float(ctx, "#", 0.0f, &node->stroke_width, 100.0f, 0.5f, 0.25f);
+
+  nk_layout_row_dynamic(ctx, 25, 1);
+  nk_label(ctx, "Stroke Color", NK_TEXT_LEFT);
+  nk_layout_row_dynamic(ctx, 30, 1);
+  struct nk_color stroke_combo_color = nk_rgba(
+      (node->stroke_color >> 24) & 0xFF, (node->stroke_color >> 16) & 0xFF,
+      (node->stroke_color >> 8) & 0xFF, node->stroke_color & 0xFF);
+  if (nk_combo_begin_color(ctx, stroke_combo_color, nk_vec2(200, 400))) {
+    struct nk_colorf combo_colorf = nk_color_cf(stroke_combo_color);
+    nk_layout_row_dynamic(ctx, 180, 1);
+    combo_colorf = nk_color_picker(ctx, combo_colorf, NK_RGBA);
+    nk_layout_row_dynamic(ctx, 25, 1);
+    combo_colorf.r =
+        nk_propertyf(ctx, "#R:", 0, combo_colorf.r, 1, 0.01f, 0.005f);
+    combo_colorf.g =
+        nk_propertyf(ctx, "#G:", 0, combo_colorf.g, 1, 0.01f, 0.005f);
+    combo_colorf.b =
+        nk_propertyf(ctx, "#B:", 0, combo_colorf.b, 1, 0.01f, 0.005f);
+    combo_colorf.a =
+        nk_propertyf(ctx, "#A:", 0, combo_colorf.a, 1, 0.01f, 0.005f);
+    nk_combo_end(ctx);
+    stroke_combo_color =
+        nk_rgba((int)(combo_colorf.r * 255.0f), (int)(combo_colorf.g * 255.0f),
+                (int)(combo_colorf.b * 255.0f), (int)(combo_colorf.a * 255.0f));
+    node->stroke_color = ((uint32_t)stroke_combo_color.r << 24) |
+                         ((uint32_t)stroke_combo_color.g << 16) |
+                         ((uint32_t)stroke_combo_color.b << 8) |
+                         (uint32_t)stroke_combo_color.a;
+  }
+
+  // Bezier / Points (Placeholder)
+  nk_layout_row_dynamic(ctx, 25, 1);
+  nk_label(ctx, "Bezier & Points", NK_TEXT_LEFT);
+  nk_layout_row_dynamic(ctx, 30, 1);
+  nk_label(ctx, "Standard shape path", NK_TEXT_LEFT);
+
   // Node-specific Text
   if (node->type == NODE_TYPE_TEXT) {
     nk_layout_row_dynamic(ctx, 25, 1);
-    nk_label(ctx, "Text", NK_TEXT_LEFT);
+    nk_label(ctx, "Text Content", NK_TEXT_LEFT);
     nk_layout_row_dynamic(ctx, 60, 1);
     nk_edit_string_zero_terminated(ctx, NK_EDIT_BOX, node->text,
                                    sizeof(node->text) - 1, nk_filter_default);
