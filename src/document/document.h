@@ -114,6 +114,7 @@ typedef struct Node {
   // Visibility
   int visible;
   int locked;
+  int is_container;
 
   // Path data (for NODE_TYPE_PATH)
   NodePathPoint *path_points;

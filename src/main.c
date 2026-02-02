@@ -140,6 +140,15 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
                                    (int)mods);
         }
       }
+
+      // 5. Handle File Drag & Drop
+      if (e.type == SDL_DROPFILE) {
+        char *dropped_filedir = e.drop.file;
+        int mx, my;
+        SDL_GetMouseState(&mx, &my);
+        ui_host_handle_file_drop(ui, dropped_filedir, mx, my);
+        SDL_free(dropped_filedir);
+      }
     }
 
     nk_input_end(ui->ctx);

@@ -146,6 +146,46 @@ typedef struct {
       selected_color; // RGBA color for new shapes/strokes (default: 0x000000FF)
 } CanvasInteraction;
 
+typedef struct {
+  // Toolbar state (same as canvas)
+  CanvasCategory active_cat;
+  int show_sub_menu;
+
+  int space_held;    // For compatibility with Canvas toolbar
+  int pan_from_menu; // For compatibility with Canvas toolbar
+
+  int show_forms_menu; // Legacy, will be replaced
+  int pending_create;  // 0=none, 1=text, 2=image, 6=H1, 10+=forms
+  int mouse_just_pressed;
+  int mouse_just_released;
+  int is_dragging_node;
+  float drag_offset_x, drag_offset_y;
+  int is_resizing;
+  int resize_handle;
+  float resize_start_w, resize_start_h;
+  float resize_start_x, resize_start_y;
+  float resize_start_node_x, resize_start_node_y;
+
+  // Design bounds (set during render, used in events)
+  float bounds_x, bounds_y, bounds_w, bounds_h;
+  float scale;
+
+  uint32_t active_design_id;
+  Block *active_block;
+
+  // Bezier Tool State
+  int bezier_mode;
+  int dragging_point_idx;
+  int dragging_cp_idx;
+
+  // Pen Tool State
+  float pen_thickness;
+  int pen_is_marker;
+
+  // Color Selection
+  uint32_t selected_color; // RGBA color for new shapes (default: 0x000000FF)
+} DesignInteraction;
+
 // -----------------------------------------------------------------------------
 // UI Host Structure
 // -----------------------------------------------------------------------------
@@ -179,6 +219,9 @@ typedef struct UIHost {
 
   // Theme: 0=Light, 1=Dark
   int dark_mode;
+
+  // Engine reference (for document path access)
+  Engine *engine;
 
   // Tool mode: 0=select, 1=create rect, 2=create text
   int tool_mode;
@@ -224,41 +267,7 @@ typedef struct UIHost {
   // Canvas interaction state
   CanvasInteraction canvas_state;
 
-  // Design interaction state (simpler than canvas - no pan/zoom/pen)
-  struct DesignInteraction {
-    // Toolbar state (same as canvas)
-    CanvasCategory active_cat;
-    int show_sub_menu;
-
-    int space_held;    // For compatibility with Canvas toolbar
-    int pan_from_menu; // For compatibility with Canvas toolbar
-
-    int show_forms_menu; // Legacy, will be replaced
-    int pending_create;  // 0=none, 1=text, 2=image, 6=H1, 10+=forms
-    int mouse_just_pressed;
-    int mouse_just_released;
-    int is_dragging_node;
-    float drag_offset_x, drag_offset_y;
-    int is_resizing;
-    int resize_handle;
-    float resize_start_w, resize_start_h;
-    float resize_start_x, resize_start_y;
-    float resize_start_node_x, resize_start_node_y;
-    uint32_t active_design_id;
-    Block *active_block;
-
-    // Bezier Tool State
-    int bezier_mode;
-    int dragging_point_idx;
-    int dragging_cp_idx;
-
-    // Pen Tool State
-    float pen_thickness;
-    int pen_is_marker;
-
-    // Color Selection
-    uint32_t selected_color; // RGBA color for new shapes (default: 0x000000FF)
-  } design_state;
+  DesignInteraction design_state;
 
   // Mouse state for canvas
   float mouse_x, mouse_y;
@@ -294,6 +303,9 @@ void ui_shutdown(UIHost *ui);
 // -----------------------------------------------------------------------------
 
 void ui_handle_event(UIHost *ui, SDL_Event *evt);
+void ui_host_handle_file_drop(UIHost *ui, const char *file_path, int mx,
+                              int my);
+void ui_update(UIHost *ui, Engine *engine);
 void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h);
 
 // -----------------------------------------------------------------------------
