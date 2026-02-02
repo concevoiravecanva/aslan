@@ -274,7 +274,11 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
   ctx->style.edit.text_normal = COLOR_TEXT;
 
   ui->canvas_state.selected_color = 0x000000FF; // Default black
+  ui->canvas_state.pen_thickness = 2.0f;
+  ui->canvas_state.pen_is_marker = 0;
   ui->design_state.selected_color = 0x000000FF;
+  ui->design_state.pen_thickness = 2.0f;
+  ui->design_state.pen_is_marker = 0;
 
   return ui;
 }
@@ -2180,8 +2184,10 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
   float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
 
   // 6 buttons: Shapes, Text, Image, Brush, Color, Bezier
+  // Brush icon changes based on marker mode
+  const char *brush_icon = cs->pen_is_marker ? ICON_MARKER : ICON_BRUSH;
   const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT, ICON_IMAGE,
-                              ICON_BRUSH, "",        ICON_MAGIC};
+                              brush_icon, "",        ICON_MAGIC};
   int tool_count = 6;
 
   // Preset colors for color swatch cycling
@@ -2204,7 +2210,7 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     // Map button index to category (skip CANVAS_CAT_SELECT)
     int is_active = (cs->active_cat == (CanvasCategory)(i + 1));
     if (i == 3)
-      is_active = (cs->tool == CANVAS_TOOL_PEN);
+      is_active = (cs->tool == CANVAS_TOOL_PEN); // Brush/Marker combined
     if (i == 4)
       is_active = (cs->active_cat == CANVAS_CAT_COLOR);
     if (i == 5)
@@ -2228,9 +2234,21 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     }
 
     if (hovered && cs->mouse_just_pressed) {
-      if (i == 3) { // Brush button
-        cs->tool = CANVAS_TOOL_PEN;
-        cs->active_cat = CANVAS_CAT_SELECT;
+      if (i == 3) { // Brush button - toggles between brush and marker
+        printf("[DEBUG] Clicked Brush/Marker button. Current tool: %d, marker: "
+               "%d\n",
+               cs->tool, cs->pen_is_marker);
+        if (cs->tool == CANVAS_TOOL_PEN) {
+          // Already in pen mode, toggle marker mode
+          cs->pen_is_marker = !cs->pen_is_marker;
+          printf("[DEBUG] Toggled marker to: %d\n", cs->pen_is_marker);
+        } else {
+          // Activate pen tool
+          cs->tool = CANVAS_TOOL_PEN;
+          printf("[DEBUG] Set tool to CANVAS_TOOL_PEN\n");
+        }
+        cs->active_cat =
+            cs->pen_is_marker ? CANVAS_CAT_MARKER : CANVAS_CAT_BRUSH;
         cs->show_sub_menu = 0;
       } else if (i == 4) { // Color swatch button
         // Cycle through preset colors
@@ -3045,12 +3063,14 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           ui->editing_node = NULL;
           SDL_StopTextInput();
         }
-        // Start pan mode automatically
-        cs->is_panning = 1;
-        cs->pan_start_x = ui->mouse_x;
-        cs->pan_start_y = ui->mouse_y;
-        cs->cam_start_x = cs->cam_x;
-        cs->cam_start_y = cs->cam_y;
+        // Start pan mode automatically if not in pen tool
+        if (cs->tool != CANVAS_TOOL_PEN) {
+          cs->is_panning = 1;
+          cs->pan_start_x = ui->mouse_x;
+          cs->pan_start_y = ui->mouse_y;
+          cs->cam_start_x = cs->cam_x;
+          cs->cam_start_y = cs->cam_y;
+        }
       }
     }
   }
@@ -3117,15 +3137,27 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   // --- 4. PEN TOOL logic ---
   if (cs->tool == CANVAS_TOOL_PEN && cs->mouse_in_canvas && !in_toolbar &&
-      !in_forms_menu && (ui->mouse_buttons & 1)) {
+      !in_forms_menu && !cs->is_panning && (ui->mouse_buttons & 1)) {
     float wx = cam_x + (ui->mouse_x - bounds.x) / zoom,
           wy = cam_y + (ui->mouse_y - bounds.y) / zoom;
     if (cs->mouse_just_pressed) {
       cs->current_stroke = (Stroke *)calloc(1, sizeof(Stroke));
       cs->current_stroke->capacity = 128;
       cs->current_stroke->points = (Point *)calloc(128, sizeof(Point));
-      cs->current_stroke->color = cs->selected_color;
-      cs->current_stroke->thickness = cs->pen_thickness;
+      if (cs->pen_is_marker) {
+        cs->current_stroke->thickness = cs->pen_thickness * 10.0f;
+        uint32_t c = cs->selected_color;
+        uint8_t r = (c >> 24) & 0xFF;
+        uint8_t g = (c >> 16) & 0xFF;
+        uint8_t b = (c >> 8) & 0xFF;
+        uint8_t a = c & 0xFF;
+        // Reduce alpha to 30% for marker effect
+        cs->current_stroke->color =
+            (r << 24) | (g << 16) | (b << 8) | (uint8_t)(a * 0.3f);
+      } else {
+        cs->current_stroke->thickness = cs->pen_thickness;
+        cs->current_stroke->color = cs->selected_color;
+      }
       cs->current_stroke->points[0].x = wx;
       cs->current_stroke->points[0].y = wy;
       cs->current_stroke->count = 1;

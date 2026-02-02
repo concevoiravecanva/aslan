@@ -51,6 +51,7 @@ typedef enum {
   CANVAS_CAT_TEXT,
   CANVAS_CAT_MEDIA,
   CANVAS_CAT_BRUSH,
+  CANVAS_CAT_MARKER,
   CANVAS_CAT_COLOR,
   CANVAS_CAT_CHANGE
 } CanvasCategory;
@@ -250,6 +251,10 @@ typedef struct UIHost {
     int dragging_point_idx;
     int dragging_cp_idx;
 
+    // Pen Tool State
+    float pen_thickness;
+    int pen_is_marker;
+
     // Color Selection
     uint32_t selected_color; // RGBA color for new shapes (default: 0x000000FF)
   } design_state;
@@ -354,7 +359,8 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 // Canvas tools icons
 #define ICON_CURSOR "\xEE\xAA\x8A"    // ri-cursor-line (select tool)
 #define ICON_SHAPE "\xEF\x83\xB0"     // ri-shape-2-line
-#define ICON_BRUSH "\xEE\xB1\x99"     // ri-brush-line
+#define ICON_BRUSH "\xEF\x81\x89"     // ri-quill-pen-fill
+#define ICON_MARKER "\xEE\xBD\x9D"    // ri-pen-nib-fill
 #define ICON_TEXT_TOOL "\xEE\x87\x98" // ri-text (text tool)
 #define ICON_STICKY "\xEF\x83\xBC"    // ri-sticky-note-line (sticky note)
 #define ICON_HAND "\xEE\xB7\xBB"      // ri-hand (pan tool)
