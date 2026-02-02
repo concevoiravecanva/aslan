@@ -3272,7 +3272,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
       if (node->stroke_width > 0)
         nk_stroke_rect(canvas_buf, nr, node->corner_radius * zoom,
                        node->stroke_width * zoom, stroke);
-      if (ui->selected_node == node)
+      if (ui->selected_node == node && !cs->bezier_mode)
         nk_stroke_rect(canvas_buf,
                        nk_rect(nr.x - 2, nr.y - 2, nr.w + 4, nr.h + 4), 0, 2.0f,
                        nk_rgb(66, 133, 244));
@@ -3741,7 +3741,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
 
         // Selection highlight
-        if (node == ui->selected_node && is_active_design) {
+        if (node == ui->selected_node && is_active_design && !ds->bezier_mode) {
           nk_stroke_rect(canvas_buf, nk_rect(sx - 2, sy - 2, sw + 4, sh + 4),
                          2.0f, 2.0f, nk_rgb(66, 133, 244));
 
