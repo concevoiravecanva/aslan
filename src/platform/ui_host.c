@@ -2210,6 +2210,14 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
         // DEFAULT: Just create a rectangle
         cs->pending_create = 10;
         cs->show_sub_menu = 0;
+      } else if (cat == CANVAS_CAT_TEXT) {
+        // DIRECT ACTION: Create paragraph
+        cs->pending_create = 1; // 1 = Body Text
+        cs->show_sub_menu = 0;
+      } else if (cat == CANVAS_CAT_MEDIA) {
+        // DIRECT ACTION: Open image dialog
+        cs->pending_create = 3; // 3 = Image
+        cs->show_sub_menu = 0;
       } else if (i == 3) { // Change (Magic) button
         cs->bezier_mode = !cs->bezier_mode;
         if (cs->bezier_mode && ui->selected_node) {
@@ -4142,32 +4150,40 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       float def_h = 80.0f;
 
       if (ds->pending_create == 1) {
-        // Text
+        // Text (Paragraph)
         new_node = design_create_styled_node(dd, NODE_STYLE_TEXT, center_x,
-                                             center_y, 120.0f, 30.0f);
-      } else if (ds->pending_create == 2) {
-        // Image - for now create placeholder
-        Node *img = (Node *)calloc(1, sizeof(Node));
-        if (img && dd->root) {
-          img->id = dd->next_node_id++;
-          img->type = NODE_TYPE_IMAGE;
-          img->x = center_x;
-          img->y = center_y;
-          img->width = 150.0f;
-          img->height = 100.0f;
-          img->visible = 1;
-          img->parent = dd->root;
-          img->fill_color = 0xFFFFFFFF;
-          strncpy(img->text, "Image", sizeof(img->text) - 1);
-          if (!dd->root->first_child) {
-            dd->root->first_child = img;
-          } else {
-            Node *last = dd->root->first_child;
-            while (last->next_sibling)
-              last = last->next_sibling;
-            last->next_sibling = img;
+                                             center_y, 200.0f, 40.0f);
+        if (new_node) {
+          strncpy(new_node->text, "Paragraph text", sizeof(new_node->text) - 1);
+        }
+      } else if (ds->pending_create == 3) {
+        // Image - Open file dialog
+        char path[512] = {0};
+        if (open_image_file_dialog(path, sizeof(path))) {
+          char rel[256] = {0};
+          if (copy_image_to_assets(path, ".", rel, sizeof(rel))) {
+            Node *img = (Node *)calloc(1, sizeof(Node));
+            if (img && dd->root) {
+              img->id = dd->next_node_id++;
+              img->type = NODE_TYPE_IMAGE;
+              img->x = center_x;
+              img->y = center_y;
+              img->width = 200.0f;
+              img->height = 150.0f;
+              img->visible = 1;
+              img->parent = dd->root;
+              strncpy(img->image_path, rel, sizeof(img->image_path) - 1);
+              if (!dd->root->first_child) {
+                dd->root->first_child = img;
+              } else {
+                Node *last = dd->root->first_child;
+                while (last->next_sibling)
+                  last = last->next_sibling;
+                last->next_sibling = img;
+              }
+              new_node = img;
+            }
           }
-          new_node = img;
         }
       } else if (ds->pending_create >= 10 && ds->pending_create <= 13) {
         NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
