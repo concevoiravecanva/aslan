@@ -317,47 +317,87 @@ void ui_host_handle_file_drop(UIHost *ui, const char *file_path, int mx,
       strcpy(doc_dir, ".");
     }
   }
+  printf("[DEBUG] Document directory: %s\n", doc_dir);
 
   // 1. Try Canvas blocks
   CanvasInteraction *cs = &ui->canvas_state;
+  printf("[DEBUG] Canvas bounds: x=%.1f y=%.1f w=%.1f h=%.1f\n", cs->bounds_x,
+         cs->bounds_y, cs->bounds_w, cs->bounds_h);
+
   if (mx >= cs->bounds_x && mx < cs->bounds_x + cs->bounds_w &&
       my >= cs->bounds_y && my < cs->bounds_y + cs->bounds_h) {
+    printf("[DEBUG] Mouse is in canvas bounds\n");
     if (cs->active_block && cs->active_block->type == BLOCK_CANVAS) {
+      printf("[DEBUG] Active canvas block found\n");
       CanvasData *cd = &cs->active_block->data.canvas;
       float wx = cs->cam_x + (mx - cs->bounds_x) / cs->zoom;
       float wy = cs->cam_y + (my - cs->bounds_y) / cs->zoom;
+      printf(
+          "[DEBUG] World coords: wx=%.1f wy=%.1f (cam: %.1f,%.1f zoom: %.2f)\n",
+          wx, wy, cs->cam_x, cs->cam_y, cs->zoom);
       Node *hit = canvas_find_node_at(cd, wx, wy);
-      if (hit && hit->is_container) {
-        char rel[256];
-        if (copy_image_to_assets(file_path, doc_dir, rel, sizeof(rel))) {
-          strncpy(hit->image_path, rel, sizeof(hit->image_path) - 1);
-          printf("[DEBUG] Set container image: %s\n", hit->image_path);
+      if (hit) {
+        printf("[DEBUG] Hit node found, is_container=%d\n", hit->is_container);
+        if (hit->is_container) {
+          char rel[256];
+          if (copy_image_to_assets(file_path, doc_dir, rel, sizeof(rel))) {
+            strncpy(hit->image_path, rel, sizeof(hit->image_path) - 1);
+            printf("[DEBUG] Set container image: %s\n", hit->image_path);
+          } else {
+            printf("[DEBUG] Failed to copy image to assets\n");
+          }
+          return;
         }
-        return;
+      } else {
+        printf("[DEBUG] No node hit at world coords\n");
       }
+    } else {
+      printf("[DEBUG] No active canvas block\n");
     }
+  } else {
+    printf("[DEBUG] Mouse NOT in canvas bounds\n");
   }
 
   // 2. Try Design blocks
   DesignInteraction *ds = &ui->design_state;
+  printf("[DEBUG] Design bounds: x=%.1f y=%.1f w=%.1f h=%.1f\n", ds->bounds_x,
+         ds->bounds_y, ds->bounds_w, ds->bounds_h);
+
   if (mx >= ds->bounds_x && mx < ds->bounds_x + ds->bounds_w &&
       my >= ds->bounds_y && my < ds->bounds_y + ds->bounds_h) {
+    printf("[DEBUG] Mouse is in design bounds\n");
     if (ds->active_block && ds->active_block->type == BLOCK_DESIGN) {
+      printf("[DEBUG] Active design block found\n");
       DesignData *dd = &ds->active_block->data.design;
       float scale = ds->scale;
       float design_x = (mx - ds->bounds_x) / (scale > 0 ? scale : 1.0f);
       float design_y = (my - ds->bounds_y) / (scale > 0 ? scale : 1.0f);
+      printf("[DEBUG] Design coords: x=%.1f y=%.1f (scale: %.2f)\n", design_x,
+             design_y, scale);
       Node *hit = design_find_node_at(dd, design_x, design_y);
-      if (hit && hit->is_container) {
-        char rel[256];
-        if (copy_image_to_assets(file_path, doc_dir, rel, sizeof(rel))) {
-          strncpy(hit->image_path, rel, sizeof(hit->image_path) - 1);
-          printf("[DEBUG] Set container image: %s\n", hit->image_path);
+      if (hit) {
+        printf("[DEBUG] Hit node found, is_container=%d\n", hit->is_container);
+        if (hit->is_container) {
+          char rel[256];
+          if (copy_image_to_assets(file_path, doc_dir, rel, sizeof(rel))) {
+            strncpy(hit->image_path, rel, sizeof(hit->image_path) - 1);
+            printf("[DEBUG] Set container image: %s\n", hit->image_path);
+          } else {
+            printf("[DEBUG] Failed to copy image to assets\n");
+          }
+          return;
         }
-        return;
+      } else {
+        printf("[DEBUG] No node hit at design coords\n");
       }
+    } else {
+      printf("[DEBUG] No active design block\n");
     }
+  } else {
+    printf("[DEBUG] Mouse NOT in design bounds\n");
   }
+
+  printf("[DEBUG] File drop not handled\n");
 }
 
 void ui_handle_event(UIHost *ui, SDL_Event *evt) {
@@ -2241,6 +2281,30 @@ static void ui_render_sidebar_shape_selection(UIHost *ui,
   }
 }
 
+static void recursive_convert_to_path(Node *node) {
+  if (!node)
+    return;
+
+  // Convert current node only if it's a basic geometry shape
+  // Note: We avoid converting TEXT or IMAGE or existing PATHs
+  if (node->type == NODE_TYPE_RECT || node->type == NODE_TYPE_ELLIPSE ||
+      node->type == NODE_TYPE_TRIANGLE || node->type == NODE_TYPE_OCTAGON ||
+      node->type == NODE_TYPE_HEART || node->type == NODE_TYPE_PENTAGON ||
+      node->type == NODE_TYPE_HEXAGON || node->type == NODE_TYPE_STAR) {
+    node_convert_to_path(node);
+  }
+
+  // Recurse to children
+  if (node->first_child) {
+    recursive_convert_to_path(node->first_child);
+  }
+
+  // Recurse to siblings
+  if (node->next_sibling) {
+    recursive_convert_to_path(node->next_sibling);
+  }
+}
+
 static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
                                   struct nk_rect bounds, Block *block) {
   (void)block;
@@ -2327,6 +2391,10 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     }
 
     if (hovered && cs->mouse_just_pressed) {
+      if (i == 5) {
+        printf("[DEBUG] Bezier button hovered and mouse_just_pressed=%d\n",
+               cs->mouse_just_pressed);
+      }
       if (i ==
           3) { // Brush button - toggles between brush, marker and deselected
         printf("[DEBUG] Clicked Brush/Marker button. Current tool: %d, marker: "
@@ -2375,9 +2443,13 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
         }
       } else if (i == 5) { // Bezier (Magic) button
         cs->bezier_mode = !cs->bezier_mode;
-        if (cs->bezier_mode && ui->selected_node) {
-          node_convert_to_path(ui->selected_node);
+
+        // Convert ALL shapes in the current document to paths
+        if (cs->bezier_mode && block->type == BLOCK_CANVAS &&
+            block->data.canvas.root) {
+          recursive_convert_to_path(block->data.canvas.root);
         }
+
         cs->active_cat = CANVAS_CAT_SELECT;
         cs->show_sub_menu = 0;
       } else {
@@ -3723,8 +3795,8 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
                        nk_rgb(66, 133, 244));
 
       // Bezier handles interaction and rendering
-      if (cs->bezier_mode && ui->selected_node == node &&
-          node->type == NODE_TYPE_PATH) {
+      // Show handles for ALL path nodes when bezier mode is active
+      if (cs->bezier_mode && node->type == NODE_TYPE_PATH) {
         for (int i = 0; i < node->path_point_count; i++) {
           NodePathPoint *p = &node->path_points[i];
           float px = sx + p->x * zoom;
@@ -4368,8 +4440,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
 
         // Bezier handles interaction and rendering
-        if (ds->bezier_mode && ui->selected_node == node &&
-            node->type == NODE_TYPE_PATH) {
+        // Show handles for ALL path nodes when bezier mode is active
+        if (ds->bezier_mode && node->type == NODE_TYPE_PATH) {
           for (int i = 0; i < node->path_point_count; i++) {
             NodePathPoint *p = &node->path_points[i];
             float px = sx + p->x * scale, py = sy + p->y * scale;

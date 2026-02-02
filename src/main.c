@@ -60,6 +60,12 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
     nk_input_begin(ui->ctx);
 
     while (SDL_PollEvent(&e) != 0) {
+      // Debug: log all event types
+      if (e.type == SDL_DROPFILE) {
+        printf(
+            "[DEBUG] *** SDL_DROPFILE event detected in SDL_PollEvent! ***\n");
+      }
+
       scripting_set_key_mods(SDL_GetModState());
 
       // Quit event
@@ -141,11 +147,12 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
         }
       }
 
-      // 5. Handle File Drag & Drop
+      // 5. Handle File Drag & Drop (always process, regardless of UI state)
       if (e.type == SDL_DROPFILE) {
         char *dropped_filedir = e.drop.file;
         int mx, my;
         SDL_GetMouseState(&mx, &my);
+        printf("[DEBUG] SDL_DROPFILE event received\n");
         ui_host_handle_file_drop(ui, dropped_filedir, mx, my);
         SDL_free(dropped_filedir);
       }
