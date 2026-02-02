@@ -273,6 +273,9 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
   ctx->style.edit.border_color = COLOR_BORDER;
   ctx->style.edit.text_normal = COLOR_TEXT;
 
+  ui->canvas_state.selected_color = 0x000000FF; // Default black
+  ui->design_state.selected_color = 0x000000FF;
+
   return ui;
 }
 
@@ -2145,10 +2148,10 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
                                   struct nk_rect bounds, Block *block) {
   (void)block;
 
-  // 4 buttons: Shapes, Text, Media, Change
+  // 6 buttons: Shapes, Text, Image, Brush, Color, Bezier
   const float btn_size = 36.0f;
   const float btn_spacing = 8.0f;
-  const float toolbar_w = 4 * btn_size + 3 * btn_spacing + 24.0f;
+  const float toolbar_w = 6 * btn_size + 5 * btn_spacing + 24.0f;
   const float toolbar_h = 52.0f;
   const float margin = 20.0f;
 
@@ -2176,9 +2179,23 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
   float btn_x = toolbar_x + 12.0f;
   float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
 
-  // Skip ICON_CURSOR (Select) - start with Shapes
-  const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT, ICON_IMAGE, ICON_MAGIC};
-  int tool_count = 4;
+  // 6 buttons: Shapes, Text, Image, Brush, Color, Bezier
+  const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT, ICON_IMAGE,
+                              ICON_BRUSH, "",        ICON_MAGIC};
+  int tool_count = 6;
+
+  // Preset colors for color swatch cycling
+  static uint32_t preset_colors[] = {
+      0x000000FF, // Black
+      0xFF0000FF, // Red
+      0x0000FFFF, // Blue
+      0x00FF00FF, // Green
+      0xFFFF00FF, // Yellow
+      0xFF00FFFF, // Magenta
+      0xFF8800FF, // Orange
+      0xFF69B4FF  // Pink
+  };
+  static int preset_count = 8;
 
   for (int i = 0; i < tool_count; i++) {
     struct nk_rect btn = nk_rect(btn_x + i * (btn_size + btn_spacing), btn_y,
@@ -2186,6 +2203,12 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
 
     // Map button index to category (skip CANVAS_CAT_SELECT)
     int is_active = (cs->active_cat == (CanvasCategory)(i + 1));
+    if (i == 3)
+      is_active = (cs->tool == CANVAS_TOOL_PEN);
+    if (i == 4)
+      is_active = (cs->active_cat == CANVAS_CAT_COLOR);
+    if (i == 5)
+      is_active = cs->bezier_mode;
     int hovered = (ui->mouse_x >= btn.x && ui->mouse_x < btn.x + btn.w &&
                    ui->mouse_y >= btn.y && ui->mouse_y < btn.y + btn.h);
 
@@ -2205,32 +2228,69 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     }
 
     if (hovered && cs->mouse_just_pressed) {
-      CanvasCategory cat = (CanvasCategory)(i + 1); // Skip CANVAS_CAT_SELECT
-      if (cat == CANVAS_CAT_SHAPES) {
-        // DEFAULT: Just create a rectangle
-        cs->pending_create = 10;
+      if (i == 3) { // Brush button
+        cs->tool = CANVAS_TOOL_PEN;
+        cs->active_cat = CANVAS_CAT_SELECT;
         cs->show_sub_menu = 0;
-      } else if (cat == CANVAS_CAT_TEXT) {
-        // DIRECT ACTION: Create paragraph
-        cs->pending_create = 1; // 1 = Body Text
-        cs->show_sub_menu = 0;
-      } else if (cat == CANVAS_CAT_MEDIA) {
-        // DIRECT ACTION: Open image dialog
-        cs->pending_create = 3; // 3 = Image
-        cs->show_sub_menu = 0;
-      } else if (i == 3) { // Change (Magic) button
+      } else if (i == 4) { // Color swatch button
+        // Cycle through preset colors
+        int current_idx = 0;
+        for (int c = 0; c < preset_count; c++) {
+          if (cs->selected_color == preset_colors[c]) {
+            current_idx = c;
+            break;
+          }
+        }
+        cs->selected_color = preset_colors[(current_idx + 1) % preset_count];
+
+        // Also apply to current selection if any
+        if (ui->selected_node) {
+          ui->selected_node->fill_color = cs->selected_color;
+          if (ui->selected_node->type == NODE_TYPE_RECT &&
+              ui->selected_node->height < 10) {
+            ui->selected_node->stroke_color = cs->selected_color; // For lines
+          }
+        }
+      } else if (i == 5) { // Bezier (Magic) button
         cs->bezier_mode = !cs->bezier_mode;
         if (cs->bezier_mode && ui->selected_node) {
           node_convert_to_path(ui->selected_node);
         }
         cs->active_cat = CANVAS_CAT_SELECT;
         cs->show_sub_menu = 0;
-      } else if (cs->active_cat == cat) {
-        cs->show_sub_menu = !cs->show_sub_menu;
       } else {
-        cs->active_cat = cat;
-        cs->show_sub_menu = 1; // Open sub-menu for others
+        CanvasCategory cat = (CanvasCategory)(i + 1); // Skip CANVAS_CAT_SELECT
+        if (cat == CANVAS_CAT_SHAPES) {
+          // DEFAULT: Just create a rectangle
+          cs->pending_create = 10;
+          cs->show_sub_menu = 0;
+        } else if (cat == CANVAS_CAT_TEXT) {
+          // DIRECT ACTION: Create paragraph
+          cs->pending_create = 1; // 1 = Body Text
+          cs->show_sub_menu = 0;
+        } else if (cat == CANVAS_CAT_MEDIA) {
+          // DIRECT ACTION: Open image dialog
+          cs->pending_create = 3; // 3 = Image
+          cs->show_sub_menu = 0;
+        } else if (cs->active_cat == cat) {
+          cs->show_sub_menu = !cs->show_sub_menu;
+        } else {
+          cs->active_cat = cat;
+          cs->show_sub_menu = 1; // Open sub-menu for others
+        }
       }
+    }
+
+    // Special rendering for color swatch (button 4)
+    if (i == 4) {
+      // Draw color swatch instead of icon
+      struct nk_color swatch_color = nk_rgba(
+          (cs->selected_color >> 24) & 0xFF, (cs->selected_color >> 16) & 0xFF,
+          (cs->selected_color >> 8) & 0xFF, cs->selected_color & 0xFF);
+      struct nk_rect swatch_rect =
+          nk_rect(btn.x + 8, btn.y + 8, btn_size - 16, btn_size - 16);
+      nk_fill_circle(canvas_buf, swatch_rect, swatch_color);
+      nk_stroke_circle(canvas_buf, swatch_rect, 1.5f, nk_rgb(100, 100, 100));
     }
 
     // Render sub-menu if active
@@ -2255,7 +2315,8 @@ typedef enum {
 } NodeStyleType;
 
 static Node *design_create_styled_node(DesignData *dd, NodeStyleType style,
-                                       float x, float y, float w, float h) {
+                                       float x, float y, float w, float h,
+                                       uint32_t color) {
   if (!dd || !dd->root)
     return NULL;
 
@@ -2275,7 +2336,7 @@ static Node *design_create_styled_node(DesignData *dd, NodeStyleType style,
   switch (style) {
   case NODE_STYLE_RECT:
     node->type = NODE_TYPE_RECT;
-    node->fill_color = 0x4285F4FF; // Blue
+    node->fill_color = color;
     node->stroke_color = 0x1A73E8FF;
     node->stroke_width = 0.0f;
     node->corner_radius = 8.0f;
@@ -2283,7 +2344,7 @@ static Node *design_create_styled_node(DesignData *dd, NodeStyleType style,
 
   case NODE_STYLE_ELLIPSE:
     node->type = NODE_TYPE_ELLIPSE;
-    node->fill_color = 0x34A853FF; // Green
+    node->fill_color = color;
     node->stroke_color = 0x1E8E3EFF;
     node->stroke_width = 0.0f;
     node->corner_radius = 0.0f;
@@ -2291,7 +2352,7 @@ static Node *design_create_styled_node(DesignData *dd, NodeStyleType style,
 
   case NODE_STYLE_TRIANGLE:
     node->type = NODE_TYPE_TRIANGLE;
-    node->fill_color = 0xFBBC04FF; // Yellow
+    node->fill_color = color;
     node->stroke_color = 0xF9A825FF;
     node->stroke_width = 0.0f;
     node->corner_radius = 0.0f;
@@ -2299,8 +2360,8 @@ static Node *design_create_styled_node(DesignData *dd, NodeStyleType style,
 
   case NODE_STYLE_LINE:
     node->type = NODE_TYPE_RECT;
-    node->fill_color = 0x5F6368FF; // Gray
-    node->stroke_color = 0x5F6368FF;
+    node->fill_color = color;
+    node->stroke_color = color;
     node->stroke_width = 2.0f;
     node->corner_radius = 0.0f;
     node->height = 4.0f; // Thin line
@@ -2330,7 +2391,8 @@ static Node *design_create_styled_node(DesignData *dd, NodeStyleType style,
 }
 
 static Node *canvas_create_styled_node(CanvasData *cd, NodeStyleType style,
-                                       float x, float y, float w, float h) {
+                                       float x, float y, float w, float h,
+                                       uint32_t color) {
   if (!cd->root)
     return NULL;
 
@@ -2349,7 +2411,7 @@ static Node *canvas_create_styled_node(CanvasData *cd, NodeStyleType style,
   switch (style) {
   case NODE_STYLE_RECT:
     node->type = NODE_TYPE_RECT;
-    node->fill_color = 0x4285F4FF; // Blue
+    node->fill_color = color;
     node->stroke_color = 0x1A73E8FF;
     node->stroke_width = 0.0f;
     node->corner_radius = 8.0f;
@@ -2357,7 +2419,7 @@ static Node *canvas_create_styled_node(CanvasData *cd, NodeStyleType style,
 
   case NODE_STYLE_ELLIPSE:
     node->type = NODE_TYPE_ELLIPSE;
-    node->fill_color = 0x34A853FF; // Green
+    node->fill_color = color;
     node->stroke_color = 0x1E8E3EFF;
     node->stroke_width = 0.0f;
     node->corner_radius = 0.0f;
@@ -2365,7 +2427,7 @@ static Node *canvas_create_styled_node(CanvasData *cd, NodeStyleType style,
 
   case NODE_STYLE_TRIANGLE:
     node->type = NODE_TYPE_TRIANGLE;
-    node->fill_color = 0xFBBC04FF; // Yellow
+    node->fill_color = color;
     node->stroke_color = 0xF9A825FF;
     node->stroke_width = 0.0f;
     node->corner_radius = 0.0f;
@@ -2373,8 +2435,8 @@ static Node *canvas_create_styled_node(CanvasData *cd, NodeStyleType style,
 
   case NODE_STYLE_LINE:
     node->type = NODE_TYPE_RECT;
-    node->fill_color = 0x5F6368FF; // Gray
-    node->stroke_color = 0x5F6368FF;
+    node->fill_color = color;
+    node->stroke_color = color;
     node->stroke_width = 2.0f;
     node->corner_radius = 0.0f;
     node->height = 4.0f; // Thin line
@@ -2382,7 +2444,7 @@ static Node *canvas_create_styled_node(CanvasData *cd, NodeStyleType style,
 
   case NODE_STYLE_TEXT:
     node->type = NODE_TYPE_TEXT;
-    node->fill_color = 0x00000000; // Transparent - no background
+    node->fill_color = 0x00000000; // Transparent
     node->stroke_color = 0x00000000;
     node->stroke_width = 0.0f;
     node->corner_radius = 0.0f;
@@ -2799,21 +2861,21 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     if (cs->pending_create == 1) {
       // Body text
-      new_node =
-          canvas_create_styled_node(cd, NODE_STYLE_TEXT, nx, ny, 200.0f, 40.0f);
+      new_node = canvas_create_styled_node(cd, NODE_STYLE_TEXT, nx, ny, 200.0f,
+                                           40.0f, cs->selected_color);
       if (new_node) {
         strncpy(new_node->text, "Body text", sizeof(new_node->text) - 1);
       }
     } else if (cs->pending_create == 6) {
       // H1 Heading
-      new_node =
-          canvas_create_styled_node(cd, NODE_STYLE_TEXT, nx, ny, 300.0f, 60.0f);
+      new_node = canvas_create_styled_node(cd, NODE_STYLE_TEXT, nx, ny, 300.0f,
+                                           60.0f, cs->selected_color);
       if (new_node) {
         strncpy(new_node->text, "Heading", sizeof(new_node->text) - 1);
       }
     } else if (cs->pending_create == 2) {
       new_node = canvas_create_styled_node(cd, NODE_STYLE_RECT, nx, ny, 120.0f,
-                                           120.0f);
+                                           120.0f, cs->selected_color);
       if (new_node) {
         new_node->fill_color = 0xFFF9C4FF;
         new_node->stroke_color = 0xFBC02DFF;
@@ -2850,14 +2912,15 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     } else if (cs->pending_create == 4) {
       new_node = canvas_create_styled_node(cd, NODE_STYLE_RECT, nx, ny, 200.0f,
-                                           120.0f);
+                                           120.0f, cs->selected_color);
       if (new_node)
         new_node->type = NODE_TYPE_IMAGE;
     } else if (cs->pending_create >= 10 && cs->pending_create <= 13) {
       NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
                                 NODE_STYLE_TRIANGLE, NODE_STYLE_LINE};
-      new_node = canvas_create_styled_node(cd, styles[cs->pending_create - 10],
-                                           nx, ny, def_w, def_h);
+      new_node =
+          canvas_create_styled_node(cd, styles[cs->pending_create - 10], nx, ny,
+                                    def_w, def_h, cs->selected_color);
     }
     if (new_node)
       ui->selected_node = new_node;
@@ -3061,7 +3124,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
       cs->current_stroke = (Stroke *)calloc(1, sizeof(Stroke));
       cs->current_stroke->capacity = 128;
       cs->current_stroke->points = (Point *)calloc(128, sizeof(Point));
-      cs->current_stroke->color = cs->pen_color;
+      cs->current_stroke->color = cs->selected_color;
       cs->current_stroke->thickness = cs->pen_thickness;
       cs->current_stroke->points[0].x = wx;
       cs->current_stroke->points[0].y = wy;
@@ -3505,17 +3568,17 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       if (ds->pending_create == 1) { // Body
         new_node = design_create_styled_node(dd, NODE_STYLE_TEXT, nx, ny,
-                                             200.0f, 40.0f);
+                                             200.0f, 40.0f, ds->selected_color);
         if (new_node)
           strncpy(new_node->text, "Body text", sizeof(new_node->text) - 1);
       } else if (ds->pending_create == 6) { // H1
         new_node = design_create_styled_node(dd, NODE_STYLE_TEXT, nx, ny,
-                                             300.0f, 60.0f);
+                                             300.0f, 60.0f, ds->selected_color);
         if (new_node)
           strncpy(new_node->text, "Heading", sizeof(new_node->text) - 1);
       } else if (ds->pending_create == 2) { // Sticky
-        new_node = design_create_styled_node(dd, NODE_STYLE_RECT, nx, ny,
-                                             120.0f, 120.0f);
+        new_node = design_create_styled_node(
+            dd, NODE_STYLE_RECT, nx, ny, 120.0f, 120.0f, ds->selected_color);
         if (new_node) {
           new_node->fill_color = 0xFFF9C4FF;
           new_node->stroke_color = 0xFBC02DFF;
@@ -3525,8 +3588,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       } else if (ds->pending_create >= 10 && ds->pending_create <= 13) {
         NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
                                   NODE_STYLE_TRIANGLE, NODE_STYLE_LINE};
-        new_node = design_create_styled_node(
-            dd, styles[ds->pending_create - 10], nx, ny, def_w, def_h);
+        new_node =
+            design_create_styled_node(dd, styles[ds->pending_create - 10], nx,
+                                      ny, def_w, def_h, ds->selected_color);
       }
 
       if (new_node)
@@ -3838,6 +3902,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ui->canvas_state.bezier_mode = ds->bezier_mode;
       ui->canvas_state.dragging_point_idx = ds->dragging_point_idx;
       ui->canvas_state.dragging_cp_idx = ds->dragging_cp_idx;
+      ui->canvas_state.selected_color =
+          ds->selected_color; // Sync selected color
 
       // Check if mouse in toolbar for Design interaction
       canvas_render_toolbar(
@@ -3853,6 +3919,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ds->bezier_mode = ui->canvas_state.bezier_mode;
       ds->dragging_point_idx = ui->canvas_state.dragging_point_idx;
       ds->dragging_cp_idx = ui->canvas_state.dragging_cp_idx;
+      ds->selected_color =
+          ui->canvas_state.selected_color; // Sync selected color
 
       // Restore Canvas state
       ui->canvas_state = temp_cs;
@@ -4151,8 +4219,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       if (ds->pending_create == 1) {
         // Text (Paragraph)
-        new_node = design_create_styled_node(dd, NODE_STYLE_TEXT, center_x,
-                                             center_y, 200.0f, 40.0f);
+        new_node =
+            design_create_styled_node(dd, NODE_STYLE_TEXT, center_x, center_y,
+                                      200.0f, 40.0f, ds->selected_color);
         if (new_node) {
           strncpy(new_node->text, "Paragraph text", sizeof(new_node->text) - 1);
         }
@@ -4190,11 +4259,13 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                   NODE_STYLE_TRIANGLE, NODE_STYLE_LINE};
         int idx = ds->pending_create - 10;
         if (idx == 3) {
-          new_node = design_create_styled_node(dd, styles[idx], center_x,
-                                               center_y, 150.0f, 4.0f);
+          new_node =
+              design_create_styled_node(dd, styles[idx], center_x, center_y,
+                                        150.0f, 4.0f, ds->selected_color);
         } else {
-          new_node = design_create_styled_node(dd, styles[idx], center_x,
-                                               center_y, def_w, def_h);
+          new_node =
+              design_create_styled_node(dd, styles[idx], center_x, center_y,
+                                        100.0f, 80.0f, ds->selected_color);
         }
       }
 

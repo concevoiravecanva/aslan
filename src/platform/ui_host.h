@@ -50,6 +50,8 @@ typedef enum {
   CANVAS_CAT_SHAPES,
   CANVAS_CAT_TEXT,
   CANVAS_CAT_MEDIA,
+  CANVAS_CAT_BRUSH,
+  CANVAS_CAT_COLOR,
   CANVAS_CAT_CHANGE
 } CanvasCategory;
 
@@ -136,6 +138,10 @@ typedef struct {
   int bezier_mode;
   int dragging_point_idx; // Index of the point being dragged (-1 = none)
   int dragging_cp_idx;    // 0 = anchor, 1 = cp1, 2 = cp2
+
+  // Color Selection
+  uint32_t
+      selected_color; // RGBA color for new shapes/strokes (default: 0x000000FF)
 } CanvasInteraction;
 
 // -----------------------------------------------------------------------------
@@ -243,6 +249,9 @@ typedef struct UIHost {
     int bezier_mode;
     int dragging_point_idx;
     int dragging_cp_idx;
+
+    // Color Selection
+    uint32_t selected_color; // RGBA color for new shapes (default: 0x000000FF)
   } design_state;
 
   // Mouse state for canvas
@@ -345,7 +354,7 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 // Canvas tools icons
 #define ICON_CURSOR "\xEE\xAA\x8A"    // ri-cursor-line (select tool)
 #define ICON_SHAPE "\xEF\x83\xB0"     // ri-shape-2-line
-#define ICON_PENCIL "\xEE\xBF\x8F"    // ri-pencil-line (pen tool)
+#define ICON_BRUSH "\xEE\xB1\x99"     // ri-brush-line
 #define ICON_TEXT_TOOL "\xEE\x87\x98" // ri-text (text tool)
 #define ICON_STICKY "\xEF\x83\xBC"    // ri-sticky-note-line (sticky note)
 #define ICON_HAND "\xEE\xB7\xBB"      // ri-hand (pan tool)
