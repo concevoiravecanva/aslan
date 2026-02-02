@@ -70,7 +70,8 @@ typedef enum {
   NODE_TYPE_PENTAGON = 11,
   NODE_TYPE_HEXAGON = 12,
   NODE_TYPE_STAR = 13,
-  NODE_TYPE_PATH = 14
+  NODE_TYPE_PATH = 14,
+  NODE_TYPE_STROKE = 15
 } NodeType;
 
 // -----------------------------------------------------------------------------
@@ -117,6 +118,9 @@ typedef struct Node {
   // Path data (for NODE_TYPE_PATH)
   NodePathPoint *path_points;
   int path_point_count;
+
+  // Stroke data (for NODE_TYPE_STROKE)
+  struct Stroke *stroke_data;
 
   // Hierarchy (linked list tree)
   struct Node *parent;

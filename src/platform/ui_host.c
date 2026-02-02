@@ -2088,8 +2088,27 @@ static void ui_render_sidebar_layers(UIHost *ui, struct nk_context *ctx,
     bstyle.text_active = COLOR_TEXT;
     bstyle.padding = nk_vec2(4, 4);
 
-    if (nk_button_label_styled(ctx, &bstyle,
-                               node->name[0] ? node->name : "Untitled")) {
+    const char *node_display_name = node->name[0] ? node->name : "Untitled";
+    if (!node->name[0]) {
+      if (node->type == NODE_TYPE_RECT)
+        node_display_name = "Rectangle";
+      else if (node->type == NODE_TYPE_ELLIPSE)
+        node_display_name = "Ellipse";
+      else if (node->type == NODE_TYPE_TEXT)
+        node_display_name = "Text";
+      else if (node->type == NODE_TYPE_IMAGE)
+        node_display_name = "Image";
+      else if (node->type == NODE_TYPE_PATH)
+        node_display_name = "Path";
+      else if (node->type == NODE_TYPE_STROKE) {
+        if (node->stroke_data && node->stroke_data->type == STROKE_TYPE_MARKER)
+          node_display_name = "Marker Stroke";
+        else
+          node_display_name = "Pen Stroke";
+      }
+    }
+
+    if (nk_button_label_styled(ctx, &bstyle, node_display_name)) {
       ui->selected_node = node;
     }
 
@@ -3185,7 +3204,33 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
       cs->current_stroke->points[0].x = wx;
       cs->current_stroke->points[0].y = wy;
       cs->current_stroke->count = 1;
-      block_canvas_add_stroke(block, cs->current_stroke);
+
+      // Wrap it in a Node so it appears in Layers
+      Node *node = (Node *)calloc(1, sizeof(Node));
+      if (node) {
+        node->id = cd->next_node_id++;
+        node->type = NODE_TYPE_STROKE;
+        node->stroke_data = cs->current_stroke;
+        node->visible = 1;
+        node->parent = cd->root;
+
+        // Add to document tree
+        if (!cd->root->first_child) {
+          cd->root->first_child = node;
+        } else {
+          Node *last = cd->root->first_child;
+          while (last->next_sibling)
+            last = last->next_sibling;
+          last->next_sibling = node;
+        }
+        cs->current_stroke_node = node;
+
+        // Initialize bounds
+        node->x = wx;
+        node->y = wy;
+        node->width = 1.0f;
+        node->height = 1.0f;
+      }
     } else if (cs->current_stroke) {
       if (cs->current_stroke->count >= cs->current_stroke->capacity) {
         cs->current_stroke->capacity *= 2;
@@ -3199,6 +3244,28 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
         cs->current_stroke->points[cs->current_stroke->count].x = wx;
         cs->current_stroke->points[cs->current_stroke->count].y = wy;
         cs->current_stroke->count++;
+
+        // Update node bounds for culling
+        if (cs->current_stroke_node) {
+          float min_x = cs->current_stroke_node->x;
+          float min_y = cs->current_stroke_node->y;
+          float max_x = min_x + cs->current_stroke_node->width;
+          float max_y = min_y + cs->current_stroke_node->height;
+
+          if (wx < min_x)
+            min_x = wx;
+          if (wy < min_y)
+            min_y = wy;
+          if (wx > max_x)
+            max_x = wx;
+          if (wy > max_y)
+            max_y = wy;
+
+          cs->current_stroke_node->x = min_x;
+          cs->current_stroke_node->y = min_y;
+          cs->current_stroke_node->width = max_x - min_x;
+          cs->current_stroke_node->height = max_y - min_y;
+        }
       }
     }
   } else if (!(ui->mouse_buttons & 1))
@@ -3211,25 +3278,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
     canvas_draw_dot_grid(canvas_buf, bounds, cam_x, cam_y, zoom);
     nk_push_scissor(canvas_buf, bounds);
 
-    // Strokes
-    for (Stroke *s = cd->strokes; s; s = s->next) {
-      if (s->count < 2)
-        continue;
-      struct nk_color col =
-          nk_rgba((s->color >> 24) & 0xFF, (s->color >> 16) & 0xFF,
-                  (s->color >> 8) & 0xFF, s->color & 0xFF);
-      struct nk_vec2 *pts =
-          (struct nk_vec2 *)malloc(s->count * sizeof(struct nk_vec2));
-      for (int i = 0; i < s->count; i++) {
-        pts[i].x = bounds.x + (s->points[i].x - cam_x) * zoom;
-        pts[i].y = bounds.y + (s->points[i].y - cam_y) * zoom;
-      }
-      nk_stroke_polyline(canvas_buf, (float *)pts, s->count,
-                         s->thickness * zoom, col);
-      free(pts);
-    }
-
-    // Nodes
+    // Nodes (including strokes)
     for (Node *node = cd->root->first_child; node; node = node->next_sibling) {
       if (!node->visible)
         continue;
@@ -3247,7 +3296,23 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           (node->stroke_color >> 24) & 0xFF, (node->stroke_color >> 16) & 0xFF,
           (node->stroke_color >> 8) & 0xFF, node->stroke_color & 0xFF);
 
-      if (node->type == NODE_TYPE_ELLIPSE) {
+      if (node->type == NODE_TYPE_STROKE && node->stroke_data) {
+        Stroke *s = node->stroke_data;
+        if (s->count >= 2) {
+          struct nk_color sc =
+              nk_rgba((s->color >> 24) & 0xFF, (s->color >> 16) & 0xFF,
+                      (s->color >> 8) & 0xFF, s->color & 0xFF);
+          struct nk_vec2 *pts =
+              (struct nk_vec2 *)malloc(s->count * sizeof(struct nk_vec2));
+          for (int i = 0; i < s->count; i++) {
+            pts[i].x = bounds.x + (s->points[i].x - cam_x) * zoom;
+            pts[i].y = bounds.y + (s->points[i].y - cam_y) * zoom;
+          }
+          nk_stroke_polyline(canvas_buf, (float *)pts, s->count,
+                             s->thickness * zoom, sc);
+          free(pts);
+        }
+      } else if (node->type == NODE_TYPE_ELLIPSE) {
         nk_fill_circle(canvas_buf, nr, fill);
         if (node->stroke_width > 0)
           nk_stroke_circle(canvas_buf, nr, node->stroke_width * zoom, stroke);

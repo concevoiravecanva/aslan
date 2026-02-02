@@ -126,6 +126,8 @@ const char *node_type_to_string(NodeType type) {
     return "star";
   case NODE_TYPE_PATH:
     return "path";
+  case NODE_TYPE_STROKE:
+    return "stroke";
   default:
     return "unknown";
   }
@@ -162,6 +164,8 @@ NodeType node_type_from_string(const char *str) {
     return NODE_TYPE_STAR;
   if (strcmp(str, "path") == 0)
     return NODE_TYPE_PATH;
+  if (strcmp(str, "stroke") == 0)
+    return NODE_TYPE_STROKE;
   return NODE_TYPE_ROOT;
 }
 
@@ -1150,8 +1154,13 @@ Node *node_create(uint32_t id, NodeType type, const char *name) {
 void node_destroy(Node *node) {
   if (!node)
     return;
-  if (node->path_points) {
+  if (node->type == NODE_TYPE_PATH) {
     free(node->path_points);
+  } else if (node->type == NODE_TYPE_STROKE) {
+    if (node->stroke_data) {
+      free(node->stroke_data->points);
+      free(node->stroke_data);
+    }
   }
   free(node);
 }

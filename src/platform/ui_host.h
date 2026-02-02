@@ -131,9 +131,10 @@ typedef struct {
   // Pen Tool State
   uint32_t pen_color; // RGBA
   float pen_thickness;
-  int pen_is_marker;             // 0=Pen, 1=Marker
-  struct Stroke *current_stroke; // Active stroke being drawn
-  uint32_t stroke_block_id;      // Block ID where stroke started
+  int pen_is_marker;                // 0=Pen, 1=Marker
+  struct Stroke *current_stroke;    // Active stroke being drawn
+  struct Node *current_stroke_node; // Node wrapping the active stroke
+  uint32_t stroke_block_id;         // Block ID where stroke started
 
   // Bezier Tool State
   int bezier_mode;
