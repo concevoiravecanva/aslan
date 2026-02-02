@@ -344,13 +344,13 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 
 // Canvas tools icons
 #define ICON_CURSOR "\xEE\xAA\x8A"    // ri-cursor-line (select tool)
-#define ICON_SHAPE "\xEE\xAD\xA4"     // ri-checkbox-blank-line (rect tool)
+#define ICON_SHAPE "\xEF\x83\xB0"     // ri-shape-2-line
 #define ICON_PENCIL "\xEE\xBF\x8F"    // ri-pencil-line (pen tool)
 #define ICON_TEXT_TOOL "\xEE\x87\x98" // ri-text (text tool)
 #define ICON_STICKY "\xEF\x83\xBC"    // ri-sticky-note-line (sticky note)
 #define ICON_HAND "\xEE\xB7\xBB"      // ri-hand (pan tool)
-#define ICON_IMAGE "\xEE\xBC\x95"     // ri-image-line (image tool)
-#define ICON_MAGIC "\xEE\xB9\xA4"     // ri-magic-line (change tool)
+#define ICON_IMAGE "\xEE\xB9\x85"     // ri-image-2-line
+#define ICON_MAGIC "\xEE\xBF\x9E"     // ri-pen-nib-line
 
 // Table column type icons
 #define ICON_COL_TEXT "\xEE\x87\x98"     // ri-text
