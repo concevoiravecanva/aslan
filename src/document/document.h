@@ -69,8 +69,20 @@ typedef enum {
   NODE_TYPE_HEART = 10,
   NODE_TYPE_PENTAGON = 11,
   NODE_TYPE_HEXAGON = 12,
-  NODE_TYPE_STAR = 13
+  NODE_TYPE_STAR = 13,
+  NODE_TYPE_PATH = 14
 } NodeType;
+
+// -----------------------------------------------------------------------------
+// PATH POINT STRUCTURE
+// -----------------------------------------------------------------------------
+
+typedef struct {
+  float x, y;       // Anchor position (relative to node origin)
+  float cp1x, cp1y; // Control point 1 (incoming)
+  float cp2x, cp2y; // Control point 2 (outgoing)
+  int type;         // 0 = Corner, 1 = Cubic Bezier
+} NodePathPoint;
 
 // =============================================================================
 // NODE STRUCTURE (for Canvas/Design blocks)
@@ -101,6 +113,10 @@ typedef struct Node {
   // Visibility
   int visible;
   int locked;
+
+  // Path data (for NODE_TYPE_PATH)
+  NodePathPoint *path_points;
+  int path_point_count;
 
   // Hierarchy (linked list tree)
   struct Node *parent;

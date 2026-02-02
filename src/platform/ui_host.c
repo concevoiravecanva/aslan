@@ -155,6 +155,11 @@ static struct nk_color COLOR_HIGHLIGHT_GREEN = {100, 220, 140, 80};
 static const float UI_SIDE_PADDING = 40.0f;
 
 // -----------------------------------------------------------------------------
+// Forward Declarations
+// -----------------------------------------------------------------------------
+static void node_convert_to_path(Node *node);
+
+// -----------------------------------------------------------------------------
 // UI Initialization
 // -----------------------------------------------------------------------------
 
@@ -1829,7 +1834,7 @@ static void canvas_render_sub_menu(UIHost *ui, struct nk_context *ctx,
     item_count = 3;
   } else if (cat == CANVAS_CAT_MEDIA) {
     items[0] = "Image";
-    icons[0] = "\xEE\xB9\xA4";
+    icons[0] = ICON_IMAGE;
     sub_opts[0] = CANVAS_SUB_MEDIA_IMAGE;
     item_count = 1;
   }
@@ -2140,10 +2145,10 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
                                   struct nk_rect bounds, Block *block) {
   (void)block;
 
-  // 3 buttons: Shapes, Text, Media (Select removed - always in select mode)
+  // 4 buttons: Shapes, Text, Media, Change
   const float btn_size = 36.0f;
   const float btn_spacing = 8.0f;
-  const float toolbar_w = 3 * btn_size + 2 * btn_spacing + 24.0f;
+  const float toolbar_w = 4 * btn_size + 3 * btn_spacing + 24.0f;
   const float toolbar_h = 52.0f;
   const float margin = 20.0f;
 
@@ -2172,8 +2177,8 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
   float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
 
   // Skip ICON_CURSOR (Select) - start with Shapes
-  const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT, "\xEE\xB9\xA4"};
-  int tool_count = 3;
+  const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT, ICON_IMAGE, ICON_MAGIC};
+  int tool_count = 4;
 
   for (int i = 0; i < tool_count; i++) {
     struct nk_rect btn = nk_rect(btn_x + i * (btn_size + btn_spacing), btn_y,
@@ -2204,6 +2209,13 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
       if (cat == CANVAS_CAT_SHAPES) {
         // DEFAULT: Just create a rectangle
         cs->pending_create = 10;
+        cs->show_sub_menu = 0;
+      } else if (i == 3) { // Change (Magic) button
+        cs->bezier_mode = !cs->bezier_mode;
+        if (cs->bezier_mode && ui->selected_node) {
+          node_convert_to_path(ui->selected_node);
+        }
+        cs->active_cat = CANVAS_CAT_SELECT;
         cs->show_sub_menu = 0;
       } else if (cs->active_cat == cat) {
         cs->show_sub_menu = !cs->show_sub_menu;
@@ -2505,9 +2517,192 @@ static SDL_Texture *get_image_texture(UIHost *ui, const char *path) {
   return tex;
 }
 
-// -----------------------------------------------------------------------------
-// Canvas: Main render function
-// -----------------------------------------------------------------------------
+static int tessellate_bezier(float x1, float y1, float cp1x, float cp1y,
+                             float cp2x, float cp2y, float x2, float y2,
+                             float *out_pts, int max_pts, int include_last) {
+  int segments = 12;
+  int count = 0;
+  for (int i = 0; i < segments + (include_last ? 1 : 0); i++) {
+    if (count >= max_pts)
+      break;
+    float t = (float)i / (float)segments;
+    float mt = 1.0f - t;
+    float mt2 = mt * mt;
+    float mt3 = mt2 * mt;
+    float t2 = t * t;
+    float t3 = t2 * t;
+
+    out_pts[count * 2] =
+        mt3 * x1 + 3 * mt2 * t * cp1x + 3 * mt * t2 * cp2x + t3 * x2;
+    out_pts[count * 2 + 1] =
+        mt3 * y1 + 3 * mt2 * t * cp1y + 3 * mt * t2 * cp2y + t3 * y2;
+    count++;
+  }
+  return count;
+}
+
+static int node_get_path_polygon(Node *node, float *out_pts, int max_pts,
+                                 float sx, float sy, float zoom) {
+  if (!node || node->type != NODE_TYPE_PATH || !node->path_points)
+    return 0;
+  int total_count = 0;
+  for (int i = 0; i < node->path_point_count; i++) {
+    int next = (i + 1) % node->path_point_count;
+    NodePathPoint p1 = node->path_points[i];
+    NodePathPoint p2 = node->path_points[next];
+
+    if (p1.type == 1) { // Cubic Bezier
+      int c = tessellate_bezier(
+          sx + p1.x * zoom, sy + p1.y * zoom, sx + p1.cp2x * zoom,
+          sy + p1.cp2y * zoom, sx + p2.cp1x * zoom, sy + p2.cp1y * zoom,
+          sx + p2.x * zoom, sy + p2.y * zoom, &out_pts[total_count * 2],
+          max_pts - total_count, 0);
+      total_count += c;
+    } else {
+      if (total_count < max_pts) {
+        out_pts[total_count * 2] = sx + p1.x * zoom;
+        out_pts[total_count * 2 + 1] = sy + p1.y * zoom;
+        total_count++;
+      }
+    }
+  }
+  return total_count;
+}
+
+static void node_update_path_bounds(Node *node) {
+  if (!node || node->type != NODE_TYPE_PATH || !node->path_points ||
+      node->path_point_count == 0)
+    return;
+
+  float min_x = node->path_points[0].x;
+  float min_y = node->path_points[0].y;
+  float max_x = min_x;
+  float max_y = min_y;
+
+  for (int i = 0; i < node->path_point_count; i++) {
+    NodePathPoint p = node->path_points[i];
+    if (p.x < min_x)
+      min_x = p.x;
+    if (p.y < min_y)
+      min_y = p.y;
+    if (p.x > max_x)
+      max_x = p.x;
+    if (p.y > max_y)
+      max_y = p.y;
+    if (p.type == 1) {
+      if (p.cp1x < min_x)
+        min_x = p.cp1x;
+      if (p.cp1y < min_y)
+        min_y = p.cp1y;
+      if (p.cp1x > max_x)
+        max_x = p.cp1x;
+      if (p.cp1y > max_y)
+        max_y = p.cp1y;
+      if (p.cp2x < min_x)
+        min_x = p.cp2x;
+      if (p.cp2y < min_y)
+        min_y = p.cp2y;
+      if (p.cp2x > max_x)
+        max_x = p.cp2x;
+      if (p.cp2y > max_y)
+        max_y = p.cp2y;
+    }
+  }
+
+  // Offset correction to keep points stable while moving the node's origin
+  float dx = min_x;
+  float dy = min_y;
+
+  if (fabsf(dx) > 0.0001f || fabsf(dy) > 0.0001f) {
+    node->x += dx;
+    node->y += dy;
+    for (int i = 0; i < node->path_point_count; i++) {
+      node->path_points[i].x -= dx;
+      node->path_points[i].y -= dy;
+      node->path_points[i].cp1x -= dx;
+      node->path_points[i].cp1y -= dy;
+      node->path_points[i].cp2x -= dx;
+      node->path_points[i].cp2y -= dy;
+    }
+    max_x -= dx;
+    max_y -= dy;
+  }
+
+  node->width = max_x;
+  node->height = max_y;
+}
+
+static void node_convert_to_path(Node *node) {
+  if (!node || node->type == NODE_TYPE_PATH)
+    return;
+
+  // Define points based on shape type
+  NodePathPoint *pts = NULL;
+  int count = 0;
+
+  if (node->type == NODE_TYPE_RECT) {
+    count = 4;
+    pts = (NodePathPoint *)calloc(count, sizeof(NodePathPoint));
+    pts[0] = (NodePathPoint){0, 0, 0, 0, 0, 0, 0};
+    pts[1] = (NodePathPoint){node->width, 0, node->width, 0, node->width, 0, 0};
+    pts[2] = (NodePathPoint){node->width,
+                             node->height,
+                             node->width,
+                             node->height,
+                             node->width,
+                             node->height,
+                             0};
+    pts[3] =
+        (NodePathPoint){0, node->height, 0, node->height, 0, node->height, 0};
+  } else if (node->type == NODE_TYPE_TRIANGLE) {
+    count = 3;
+    pts = (NodePathPoint *)calloc(count, sizeof(NodePathPoint));
+    pts[0] = (NodePathPoint){
+        node->width / 2, 0, node->width / 2, 0, node->width / 2, 0, 0};
+    pts[1] =
+        (NodePathPoint){0, node->height, 0, node->height, 0, node->height, 0};
+    pts[2] = (NodePathPoint){node->width,
+                             node->height,
+                             node->width,
+                             node->height,
+                             node->width,
+                             node->height,
+                             0};
+  } else if (node->type == NODE_TYPE_ELLIPSE) {
+    count = 4;
+    pts = (NodePathPoint *)calloc(count, sizeof(NodePathPoint));
+    float kappa = 0.552284749831f;
+    float ox = node->width / 2.0f;
+    float oy = node->height / 2.0f;
+    float rx = node->width / 2.0f;
+    float ry = node->height / 2.0f;
+
+    // Top
+    pts[0] = (NodePathPoint){ox, 0, ox - rx * kappa, 0, ox + rx * kappa, 0, 1};
+    // Right
+    pts[1] = (NodePathPoint){
+        node->width,     oy, node->width, oy - ry * kappa, node->width,
+        oy + ry * kappa, 1};
+    // Bottom
+    pts[2] = (NodePathPoint){ox,
+                             node->height,
+                             ox + rx * kappa,
+                             node->height,
+                             ox - rx * kappa,
+                             node->height,
+                             1};
+    // Left
+    pts[3] = (NodePathPoint){0, oy, 0, oy + ry * kappa, 0, oy - ry * kappa, 1};
+  }
+
+  if (pts) {
+    if (node->path_points)
+      free(node->path_points);
+    node->path_points = pts;
+    node->path_point_count = count;
+    node->type = NODE_TYPE_PATH;
+  }
+}
 
 void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
                             Block *block, float width) {
@@ -2703,7 +2898,50 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
   }
 
   if (cs->mouse_in_canvas && !cs->is_panning && cs->mouse_just_pressed) {
-    if (on_resize_handle) {
+    // 1. Prioritize Bezier handle selection
+    int handle_hit = 0;
+    if (cs->bezier_mode && ui->selected_node &&
+        ui->selected_node->type == NODE_TYPE_PATH) {
+      Node *sel = ui->selected_node;
+      float nsx = bounds.x + (sel->x - cam_x) * zoom;
+      float nsy = bounds.y + (sel->y - cam_y) * zoom;
+      for (int i = 0; i < sel->path_point_count; i++) {
+        NodePathPoint *p = &sel->path_points[i];
+        float px = nsx + p->x * zoom, py = nsy + p->y * zoom;
+        struct nk_rect r_anchor =
+            nk_rect(px - 10 * zoom, py - 10 * zoom, 20 * zoom, 20 * zoom);
+        if (nk_input_is_mouse_hovering_rect(&ctx->input, r_anchor)) {
+          cs->dragging_point_idx = i;
+          cs->dragging_cp_idx = 0;
+          handle_hit = 1;
+          break;
+        }
+        if (p->type == 1) {
+          float cp1x = nsx + p->cp1x * zoom, cp1y = nsy + p->cp1y * zoom;
+          float cp2x = nsx + p->cp2x * zoom, cp2y = nsy + p->cp2y * zoom;
+          struct nk_rect r1 =
+              nk_rect(cp1x - 8 * zoom, cp1y - 8 * zoom, 16 * zoom, 16 * zoom);
+          struct nk_rect r2 =
+              nk_rect(cp2x - 8 * zoom, cp2y - 8 * zoom, 16 * zoom, 16 * zoom);
+          if (nk_input_is_mouse_hovering_rect(&ctx->input, r1)) {
+            cs->dragging_point_idx = i;
+            cs->dragging_cp_idx = 1;
+            handle_hit = 1;
+            break;
+          }
+          if (nk_input_is_mouse_hovering_rect(&ctx->input, r2)) {
+            cs->dragging_point_idx = i;
+            cs->dragging_cp_idx = 2;
+            handle_hit = 1;
+            break;
+          }
+        }
+      }
+    }
+
+    if (handle_hit) {
+      // Bezier handle hit, don't drag node
+    } else if (on_resize_handle) {
       cs->is_resizing = 1;
       cs->resize_handle = hit_handle_index;
       cs->resize_start_w = ui->selected_node->width;
@@ -2743,6 +2981,30 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
         cs->cam_start_x = cs->cam_x;
         cs->cam_start_y = cs->cam_y;
       }
+    }
+  }
+
+  // Handle Bezier point dragging
+  if (cs->bezier_mode && ui->selected_node &&
+      ui->selected_node->type == NODE_TYPE_PATH) {
+    Node *node = ui->selected_node;
+    if (cs->dragging_point_idx != -1 && (ui->mouse_buttons & 1)) {
+      float dx = ctx->input.mouse.delta.x / zoom;
+      float dy = ctx->input.mouse.delta.y / zoom;
+      NodePathPoint *p = &node->path_points[cs->dragging_point_idx];
+      if (cs->dragging_cp_idx == 0) {
+        p->x += dx;
+        p->y += dy;
+      } else if (cs->dragging_cp_idx == 1) {
+        p->cp1x += dx;
+        p->cp1y += dy;
+      } else if (cs->dragging_cp_idx == 2) {
+        p->cp2x += dx;
+        p->cp2y += dy;
+      }
+      node_update_path_bounds(node);
+    } else {
+      cs->dragging_point_idx = -1;
     }
   }
 
@@ -2934,6 +3196,36 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
         if (node->stroke_width > 0)
           nk_stroke_polygon(canvas_buf, (const float *)hpts, heart_pts_count,
                             node->stroke_width * zoom, stroke);
+      } else if (node->type == NODE_TYPE_PATH && node->path_points &&
+                 node->path_point_count > 1) {
+        // Fill path
+        if (fill.a > 0) {
+          float poly_pts[512 * 2];
+          int poly_count =
+              node_get_path_polygon(node, poly_pts, 512, sx, sy, zoom);
+          if (poly_count > 2) {
+            nk_fill_polygon(canvas_buf, poly_pts, poly_count, fill);
+          }
+        }
+
+        // Stroke path
+        for (int i = 0; i < node->path_point_count; i++) {
+          int next = (i + 1) % node->path_point_count;
+          NodePathPoint p1 = node->path_points[i];
+          NodePathPoint p2 = node->path_points[next];
+
+          if (p1.type == 1) { // Cubic Bezier
+            nk_stroke_curve(canvas_buf, sx + p1.x * zoom, sy + p1.y * zoom,
+                            sx + p1.cp2x * zoom, sy + p1.cp2y * zoom,
+                            sx + p2.cp1x * zoom, sy + p2.cp1y * zoom,
+                            sx + p2.x * zoom, sy + p2.y * zoom,
+                            node->stroke_width * zoom, stroke);
+          } else {
+            nk_stroke_line(canvas_buf, sx + p1.x * zoom, sy + p1.y * zoom,
+                           sx + p2.x * zoom, sy + p2.y * zoom,
+                           node->stroke_width * zoom, stroke);
+          }
+        }
       } else if (node->type == NODE_TYPE_IMAGE) {
         SDL_Texture *tex = get_image_texture(ui, node->image_path);
         if (tex) {
@@ -2984,6 +3276,59 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
         nk_stroke_rect(canvas_buf,
                        nk_rect(nr.x - 2, nr.y - 2, nr.w + 4, nr.h + 4), 0, 2.0f,
                        nk_rgb(66, 133, 244));
+
+      // Bezier handles interaction and rendering
+      if (cs->bezier_mode && ui->selected_node == node &&
+          node->type == NODE_TYPE_PATH) {
+        for (int i = 0; i < node->path_point_count; i++) {
+          NodePathPoint *p = &node->path_points[i];
+          float px = sx + p->x * zoom;
+          float py = sy + p->y * zoom;
+
+          // Anchor
+          struct nk_rect anchor_rect =
+              nk_rect(px - 5 * zoom, py - 5 * zoom, 10 * zoom, 10 * zoom);
+          nk_fill_rect(canvas_buf, anchor_rect, 0, nk_rgb(255, 255, 255));
+          nk_stroke_rect(canvas_buf, anchor_rect, 0, 1.5f * zoom,
+                         nk_rgb(66, 133, 244));
+
+          if (cs->mouse_just_pressed &&
+              nk_input_is_mouse_hovering_rect(&ctx->input, anchor_rect)) {
+            cs->dragging_point_idx = i;
+            cs->dragging_cp_idx = 0;
+          }
+
+          if (p->type == 1) { // Cubic
+            float cp1x = sx + p->cp1x * zoom;
+            float cp1y = sy + p->cp1y * zoom;
+            float cp2x = sx + p->cp2x * zoom;
+            float cp2y = sy + p->cp2y * zoom;
+
+            nk_stroke_line(canvas_buf, px, py, cp1x, cp1y, 1,
+                           nk_rgb(200, 200, 200));
+            nk_stroke_line(canvas_buf, px, py, cp2x, cp2y, 1,
+                           nk_rgb(200, 200, 200));
+
+            struct nk_rect r1 =
+                nk_rect(cp1x - 4 * zoom, cp1y - 4 * zoom, 8 * zoom, 8 * zoom);
+            struct nk_rect r2 =
+                nk_rect(cp2x - 4 * zoom, cp2y - 4 * zoom, 8 * zoom, 8 * zoom);
+            nk_fill_circle(canvas_buf, r1, nk_rgb(66, 133, 244));
+            nk_fill_circle(canvas_buf, r2, nk_rgb(66, 133, 244));
+
+            if (cs->mouse_just_pressed &&
+                nk_input_is_mouse_hovering_rect(&ctx->input, r1)) {
+              cs->dragging_point_idx = i;
+              cs->dragging_cp_idx = 1;
+            }
+            if (cs->mouse_just_pressed &&
+                nk_input_is_mouse_hovering_rect(&ctx->input, r2)) {
+              cs->dragging_point_idx = i;
+              cs->dragging_cp_idx = 2;
+            }
+          }
+        }
+      }
     }
 
     nk_push_scissor(canvas_buf, nk_rect(0, 0, 100000, 100000));
@@ -3103,8 +3448,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
   if (is_fullscreen) {
     // Fullscreen: Design + Sidebar layout
     nk_layout_row_template_begin(ctx, display_h + toolbar_h + 20.0f);
-    nk_layout_row_template_push_variable(ctx, 75);   // Design (flexible)
-    nk_layout_row_template_push_static(ctx, 250.0f); // Sidebar (fixed 250px)
+    nk_layout_row_template_push_variable(ctx, 75); // Design (flexible)
+    nk_layout_row_template_push_static(ctx,
+                                       250.0f); // Sidebar (fixed 250px)
     nk_layout_row_template_end(ctx);
   } else {
     // Normal mode: Single column
@@ -3180,6 +3526,30 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ds->pending_create = 0;
     }
 
+    // Handle Bezier point dragging
+    if (ds->bezier_mode && ui->selected_node &&
+        ui->selected_node->type == NODE_TYPE_PATH) {
+      Node *node = ui->selected_node;
+      if (ds->dragging_point_idx != -1 && (ui->mouse_buttons & 1)) {
+        float dx = ctx->input.mouse.delta.x / scale;
+        float dy = ctx->input.mouse.delta.y / scale;
+        NodePathPoint *p = &node->path_points[ds->dragging_point_idx];
+        if (ds->dragging_cp_idx == 0) {
+          p->x += dx;
+          p->y += dy;
+        } else if (ds->dragging_cp_idx == 1) {
+          p->cp1x += dx;
+          p->cp1y += dy;
+        } else if (ds->dragging_cp_idx == 2) {
+          p->cp2x += dx;
+          p->cp2y += dy;
+        }
+        node_update_path_bounds(node);
+      } else {
+        ds->dragging_point_idx = -1;
+      }
+    }
+
     // --- Render nodes ---
     if (dd->root) {
       for (Node *node = dd->root->first_child; node;
@@ -3209,6 +3579,34 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           if (node->stroke_width > 0)
             nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale,
                            node->stroke_width, stroke);
+        } else if (node->type == NODE_TYPE_PATH && node->path_points &&
+                   node->path_point_count > 1) {
+          // Fill path
+          if (fill.a > 0) {
+            float poly_pts[512 * 2];
+            int poly_count =
+                node_get_path_polygon(node, poly_pts, 512, sx, sy, scale);
+            if (poly_count > 2) {
+              nk_fill_polygon(canvas_buf, poly_pts, poly_count, fill);
+            }
+          }
+
+          // Stroke path
+          for (int k = 0; k < node->path_point_count; k++) {
+            int nxt = (k + 1) % node->path_point_count;
+            NodePathPoint p1 = node->path_points[k],
+                          p2 = node->path_points[nxt];
+            if (p1.type == 1) // Cubic Bezier
+              nk_stroke_curve(canvas_buf, sx + p1.x * scale, sy + p1.y * scale,
+                              sx + p1.cp2x * scale, sy + p1.cp2y * scale,
+                              sx + p2.cp1x * scale, sy + p2.cp1y * scale,
+                              sx + p2.x * scale, sy + p2.y * scale,
+                              node->stroke_width * scale, stroke);
+            else
+              nk_stroke_line(canvas_buf, sx + p1.x * scale, sy + p1.y * scale,
+                             sx + p2.x * scale, sy + p2.y * scale,
+                             node->stroke_width * scale, stroke);
+          }
         } else if (node->type == NODE_TYPE_ELLIPSE) {
           float cx = sx + sw / 2;
           float cy = sy + sh / 2;
@@ -3366,6 +3764,49 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                        nk_rect(sx + sw - hsz / 2, sy - hsz / 2, hsz, hsz), 2.0f,
                        hc);
         }
+
+        // Bezier handles interaction and rendering
+        if (ds->bezier_mode && ui->selected_node == node &&
+            node->type == NODE_TYPE_PATH) {
+          for (int i = 0; i < node->path_point_count; i++) {
+            NodePathPoint *p = &node->path_points[i];
+            float px = sx + p->x * scale, py = sy + p->y * scale;
+            struct nk_rect anchor_rect =
+                nk_rect(px - 5 * scale, py - 5 * scale, 10 * scale, 10 * scale);
+            nk_fill_rect(canvas_buf, anchor_rect, 0, nk_rgb(255, 255, 255));
+            nk_stroke_rect(canvas_buf, anchor_rect, 0, 1.5f * scale,
+                           nk_rgb(66, 133, 244));
+            if (ds->mouse_just_pressed &&
+                nk_input_is_mouse_hovering_rect(&ctx->input, anchor_rect)) {
+              ds->dragging_point_idx = i;
+              ds->dragging_cp_idx = 0;
+            }
+            if (p->type == 1) {
+              float cp1x = sx + p->cp1x * scale, cp1y = sy + p->cp1y * scale;
+              float cp2x = sx + p->cp2x * scale, cp2y = sy + p->cp2y * scale;
+              nk_stroke_line(canvas_buf, px, py, cp1x, cp1y, 1,
+                             nk_rgb(200, 200, 200));
+              nk_stroke_line(canvas_buf, px, py, cp2x, cp2y, 1,
+                             nk_rgb(200, 200, 200));
+              struct nk_rect r1 = nk_rect(cp1x - 4 * scale, cp1y - 4 * scale,
+                                          8 * scale, 8 * scale);
+              struct nk_rect r2 = nk_rect(cp2x - 4 * scale, cp2y - 4 * scale,
+                                          8 * scale, 8 * scale);
+              nk_fill_circle(canvas_buf, r1, nk_rgb(66, 133, 244));
+              nk_fill_circle(canvas_buf, r2, nk_rgb(66, 133, 244));
+              if (ds->mouse_just_pressed &&
+                  nk_input_is_mouse_hovering_rect(&ctx->input, r1)) {
+                ds->dragging_point_idx = i;
+                ds->dragging_cp_idx = 1;
+              }
+              if (ds->mouse_just_pressed &&
+                  nk_input_is_mouse_hovering_rect(&ctx->input, r2)) {
+                ds->dragging_point_idx = i;
+                ds->dragging_cp_idx = 2;
+              }
+            }
+          }
+        }
       }
     }
 
@@ -3386,6 +3827,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ui->canvas_state.mouse_just_pressed = ds->mouse_just_pressed;
       ui->canvas_state.space_held = ds->space_held;
       ui->canvas_state.pan_from_menu = ds->pan_from_menu;
+      ui->canvas_state.bezier_mode = ds->bezier_mode;
+      ui->canvas_state.dragging_point_idx = ds->dragging_point_idx;
+      ui->canvas_state.dragging_cp_idx = ds->dragging_cp_idx;
 
       // Check if mouse in toolbar for Design interaction
       canvas_render_toolbar(
@@ -3398,6 +3842,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ds->pending_create = ui->canvas_state.pending_create;
       ds->space_held = ui->canvas_state.space_held;
       ds->pan_from_menu = ui->canvas_state.pan_from_menu;
+      ds->bezier_mode = ui->canvas_state.bezier_mode;
+      ds->dragging_point_idx = ui->canvas_state.dragging_point_idx;
+      ds->dragging_cp_idx = ui->canvas_state.dragging_cp_idx;
 
       // Restore Canvas state
       ui->canvas_state = temp_cs;
@@ -3481,7 +3928,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     }
 
-    // Check if in toolbar area (using existing toolbar_x, toolbar_y, toolbar_w)
+    // Check if in toolbar area (using existing toolbar_x, toolbar_y,
+    // toolbar_w)
     int in_toolbar =
         (ui->mouse_x >= toolbar_x && ui->mouse_x < toolbar_x + toolbar_w &&
          ui->mouse_y >= toolbar_y && ui->mouse_y < toolbar_y + toolbar_h);
@@ -3579,9 +4027,59 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         ds->is_resizing = 0;
       }
     }
+    // 4. Handle Bezier interaction priority
+    int handle_hit = 0;
+    if (ds->bezier_mode && ui->selected_node &&
+        ui->selected_node->type == NODE_TYPE_PATH && is_active_design) {
+      Node *sel = ui->selected_node;
+      float nsx = bounds.x + sel->x * scale;
+      float nsy = bounds.y + sel->y * scale;
+      for (int i = 0; i < sel->path_point_count; i++) {
+        NodePathPoint *p = &sel->path_points[i];
+        float px = nsx + p->x * scale, py = nsy + p->y * scale;
+        struct nk_rect r_anchor =
+            nk_rect(px - 10 * scale, py - 10 * scale, 20 * scale, 20 * scale);
+        if (nk_input_is_mouse_hovering_rect(&ctx->input, r_anchor)) {
+          if (ds->mouse_just_pressed) {
+            ds->dragging_point_idx = i;
+            ds->dragging_cp_idx = 0;
+          }
+          handle_hit = 1;
+          break;
+        }
+        if (p->type == 1) {
+          float cp1x = nsx + p->cp1x * scale, cp1y = nsy + p->cp1y * scale;
+          float cp2x = nsx + p->cp2x * scale, cp2y = nsy + p->cp2y * scale;
+          struct nk_rect r1 = nk_rect(cp1x - 8 * scale, cp1y - 8 * scale,
+                                      16 * scale, 16 * scale);
+          struct nk_rect r2 = nk_rect(cp2x - 8 * scale, cp2y - 8 * scale,
+                                      16 * scale, 16 * scale);
+          if (nk_input_is_mouse_hovering_rect(&ctx->input, r1)) {
+            if (ds->mouse_just_pressed) {
+              ds->dragging_point_idx = i;
+              ds->dragging_cp_idx = 1;
+            }
+            handle_hit = 1;
+            break;
+          }
+          if (nk_input_is_mouse_hovering_rect(&ctx->input, r2)) {
+            if (ds->mouse_just_pressed) {
+              ds->dragging_point_idx = i;
+              ds->dragging_cp_idx = 2;
+            }
+            handle_hit = 1;
+            break;
+          }
+        }
+      }
+    }
+
     // Handle click in design area
-    else if (mouse_in_design && !in_toolbar && !in_forms_menu &&
-             ds->mouse_just_pressed && !on_resize_handle && is_active_design) {
+    if (handle_hit) {
+      // Handle hit, skip node selection
+    } else if (mouse_in_design && !in_toolbar && !in_forms_menu &&
+               ds->mouse_just_pressed && !on_resize_handle &&
+               is_active_design) {
       // Convert to design coordinates
       float design_x = (ui->mouse_x - bounds.x) / scale;
       float design_y = (ui->mouse_y - bounds.y) / scale;

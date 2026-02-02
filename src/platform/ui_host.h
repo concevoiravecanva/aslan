@@ -49,7 +49,8 @@ typedef enum {
   CANVAS_CAT_SELECT = 0,
   CANVAS_CAT_SHAPES,
   CANVAS_CAT_TEXT,
-  CANVAS_CAT_MEDIA
+  CANVAS_CAT_MEDIA,
+  CANVAS_CAT_CHANGE
 } CanvasCategory;
 
 typedef enum {
@@ -130,6 +131,11 @@ typedef struct {
   int pen_is_marker;             // 0=Pen, 1=Marker
   struct Stroke *current_stroke; // Active stroke being drawn
   uint32_t stroke_block_id;      // Block ID where stroke started
+
+  // Bezier Tool State
+  int bezier_mode;
+  int dragging_point_idx; // Index of the point being dragged (-1 = none)
+  int dragging_cp_idx;    // 0 = anchor, 1 = cp1, 2 = cp2
 } CanvasInteraction;
 
 // -----------------------------------------------------------------------------
@@ -232,6 +238,11 @@ typedef struct UIHost {
     float resize_start_node_x, resize_start_node_y;
     uint32_t active_design_id;
     Block *active_block;
+
+    // Bezier Tool State
+    int bezier_mode;
+    int dragging_point_idx;
+    int dragging_cp_idx;
   } design_state;
 
   // Mouse state for canvas
@@ -338,6 +349,8 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_TEXT_TOOL "\xEE\x87\x98" // ri-text (text tool)
 #define ICON_STICKY "\xEF\x83\xBC"    // ri-sticky-note-line (sticky note)
 #define ICON_HAND "\xEE\xB7\xBB"      // ri-hand (pan tool)
+#define ICON_IMAGE "\xEE\xBC\x95"     // ri-image-line (image tool)
+#define ICON_MAGIC "\xEE\xB9\xA4"     // ri-magic-line (change tool)
 
 // Table column type icons
 #define ICON_COL_TEXT "\xEE\x87\x98"     // ri-text
