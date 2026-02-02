@@ -2253,21 +2253,32 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     }
 
     if (hovered && cs->mouse_just_pressed) {
-      if (i == 3) { // Brush button - toggles between brush and marker
+      if (i ==
+          3) { // Brush button - toggles between brush, marker and deselected
         printf("[DEBUG] Clicked Brush/Marker button. Current tool: %d, marker: "
                "%d\n",
                cs->tool, cs->pen_is_marker);
         if (cs->tool == CANVAS_TOOL_PEN) {
-          // Already in pen mode, toggle marker mode
-          cs->pen_is_marker = !cs->pen_is_marker;
-          printf("[DEBUG] Toggled marker to: %d\n", cs->pen_is_marker);
+          if (!cs->pen_is_marker) {
+            // State 1 (Pen) -> State 2 (Marker)
+            cs->pen_is_marker = 1;
+            printf("[DEBUG] Switched to Marker mode\n");
+          } else {
+            // State 2 (Marker) -> State 3 (None/Select)
+            cs->tool = CANVAS_TOOL_SELECT;
+            cs->pen_is_marker = 0; // Reset for next time
+            printf("[DEBUG] Deselected pen tool\n");
+          }
         } else {
-          // Activate pen tool
+          // State 3 (None) -> State 1 (Pen)
           cs->tool = CANVAS_TOOL_PEN;
+          cs->pen_is_marker = 0;
           printf("[DEBUG] Set tool to CANVAS_TOOL_PEN\n");
         }
         cs->active_cat =
-            cs->pen_is_marker ? CANVAS_CAT_MARKER : CANVAS_CAT_BRUSH;
+            (cs->tool == CANVAS_TOOL_PEN)
+                ? (cs->pen_is_marker ? CANVAS_CAT_MARKER : CANVAS_CAT_BRUSH)
+                : CANVAS_CAT_SELECT;
         cs->show_sub_menu = 0;
       } else if (i == 4) { // Color swatch button
         // Cycle through preset colors
@@ -3092,6 +3103,12 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           ui->editing_node = hit;
           strncpy(ui->edit_buffer, hit->text, sizeof(ui->edit_buffer) - 1);
         } else {
+          // If we were in pen mode, deselect it when clicking a node
+          if (cs->tool == CANVAS_TOOL_PEN) {
+            cs->tool = CANVAS_TOOL_SELECT;
+            cs->active_cat = CANVAS_CAT_SELECT;
+            printf("[DEBUG] Auto-deselected pen tool due to node click\n");
+          }
           ui->selected_node = hit;
           cs->is_dragging_node = 1;
           cs->drag_offset_x = wx - hit->x;
