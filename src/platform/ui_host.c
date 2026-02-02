@@ -2539,23 +2539,25 @@ static SDL_Texture *get_image_texture(UIHost *ui, const char *path) {
   int w, h;
   void *pixels = mac_load_image_rgba(path, &w, &h);
 
-  if (!pixels) {
-    // Try relative to assets if not absolute
-    char full_path[512];
-    snprintf(full_path, sizeof(full_path), "assets/%s", path);
-    pixels = mac_load_image_rgba(full_path, &w, &h);
+  printf("[DEBUG] get_image_texture: trying path '%s' -> %p\n", path, pixels);
 
-    // Debug
-    FILE *f = fopen("ui_debug.log", "a");
-    if (f) {
-      fprintf(f, "get_image_texture failed for %s, trying %s -> %p\n", path,
-              full_path, pixels);
-      fclose(f);
+  if (!pixels) {
+    // Try relative to assets if not already starting with assets/
+    if (strncmp(path, "assets/", 7) != 0) {
+      char full_path[512];
+      snprintf(full_path, sizeof(full_path), "assets/%s", path);
+      pixels = mac_load_image_rgba(full_path, &w, &h);
+      printf("[DEBUG] get_image_texture: trying full_path '%s' -> %p\n",
+             full_path, pixels);
     }
   }
 
-  if (!pixels)
+  fflush(stdout);
+
+  if (!pixels) {
+    fprintf(stderr, "[ERROR] get_image_texture failed to load: %s\n", path);
     return NULL;
+  }
 
   // Create texture
   SDL_Texture *tex = SDL_CreateTexture(ui->renderer, SDL_PIXELFORMAT_RGBA32,
@@ -2911,12 +2913,34 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
             new_node->type = NODE_TYPE_IMAGE;
             new_node->x = nx;
             new_node->y = ny;
-            new_node->width = 200.0f;
-            new_node->height = 150.0f;
+
+            fflush(stdout);
+
+            // Maintain aspect ratio
+            int img_w = 0, img_h = 0;
+            int size_ok = mac_get_image_size(path, &img_w, &img_h);
+            printf("[DEBUG] canvas image size for '%s': %d x %d (ok=%d)\n",
+                   path, img_w, img_h, size_ok);
+
+            if (size_ok && img_w > 0 && img_h > 0) {
+              float aspect = (float)img_w / (float)img_h;
+              if (aspect > 1.0f) {
+                new_node->width = 300.0f;
+                new_node->height = 300.0f / aspect;
+              } else {
+                new_node->height = 300.0f;
+                new_node->width = 300.0f * aspect;
+              }
+            } else {
+              new_node->width = 200.0f;
+              new_node->height = 150.0f;
+            }
+
             new_node->visible = 1;
             new_node->parent = cd->root;
             strncpy(new_node->image_path, rel,
                     sizeof(new_node->image_path) - 1);
+            printf("[DEBUG] set image_path to: %s\n", new_node->image_path);
             if (!cd->root->first_child)
               cd->root->first_child = new_node;
             else {
@@ -4269,8 +4293,29 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
               img->type = NODE_TYPE_IMAGE;
               img->x = center_x;
               img->y = center_y;
-              img->width = 200.0f;
-              img->height = 150.0f;
+
+              // Maintain aspect ratio
+              int img_w = 0, img_h = 0;
+              int size_ok = mac_get_image_size(path, &img_w, &img_h);
+              if (size_ok && img_w > 0 && img_h > 0) {
+                float aspect = (float)img_w / (float)img_h;
+                if (aspect > 1.0f) {
+                  img->width = 300.0f;
+                  img->height = 300.0f / aspect;
+                } else {
+                  img->height = 300.0f;
+                  img->width = 300.0f * aspect;
+                }
+              } else {
+                img->width = 200.0f;
+                img->height = 150.0f;
+              }
+
+              printf(
+                  "[DEBUG] design image size for '%s': %.1f x %.1f (ok=%d)\n",
+                  path, img->width, img->height, size_ok);
+              fflush(stdout);
+
               img->visible = 1;
               img->parent = dd->root;
               strncpy(img->image_path, rel, sizeof(img->image_path) - 1);
