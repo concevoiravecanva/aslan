@@ -261,6 +261,9 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
 
   nk_sdl_font_stash_end();
 
+  // Enable text input globally for Nuklear widgets
+  SDL_StartTextInput();
+
   // Set default font
   if (ui->font_inter) {
     nk_style_set_font(ui->ctx, &ui->font_inter->handle);
@@ -4459,6 +4462,21 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                 font = &ui->font_inter->handle;
               }
             }
+
+            // Auto-resize text node to fit content
+            if (display_text && strlen(display_text) > 0) {
+              float text_w = font->width(font->userdata, font->height,
+                                         display_text, strlen(display_text));
+              float text_h = font->height;
+
+              // Only update if dimensions differ significantly (prevent jitter)
+              if (fabsf(node->width - (text_w + 10.0f)) > 1.0f ||
+                  fabsf(node->height - (text_h + 10.0f)) > 1.0f) {
+                node->width = text_w + 10.0f; // Add padding
+                node->height = text_h + 10.0f;
+              }
+            }
+
             struct nk_color txt_color = {(node->stroke_color >> 24) & 0xFF,
                                          (node->stroke_color >> 16) & 0xFF,
                                          (node->stroke_color >> 8) & 0xFF,
