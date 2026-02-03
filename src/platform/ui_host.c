@@ -3035,6 +3035,11 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
       (ui->mouse_x >= bounds.x && ui->mouse_x < bounds.x + bounds.w &&
        ui->mouse_y >= bounds.y && ui->mouse_y < bounds.y + bounds.h);
 
+  // Explicitly exclude sidebar area in fullscreen/expanded mode
+  if (is_expanded && ui->mouse_x > nk_window_get_width(ctx) - 250.0f) {
+    cs->mouse_in_canvas = 0;
+  }
+
   int in_toolbar =
       canvas_point_in_toolbar(bounds, ui->mouse_x, ui->mouse_y, cs);
   int in_forms_menu =
@@ -4572,6 +4577,11 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     int mouse_in_design =
         (ui->mouse_x >= bounds.x && ui->mouse_x < bounds.x + bounds.w &&
          ui->mouse_y >= bounds.y && ui->mouse_y < bounds.y + bounds.h);
+
+    // Explicitly exclude sidebar area in fullscreen
+    if (is_fullscreen && ui->mouse_x > nk_window_get_width(ctx) - 250.0f) {
+      mouse_in_design = 0;
+    }
 
     // --- Handle resize ---
     int on_resize_handle = 0;
