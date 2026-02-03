@@ -110,6 +110,10 @@ typedef struct Node {
   float font_size; // Default 20.0f
   int font_type;   // 0=Inter, 1=H1, 2=H2, 3=H3, 4=Mono
 
+  // Line Styles
+  int line_start_style; // 0=None, 1=Circle, 2=Arrow
+  int line_end_style;   // 0=None, 1=Circle, 2=Arrow
+
   // Image path (for NODE_TYPE_IMAGE)
   char image_path[256];
 

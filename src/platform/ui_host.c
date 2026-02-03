@@ -2134,6 +2134,52 @@ static void ui_render_sidebar_properties(UIHost *ui, struct nk_context *ctx,
     ui->sidebar_mode = 1; // Switch to shape selection
   }
 
+  // Detect if this is a Line
+  // 1. Rect with small height (horizontal line) or small width (vertical line)
+  // 2. Path with exactly 2 points (straight line segment)
+  // 3. Explicit NODE_TYPE_LINE
+  // 4. Stroke (Pen) - allow any stroke to have ends? Or just straight ones?
+  // Let's allow all.
+  int is_line = 0;
+  if (node->type == NODE_TYPE_RECT &&
+      ((node->height > 0 && node->height < 8.0f) ||
+       (node->width > 0 && node->width < 8.0f))) {
+    is_line = 1;
+  } else if (node->type == NODE_TYPE_PATH && node->path_point_count == 2) {
+    is_line = 1;
+  } else if (node->type == NODE_TYPE_LINE) {
+    is_line = 1;
+  } else if (node->type == NODE_TYPE_STROKE) {
+    is_line = 1;
+  }
+
+  // Debug Print to Console
+  static int last_debug_id = -1;
+  if ((int)node->id != last_debug_id) {
+    printf(
+        "[DEBUG] Selected Node ID=%d Type=%d W=%.2f H=%.2f Pts=%d IsLine=%d\n",
+        node->id, node->type, node->width, node->height, node->path_point_count,
+        is_line);
+    last_debug_id = node->id;
+  }
+
+  if (is_line) {
+    // Line Start Style
+    nk_layout_row_dynamic(ctx, 25, 1);
+    nk_label(ctx, "Start Style", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 30, 1);
+    const char *styles[] = {"None", "Circle", "Arrow"};
+    node->line_start_style =
+        nk_combo(ctx, styles, 3, node->line_start_style, 30, nk_vec2(200, 200));
+
+    // Line End Style
+    nk_layout_row_dynamic(ctx, 25, 1);
+    nk_label(ctx, "End Style", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 30, 1);
+    node->line_end_style =
+        nk_combo(ctx, styles, 3, node->line_end_style, 30, nk_vec2(200, 200));
+  }
+
   // Fill Color (Removed Width/Height)
 
   // Fill Color
@@ -2624,7 +2670,7 @@ static Node *design_create_styled_node(DesignData *dd, NodeStyleType style,
     break;
 
   case NODE_STYLE_LINE:
-    node->type = NODE_TYPE_RECT;
+    node->type = NODE_TYPE_LINE;
     node->fill_color = color;
     node->stroke_color = color;
     node->stroke_width = 2.0f;
@@ -2701,7 +2747,7 @@ static Node *canvas_create_styled_node(CanvasData *cd, NodeStyleType style,
     break;
 
   case NODE_STYLE_LINE:
-    node->type = NODE_TYPE_RECT;
+    node->type = NODE_TYPE_LINE;
     node->fill_color = color;
     node->stroke_color = color;
     node->stroke_width = 2.0f;
@@ -3563,6 +3609,73 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           }
           nk_stroke_polyline(canvas_buf, (float *)pts, s->count,
                              s->thickness * zoom, sc);
+
+          // Render Endings for Strokes
+          if (node->line_start_style || node->line_end_style) {
+            float size =
+                (s->thickness * zoom > 2.0f ? s->thickness * zoom : 2.0f) *
+                4.0f;
+
+            // Start Style
+            if (node->line_start_style > 0 && s->count >= 2) {
+              if (node == ui->selected_node && (int)(SDL_GetTicks() % 100 == 0))
+                printf("[DEBUG] Render Start Style: %d for Node %d\n",
+                       node->line_start_style, node->id);
+
+              float start_x = pts[0].x;
+              float start_y = pts[0].y;
+              float dx = pts[1].x - start_x;
+              float dy = pts[1].y - start_y;
+              float angle = atan2f(dy, dx);
+
+              if (node->line_start_style == 1) { // Circle
+                nk_fill_circle(
+                    canvas_buf,
+                    nk_rect(start_x - size / 2, start_y - size / 2, size, size),
+                    sc);
+              } else if (node->line_start_style == 2) { // Arrow
+                float arrow_angle = angle + 3.14159f;
+                float tip_x = start_x;
+                float tip_y = start_y;
+                float base_angle1 = arrow_angle + 0.5f;
+                float base_angle2 = arrow_angle - 0.5f;
+                float p1x = tip_x + size * cosf(base_angle1);
+                float p1y = tip_y + size * sinf(base_angle1);
+                float p2x = tip_x + size * cosf(base_angle2);
+                float p2y = tip_y + size * sinf(base_angle2);
+                nk_fill_triangle(canvas_buf, tip_x, tip_y, p1x, p1y, p2x, p2y,
+                                 sc);
+              }
+            }
+
+            // End Style
+            if (node->line_end_style > 0 && s->count >= 2) {
+              float end_x = pts[s->count - 1].x;
+              float end_y = pts[s->count - 1].y;
+              float dx = end_x - pts[s->count - 2].x;
+              float dy = end_y - pts[s->count - 2].y;
+              float angle = atan2f(dy, dx);
+
+              if (node->line_end_style == 1) { // Circle
+                nk_fill_circle(
+                    canvas_buf,
+                    nk_rect(end_x - size / 2, end_y - size / 2, size, size),
+                    sc);
+              } else if (node->line_end_style == 2) { // Arrow
+                float tip_x = end_x;
+                float tip_y = end_y;
+                float base_angle1 = angle + 3.14159f + 0.5f;
+                float base_angle2 = angle + 3.14159f - 0.5f;
+                float p1x = tip_x + size * cosf(base_angle1);
+                float p1y = tip_y + size * sinf(base_angle1);
+                float p2x = tip_x + size * cosf(base_angle2);
+                float p2y = tip_y + size * sinf(base_angle2);
+                nk_fill_triangle(canvas_buf, tip_x, tip_y, p1x, p1y, p2x, p2y,
+                                 sc);
+              }
+            }
+          }
+
           free(pts);
         }
       } else if (node->type == NODE_TYPE_RECT) {
@@ -3585,6 +3698,50 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
         if (node->stroke_width > 0)
           nk_stroke_rect(canvas_buf, nr, node->corner_radius * zoom,
                          node->stroke_width * zoom, stroke);
+
+      } else if (node->type == NODE_TYPE_LINE) {
+        // Render explicit LINE type as a horizontal stroke through the center
+        // of its bounds
+        float line_y = nr.y + nr.h / 2.0f;
+        float line_w =
+            (node->stroke_width > 0 ? node->stroke_width : 2.0f) * zoom;
+        struct nk_color line_col = stroke;
+
+        // Draw the main line
+        nk_stroke_line(canvas_buf, nr.x, line_y, nr.x + nr.w, line_y, line_w,
+                       line_col);
+
+        // Line Endings
+        float size = (line_w > 2.0f ? line_w : 2.0f) * 4.0f;
+
+        // Start Style (Left)
+        if (node->line_start_style > 0) {
+          if (node->line_start_style == 1) { // Circle
+            nk_fill_circle(
+                canvas_buf,
+                nk_rect(nr.x - size / 2, line_y - size / 2, size, size),
+                line_col);
+          } else if (node->line_start_style == 2) { // Arrow (Left <--)
+            nk_fill_triangle(canvas_buf, nr.x, line_y, nr.x + size,
+                             line_y - size / 2, nr.x + size, line_y + size / 2,
+                             line_col);
+          }
+        }
+
+        // End Style (Right)
+        if (node->line_end_style > 0) {
+          if (node->line_end_style == 1) { // Circle
+            nk_fill_circle(
+                canvas_buf,
+                nk_rect(nr.x + nr.w - size / 2, line_y - size / 2, size, size),
+                line_col);
+          } else if (node->line_end_style == 2) { // Arrow (Right -->)
+            nk_fill_triangle(canvas_buf, nr.x + nr.w, line_y,
+                             nr.x + nr.w - size, line_y - size / 2,
+                             nr.x + nr.w - size, line_y + size / 2, line_col);
+          }
+        }
+
       } else if (node->type == NODE_TYPE_ELLIPSE) {
         if (node->is_container && !node->image_path[0]) {
           struct nk_color cbg = nk_rgba(66, 133, 244, 40);
@@ -4214,6 +4371,132 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           if (node->stroke_width > 0)
             nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale,
                            node->stroke_width, stroke);
+
+          // Line Endings (Start/End Styles)
+          // Only apply if it looks like a line (thin)
+          if (node->height < 8.0f || node->width < 8.0f) {
+            float cx = sx + sw / 2.0f;
+            float cy = sy + sh / 2.0f;
+            float rad = node->rotation * 3.14159f / 180.0f;
+            float c = cosf(rad);
+            float s = sinf(rad);
+
+            // Calculate geometric start/end relative to center, rotated
+            // Assume standard line is horizontal (width > height)
+            float half_w = sw / 2.0f;
+
+            // Start point (left)
+            float start_x = cx - half_w * c;
+            float start_y = cy - half_w * s;
+
+            // End point (right)
+            float end_x = cx + half_w * c;
+            float end_y = cy + half_w * s;
+
+            float size =
+                (node->stroke_width > 2.0f ? node->stroke_width : 2.0f) * 4.0f *
+                scale;
+
+            // Render Start Style
+            if (node->line_start_style == 1) { // Circle
+              nk_fill_circle(
+                  canvas_buf,
+                  nk_rect(start_x - size / 2, start_y - size / 2, size, size),
+                  stroke);
+            } else if (node->line_start_style ==
+                       2) { // Arrow (pointing left/outward)
+              // Rotate arrow points
+              // Tip at start_x, start_y. Base towards center.
+              float angle = rad + 3.14159f; // Pointing away from center (left)
+              float ac = cosf(angle);
+              float as = sinf(angle);
+              float tip_x = start_x; // Tip exactly at geometric start
+              float tip_y = start_y;
+
+              // Base points
+              float base_angle1 = angle + 2.5f; // ~145 deg
+              float base_angle2 = angle - 2.5f;
+
+              float p1x = tip_x + size * cosf(base_angle1);
+              float p1y = tip_y + size * sinf(base_angle1);
+              float p2x = tip_x + size * cosf(base_angle2);
+              float p2y = tip_y + size * sinf(base_angle2);
+
+              nk_fill_triangle(canvas_buf, tip_x, tip_y, p1x, p1y, p2x, p2y,
+                               stroke);
+            }
+
+            // Render End Style
+            if (node->line_end_style == 1) { // Circle
+              nk_fill_circle(
+                  canvas_buf,
+                  nk_rect(end_x - size / 2, end_y - size / 2, size, size),
+                  stroke);
+            } else if (node->line_end_style ==
+                       2) {      // Arrow (pointing right/outward)
+                                 // Tip at end_x, end_y. Base towards center.
+              float angle = rad; // Pointing away from center (right)
+              float ac = cosf(angle);
+              float as = sinf(angle);
+              float tip_x = end_x; // Tip exactly at geometric end
+              float tip_y = end_y;
+
+              // Base points
+              float base_angle1 = angle + 2.5f;
+              float base_angle2 = angle - 2.5f;
+
+              float p1x = tip_x + size * cosf(base_angle1);
+              float p1y = tip_y + size * sinf(base_angle1);
+              float p2x = tip_x + size * cosf(base_angle2);
+              float p2y = tip_y + size * sinf(base_angle2);
+
+              nk_fill_triangle(canvas_buf, tip_x, tip_y, p1x, p1y, p2x, p2y,
+                               stroke);
+            }
+          }
+        } else if (node->type == NODE_TYPE_LINE) {
+          // Render explicit LINE type as a horizontal stroke through the center
+          // of its bounds
+          float line_y = nr.y + nr.h / 2.0f;
+          float line_w =
+              (node->stroke_width > 0 ? node->stroke_width : 2.0f) * scale;
+          struct nk_color line_col = stroke;
+
+          // Draw the main line
+          nk_stroke_line(canvas_buf, nr.x, line_y, nr.x + nr.w, line_y, line_w,
+                         line_col);
+
+          // Line Endings
+          float size = (line_w > 2.0f ? line_w : 2.0f) * 4.0f;
+
+          // Start Style (Left)
+          if (node->line_start_style > 0) {
+            if (node->line_start_style == 1) { // Circle
+              nk_fill_circle(
+                  canvas_buf,
+                  nk_rect(nr.x - size / 2, line_y - size / 2, size, size),
+                  line_col);
+            } else if (node->line_start_style == 2) { // Arrow (Left <--)
+              nk_fill_triangle(canvas_buf, nr.x, line_y, nr.x + size,
+                               line_y - size / 2, nr.x + size,
+                               line_y + size / 2, line_col);
+            }
+          }
+
+          // End Style (Right)
+          if (node->line_end_style > 0) {
+            if (node->line_end_style == 1) { // Circle
+              nk_fill_circle(canvas_buf,
+                             nk_rect(nr.x + nr.w - size / 2, line_y - size / 2,
+                                     size, size),
+                             line_col);
+            } else if (node->line_end_style == 2) { // Arrow (Right -->)
+              nk_fill_triangle(canvas_buf, nr.x + nr.w, line_y,
+                               nr.x + nr.w - size, line_y - size / 2,
+                               nr.x + nr.w - size, line_y + size / 2, line_col);
+            }
+          }
+
         } else if (node->type == NODE_TYPE_PATH && node->path_points &&
                    node->path_point_count > 1) {
           // Fill path
@@ -4241,6 +4524,74 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
               nk_stroke_line(canvas_buf, sx + p1.x * scale, sy + p1.y * scale,
                              sx + p2.x * scale, sy + p2.y * scale,
                              node->stroke_width * scale, stroke);
+          }
+
+          // Line Endings for Paths (only if 2 points)
+          if (node->path_point_count == 2) {
+            NodePathPoint p1 = node->path_points[0];
+            NodePathPoint p2 = node->path_points[1];
+            float start_x = sx + p1.x * scale;
+            float start_y = sy + p1.y * scale;
+            float end_x = sx + p2.x * scale;
+            float end_y = sy + p2.y * scale;
+
+            float dx = end_x - start_x;
+            float dy = end_y - start_y;
+            float angle = atan2f(dy, dx);
+            float size =
+                (node->stroke_width > 2.0f ? node->stroke_width : 2.0f) * 4.0f *
+                scale;
+
+            // Start Style
+            if (node->line_start_style == 1) { // Circle
+              nk_fill_circle(
+                  canvas_buf,
+                  nk_rect(start_x - size / 2, start_y - size / 2, size, size),
+                  stroke);
+            } else if (node->line_start_style ==
+                       2) { // Arrow (pointing away from line)
+              // Tip at start_x, start_y. Pointing away means angle + PI.
+              float arrow_angle = angle + 3.14159f;
+              float tip_x = start_x; // Tip is exactly at start point
+              float tip_y = start_y;
+
+              // Move tip slightly out so it doesn't overlap line end exactly?
+              // No, exact is fine. Actually, if we want the arrow tip to be at
+              // start_x, we compute base from there.
+
+              float base_angle1 = arrow_angle + 0.5f; // ~28 deg
+              float base_angle2 = arrow_angle - 0.5f;
+
+              float p1x = tip_x + size * cosf(base_angle1);
+              float p1y = tip_y + size * sinf(base_angle1);
+              float p2x = tip_x + size * cosf(base_angle2);
+              float p2y = tip_y + size * sinf(base_angle2);
+
+              nk_fill_triangle(canvas_buf, tip_x, tip_y, p1x, p1y, p2x, p2y,
+                               stroke);
+            }
+
+            // End Style
+            if (node->line_end_style == 1) { // Circle
+              nk_fill_circle(
+                  canvas_buf,
+                  nk_rect(end_x - size / 2, end_y - size / 2, size, size),
+                  stroke);
+            } else if (node->line_end_style == 2) { // Arrow
+              float tip_x = end_x;
+              float tip_y = end_y;
+
+              float base_angle1 = angle + 3.14159f + 0.5f;
+              float base_angle2 = angle + 3.14159f - 0.5f;
+
+              float p1x = tip_x + size * cosf(base_angle1);
+              float p1y = tip_y + size * sinf(base_angle1);
+              float p2x = tip_x + size * cosf(base_angle2);
+              float p2y = tip_y + size * sinf(base_angle2);
+
+              nk_fill_triangle(canvas_buf, tip_x, tip_y, p1x, p1y, p2x, p2y,
+                               stroke);
+            }
           }
         } else if (node->type == NODE_TYPE_ELLIPSE) {
           if (node->is_container && !node->image_path[0]) {
