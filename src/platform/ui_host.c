@@ -2094,10 +2094,9 @@ static void ui_render_sidebar_properties(UIHost *ui, struct nk_context *ctx,
   }
 
   // Stroke
-  nk_layout_row_dynamic(ctx, 25, 1);
-  nk_label(ctx, "Stroke Thickness", NK_TEXT_LEFT);
   nk_layout_row_dynamic(ctx, 30, 1);
-  nk_property_float(ctx, "#", 0.0f, &node->stroke_width, 100.0f, 0.5f, 0.25f);
+  nk_property_float(ctx, "Thickness:", 0.0f, &node->stroke_width, 100.0f, 0.5f,
+                    0.25f);
 
   nk_layout_row_dynamic(ctx, 25, 1);
   nk_label(ctx, "Stroke Color", NK_TEXT_LEFT);
@@ -2532,7 +2531,7 @@ static Node *design_create_styled_node(DesignData *dd, NodeStyleType style,
     node->type = NODE_TYPE_RECT;
     node->fill_color = color;
     node->stroke_color = 0x1A73E8FF;
-    node->stroke_width = 0.0f;
+    node->stroke_width = 2.0f;
     node->corner_radius = 8.0f;
     break;
 
@@ -2540,7 +2539,7 @@ static Node *design_create_styled_node(DesignData *dd, NodeStyleType style,
     node->type = NODE_TYPE_ELLIPSE;
     node->fill_color = color;
     node->stroke_color = 0x1E8E3EFF;
-    node->stroke_width = 0.0f;
+    node->stroke_width = 2.0f;
     node->corner_radius = 0.0f;
     break;
 
@@ -2548,7 +2547,7 @@ static Node *design_create_styled_node(DesignData *dd, NodeStyleType style,
     node->type = NODE_TYPE_TRIANGLE;
     node->fill_color = color;
     node->stroke_color = 0xF9A825FF;
-    node->stroke_width = 0.0f;
+    node->stroke_width = 2.0f;
     node->corner_radius = 0.0f;
     break;
 
@@ -3750,6 +3749,10 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           nk_draw_image(canvas_buf, nr, &img, nk_rgb(255, 255, 255));
         } else
           nk_fill_rect(canvas_buf, nr, 0, nk_rgb(200, 200, 200));
+
+        if (node->stroke_width > 0)
+          nk_stroke_rect(canvas_buf, nr, node->corner_radius * zoom,
+                         node->stroke_width * zoom, stroke);
       } else if (node->type == NODE_TYPE_TEXT) {
         // Render background for sticky notes / text with bg
         if (fill.a > 0)
@@ -3783,16 +3786,25 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
             }
           }
         }
-      } else
-        nk_fill_rect(canvas_buf, nr, node->corner_radius * zoom, fill);
 
-      if (node->stroke_width > 0)
-        nk_stroke_rect(canvas_buf, nr, node->corner_radius * zoom,
-                       node->stroke_width * zoom, stroke);
-      if (ui->selected_node == node && !cs->bezier_mode)
+        if (node->stroke_width > 0)
+          nk_stroke_rect(canvas_buf, nr, node->corner_radius * zoom,
+                         node->stroke_width * zoom, stroke);
+      } else {
+        nk_fill_rect(canvas_buf, nr, node->corner_radius * zoom, fill);
+        if (node->stroke_width > 0)
+          nk_stroke_rect(canvas_buf, nr, node->corner_radius * zoom,
+                         node->stroke_width * zoom, stroke);
+      }
+
+      // Removed global unconditional stroke here
+      if (ui->selected_node == node && !cs->bezier_mode) {
+        float sel_off = 2.0f + (node->stroke_width * zoom) / 2.0f;
         nk_stroke_rect(canvas_buf,
-                       nk_rect(nr.x - 2, nr.y - 2, nr.w + 4, nr.h + 4), 0, 2.0f,
-                       nk_rgb(66, 133, 244));
+                       nk_rect(nr.x - sel_off, nr.y - sel_off,
+                               nr.w + sel_off * 2, nr.h + sel_off * 2),
+                       0, 2.0f, nk_rgb(66, 133, 244));
+      }
 
       // Bezier handles interaction and rendering
       // Show handles for ALL path nodes when bezier mode is active
@@ -4416,27 +4428,38 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
         // Selection highlight
         if (node == ui->selected_node && is_active_design && !ds->bezier_mode) {
-          nk_stroke_rect(canvas_buf, nk_rect(sx - 2, sy - 2, sw + 4, sh + 4),
+          float sel_off = 2.0f + (node->stroke_width * scale) / 2.0f;
+          nk_stroke_rect(canvas_buf,
+                         nk_rect(sx - sel_off, sy - sel_off, sw + sel_off * 2,
+                                 sh + sel_off * 2),
                          2.0f, 2.0f, nk_rgb(66, 133, 244));
 
           // Resize handles
           float hsz = 8.0f;
           struct nk_color hc = nk_rgb(66, 133, 244);
+
+          // Helper for corners accounting for offset
+          float h_left = sx - sel_off;
+          float h_top = sy - sel_off;
+          float h_right = sx + sw + sel_off;
+          float h_bottom = sy + sh + sel_off;
+
           // SE
           nk_fill_rect(canvas_buf,
-                       nk_rect(sx + sw - hsz / 2, sy + sh - hsz / 2, hsz, hsz),
+                       nk_rect(h_right - hsz / 2, h_bottom - hsz / 2, hsz, hsz),
                        2.0f, hc);
           // SW
           nk_fill_rect(canvas_buf,
-                       nk_rect(sx - hsz / 2, sy + sh - hsz / 2, hsz, hsz), 2.0f,
-                       hc);
+                       nk_rect(h_left - hsz / 2, h_bottom - hsz / 2, hsz, hsz),
+                       2.0f, hc);
           // NW
           nk_fill_rect(canvas_buf,
-                       nk_rect(sx - hsz / 2, sy - hsz / 2, hsz, hsz), 2.0f, hc);
+                       nk_rect(h_left - hsz / 2, h_top - hsz / 2, hsz, hsz),
+                       2.0f, hc);
           // NE
           nk_fill_rect(canvas_buf,
-                       nk_rect(sx + sw - hsz / 2, sy - hsz / 2, hsz, hsz), 2.0f,
-                       hc);
+                       nk_rect(h_right - hsz / 2, h_top - hsz / 2, hsz, hsz),
+                       2.0f, hc);
         }
 
         // Bezier handles interaction and rendering
