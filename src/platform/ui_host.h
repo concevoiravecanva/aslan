@@ -208,6 +208,9 @@ typedef struct UIHost {
   struct nk_font *font_icons; // Remix Icons
   float font_size_px;
 
+  // Font sizes for text nodes (12, 14, 16, 20, 24, 32, 48, 64, 96)
+  struct nk_font *font_inter_sizes[10];
+
   // Selection state
   Node *selected_node; // Selected node in canvas/design block
 

@@ -230,6 +230,17 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
   if (!ui->font_h3)
     ui->font_h3 = nk_font_atlas_add_default(ui->atlas, 18.0f, NULL);
 
+  // Load variable sizes for Text tool
+  float sizes[] = {12.0f, 14.0f, 16.0f, 20.0f, 24.0f,
+                   32.0f, 48.0f, 64.0f, 96.0f};
+  for (int i = 0; i < 9; i++) {
+    ui->font_inter_sizes[i] =
+        nk_font_atlas_add_from_file(ui->atlas, inter_path, sizes[i], NULL);
+    if (!ui->font_inter_sizes[i])
+      ui->font_inter_sizes[i] =
+          nk_font_atlas_add_default(ui->atlas, sizes[i], NULL);
+  }
+
   // Load RemixIcon font for icons (Unicode range 0xE000-0xF8FF)
   static const nk_rune icons_range[] = {0xE000, 0xF8FF, 0};
   struct nk_font_config icons_cfg = nk_font_config(20.0f);
@@ -2045,6 +2056,64 @@ static void ui_render_sidebar_properties(UIHost *ui, struct nk_context *ctx,
 
   Node *node = ui->selected_node;
 
+  // --- SPECIAL HANDLING FOR TEXT NODES ---
+  if (node->type == NODE_TYPE_TEXT) {
+    // 1. Text Content
+    nk_layout_row_dynamic(ctx, 25, 1);
+    nk_label(ctx, "Text Content", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 60, 1);
+    nk_edit_string_zero_terminated(ctx, NK_EDIT_BOX, node->text,
+                                   sizeof(node->text) - 1, nk_filter_default);
+
+    // 2. Font Type
+    nk_layout_row_dynamic(ctx, 25, 1);
+    nk_label(ctx, "Font", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 30, 1);
+    const char *fonts[] = {"Inter (Body)", "Heading 1", "Heading 2",
+                           "Heading 3", "Monospace"};
+    node->font_type =
+        nk_combo(ctx, fonts, 5, node->font_type, 30, nk_vec2(200, 200));
+
+    // 3. Font Size (More responsive step)
+    // Auto-fix invalid font size for legacy/broken nodes
+    if (node->font_size < 8.0f) {
+      node->font_size = 12.0f;
+    }
+    nk_layout_row_dynamic(ctx, 30, 1);
+    nk_property_float(ctx, "Size:", 8.0f, &node->font_size, 200.0f, 1.0f, 1.0f);
+
+    // 4. Color (Text Color -> stroke_color)
+    nk_layout_row_dynamic(ctx, 25, 1);
+    nk_label(ctx, "Color", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 30, 1);
+    struct nk_color combo_color = nk_rgba(
+        (node->stroke_color >> 24) & 0xFF, (node->stroke_color >> 16) & 0xFF,
+        (node->stroke_color >> 8) & 0xFF, node->stroke_color & 0xFF);
+    if (nk_combo_begin_color(ctx, combo_color, nk_vec2(200, 400))) {
+      struct nk_colorf combo_colorf = nk_color_cf(combo_color);
+      nk_layout_row_dynamic(ctx, 180, 1);
+      combo_colorf = nk_color_picker(ctx, combo_colorf, NK_RGBA);
+      nk_layout_row_dynamic(ctx, 25, 1);
+      combo_colorf.r =
+          nk_propertyf(ctx, "#R:", 0, combo_colorf.r, 1, 0.01f, 0.005f);
+      combo_colorf.g =
+          nk_propertyf(ctx, "#G:", 0, combo_colorf.g, 1, 0.01f, 0.005f);
+      combo_colorf.b =
+          nk_propertyf(ctx, "#B:", 0, combo_colorf.b, 1, 0.01f, 0.005f);
+      combo_colorf.a =
+          nk_propertyf(ctx, "#A:", 0, combo_colorf.a, 1, 0.01f, 0.005f);
+      nk_combo_end(ctx);
+      combo_color = nk_rgba(
+          (int)(combo_colorf.r * 255.0f), (int)(combo_colorf.g * 255.0f),
+          (int)(combo_colorf.b * 255.0f), (int)(combo_colorf.a * 255.0f));
+      node->stroke_color =
+          ((uint32_t)combo_color.r << 24) | ((uint32_t)combo_color.g << 16) |
+          ((uint32_t)combo_color.b << 8) | (uint32_t)combo_color.a;
+    }
+
+    return;
+  }
+
   // Node Name
   nk_layout_row_dynamic(ctx, 25, 1);
   nk_label(ctx, "Name", NK_TEXT_LEFT);
@@ -2562,10 +2631,12 @@ static Node *design_create_styled_node(DesignData *dd, NodeStyleType style,
 
   case NODE_STYLE_TEXT:
     node->type = NODE_TYPE_TEXT;
-    node->fill_color = 0x00000000; // Transparent
-    node->stroke_color = 0x00000000;
+    node->fill_color = 0x00000000;   // Transparent
+    node->stroke_color = 0x000000FF; // Black text
     node->stroke_width = 0.0f;
     node->corner_radius = 0.0f;
+    node->font_size = 12.0f;
+    node->font_type = 0;
     strncpy(node->text, "Text", sizeof(node->text) - 1);
     break;
   }
@@ -2637,10 +2708,12 @@ static Node *canvas_create_styled_node(CanvasData *cd, NodeStyleType style,
 
   case NODE_STYLE_TEXT:
     node->type = NODE_TYPE_TEXT;
-    node->fill_color = 0x00000000; // Transparent
-    node->stroke_color = 0x00000000;
+    node->fill_color = 0x00000000;   // Transparent
+    node->stroke_color = 0x000000FF; // Black text
     node->stroke_width = 0.0f;
     node->corner_radius = 0.0f;
+    node->font_size = 12.0f;
+    node->font_type = 0;
     strncpy(node->text, "Text", sizeof(node->text) - 1);
     break;
   }
@@ -3738,13 +3811,39 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           struct nk_user_font *font =
               ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
 
-          // Use H1 font if it looks like a heading
-          if (sh > 40.0f * zoom && ui->font_h1) {
-            font = &ui->font_h1->handle;
+          // Select font based on type and size
+          if (node->font_type == 4 && ui->font_mono) { // Mono
+            font = &ui->font_mono->handle;
+          } else { // Inter variants (Body, H1, H2, H3)
+            // Find closest size in font_inter_sizes
+            float target_size = node->font_size;
+            float best_diff = 1000.0f;
+            int best_idx = -1;
+            float available_sizes[] = {12.0f, 14.0f, 16.0f, 20.0f, 24.0f,
+                                       32.0f, 48.0f, 64.0f, 96.0f};
+
+            for (int i = 0; i < 9; i++) {
+              float diff = fabsf(available_sizes[i] - target_size);
+              if (diff < best_diff) {
+                best_diff = diff;
+                best_idx = i;
+              }
+            }
+
+            if (best_idx >= 0 && ui->font_inter_sizes[best_idx]) {
+              font = &ui->font_inter_sizes[best_idx]->handle;
+            } else if (ui->font_inter) {
+              font = &ui->font_inter->handle;
+            }
           }
 
+          struct nk_color txt_color = {(node->stroke_color >> 24) & 0xFF,
+                                       (node->stroke_color >> 16) & 0xFF,
+                                       (node->stroke_color >> 8) & 0xFF,
+                                       node->stroke_color & 0xFF};
+
           nk_draw_text(canvas_buf, nr, display_text, strlen(display_text), font,
-                       nk_rgba(0, 0, 0, 0), nk_rgb(0, 0, 0));
+                       nk_rgba(0, 0, 0, 0), txt_color);
 
           if (is_editing) {
             float tw = font->width(font->userdata, font->height, display_text,
@@ -4313,7 +4412,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           if (node->stroke_width > 0)
             nk_stroke_polygon(canvas_buf, (const float *)hpts, hcount,
                               node->stroke_width, stroke);
-        } else if (node->type == NODE_TYPE_LINE) {
+        } else if (node->type == NODE_TYPE_TEXT) {
           // Text node
 
           // Render background for sticky notes / text with bg
@@ -4335,13 +4434,38 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
             struct nk_user_font *font =
                 ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
 
-            // Use H1 font if it looks like a heading
-            if (sh > 40.0f * scale && ui->font_h1) {
-              font = &ui->font_h1->handle;
+            // Select font based on type and size
+            if (node->font_type == 4 && ui->font_mono) { // Mono
+              font = &ui->font_mono->handle;
+            } else { // Inter variants (Body, H1, H2, H3)
+              // Find closest size in font_inter_sizes
+              float target_size = node->font_size;
+              float best_diff = 1000.0f;
+              int best_idx = -1;
+              float available_sizes[] = {12.0f, 14.0f, 16.0f, 20.0f, 24.0f,
+                                         32.0f, 48.0f, 64.0f, 96.0f};
+
+              for (int i = 0; i < 9; i++) {
+                float diff = fabsf(available_sizes[i] - target_size);
+                if (diff < best_diff) {
+                  best_diff = diff;
+                  best_idx = i;
+                }
+              }
+
+              if (best_idx >= 0 && ui->font_inter_sizes[best_idx]) {
+                font = &ui->font_inter_sizes[best_idx]->handle;
+              } else if (ui->font_inter) {
+                font = &ui->font_inter->handle;
+              }
             }
+            struct nk_color txt_color = {(node->stroke_color >> 24) & 0xFF,
+                                         (node->stroke_color >> 16) & 0xFF,
+                                         (node->stroke_color >> 8) & 0xFF,
+                                         node->stroke_color & 0xFF};
 
             nk_draw_text(canvas_buf, nr, display_text, strlen(display_text),
-                         font, nk_rgba(0, 0, 0, 0), nk_rgb(0, 0, 0));
+                         font, nk_rgba(0, 0, 0, 0), txt_color);
             if (is_editing) {
               float tw = font->width(font->userdata, font->height, display_text,
                                      strlen(display_text));

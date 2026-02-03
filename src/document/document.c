@@ -1143,6 +1143,8 @@ Node *node_create(uint32_t id, NodeType type, const char *name) {
   node->stroke_width = 1.0f;
   node->width = 100.0f;
   node->height = 100.0f;
+  node->font_size = 12.0f;
+  node->font_type = 0;
 
   if (name) {
     safe_strcpy(node->name, name, sizeof(node->name));
