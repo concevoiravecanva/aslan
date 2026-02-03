@@ -2266,13 +2266,12 @@ static void ui_render_sidebar_shape_selection(UIHost *ui,
   // Grid: 3 items per row
   NodeType types[] = {NODE_TYPE_RECT,    NODE_TYPE_ELLIPSE,  NODE_TYPE_TRIANGLE,
                       NODE_TYPE_OCTAGON, NODE_TYPE_PENTAGON, NODE_TYPE_HEXAGON,
-                      NODE_TYPE_STAR,    NODE_TYPE_HEART,    NODE_TYPE_LINE};
-  const char *labels[] = {"Rect",    "Ellipse",  "Triangle",
-                          "Octagon", "Pentagon", "Hexagon",
-                          "Star",    "Heart",    "Line"};
+                      NODE_TYPE_HEART,   NODE_TYPE_LINE};
+  const char *labels[] = {"Rect",     "Ellipse", "Triangle", "Octagon",
+                          "Pentagon", "Hexagon", "Heart",    "Line"};
 
   nk_layout_row_dynamic(ctx, 45, 3);
-  for (int i = 0; i < 9; i++) {
+  for (int i = 0; i < 8; i++) {
     if (nk_button_label(ctx, labels[i])) {
       ui->selected_node->type = types[i];
       ui->sidebar_mode = 0;
@@ -2288,8 +2287,9 @@ static void recursive_convert_to_path(Node *node) {
   // Note: We avoid converting TEXT or IMAGE or existing PATHs
   if (node->type == NODE_TYPE_RECT || node->type == NODE_TYPE_ELLIPSE ||
       node->type == NODE_TYPE_TRIANGLE || node->type == NODE_TYPE_OCTAGON ||
+      node->type == NODE_TYPE_TRIANGLE || node->type == NODE_TYPE_OCTAGON ||
       node->type == NODE_TYPE_HEART || node->type == NODE_TYPE_PENTAGON ||
-      node->type == NODE_TYPE_HEXAGON || node->type == NODE_TYPE_STAR) {
+      node->type == NODE_TYPE_HEXAGON) {
     node_convert_to_path(node);
   }
 
@@ -3648,40 +3648,6 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
         if (node->stroke_width > 0)
           nk_stroke_polygon(canvas_buf, (const float *)pts, 8,
                             node->stroke_width * zoom, stroke);
-      } else if (node->type == NODE_TYPE_STAR) {
-        if (node->is_container && !node->image_path[0]) {
-          struct nk_color cbg = nk_rgba(66, 133, 244, 40);
-          struct nk_color cst = nk_rgba(66, 133, 244, 255);
-          struct nk_vec2 vpts[10];
-          for (int i = 0; i < 10; i++) {
-            float angle = (float)i * 2.0f * 3.14159f / 10.0f - 3.14159f / 2.0f;
-            float r = (i % 2 == 0) ? nr.w / 2 : nr.w / 4;
-            vpts[i].x = nr.x + nr.w / 2 + cosf(angle) * r;
-            vpts[i].y = nr.y + nr.h / 2 + sinf(angle) * r;
-          }
-          nk_fill_polygon(canvas_buf, (const float *)vpts, 10, cbg);
-          nk_stroke_polygon(canvas_buf, (const float *)vpts, 10, 1.0f, cst);
-          if (ui->font_icons) {
-            struct nk_rect ir =
-                nk_rect(nr.x + nr.w / 2 - 10, nr.y + nr.h / 2 - 10, 20, 20);
-            nk_draw_text(canvas_buf, ir, ICON_ADD, strlen(ICON_ADD),
-                         &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), cst);
-          }
-          drawn_image = 1;
-        }
-        struct nk_vec2 pts[10];
-        for (int i = 0; i < 10; i++) {
-          float angle = (float)i * 2.0f * 3.14159f / 10.0f - 3.14159f / 2.0f;
-          float r = (i % 2 == 0) ? nr.w / 2 : nr.w / 4;
-          pts[i].x = nr.x + nr.w / 2 + cosf(angle) * r;
-          pts[i].y = nr.y + nr.h / 2 + sinf(angle) * r;
-        }
-        if (!drawn_image) {
-          nk_fill_polygon(canvas_buf, (const float *)pts, 10, fill);
-        }
-        if (node->stroke_width > 0)
-          nk_stroke_polygon(canvas_buf, (const float *)pts, 10,
-                            node->stroke_width * zoom, stroke);
       } else if (node->type == NODE_TYPE_HEART) {
         int drawn_image = 0;
         if (node->is_container && node->image_path[0]) {
@@ -4301,40 +4267,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
             nk_fill_polygon(canvas_buf, (const float *)pts, 8, fill);
           if (node->stroke_width > 0)
             nk_stroke_polygon(canvas_buf, (const float *)pts, 8,
-                              node->stroke_width, stroke);
-        } else if (node->type == NODE_TYPE_STAR) {
-          if (node->is_container && !node->image_path[0]) {
-            struct nk_color cbg = nk_rgba(66, 133, 244, 40);
-            struct nk_color cst = nk_rgba(66, 133, 244, 255);
-            struct nk_vec2 vpts[10];
-            for (int i = 0; i < 10; i++) {
-              float angle =
-                  (float)i * 2.0f * 3.14159f / 10.0f - 3.14159f / 2.0f;
-              float r = (i % 2 == 0) ? nr.w / 2 : nr.w / 4;
-              vpts[i].x = nr.x + nr.w / 2 + cosf(angle) * r;
-              vpts[i].y = nr.y + nr.h / 2 + sinf(angle) * r;
-            }
-            nk_fill_polygon(canvas_buf, (const float *)vpts, 10, cbg);
-            nk_stroke_polygon(canvas_buf, (const float *)vpts, 10, 1.0f, cst);
-            if (ui->font_icons) {
-              struct nk_rect ir =
-                  nk_rect(nr.x + nr.w / 2 - 10, nr.y + nr.h / 2 - 10, 20, 20);
-              nk_draw_text(canvas_buf, ir, ICON_ADD, strlen(ICON_ADD),
-                           &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), cst);
-            }
-            drawn_image = 1;
-          }
-          struct nk_vec2 pts[10];
-          for (int i = 0; i < 10; i++) {
-            float angle = (float)i * 2.0f * 3.14159f / 10.0f - 3.14159f / 2.0f;
-            float r = (i % 2 == 0) ? nr.w / 2 : nr.w / 4;
-            pts[i].x = nr.x + nr.w / 2 + cosf(angle) * r;
-            pts[i].y = nr.y + nr.h / 2 + sinf(angle) * r;
-          }
-          if (!drawn_image && has_fill)
-            nk_fill_polygon(canvas_buf, (const float *)pts, 10, fill);
-          if (node->stroke_width > 0)
-            nk_stroke_polygon(canvas_buf, (const float *)pts, 10,
                               node->stroke_width, stroke);
         } else if (node->type == NODE_TYPE_HEART) {
           if (node->is_container && !node->image_path[0]) {
