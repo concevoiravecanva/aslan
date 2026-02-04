@@ -1180,8 +1180,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     ctx->style.edit.hover = nk_style_item_color(nk_rgba(0, 0, 0, 0));
     ctx->style.edit.active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
     ctx->style.edit.border = 0.0f;
-    ctx->style.edit.padding =
-        nk_vec2(4, 2); // Minimal padding for interactivity
+    ctx->style.edit.padding = nk_vec2(6, 4); // Padding for interactivity
 
     struct nk_vec2 old_window_padding = ctx->style.window.padding;
     struct nk_vec2 old_group_padding = ctx->style.window.group_padding;
@@ -1190,8 +1189,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     ctx->style.window.padding = nk_vec2(0, 0);
     ctx->style.window.group_padding = nk_vec2(0, 0);
     ctx->style.window.spacing = nk_vec2(0, 0);
-    ctx->style.button.padding = nk_vec2(4, 2); // Minimal padding for buttons
-    nk_style_push_vec2(ctx, &ctx->style.text.padding, nk_vec2(4, 0));
+    ctx->style.button.padding = nk_vec2(8, 4); // Good padding for buttons
+    nk_style_push_vec2(ctx, &ctx->style.text.padding, nk_vec2(4, 2));
 
     // -----------------------------------------------------------------------
     // HEADER ROW
@@ -1687,11 +1686,14 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           }
         }
 
-        if (nk_button_label(ctx, "# Count")) {
+        if (nk_button_label(ctx, "# Count (all)")) {
           aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_COUNT);
           ui->table_state.show_footer_menu = 0;
           nk_popup_close(ctx);
         }
+        nk_popup_end(ctx);
+      } else {
+        ui->table_state.show_footer_menu = 0;
       }
     }
 
