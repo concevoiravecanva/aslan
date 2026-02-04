@@ -748,20 +748,6 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     }
 
-    // Lua script (icon) - Now last
-    if (ui_icon_button(ui, ICON_LUA)) {
-      if (page) {
-        Block *b = block_create(page, BLOCK_LUA);
-        if (b) {
-          block_lua_init(b);
-          page_append_block(page, b);
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u lua", page_id, b->id);
-          engine_execute_command(engine, cmd);
-        }
-      }
-    }
-
     // Right FLEX spacer
     nk_spacing(ctx, 1);
   }
