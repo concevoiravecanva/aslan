@@ -1052,19 +1052,24 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
   const float row_num_w = 40.0f;
   const float toolbar_h = 32.0f;
 
-  // Colors
-  struct nk_color header_bg =
-      ui->dark_mode ? nk_rgb(15, 15, 18) : nk_rgb(180, 180, 185);
+  // Colors - Dark header/footer for professional Notion-like look
+  struct nk_color header_bg = nk_rgb(25, 25, 28); // Near-black in all modes
   struct nk_color row_alt =
       ui->dark_mode ? nk_rgb(35, 37, 42) : nk_rgb(252, 252, 253);
   struct nk_color row_normal =
       ui->dark_mode ? nk_rgb(30, 32, 36) : nk_rgb(255, 255, 255);
   struct nk_color border_color =
       ui->dark_mode ? nk_rgb(60, 62, 68) : nk_rgb(220, 220, 225);
-  struct nk_color footer_bg =
-      ui->dark_mode ? nk_rgb(40, 42, 48) : nk_rgb(248, 248, 250);
+  struct nk_color footer_bg = nk_rgb(30, 30, 34); // Near-black in all modes
   struct nk_color muted_gray =
       ui->dark_mode ? nk_rgb(100, 100, 105) : nk_rgb(160, 160, 165);
+
+  // Light text colors for dark header/footer
+  struct nk_color header_text_col = nk_rgb(245, 245, 250); // White for dark bg
+  struct nk_color header_icon_col =
+      nk_rgba(245, 245, 250, 160); // Slightly transparent
+  struct nk_color footer_text_col =
+      nk_rgb(200, 200, 205); // Slightly muted white
 
   // Expand/collapse toggle
   ui_render_expand_toggle(ui, ctx, block);
@@ -1073,8 +1078,10 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     return;
 
   // =========================================================================
-  // KEYBOARD NAVIGATION (Phase 8)
+  // KEYBOARD NAVIGATION (Phase 8 + Phase 11)
   // =========================================================================
+  int view_count_nav = (int)aslan_table_view_count(tbl);
+
   if (ui->table_state.active_block_id == block->id &&
       !ui->table_state.is_editing_cell) {
     if (nk_input_is_key_pressed(&ctx->input, NK_KEY_UP)) {
@@ -1083,9 +1090,9 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                            : 0;
     }
     if (nk_input_is_key_pressed(&ctx->input, NK_KEY_DOWN)) {
-      // Bounds check should be against view_count, but loose check is okay for
-      // now
-      ui->table_state.active_row_idx++;
+      if (ui->table_state.active_row_idx < view_count_nav - 1) {
+        ui->table_state.active_row_idx++;
+      }
     }
     if (nk_input_is_key_pressed(&ctx->input, NK_KEY_LEFT)) {
       ui->table_state.active_col_idx = (ui->table_state.active_col_idx > 0)
@@ -1098,11 +1105,24 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               ? ui->table_state.active_col_idx + 1
               : (int)tbl->column_count - 1;
     }
+    // Tab: advance to next cell (wrap to next row)
+    if (nk_input_is_key_pressed(&ctx->input, NK_KEY_TAB)) {
+      ui->table_state.active_col_idx++;
+      if (ui->table_state.active_col_idx >= (int)tbl->column_count) {
+        ui->table_state.active_col_idx = 0;
+        if (ui->table_state.active_row_idx < view_count_nav - 1) {
+          ui->table_state.active_row_idx++;
+        }
+      }
+    }
+    // Enter: start editing
     if (nk_input_is_key_pressed(&ctx->input, NK_KEY_ENTER)) {
       ui->table_state.is_editing_cell = 1;
     }
   }
-  if (nk_input_is_key_pressed(&ctx->input, NK_KEY_TEXT_RESET_MODE)) {
+  // Escape: cancel edit mode (works globally while editing)
+  if (ui->table_state.is_editing_cell &&
+      nk_input_is_key_pressed(&ctx->input, NK_KEY_TEXT_RESET_MODE)) {
     ui->table_state.is_editing_cell = 0;
   }
 
@@ -1111,14 +1131,23 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
   // =========================================================================
   nk_layout_row_dynamic(ctx, toolbar_h, 1);
   if (nk_group_begin(ctx, "table_toolbar", NK_WINDOW_NO_SCROLLBAR)) {
-    nk_layout_row_template_begin(ctx, 24);
-    nk_layout_row_template_push_static(ctx, 100);
-    nk_layout_row_template_push_static(ctx, 100);
+    nk_layout_row_template_begin(ctx, 28);
+    nk_layout_row_template_push_static(ctx, 120);
+    nk_layout_row_template_push_static(ctx, 120);
     nk_layout_row_template_push_variable(ctx, 10);
     nk_layout_row_template_end(ctx);
 
-    // Add Row button
-    if (nk_button_label(ctx, "+ Row")) {
+    // Add Row button - styled with accent
+    struct nk_style_button row_btn = ctx->style.button;
+    row_btn.normal = nk_style_item_color(nk_rgb(35, 131, 226)); // Notion blue
+    row_btn.hover = nk_style_item_color(nk_rgb(45, 141, 236));
+    row_btn.active = nk_style_item_color(nk_rgb(25, 121, 216));
+    row_btn.text_normal = nk_rgb(255, 255, 255);
+    row_btn.text_hover = nk_rgb(255, 255, 255);
+    row_btn.text_active = nk_rgb(255, 255, 255);
+    row_btn.rounding = 4;
+
+    if (nk_button_label_styled(ctx, &row_btn, "+ New Row")) {
       if (tbl) {
         aslan_table_add_row(tbl);
       } else {
@@ -1127,8 +1156,17 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     }
 
-    // Add Column button (opens type menu)
-    if (nk_button_label(ctx, "+ Column")) {
+    // Add Column button - styled subtly
+    struct nk_style_button col_btn = ctx->style.button;
+    col_btn.normal = nk_style_item_color(ui->dark_mode ? nk_rgb(50, 52, 56)
+                                                       : nk_rgb(238, 238, 242));
+    col_btn.hover = nk_style_item_color(ui->dark_mode ? nk_rgb(60, 62, 66)
+                                                      : nk_rgb(228, 228, 232));
+    col_btn.text_normal = ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
+    col_btn.text_hover = ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
+    col_btn.rounding = 4;
+
+    if (nk_button_label_styled(ctx, &col_btn, "+ Column")) {
       struct nk_rect b = nk_widget_bounds(ctx);
       ui->table_state.active_block_id = block->id;
       ui->table_state.show_col_menu = !ui->table_state.show_col_menu;
@@ -1211,8 +1249,17 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       nk_fill_rect(nk_window_get_canvas(ctx), hdr_bounds, 0, header_bg);
       nk_stroke_rect(nk_window_get_canvas(ctx), hdr_bounds, 0, 1, border_color);
 
-      // Hidden button for settings/sorting
-      if (nk_button_label(ctx, "")) {
+      // Hidden button for settings/sorting - styled transparent
+      struct nk_style_button hdr_btn_style = ctx->style.button;
+      hdr_btn_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+      hdr_btn_style.hover = nk_style_item_color(nk_rgba(255, 255, 255, 20));
+      hdr_btn_style.active = nk_style_item_color(nk_rgba(255, 255, 255, 30));
+      hdr_btn_style.border = 0;
+      hdr_btn_style.text_normal = header_text_col;
+      hdr_btn_style.text_hover = header_text_col;
+      hdr_btn_style.text_active = header_text_col;
+
+      if (nk_button_label_styled(ctx, &hdr_btn_style, "")) {
         ui->table_state.active_block_id = block->id;
         ui->table_state.active_col_idx = (int)c;
         ui->table_state.show_col_settings = !ui->table_state.show_col_settings;
@@ -1224,13 +1271,9 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         ui->table_state.rename_buffer[63] = '\0';
       }
 
-      // Notion Style Header: Anthracite gray text, slightly transparent icons
+      // Header text - use fixed light colors for dark background
       struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
       const char *icon = table_col_type_icon(tbl->columns[c].type);
-      struct nk_color header_text_col =
-          ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(55, 53, 47);
-      struct nk_color icon_col = ui->dark_mode ? nk_rgba(220, 220, 225, 128)
-                                               : nk_rgba(55, 53, 47, 128);
 
       // Draw Icon and Text manually with font switching
       if (ui->font_icons) {
@@ -1238,7 +1281,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         nk_draw_text(canvas,
                      nk_rect(hdr_bounds.x + 2, hdr_bounds.y + 6, 20, 20), icon,
                      strlen(icon), &ui->font_icons->handle, nk_rgba(0, 0, 0, 0),
-                     icon_col);
+                     header_icon_col);
         nk_style_set_font(ctx, &ui->font_inter->handle);
       }
 
@@ -1270,14 +1313,18 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     // -----------------------------------------------------------------------
     struct nk_color notion_row_bg =
         ui->dark_mode ? nk_rgb(25, 26, 30) : nk_rgb(255, 255, 255);
-    struct nk_color notion_border =
-        ui->dark_mode ? nk_rgb(45, 46, 50) : nk_rgb(235, 236, 237);
+    struct nk_color notion_border = ui->dark_mode
+                                        ? nk_rgba(60, 62, 66, 60)
+                                        : nk_rgba(220, 221, 222, 120); // Subtle
     struct nk_color notion_text =
         ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(55, 53, 47);
-    struct nk_color vert_sep =
-        ui->dark_mode ? nk_rgb(40, 42, 46) : nk_rgb(240, 241, 242);
+    struct nk_color vert_sep = ui->dark_mode
+                                   ? nk_rgba(60, 62, 66, 40)
+                                   : nk_rgba(200, 201, 202, 80); // Very subtle
     struct nk_color row_hover_bg =
-        ui->dark_mode ? nk_rgba(255, 255, 255, 10) : nk_rgba(0, 0, 0, 10);
+        ui->dark_mode ? nk_rgba(255, 255, 255, 20)
+                      : nk_rgba(55, 53, 47, 15);                // Stronger tint
+    struct nk_color active_cell_outline = nk_rgb(35, 131, 226); // Notion blue
 
     for (size_t v = 0; v < view_count && v < 100; v++) { // Limit visible rows
       uint64_t row_id = aslan_table_view_row_id(tbl, (int)v);
@@ -1315,20 +1362,28 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         // Background
         nk_fill_rect(canvas, cell_bounds, 0, current_row_bg);
 
-        // Borders (bottom and right separator)
+        // Borders (bottom only - subtle horizontal line)
         nk_stroke_line(canvas, cell_bounds.x, cell_bounds.y + cell_bounds.h - 1,
                        cell_bounds.x + cell_bounds.w,
                        cell_bounds.y + cell_bounds.h - 1, 1.0f, notion_border);
-        nk_stroke_line(canvas, cell_bounds.x + cell_bounds.w - 1, cell_bounds.y,
-                       cell_bounds.x + cell_bounds.w - 1,
-                       cell_bounds.y + cell_bounds.h, 1.0f, vert_sep);
+
+        // Vertical separator on hover only (Notion style)
+        if (is_row_hovered) {
+          nk_stroke_line(canvas, cell_bounds.x + cell_bounds.w - 1,
+                         cell_bounds.y + 4, cell_bounds.x + cell_bounds.w - 1,
+                         cell_bounds.y + cell_bounds.h - 4, 1.0f, vert_sep);
+        }
 
         AslanColumnType type = tbl->columns[c].type;
         int is_active = (ui->table_state.active_row_idx == (int)v &&
                          ui->table_state.active_col_idx == (int)c);
 
         if (is_active) {
-          nk_fill_rect(canvas, cell_bounds, 0, nk_rgba(35, 131, 226, 30));
+          // Blue outline for active cell (Notion-like edit focus)
+          nk_stroke_rect(canvas,
+                         nk_rect(cell_bounds.x + 1, cell_bounds.y + 1,
+                                 cell_bounds.w - 2, cell_bounds.h - 2),
+                         2.0f, 2.0f, active_cell_outline);
         }
 
         switch (type) {
@@ -1580,8 +1635,18 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       aslan_table_get_footer_display(tbl, (int)c, footer_text,
                                      sizeof(footer_text));
 
+      // Style footer buttons as transparent with light text
+      struct nk_style_button ftr_btn_style = ctx->style.button;
+      ftr_btn_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+      ftr_btn_style.hover = nk_style_item_color(nk_rgba(255, 255, 255, 20));
+      ftr_btn_style.active = nk_style_item_color(nk_rgba(255, 255, 255, 30));
+      ftr_btn_style.border = 0;
+      ftr_btn_style.text_normal = footer_text_col;
+      ftr_btn_style.text_hover = nk_rgb(255, 255, 255);
+      ftr_btn_style.text_active = nk_rgb(255, 255, 255);
+
       if (footer_text[0]) {
-        if (nk_button_label(ctx, footer_text)) {
+        if (nk_button_label_styled(ctx, &ftr_btn_style, footer_text)) {
           ui->table_state.active_block_id = block->id;
           ui->table_state.active_col_idx = (int)c;
           ui->table_state.show_footer_menu = !ui->table_state.show_footer_menu;
@@ -1590,7 +1655,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           ui->table_state.menu_pos_y = ftr_bounds.y;
         }
       } else {
-        if (nk_button_label(ctx, "...")) {
+        if (nk_button_label_styled(ctx, &ftr_btn_style, "...")) {
           ui->table_state.active_block_id = block->id;
           ui->table_state.active_col_idx = (int)c;
           ui->table_state.show_footer_menu = !ui->table_state.show_footer_menu;
