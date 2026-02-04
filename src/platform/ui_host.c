@@ -1062,6 +1062,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ui->dark_mode ? nk_rgb(60, 62, 68) : nk_rgb(220, 220, 225);
   struct nk_color footer_bg =
       ui->dark_mode ? nk_rgb(40, 42, 48) : nk_rgb(248, 248, 250);
+  struct nk_color muted_gray =
+      ui->dark_mode ? nk_rgb(100, 100, 105) : nk_rgb(160, 160, 165);
 
   // Expand/collapse toggle
   ui_render_expand_toggle(ui, ctx, block);
@@ -1169,6 +1171,28 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     }
 
+    // Save and Push Global Table Styles (Zero Padding/Spacing for "Simple
+    // Grid")
+    struct nk_style_item old_edit_normal = ctx->style.edit.normal;
+    struct nk_style_item old_edit_hover = ctx->style.edit.hover;
+    struct nk_style_item old_edit_active = ctx->style.edit.active;
+    ctx->style.edit.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    ctx->style.edit.hover = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    ctx->style.edit.active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    ctx->style.edit.border = 0.0f;
+    ctx->style.edit.padding =
+        nk_vec2(4, 2); // Minimal padding for interactivity
+
+    struct nk_vec2 old_window_padding = ctx->style.window.padding;
+    struct nk_vec2 old_group_padding = ctx->style.window.group_padding;
+    struct nk_vec2 old_window_spacing = ctx->style.window.spacing;
+    struct nk_vec2 old_button_padding = ctx->style.button.padding;
+    ctx->style.window.padding = nk_vec2(0, 0);
+    ctx->style.window.group_padding = nk_vec2(0, 0);
+    ctx->style.window.spacing = nk_vec2(0, 0);
+    ctx->style.button.padding = nk_vec2(4, 2); // Minimal padding for buttons
+    nk_style_push_vec2(ctx, &ctx->style.text.padding, nk_vec2(4, 0));
+
     // -----------------------------------------------------------------------
     // HEADER ROW
     // -----------------------------------------------------------------------
@@ -1212,7 +1236,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       if (ui->font_icons) {
         nk_style_set_font(ctx, &ui->font_icons->handle);
         nk_draw_text(canvas,
-                     nk_rect(hdr_bounds.x + 8, hdr_bounds.y + 6, 20, 20), icon,
+                     nk_rect(hdr_bounds.x + 2, hdr_bounds.y + 6, 20, 20), icon,
                      strlen(icon), &ui->font_icons->handle, nk_rgba(0, 0, 0, 0),
                      icon_col);
         nk_style_set_font(ctx, &ui->font_inter->handle);
@@ -1220,7 +1244,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       nk_draw_text(
           canvas,
-          nk_rect(hdr_bounds.x + 30, hdr_bounds.y + 6, hdr_bounds.w - 34, 20),
+          nk_rect(hdr_bounds.x + 22, hdr_bounds.y + 6, hdr_bounds.w - 24, 20),
           tbl->columns[c].name, strlen(tbl->columns[c].name),
           &ui->font_inter->handle, nk_rgba(0, 0, 0, 0), header_text_col);
 
@@ -1245,163 +1269,162 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     // DATA ROWS
     // -----------------------------------------------------------------------
     struct nk_color notion_row_bg =
-        ui->dark_mode ? nk_rgb(30, 32, 36) : nk_rgb(255, 255, 255);
+        ui->dark_mode ? nk_rgb(25, 26, 30) : nk_rgb(255, 255, 255);
     struct nk_color notion_border =
-        ui->dark_mode ? nk_rgb(60, 62, 68) : nk_rgb(235, 236, 237);
+        ui->dark_mode ? nk_rgb(45, 46, 50) : nk_rgb(235, 236, 237);
     struct nk_color notion_text =
         ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(55, 53, 47);
     struct nk_color vert_sep =
-        ui->dark_mode ? nk_rgb(45, 47, 52) : nk_rgb(245, 246, 247);
+        ui->dark_mode ? nk_rgb(40, 42, 46) : nk_rgb(240, 241, 242);
+    struct nk_color row_hover_bg =
+        ui->dark_mode ? nk_rgba(255, 255, 255, 10) : nk_rgba(0, 0, 0, 10);
 
     for (size_t v = 0; v < view_count && v < 100; v++) { // Limit visible rows
       uint64_t row_id = aslan_table_view_row_id(tbl, (int)v);
       if (row_id == 0)
         continue;
 
-      // Notion style: Pure white background for everything
-      struct nk_color row_bg = notion_row_bg;
+      // Data Row Layout using nk_layout_row_begin/push/end (consistent API)
+      nk_layout_row_begin(ctx, NK_STATIC, row_h, (int)col_count + 1);
 
-      // Data Row Layout Template
-      nk_layout_row_template_begin(ctx, row_h);
-      nk_layout_row_template_push_static(ctx, row_num_w);
+      // Calculate row hover state
+      struct nk_rect row_bounds = nk_layout_widget_bounds(ctx);
+      int is_row_hovered =
+          nk_input_is_mouse_hovering_rect(&ctx->input, row_bounds);
+      struct nk_color current_row_bg =
+          is_row_hovered ? row_hover_bg : notion_row_bg;
+      struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+
+      // Row number cell
+      nk_layout_row_push(ctx, row_num_w);
+      struct nk_rect cell_bounds = nk_widget_bounds(ctx);
+      nk_fill_rect(canvas, cell_bounds, 0, current_row_bg);
+      nk_stroke_line(canvas, cell_bounds.x, cell_bounds.y + cell_bounds.h - 1,
+                     cell_bounds.x + cell_bounds.w,
+                     cell_bounds.y + cell_bounds.h - 1, 1.0f, notion_border);
+
+      char row_num_str[16];
+      snprintf(row_num_str, sizeof(row_num_str), "%zu", v + 1);
+      nk_label_colored(ctx, row_num_str, NK_TEXT_CENTERED, muted_gray);
+
+      // Data cells - direct widget placement (no nk_group)
       for (size_t c = 0; c < col_count; c++) {
-        nk_layout_row_template_push_static(ctx, col_widths[c]);
-      }
-      nk_layout_row_template_end(ctx);
+        nk_layout_row_push(ctx, col_widths[c]);
+        cell_bounds = nk_widget_bounds(ctx);
 
-      // Row number
-      struct nk_rect row_num_bounds = nk_widget_bounds(ctx);
-      nk_fill_rect(nk_window_get_canvas(ctx), row_num_bounds, 0, row_bg);
-      // Bottom border only: Notion style
-      nk_stroke_line(nk_window_get_canvas(ctx), row_num_bounds.x,
-                     row_num_bounds.y + row_num_bounds.h,
-                     row_num_bounds.x + row_num_bounds.w,
-                     row_num_bounds.y + row_num_bounds.h, 1.0f, notion_border);
+        // Background
+        nk_fill_rect(canvas, cell_bounds, 0, current_row_bg);
 
-      char row_num[16];
-      snprintf(row_num, sizeof(row_num), "%zu", v + 1);
-      nk_label(ctx, row_num, NK_TEXT_CENTERED);
+        // Borders (bottom and right separator)
+        nk_stroke_line(canvas, cell_bounds.x, cell_bounds.y + cell_bounds.h - 1,
+                       cell_bounds.x + cell_bounds.w,
+                       cell_bounds.y + cell_bounds.h - 1, 1.0f, notion_border);
+        nk_stroke_line(canvas, cell_bounds.x + cell_bounds.w - 1, cell_bounds.y,
+                       cell_bounds.x + cell_bounds.w - 1,
+                       cell_bounds.y + cell_bounds.h, 1.0f, vert_sep);
 
-      // Cells
-      for (size_t c = 0; c < col_count; c++) {
-        char cell_id[64];
-        snprintf(cell_id, sizeof(cell_id), "cell_%llu_%zu",
-                 (unsigned long long)row_id, c);
+        AslanColumnType type = tbl->columns[c].type;
+        int is_active = (ui->table_state.active_row_idx == (int)v &&
+                         ui->table_state.active_col_idx == (int)c);
 
-        // Scope each cell with a group to avoid widget ID conflicts
-        if (nk_group_begin(ctx, cell_id, NK_WINDOW_NO_SCROLLBAR)) {
-          nk_layout_row_dynamic(ctx, row_h, 1);
-          struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+        if (is_active) {
+          nk_fill_rect(canvas, cell_bounds, 0, nk_rgba(35, 131, 226, 30));
+        }
 
-          // Notion Aesthetic: Only horizontal bottom border
-          nk_stroke_line(canvas, 0, row_h - 1, col_widths[c], row_h - 1, 1.0f,
-                         notion_border);
+        switch (type) {
+        case ASLAN_COL_TEXT:
+        case ASLAN_COL_FORMULA: {
+          char buf[1024];
+          const char *val = aslan_table_get_text(tbl, (int)c, row_id);
+          strncpy(buf, val ? val : "", sizeof(buf) - 1);
+          buf[sizeof(buf) - 1] = '\0';
 
-          AslanColumnType type = tbl->columns[c].type;
-          int is_active = (ui->table_state.active_row_idx == (int)v &&
-                           ui->table_state.active_col_idx == (int)c);
-          // Interaction: Updates active cell based on edit widget focus
+          nk_flags res = nk_edit_string_zero_terminated(
+              ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT | NK_EDIT_SIG_ENTER, buf,
+              sizeof(buf) - 1, nk_filter_default);
 
-          // Interaction: Updates active cell based on edit widget focus
-          // We rely on nk_edit_string returning NK_EDIT_ACTIVE/ACTIVATED
+          if (res & NK_EDIT_ACTIVATED) {
+            ui->table_state.active_row_idx = (int)v;
+            ui->table_state.active_col_idx = (int)c;
+            ui->table_state.is_editing_cell = 1;
+          }
+          if (res & NK_EDIT_COMMITED)
+            ui->table_state.is_editing_cell = 0;
 
-          // Active Cell Highlight (Notion-blue tint)
-          if (is_active) {
-            nk_fill_rect(canvas, nk_layout_space_bounds(ctx), 0,
-                         nk_rgba(35, 131, 226, 20)); // Subtle blue
+          if (strcmp(buf, val ? val : "") != 0) {
+            aslan_table_set_cell(tbl, (int)c, row_id, buf);
+          }
+          break;
+        }
+        case ASLAN_COL_NUMBER: {
+          char buf[64], val_str[64];
+          aslan_table_get_cell_display(tbl, (int)c, row_id, val_str,
+                                       sizeof(val_str));
+          strncpy(buf, val_str, sizeof(buf) - 1);
+
+          nk_flags res = nk_edit_string_zero_terminated(
+              ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT | NK_EDIT_SIG_ENTER, buf,
+              sizeof(buf) - 1, nk_filter_decimal);
+
+          if (res & NK_EDIT_ACTIVATED) {
+            ui->table_state.active_row_idx = (int)v;
+            ui->table_state.active_col_idx = (int)c;
+            ui->table_state.is_editing_cell = 1;
+          }
+          if (res & NK_EDIT_COMMITED)
+            ui->table_state.is_editing_cell = 0;
+
+          if (strcmp(buf, val_str) != 0) {
+            aslan_table_set_cell(tbl, (int)c, row_id, buf);
+          }
+          break;
+        }
+        case ASLAN_COL_DATE: {
+          char buf[32];
+          int64_t ts = aslan_table_get_date(tbl, (int)c, row_id);
+          if (ts > 0) {
+            time_t t = (time_t)(ts / 1000);
+            struct tm *tm_ptr = localtime(&t);
+            strftime(buf, sizeof(buf), "%Y-%m-%d", tm_ptr);
+          } else {
+            strncpy(buf, "", sizeof(buf));
           }
 
-          // Notion Aesthetic: Horizontal bottom border + faint vertical lines
-          nk_stroke_line(canvas, 0, row_h - 1, col_widths[c], row_h - 1, 1.0f,
-                         notion_border);
-          nk_stroke_line(canvas, col_widths[c] - 1, 0, col_widths[c] - 1, row_h,
-                         1.0f, vert_sep); // Faint vertical separator
+          nk_flags res = nk_edit_string_zero_terminated(
+              ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT | NK_EDIT_SIG_ENTER, buf,
+              sizeof(buf) - 1, nk_filter_ascii);
 
-          // Global padding for cell content: 10px left
-          nk_style_push_vec2(ctx, &ctx->style.text.padding, nk_vec2(10, 0));
-
-          switch (type) {
-          case ASLAN_COL_TEXT: {
-            char buf[256];
-            const char *val = aslan_table_get_text(tbl, (int)c, row_id);
-            strncpy(buf, val ? val : "", sizeof(buf) - 1);
-            buf[sizeof(buf) - 1] = '\0';
-
-            nk_flags res = nk_edit_string_zero_terminated(
-                ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT, buf, sizeof(buf) - 1,
-                nk_filter_default);
-
-            if (res & NK_EDIT_ACTIVATED) {
-              ui->table_state.active_row_idx = (int)v;
-              ui->table_state.active_col_idx = (int)c;
-              ui->table_state.is_editing_cell = 1;
-            }
-
-            if (strcmp(buf, val ? val : "") != 0) {
-              aslan_table_set_text(tbl, (int)c, row_id, buf);
-            }
-            break;
+          if (res & NK_EDIT_ACTIVATED) {
+            ui->table_state.active_row_idx = (int)v;
+            ui->table_state.active_col_idx = (int)c;
+            ui->table_state.is_editing_cell = 1;
           }
+          if (res & NK_EDIT_COMMITED)
+            ui->table_state.is_editing_cell = 0;
 
-          case ASLAN_COL_NUMBER: {
-            char buf[64];
-            double val = aslan_table_get_number(tbl, (int)c, row_id);
-            if (val == (int64_t)val) {
-              snprintf(buf, sizeof(buf), "%lld", (long long)val);
-            } else {
-              snprintf(buf, sizeof(buf), "%.2f", val);
-            }
-
-            nk_flags res = nk_edit_string_zero_terminated(
-                ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT, buf, sizeof(buf) - 1,
-                nk_filter_decimal);
-
-            if (res & NK_EDIT_ACTIVATED) {
-              ui->table_state.active_row_idx = (int)v;
-              ui->table_state.active_col_idx = (int)c;
-              ui->table_state.is_editing_cell = 1;
-            }
-
-            double new_val = strtod(buf, NULL);
-            if (new_val != val) {
-              aslan_table_set_number(tbl, (int)c, row_id, new_val);
-            }
-            break;
-          }
-
-          case ASLAN_COL_CHECKBOX: {
-            // Checkbox logic (Notion style: simple square)
-            bool is_checked = aslan_table_get_checkbox(tbl, (int)c, row_id);
-            struct nk_rect b = nk_widget_bounds(ctx);
-            float size = 18.0f;
-            struct nk_rect box =
-                nk_rect(b.x + 10, b.y + (b.h - size) / 2, size, size);
-
-            if (nk_button_label(ctx, "")) {
-              aslan_table_set_checkbox(tbl, (int)c, row_id, !is_checked);
-            }
-
-            struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-            if (is_checked) {
-              nk_fill_rect(canvas, box, 2.0f, nk_rgb(35, 131, 226)); // Blue
-              if (ui->font_icons) {
-                nk_style_set_font(ctx, &ui->font_icons->handle);
-                nk_draw_text(canvas,
-                             nk_rect(box.x + 2, box.y + 2, size - 4, size - 4),
-                             ICON_COL_CHECKBOX, strlen(ICON_COL_CHECKBOX),
-                             &ui->font_icons->handle, nk_rgba(0, 0, 0, 0),
-                             nk_rgb(255, 255, 255));
-                nk_style_set_font(ctx, &ui->font_inter->handle);
+          // Parse and save date on commit
+          if (res & NK_EDIT_COMMITED && buf[0]) {
+            struct tm tm_val = {0};
+            if (sscanf(buf, "%d-%d-%d", &tm_val.tm_year, &tm_val.tm_mon,
+                       &tm_val.tm_mday) == 3) {
+              tm_val.tm_year -= 1900;
+              tm_val.tm_mon -= 1;
+              time_t new_t = mktime(&tm_val);
+              if (new_t != -1) {
+                int64_t new_ts = (int64_t)new_t * 1000;
+                if (new_ts != ts)
+                  aslan_table_set_date(tbl, (int)c, row_id, new_ts);
               }
-            } else {
-              nk_stroke_rect(canvas, box, 2.0f, 1.5f, border_color);
             }
-            break;
           }
+          break;
+        }
+        case ASLAN_COL_SELECT: {
+          AslanColumn *col = &tbl->columns[c];
+          int sel = aslan_table_get_select(tbl, (int)c, row_id);
 
-          case ASLAN_COL_SELECT: {
-            AslanColumn *col = &tbl->columns[c];
-            int sel = aslan_table_get_select(tbl, (int)c, row_id);
+          if (col->option_count > 0) {
+            // Build null-separated options string
             char options[512] = "";
             char *p = options;
             for (int i = 0; i < col->option_count && i < 10; i++) {
@@ -1410,115 +1433,43 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               strncpy(p, col->options[i].label, 60);
               p += strlen(p);
             }
-            if (col->option_count > 0)
-              *p++ = '\0';
+            *p++ = '\0';
 
-            if (col->option_count > 0) {
-              int new_sel = sel < 0 ? 0 : sel;
-              new_sel =
-                  nk_combo_string(ctx, options, new_sel, col->option_count,
-                                  (int)row_h, nk_vec2(col_widths[c], 150));
-              if (new_sel != sel) {
-                aslan_table_set_select(tbl, (int)c, row_id, new_sel);
-              }
-            } else {
-              nk_label(ctx, "(no options)", NK_TEXT_LEFT);
+            int new_sel = sel < 0 ? 0 : sel;
+            new_sel = nk_combo_string(ctx, options, new_sel, col->option_count,
+                                      (int)row_h, nk_vec2(col_widths[c], 150));
+            if (new_sel != sel) {
+              aslan_table_set_select(tbl, (int)c, row_id, new_sel);
             }
-            break;
+          } else {
+            nk_label(ctx, "(no options)", NK_TEXT_LEFT);
           }
+          break;
+        }
+        case ASLAN_COL_CHECKBOX: {
+          bool checked = aslan_table_get_checkbox(tbl, (int)c, row_id);
 
-          case ASLAN_COL_DATE: {
-            char buf[32];
-            int64_t ts = aslan_table_get_date(tbl, (int)c, row_id);
-            if (ts > 0) {
-              time_t t = (time_t)(ts / 1000);
-              struct tm *tm = localtime(&t);
-              strftime(buf, sizeof(buf), "%Y-%m-%d", tm);
-            } else {
-              buf[0] = '\0';
-            }
-
-            if (buf[0] == '\0') {
-              // Placeholder
-              struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-              nk_draw_text(canvas, nk_rect(14, 4, col_widths[c] - 8, row_h - 8),
-                           "0000-00-00", 10, &ui->font_inter->handle,
-                           nk_rgba(0, 0, 0, 0), nk_rgb(200, 200, 200));
-            }
-
-            nk_flags res = nk_edit_string_zero_terminated(
-                ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT, buf, sizeof(buf) - 1,
-                nk_filter_ascii);
-
-            if (res & NK_EDIT_ACTIVATED) {
-              ui->table_state.active_row_idx = (int)v;
-              ui->table_state.active_col_idx = (int)c;
-              ui->table_state.is_editing_cell = 1;
-            }
-
-            if (res & NK_EDIT_COMMITED || (buf[0] && strlen(buf) == 10)) {
-              struct tm tm = {0};
-              if (sscanf(buf, "%d-%d-%d", &tm.tm_year, &tm.tm_mon,
-                         &tm.tm_mday) == 3) {
-                tm.tm_year -= 1900;
-                tm.tm_mon -= 1;
-                time_t new_t = mktime(&tm);
-                if (new_t != -1) {
-                  int64_t new_ts = (int64_t)new_t * 1000;
-                  if (new_ts != ts)
-                    aslan_table_set_date(tbl, (int)c, row_id, new_ts);
-                }
-              }
-            }
-            break;
+          // Toggle button
+          if (nk_button_label(ctx, checked ? "[x]" : "[ ]")) {
+            aslan_table_set_checkbox(tbl, (int)c, row_id, !checked);
           }
-
-          case ASLAN_COL_RELATION: {
-            char buf[64];
-            aslan_table_get_cell_display(tbl, (int)c, row_id, buf, sizeof(buf));
-            if (ui->font_icons) {
-              nk_style_set_font(ctx, &ui->font_icons->handle);
-              nk_draw_text(nk_window_get_canvas(ctx), nk_rect(10, 6, 20, 20),
-                           ICON_COL_RELATION, strlen(ICON_COL_RELATION),
-                           &ui->font_icons->handle, nk_rgba(0, 0, 0, 0),
-                           notion_text);
-              nk_style_set_font(ctx, &ui->font_inter->handle);
-              nk_draw_text(nk_window_get_canvas(ctx),
-                           nk_rect(30, 6, col_widths[c] - 34, 20),
-                           buf[0] ? buf : "-", buf[0] ? strlen(buf) : 1,
-                           &ui->font_inter->handle, nk_rgba(0, 0, 0, 0),
-                           notion_text);
-            } else {
-              nk_label(ctx, buf[0] ? buf : "-", NK_TEXT_LEFT);
-            }
-            break;
-          }
-
-          case ASLAN_COL_FORMULA: {
-            char buf[64];
-            aslan_table_get_cell_display(tbl, (int)c, row_id, buf, sizeof(buf));
-            nk_label(ctx, buf, NK_TEXT_LEFT);
-            break;
-          }
-
-          default: {
-            char buf[256];
-            aslan_table_get_cell_display(tbl, (int)c, row_id, buf, sizeof(buf));
-            nk_label(ctx, buf, NK_TEXT_LEFT);
-            break;
-          }
-          }
-          nk_style_pop_vec2(ctx); // Pop cell content padding
-          nk_group_end(ctx);
-        } else {
-          nk_spacing(ctx, 1);
+          break;
+        }
+        default: {
+          char buf[256];
+          aslan_table_get_cell_display(tbl, (int)c, row_id, buf, sizeof(buf));
+          nk_label(ctx, buf, NK_TEXT_LEFT);
+          break;
+        }
         }
       }
+      nk_layout_row_end(ctx);
     }
 
     // -----------------------------------------------------------------------
     // FOOTER ROW (Aggregations)
     // -----------------------------------------------------------------------
+    // Use nk_layout_row_begin/push/end for consistent API
     nk_layout_row_begin(ctx, NK_STATIC, footer_h, (int)col_count + 1);
 
     // Footer row number cell
@@ -1540,30 +1491,39 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                      sizeof(footer_text));
 
       if (footer_text[0]) {
-        // Show aggregation value
         if (nk_button_label(ctx, footer_text)) {
-          struct nk_rect b = nk_widget_bounds(ctx);
           ui->table_state.active_block_id = block->id;
           ui->table_state.active_col_idx = (int)c;
           ui->table_state.show_footer_menu = !ui->table_state.show_footer_menu;
           ui->table_state.show_col_menu = 0;
-          ui->table_state.menu_pos_x = b.x;
-          ui->table_state.menu_pos_y = b.y;
+          ui->table_state.menu_pos_x = ftr_bounds.x;
+          ui->table_state.menu_pos_y = ftr_bounds.y;
         }
       } else {
-        // Click to set aggregation
         if (nk_button_label(ctx, "...")) {
-          struct nk_rect b = nk_widget_bounds(ctx);
           ui->table_state.active_block_id = block->id;
           ui->table_state.active_col_idx = (int)c;
           ui->table_state.show_footer_menu = !ui->table_state.show_footer_menu;
           ui->table_state.show_col_menu = 0;
-          ui->table_state.menu_pos_x = b.x;
-          ui->table_state.menu_pos_y = b.y;
+          ui->table_state.menu_pos_x = ftr_bounds.x;
+          ui->table_state.menu_pos_y = ftr_bounds.y;
         }
       }
     }
     nk_layout_row_end(ctx);
+
+    // Restore styles AFTER the footer
+    ctx->style.edit.normal = old_edit_normal;
+    ctx->style.edit.hover = old_edit_hover;
+    ctx->style.edit.active = old_edit_active;
+    ctx->style.edit.border = 1.0f;
+    ctx->style.edit.padding = nk_vec2(4, 4);
+
+    ctx->style.window.padding = old_window_padding;
+    ctx->style.window.group_padding = old_group_padding;
+    ctx->style.window.spacing = old_window_spacing;
+    ctx->style.button.padding = old_button_padding;
+    nk_style_pop_vec2(ctx); // Pop text padding
 
     // Row count info
     nk_layout_row_dynamic(ctx, 20, 1);
