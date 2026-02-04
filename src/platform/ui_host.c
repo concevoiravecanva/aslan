@@ -2045,9 +2045,67 @@ static void canvas_render_sub_menu(UIHost *ui, struct nk_context *ctx,
   }
 }
 
-// -----------------------------------------------------------------------------
-// Sidebar Helpers
-// -----------------------------------------------------------------------------
+// Helper to render the inner content of the color picker (Wheel + Hex +
+// Sliders) Returns updated colorf, or original if no change.
+static struct nk_colorf
+ui_render_color_picker_content(struct nk_context *ctx,
+                               struct nk_colorf colorf) {
+  nk_layout_row_dynamic(ctx, 150, 1);
+  colorf = nk_color_picker(ctx, colorf, NK_RGBA);
+
+  nk_layout_row_dynamic(ctx, 25, 1);
+
+  // Hex Code Display
+  char hex_buf[10];
+  snprintf(hex_buf, sizeof(hex_buf), "#%02X%02X%02X", (int)(colorf.r * 255.0f),
+           (int)(colorf.g * 255.0f), (int)(colorf.b * 255.0f));
+
+  nk_layout_row_dynamic(ctx, 20, 1);
+  nk_label(ctx, hex_buf, NK_TEXT_CENTERED);
+
+  // RGBA Sliders
+  nk_layout_row_dynamic(ctx, 25, 1);
+  colorf.r = nk_propertyf(ctx, "R", 0, colorf.r, 1, 0.01f, 0.005f);
+  colorf.g = nk_propertyf(ctx, "G", 0, colorf.g, 1, 0.01f, 0.005f);
+  colorf.b = nk_propertyf(ctx, "B", 0, colorf.b, 1, 0.01f, 0.005f);
+  colorf.a = nk_propertyf(ctx, "A", 0, colorf.a, 1, 0.01f, 0.005f);
+
+  return colorf;
+}
+
+// Helper to interact with color properties (Picker + Hex + RGBA) - Uses Combo
+// (for Sidebar)
+static void ui_render_color_property(struct nk_context *ctx, const char *label,
+                                     uint32_t *color_ptr) {
+  if (!color_ptr)
+    return;
+
+  // Current Color
+  struct nk_color combo_color =
+      nk_rgba((*color_ptr >> 24) & 0xFF, (*color_ptr >> 16) & 0xFF,
+              (*color_ptr >> 8) & 0xFF, *color_ptr & 0xFF);
+
+  nk_layout_row_dynamic(ctx, 25, 1);
+  nk_label(ctx, label, NK_TEXT_LEFT);
+
+  nk_layout_row_dynamic(ctx, 30, 1);
+  if (nk_combo_begin_color(ctx, combo_color, nk_vec2(220, 450))) {
+    struct nk_colorf combo_colorf = nk_color_cf(combo_color);
+
+    // Render Content
+    combo_colorf = ui_render_color_picker_content(ctx, combo_colorf);
+
+    nk_combo_end(ctx);
+
+    // Update back to uint32
+    combo_color =
+        nk_rgba((int)(combo_colorf.r * 255.0f), (int)(combo_colorf.g * 255.0f),
+                (int)(combo_colorf.b * 255.0f), (int)(combo_colorf.a * 255.0f));
+    *color_ptr = ((uint32_t)combo_color.r << 24) |
+                 ((uint32_t)combo_color.g << 16) |
+                 ((uint32_t)combo_color.b << 8) | (uint32_t)combo_color.a;
+  }
+}
 
 static void ui_render_sidebar_properties(UIHost *ui, struct nk_context *ctx,
                                          Block *block) {
@@ -2183,67 +2241,15 @@ static void ui_render_sidebar_properties(UIHost *ui, struct nk_context *ctx,
   // Fill Color (Removed Width/Height)
 
   // Fill Color
-  nk_layout_row_dynamic(ctx, 25, 1);
-  nk_label(ctx, "Fill Color", NK_TEXT_LEFT);
-  nk_layout_row_dynamic(ctx, 30, 1);
-  struct nk_color combo_color =
-      nk_rgba((node->fill_color >> 24) & 0xFF, (node->fill_color >> 16) & 0xFF,
-              (node->fill_color >> 8) & 0xFF, node->fill_color & 0xFF);
-  if (nk_combo_begin_color(ctx, combo_color, nk_vec2(200, 400))) {
-    struct nk_colorf combo_colorf = nk_color_cf(combo_color);
-    nk_layout_row_dynamic(ctx, 180, 1);
-    combo_colorf = nk_color_picker(ctx, combo_colorf, NK_RGBA);
-    nk_layout_row_dynamic(ctx, 25, 1);
-    combo_colorf.r =
-        nk_propertyf(ctx, "#R:", 0, combo_colorf.r, 1, 0.01f, 0.005f);
-    combo_colorf.g =
-        nk_propertyf(ctx, "#G:", 0, combo_colorf.g, 1, 0.01f, 0.005f);
-    combo_colorf.b =
-        nk_propertyf(ctx, "#B:", 0, combo_colorf.b, 1, 0.01f, 0.005f);
-    combo_colorf.a =
-        nk_propertyf(ctx, "#A:", 0, combo_colorf.a, 1, 0.01f, 0.005f);
-    nk_combo_end(ctx);
-    combo_color =
-        nk_rgba((int)(combo_colorf.r * 255.0f), (int)(combo_colorf.g * 255.0f),
-                (int)(combo_colorf.b * 255.0f), (int)(combo_colorf.a * 255.0f));
-    node->fill_color = ((uint32_t)combo_color.r << 24) |
-                       ((uint32_t)combo_color.g << 16) |
-                       ((uint32_t)combo_color.b << 8) | (uint32_t)combo_color.a;
-  }
+  ui_render_color_property(ctx, "Fill Color", &node->fill_color);
 
   // Stroke
   nk_layout_row_dynamic(ctx, 30, 1);
   nk_property_float(ctx, "Thickness:", 0.0f, &node->stroke_width, 100.0f, 0.5f,
                     0.25f);
 
-  nk_layout_row_dynamic(ctx, 25, 1);
-  nk_label(ctx, "Stroke Color", NK_TEXT_LEFT);
-  nk_layout_row_dynamic(ctx, 30, 1);
-  struct nk_color stroke_combo_color = nk_rgba(
-      (node->stroke_color >> 24) & 0xFF, (node->stroke_color >> 16) & 0xFF,
-      (node->stroke_color >> 8) & 0xFF, node->stroke_color & 0xFF);
-  if (nk_combo_begin_color(ctx, stroke_combo_color, nk_vec2(200, 400))) {
-    struct nk_colorf combo_colorf = nk_color_cf(stroke_combo_color);
-    nk_layout_row_dynamic(ctx, 180, 1);
-    combo_colorf = nk_color_picker(ctx, combo_colorf, NK_RGBA);
-    nk_layout_row_dynamic(ctx, 25, 1);
-    combo_colorf.r =
-        nk_propertyf(ctx, "#R:", 0, combo_colorf.r, 1, 0.01f, 0.005f);
-    combo_colorf.g =
-        nk_propertyf(ctx, "#G:", 0, combo_colorf.g, 1, 0.01f, 0.005f);
-    combo_colorf.b =
-        nk_propertyf(ctx, "#B:", 0, combo_colorf.b, 1, 0.01f, 0.005f);
-    combo_colorf.a =
-        nk_propertyf(ctx, "#A:", 0, combo_colorf.a, 1, 0.01f, 0.005f);
-    nk_combo_end(ctx);
-    stroke_combo_color =
-        nk_rgba((int)(combo_colorf.r * 255.0f), (int)(combo_colorf.g * 255.0f),
-                (int)(combo_colorf.b * 255.0f), (int)(combo_colorf.a * 255.0f));
-    node->stroke_color = ((uint32_t)stroke_combo_color.r << 24) |
-                         ((uint32_t)stroke_combo_color.g << 16) |
-                         ((uint32_t)stroke_combo_color.b << 8) |
-                         (uint32_t)stroke_combo_color.a;
-  }
+  // Stroke Color
+  ui_render_color_property(ctx, "Stroke Color", &node->stroke_color);
 
   // Shape Mode (Standard / Container)
   nk_layout_row_dynamic(ctx, 25, 1);
@@ -2540,24 +2546,8 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
                 : CANVAS_CAT_SELECT;
         cs->show_sub_menu = 0;
       } else if (i == 4) { // Color swatch button
-        // Cycle through preset colors
-        int current_idx = 0;
-        for (int c = 0; c < preset_count; c++) {
-          if (cs->selected_color == preset_colors[c]) {
-            current_idx = c;
-            break;
-          }
-        }
-        cs->selected_color = preset_colors[(current_idx + 1) % preset_count];
-
-        // Also apply to current selection if any
-        if (ui->selected_node) {
-          ui->selected_node->fill_color = cs->selected_color;
-          if (ui->selected_node->type == NODE_TYPE_RECT &&
-              ui->selected_node->height < 10) {
-            ui->selected_node->stroke_color = cs->selected_color; // For lines
-          }
-        }
+        // Toggle the robust color picker popup
+        cs->show_color_picker_popup = !cs->show_color_picker_popup;
       } else if (i == 5) { // Bezier (Magic) button
         cs->bezier_mode = !cs->bezier_mode;
 
@@ -2608,6 +2598,55 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     if (is_active && cs->show_sub_menu) {
       canvas_render_sub_menu(ui, ctx, canvas_buf, btn.x, btn.y,
                              (CanvasCategory)(i + 1)); // Skip CANVAS_CAT_SELECT
+    }
+  }
+
+  // Render Color Picker Popup if active (Positioned above the color button)
+  if (cs->show_color_picker_popup) {
+    float btn4_x = toolbar_x + 12.0f + 4 * (btn_size + btn_spacing);
+    struct nk_rect btn4_rect = nk_rect(btn4_x, btn_y, btn_size, btn_size);
+    // Position popup above the button (toolbar is at bottom)
+    struct nk_rect popup_rect = nk_rect(btn4_x - 90, btn_y - 310, 220, 300);
+
+    if (nk_popup_begin(ctx, NK_POPUP_STATIC, "ColorPickerPopup",
+                       NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER, popup_rect)) {
+
+      // Unpack color
+      struct nk_color selected_col = nk_rgba(
+          (cs->selected_color >> 24) & 0xFF, (cs->selected_color >> 16) & 0xFF,
+          (cs->selected_color >> 8) & 0xFF, cs->selected_color & 0xFF);
+      struct nk_colorf col_f = nk_color_cf(selected_col);
+
+      // Render Content directly
+      col_f = ui_render_color_picker_content(ctx, col_f);
+
+      // Update back
+      selected_col = nk_rgba((int)(col_f.r * 255.0f), (int)(col_f.g * 255.0f),
+                             (int)(col_f.b * 255.0f), (int)(col_f.a * 255.0f));
+      cs->selected_color =
+          ((uint32_t)selected_col.r << 24) | ((uint32_t)selected_col.g << 16) |
+          ((uint32_t)selected_col.b << 8) | (uint32_t)selected_col.a;
+
+      // Apply to selected node immediately if one is selected
+      if (ui->selected_node) {
+        ui->selected_node->fill_color = cs->selected_color;
+        // Also stroke if it's a line/stroke
+        if (ui->selected_node->type == NODE_TYPE_STROKE ||
+            ui->selected_node->type == NODE_TYPE_LINE) {
+          ui->selected_node->stroke_color = cs->selected_color;
+        }
+      }
+
+      nk_popup_end(ctx);
+
+      // Close if mouse clicked outside
+      if (cs->mouse_just_pressed &&
+          !nk_input_is_mouse_hovering_rect(&ctx->input, popup_rect) &&
+          !nk_input_is_mouse_hovering_rect(&ctx->input, btn4_rect)) {
+        cs->show_color_picker_popup = 0;
+      }
+    } else {
+      cs->show_color_picker_popup = 0;
     }
   }
 }
