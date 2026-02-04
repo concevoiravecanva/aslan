@@ -1608,11 +1608,20 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     // -----------------------------------------------------------------------
     nk_layout_row_begin(ctx, NK_STATIC, footer_h, (int)col_count + 2);
 
-    // Footer row number cell
+    // Footer row number cell - Use as + Add Row button
     nk_layout_row_push(ctx, row_num_w);
     struct nk_rect ftr_bounds = nk_widget_bounds(ctx);
     nk_fill_rect(nk_window_get_canvas(ctx), ftr_bounds, 0, footer_bg);
-    nk_label(ctx, "", NK_TEXT_CENTERED);
+
+    struct nk_style_button ftr_add_style = ctx->style.button;
+    ftr_add_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    ftr_add_style.hover = nk_style_item_color(nk_rgba(35, 131, 226, 40));
+    ftr_add_style.text_normal = muted_gray;
+    ftr_add_style.text_hover = nk_rgb(35, 131, 226);
+
+    if (nk_button_label_styled(ctx, &ftr_add_style, "+")) {
+      aslan_table_add_row(tbl);
+    }
 
     // Footer cells with aggregations
     for (size_t c = 0; c < col_count; c++) {
@@ -1664,23 +1673,6 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     nk_stroke_rect(nk_window_get_canvas(ctx), ftr_bounds, 0, 0.5f,
                    border_color);
 
-    nk_layout_row_end(ctx);
-
-    // -----------------------------------------------------------------------
-    // INLINE + ADD ROW (at the very bottom)
-    // -----------------------------------------------------------------------
-    nk_layout_row_begin(ctx, NK_STATIC, row_h, 1);
-    nk_layout_row_push(ctx, row_num_w + 100);
-    struct nk_style_button add_row_btn = ctx->style.button;
-    add_row_btn.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-    add_row_btn.hover = nk_style_item_color(nk_rgba(35, 131, 226, 20));
-    add_row_btn.text_normal = muted_gray;
-    add_row_btn.text_hover = nk_rgb(35, 131, 226);
-    add_row_btn.text_alignment = NK_TEXT_LEFT;
-
-    if (nk_button_label_styled(ctx, &add_row_btn, "+ New Row")) {
-      aslan_table_add_row(tbl);
-    }
     nk_layout_row_end(ctx);
 
     // Restore styles AFTER the footer
