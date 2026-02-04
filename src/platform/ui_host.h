@@ -291,6 +291,8 @@ typedef struct UIHost {
     float menu_pos_x, menu_pos_y;
     char rename_buffer[64];
     char option_buffer[64]; // Buffer for adding new Select options
+    char date_buffer[32];   // Persistent buffer for date editing
+    int date_field_active;  // Trigger focus on first frame
   } table_state;
 
   // Sidebar state: 0=Properties/Layers, 1=Shape Selection

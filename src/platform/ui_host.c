@@ -150,6 +150,7 @@ static struct nk_color COLOR_BG = {30, 32, 36, 255};
 static struct nk_color COLOR_PANEL = {40, 42, 46, 255};
 static struct nk_color COLOR_BORDER = {60, 62, 66, 255};
 static struct nk_color COLOR_TEXT = {220, 220, 220, 255};
+static struct nk_color COLOR_TEXT_DARK = {40, 42, 46, 255};
 static struct nk_color COLOR_TEXT_DIM = {140, 140, 140, 255};
 static struct nk_color COLOR_ACCENT = {80, 140, 200, 255};
 static struct nk_color COLOR_HIGHLIGHT_YELLOW = {255, 240, 100, 80};
@@ -1388,36 +1389,64 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
           if (is_editing) {
             // Editing mode: show editable field
-            static char date_buf[32] = "";
-            if (ts > 0 && date_buf[0] == '\0') {
+            if (ui->table_state.date_buffer[0] == '\0' && ts > 0) {
               time_t t = (time_t)(ts / 1000);
               struct tm *tm_ptr = localtime(&t);
-              strftime(date_buf, sizeof(date_buf), "%Y-%m-%d", tm_ptr);
+              strftime(ui->table_state.date_buffer,
+                       sizeof(ui->table_state.date_buffer), "%Y-%m-%d", tm_ptr);
+            }
+
+            // Style for active edit - make it look like an active field
+            struct nk_style_item old_edit_normal = ctx->style.edit.normal;
+            ctx->style.edit.normal = nk_style_item_color(
+                ui->dark_mode ? nk_rgb(45, 47, 52) : nk_rgb(245, 245, 250));
+
+            // NEW: Auto-focus on first frame
+            if (ui->table_state.date_field_active) {
+              nk_edit_focus(ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT |
+                                     NK_EDIT_SIG_ENTER);
+              ui->table_state.date_field_active = 0;
             }
 
             nk_flags res = nk_edit_string_zero_terminated(
                 ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT | NK_EDIT_SIG_ENTER,
-                date_buf, sizeof(date_buf) - 1, nk_filter_ascii);
+                ui->table_state.date_buffer,
+                sizeof(ui->table_state.date_buffer) - 1, nk_filter_ascii);
+
+            ctx->style.edit.normal = old_edit_normal;
 
             if (res & NK_EDIT_COMMITED) {
               ui->table_state.is_editing_cell = 0;
-              // Parse and save
+              // Parse and save - try multiple formats for robustness
               struct tm tm_val = {0};
-              if (sscanf(date_buf, "%d-%d-%d", &tm_val.tm_year, &tm_val.tm_mon,
-                         &tm_val.tm_mday) == 3) {
-                tm_val.tm_year -= 1900;
-                tm_val.tm_mon -= 1;
+              int y = 0, m = 1, d = 1;
+              const char *db = ui->table_state.date_buffer;
+              if (sscanf(db, "%d-%d-%d", &y, &m, &d) == 3 ||
+                  sscanf(db, "%d/%d/%d", &y, &m, &d) == 3 ||
+                  sscanf(db, "%d.%d.%d", &y, &m, &d) == 3 ||
+                  sscanf(db, "%d %d %d", &y, &m, &d) == 3) {
+
+                // Heuristic: If year is small (like 24), assume 2000s
+                if (y < 100)
+                  y += 2000;
+
+                tm_val.tm_year = y - 1900;
+                tm_val.tm_mon = m - 1;
+                tm_val.tm_mday = d;
+                tm_val.tm_isdst = -1; // Let mktime determine DST
+
                 time_t new_t = mktime(&tm_val);
                 if (new_t != -1) {
                   int64_t new_ts = (int64_t)new_t * 1000;
                   aslan_table_set_date(tbl, (int)c, row_id, new_ts);
                 }
               }
-              date_buf[0] = '\0'; // Clear for next edit
+              ui->table_state.date_buffer[0] = '\0'; // Clear for next edit
             }
             if (res & NK_EDIT_DEACTIVATED) {
               ui->table_state.is_editing_cell = 0;
-              date_buf[0] = '\0';
+              // Don't clear immediately, let it persist or re-init on next
+              // click
             }
           } else {
             // Display mode: show date or placeholder
@@ -1445,6 +1474,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               ui->table_state.active_row_idx = (int)v;
               ui->table_state.active_col_idx = (int)c;
               ui->table_state.is_editing_cell = 1;
+              ui->table_state.date_field_active = 1; // Trigger focus
+              ui->table_state.date_buffer[0] = '\0'; // Trigger re-init
             }
           }
           break;
@@ -1874,18 +1905,35 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         for (int i = 0; i < col->option_count && i < 20; i++) {
           int is_selected = (aslan_table_get_select(tbl, c, row_id) == i);
 
+          struct nk_style_button opt_btn_style = ctx->style.button;
+          if (is_selected) {
+            opt_btn_style.normal =
+                nk_style_item_color(nk_rgb(60, 120, 240)); // Lucid Blue
+            opt_btn_style.text_normal = nk_rgb(255, 255, 255);
+            opt_btn_style.hover = nk_style_item_color(nk_rgb(80, 140, 255));
+            opt_btn_style.text_hover = nk_rgb(255, 255, 255);
+          } else {
+            opt_btn_style.normal = nk_style_item_color(
+                ui->dark_mode ? nk_rgb(40, 42, 48) : nk_rgb(240, 240, 245));
+            struct nk_color txt = ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
+            opt_btn_style.text_normal = txt;
+            opt_btn_style.text_hover = txt;
+            opt_btn_style.text_active = txt;
+          }
+
           if (is_selected) {
             // Highlight selected option
             char label[80];
             snprintf(label, sizeof(label), "✓ %s", col->options[i].label);
-            if (nk_button_label(ctx, label)) {
+            if (nk_button_label_styled(ctx, &opt_btn_style, label)) {
               // Deselect
               aslan_table_set_select(tbl, c, row_id, -1);
               ui->table_state.show_select_popup = 0;
               nk_popup_close(ctx);
             }
           } else {
-            if (nk_button_label(ctx, col->options[i].label)) {
+            if (nk_button_label_styled(ctx, &opt_btn_style,
+                                       col->options[i].label)) {
               aslan_table_set_select(tbl, c, row_id, i);
               ui->table_state.show_select_popup = 0;
               nk_popup_close(ctx);
