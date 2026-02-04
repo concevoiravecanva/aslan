@@ -1398,8 +1398,16 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
             // Style for active edit - make it look like an active field
             struct nk_style_item old_edit_normal = ctx->style.edit.normal;
+            struct nk_color old_edit_text = ctx->style.edit.text_normal;
+
             ctx->style.edit.normal = nk_style_item_color(
                 ui->dark_mode ? nk_rgb(45, 47, 52) : nk_rgb(245, 245, 250));
+            ctx->style.edit.text_normal =
+                ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
+            ctx->style.edit.text_hover =
+                ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
+            ctx->style.edit.text_active =
+                ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
 
             // NEW: Auto-focus on first frame
             if (ui->table_state.date_field_active) {
@@ -1414,6 +1422,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                 sizeof(ui->table_state.date_buffer) - 1, nk_filter_ascii);
 
             ctx->style.edit.normal = old_edit_normal;
+            ctx->style.edit.text_normal = old_edit_text;
 
             if (res & NK_EDIT_COMMITED) {
               ui->table_state.is_editing_cell = 0;
@@ -1466,9 +1475,11 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             date_btn_style.active =
                 nk_style_item_color(nk_rgba(60, 60, 60, 60));
             date_btn_style.border = 0;
-            date_btn_style.text_normal = ts > 0 ? COLOR_TEXT : muted_gray;
-            date_btn_style.text_hover = COLOR_TEXT;
-            date_btn_style.text_active = COLOR_TEXT;
+            struct nk_color cell_txt =
+                ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
+            date_btn_style.text_normal = ts > 0 ? cell_txt : muted_gray;
+            date_btn_style.text_hover = cell_txt;
+            date_btn_style.text_active = cell_txt;
 
             if (nk_button_label_styled(ctx, &date_btn_style, display)) {
               ui->table_state.active_row_idx = (int)v;
@@ -1498,9 +1509,11 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           sel_btn_style.hover = nk_style_item_color(nk_rgba(80, 80, 80, 40));
           sel_btn_style.active = nk_style_item_color(nk_rgba(60, 60, 60, 60));
           sel_btn_style.border = 0;
-          sel_btn_style.text_normal = (sel >= 0) ? COLOR_TEXT : muted_gray;
-          sel_btn_style.text_hover = COLOR_TEXT;
-          sel_btn_style.text_active = COLOR_TEXT;
+          struct nk_color sel_txt =
+              ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
+          sel_btn_style.text_normal = (sel >= 0) ? sel_txt : muted_gray;
+          sel_btn_style.text_hover = sel_txt;
+          sel_btn_style.text_active = sel_txt;
 
           // Create a unique ID for this cell's popup
           char popup_id[64];
