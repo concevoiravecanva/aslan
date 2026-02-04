@@ -1379,41 +1379,72 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           break;
         }
         case ASLAN_COL_DATE: {
-          char buf[32];
           int64_t ts = aslan_table_get_date(tbl, (int)c, row_id);
-          if (ts > 0) {
-            time_t t = (time_t)(ts / 1000);
-            struct tm *tm_ptr = localtime(&t);
-            strftime(buf, sizeof(buf), "%Y-%m-%d", tm_ptr);
-          } else {
-            strncpy(buf, "", sizeof(buf));
-          }
 
-          nk_flags res = nk_edit_string_zero_terminated(
-              ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT | NK_EDIT_SIG_ENTER, buf,
-              sizeof(buf) - 1, nk_filter_ascii);
+          // Check if this cell is being edited
+          int is_editing = (ui->table_state.active_row_idx == (int)v &&
+                            ui->table_state.active_col_idx == (int)c &&
+                            ui->table_state.is_editing_cell);
 
-          if (res & NK_EDIT_ACTIVATED) {
-            ui->table_state.active_row_idx = (int)v;
-            ui->table_state.active_col_idx = (int)c;
-            ui->table_state.is_editing_cell = 1;
-          }
-          if (res & NK_EDIT_COMMITED)
-            ui->table_state.is_editing_cell = 0;
+          if (is_editing) {
+            // Editing mode: show editable field
+            static char date_buf[32] = "";
+            if (ts > 0 && date_buf[0] == '\0') {
+              time_t t = (time_t)(ts / 1000);
+              struct tm *tm_ptr = localtime(&t);
+              strftime(date_buf, sizeof(date_buf), "%Y-%m-%d", tm_ptr);
+            }
 
-          // Parse and save date on commit
-          if (res & NK_EDIT_COMMITED && buf[0]) {
-            struct tm tm_val = {0};
-            if (sscanf(buf, "%d-%d-%d", &tm_val.tm_year, &tm_val.tm_mon,
-                       &tm_val.tm_mday) == 3) {
-              tm_val.tm_year -= 1900;
-              tm_val.tm_mon -= 1;
-              time_t new_t = mktime(&tm_val);
-              if (new_t != -1) {
-                int64_t new_ts = (int64_t)new_t * 1000;
-                if (new_ts != ts)
+            nk_flags res = nk_edit_string_zero_terminated(
+                ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT | NK_EDIT_SIG_ENTER,
+                date_buf, sizeof(date_buf) - 1, nk_filter_ascii);
+
+            if (res & NK_EDIT_COMMITED) {
+              ui->table_state.is_editing_cell = 0;
+              // Parse and save
+              struct tm tm_val = {0};
+              if (sscanf(date_buf, "%d-%d-%d", &tm_val.tm_year, &tm_val.tm_mon,
+                         &tm_val.tm_mday) == 3) {
+                tm_val.tm_year -= 1900;
+                tm_val.tm_mon -= 1;
+                time_t new_t = mktime(&tm_val);
+                if (new_t != -1) {
+                  int64_t new_ts = (int64_t)new_t * 1000;
                   aslan_table_set_date(tbl, (int)c, row_id, new_ts);
+                }
               }
+              date_buf[0] = '\0'; // Clear for next edit
+            }
+            if (res & NK_EDIT_DEACTIVATED) {
+              ui->table_state.is_editing_cell = 0;
+              date_buf[0] = '\0';
+            }
+          } else {
+            // Display mode: show date or placeholder
+            char display[32];
+            if (ts > 0) {
+              time_t t = (time_t)(ts / 1000);
+              struct tm *tm_ptr = localtime(&t);
+              strftime(display, sizeof(display), "%Y-%m-%d", tm_ptr);
+            } else {
+              strncpy(display, "YYYY-MM-DD", sizeof(display));
+            }
+
+            // Button that enters edit mode on click
+            struct nk_style_button date_btn_style = ctx->style.button;
+            date_btn_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+            date_btn_style.hover = nk_style_item_color(nk_rgba(80, 80, 80, 40));
+            date_btn_style.active =
+                nk_style_item_color(nk_rgba(60, 60, 60, 60));
+            date_btn_style.border = 0;
+            date_btn_style.text_normal = ts > 0 ? COLOR_TEXT : muted_gray;
+            date_btn_style.text_hover = COLOR_TEXT;
+            date_btn_style.text_active = COLOR_TEXT;
+
+            if (nk_button_label_styled(ctx, &date_btn_style, display)) {
+              ui->table_state.active_row_idx = (int)v;
+              ui->table_state.active_col_idx = (int)c;
+              ui->table_state.is_editing_cell = 1;
             }
           }
           break;
@@ -1422,26 +1453,42 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           AslanColumn *col = &tbl->columns[c];
           int sel = aslan_table_get_select(tbl, (int)c, row_id);
 
-          if (col->option_count > 0) {
-            // Build null-separated options string
-            char options[512] = "";
-            char *p = options;
-            for (int i = 0; i < col->option_count && i < 10; i++) {
-              if (i > 0)
-                *p++ = '\0';
-              strncpy(p, col->options[i].label, 60);
-              p += strlen(p);
-            }
-            *p++ = '\0';
+          // Display current selection or placeholder
+          const char *display_text = "(click to select)";
+          if (sel >= 0 && sel < col->option_count) {
+            display_text = col->options[sel].label;
+          } else if (col->option_count == 0) {
+            display_text = "(+ add option)";
+          }
 
-            int new_sel = sel < 0 ? 0 : sel;
-            new_sel = nk_combo_string(ctx, options, new_sel, col->option_count,
-                                      (int)row_h, nk_vec2(col_widths[c], 150));
-            if (new_sel != sel) {
-              aslan_table_set_select(tbl, (int)c, row_id, new_sel);
-            }
-          } else {
-            nk_label(ctx, "(no options)", NK_TEXT_LEFT);
+          // Style for the select button
+          struct nk_style_button sel_btn_style = ctx->style.button;
+          sel_btn_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+          sel_btn_style.hover = nk_style_item_color(nk_rgba(80, 80, 80, 40));
+          sel_btn_style.active = nk_style_item_color(nk_rgba(60, 60, 60, 60));
+          sel_btn_style.border = 0;
+          sel_btn_style.text_normal = (sel >= 0) ? COLOR_TEXT : muted_gray;
+          sel_btn_style.text_hover = COLOR_TEXT;
+          sel_btn_style.text_active = COLOR_TEXT;
+
+          // Create a unique ID for this cell's popup
+          char popup_id[64];
+          snprintf(popup_id, sizeof(popup_id), "select_popup_%zu_%lu", c,
+                   (unsigned long)row_id);
+
+          struct nk_rect btn_bounds = nk_widget_bounds(ctx);
+          if (nk_button_label_styled(ctx, &sel_btn_style, display_text)) {
+            ui->table_state.active_block_id = block->id;
+            ui->table_state.active_col_idx = (int)c;
+            ui->table_state.active_row_idx = (int)v;
+            ui->table_state.show_select_popup = 1;
+            ui->table_state.select_popup_row = row_id;
+            ui->table_state.menu_pos_x = btn_bounds.x;
+            ui->table_state.menu_pos_y = btn_bounds.y + btn_bounds.h;
+            // Close other menus
+            ui->table_state.show_col_menu = 0;
+            ui->table_state.show_footer_menu = 0;
+            ui->table_state.show_col_settings = 0;
           }
           break;
         }
@@ -1701,10 +1748,21 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         ui->table_state.active_col_idx >= 0 &&
         ui->table_state.active_col_idx < (int)tbl->column_count) {
       int c = ui->table_state.active_col_idx;
+      AslanColumn *col = &tbl->columns[c];
+
+      // Calculate popup height based on column type
+      float popup_h = 350.0f;
+      if (col->type == ASLAN_COL_SELECT) {
+        popup_h = 450.0f + (col->option_count * 24); // Extra space for options
+        if (popup_h > 600)
+          popup_h = 600;
+      }
+
       if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Column Settings",
                          NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER,
                          nk_rect(ui->table_state.menu_pos_x,
-                                 ui->table_state.menu_pos_y + 32, 200, 350))) {
+                                 ui->table_state.menu_pos_y + 32, 220,
+                                 popup_h))) {
         nk_layout_row_dynamic(ctx, 24, 1);
         nk_label(ctx, "Name:", NK_TEXT_LEFT);
         nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD,
@@ -1744,6 +1802,38 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               nk_rgba(0, 0, 0, 0), COLOR_TEXT);
         }
 
+        // Select Options Management Section
+        if (col->type == ASLAN_COL_SELECT) {
+          nk_spacing(ctx, 1);
+          nk_label(ctx, "--- Select Options ---", NK_TEXT_CENTERED);
+
+          // Show existing options
+          for (int i = 0; i < col->option_count && i < 10; i++) {
+            char opt_label[80];
+            snprintf(opt_label, sizeof(opt_label), "%d: %s", i + 1,
+                     col->options[i].label);
+            nk_label(ctx, opt_label, NK_TEXT_LEFT);
+          }
+
+          if (col->option_count == 0) {
+            nk_label(ctx, "(No options yet)", NK_TEXT_LEFT);
+          }
+
+          // Add new option
+          nk_spacing(ctx, 1);
+          nk_label(ctx, "Add Option:", NK_TEXT_LEFT);
+          nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD,
+                                         ui->table_state.option_buffer, 63,
+                                         nk_filter_default);
+          if (nk_button_label(ctx, "+ Add Option")) {
+            if (ui->table_state.option_buffer[0] != '\0') {
+              aslan_table_add_option(tbl, c, ui->table_state.option_buffer,
+                                     0x888888FF);
+              ui->table_state.option_buffer[0] = '\0'; // Clear buffer
+            }
+          }
+        }
+
         nk_spacing(ctx, 1);
         if (nk_button_label(ctx, "Delete Column")) {
           aslan_table_remove_column(tbl, c);
@@ -1753,6 +1843,85 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         nk_popup_end(ctx);
       } else {
         ui->table_state.show_col_settings = 0;
+      }
+    }
+
+    // =========================================================================
+    // SELECT CELL POPUP (Options + Add Option)
+    // =========================================================================
+    if (ui->table_state.show_select_popup &&
+        ui->table_state.active_col_idx >= 0 &&
+        ui->table_state.active_col_idx < (int)tbl->column_count) {
+      int c = ui->table_state.active_col_idx;
+      AslanColumn *col = &tbl->columns[c];
+      uint64_t row_id = ui->table_state.select_popup_row;
+
+      // Calculate popup height based on options count
+      float popup_h =
+          60.0f + (col->option_count * 28) + 80; // options + add section
+      if (popup_h > 400)
+        popup_h = 400;
+      if (popup_h < 150)
+        popup_h = 150;
+
+      if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Select Option",
+                         NK_WINDOW_BORDER,
+                         nk_rect(ui->table_state.menu_pos_x,
+                                 ui->table_state.menu_pos_y, 200, popup_h))) {
+        nk_layout_row_dynamic(ctx, 24, 1);
+
+        // Show existing options as clickable buttons
+        for (int i = 0; i < col->option_count && i < 20; i++) {
+          int is_selected = (aslan_table_get_select(tbl, c, row_id) == i);
+
+          if (is_selected) {
+            // Highlight selected option
+            char label[80];
+            snprintf(label, sizeof(label), "✓ %s", col->options[i].label);
+            if (nk_button_label(ctx, label)) {
+              // Deselect
+              aslan_table_set_select(tbl, c, row_id, -1);
+              ui->table_state.show_select_popup = 0;
+              nk_popup_close(ctx);
+            }
+          } else {
+            if (nk_button_label(ctx, col->options[i].label)) {
+              aslan_table_set_select(tbl, c, row_id, i);
+              ui->table_state.show_select_popup = 0;
+              nk_popup_close(ctx);
+            }
+          }
+        }
+
+        if (col->option_count == 0) {
+          nk_label(ctx, "(No options yet)", NK_TEXT_CENTERED);
+        }
+
+        // Separator
+        nk_spacing(ctx, 1);
+        nk_label(ctx, "── Add New ──", NK_TEXT_CENTERED);
+
+        // Add new option field
+        nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD,
+                                       ui->table_state.option_buffer, 63,
+                                       nk_filter_default);
+        if (nk_button_label(ctx, "+ Create Option")) {
+          if (ui->table_state.option_buffer[0] != '\0') {
+            int new_idx = aslan_table_add_option(
+                tbl, c, ui->table_state.option_buffer, 0x888888FF);
+            if (new_idx >= 0) {
+              aslan_table_set_select(tbl, c, row_id,
+                                     new_idx); // Auto-select new option
+            }
+            ui->table_state.option_buffer[0] = '\0'; // Clear buffer
+            ui->table_state.show_select_popup = 0;
+            nk_popup_close(ctx);
+          }
+        }
+
+        nk_popup_end(ctx);
+      } else {
+        ui->table_state.show_select_popup = 0;
       }
     }
   }
