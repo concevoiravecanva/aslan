@@ -1023,82 +1023,183 @@ const char *aslan_table_get_formula(const AslanTable *table, int col_idx) {
 }
 
 // Formula evaluation is handled externally via Lua
-double aslan_table_eval_formula(const AslanTable *table, int col_idx,
-                                uint64_t row_id, void *lua_state) {
-  if (!table || col_idx < 0 || col_idx >= (int)table->column_count ||
-      !lua_state)
-    return 0.0;
+// -----------------------------------------------------------------------------
+// Lightweight C Math Parser (Shunting-yard algorithm)
+// -----------------------------------------------------------------------------
 
-  lua_State *L = (lua_State *)lua_state;
+typedef enum {
+  TOKEN_NUMBER,
+  TOKEN_OPERATOR,
+  TOKEN_LPAREN,
+  TOKEN_RPAREN,
+  TOKEN_COLUMN, // [ColumnName]
+  TOKEN_EOF,
+  TOKEN_ERROR
+} TokenType;
+
+typedef struct {
+  TokenType type;
+  double value;
+  char name[64];
+  char op;
+} Token;
+
+static Token get_token(const char **input) {
+  while (**input && (**input == ' ' || **input == '\t'))
+    (*input)++;
+
+  if (**input == '\0')
+    return (Token){TOKEN_EOF, 0, "", 0};
+
+  char c = **input;
+  if ((c >= '0' && c <= '9') || c == '.') {
+    char *end;
+    double val = strtod(*input, &end);
+    *input = end;
+    return (Token){TOKEN_NUMBER, val, "", 0};
+  }
+
+  if (c == '+' || c == '-' || c == '*' || c == '/') {
+    (*input)++;
+    return (Token){TOKEN_OPERATOR, 0, "", c};
+  }
+
+  if (c == '(') {
+    (*input)++;
+    return (Token){TOKEN_LPAREN, 0, "", 0};
+  }
+
+  if (c == ')') {
+    (*input)++;
+    return (Token){TOKEN_RPAREN, 0, "", 0};
+  }
+
+  if (c == '[') {
+    (*input)++;
+    const char *start = *input;
+    while (**input && **input != ']')
+      (*input)++;
+    size_t len = *input - start;
+    Token t = {TOKEN_COLUMN, 0, "", 0};
+    if (len < 64) {
+      strncpy(t.name, start, len);
+      t.name[len] = '\0';
+    }
+    if (**input == ']')
+      (*input)++;
+    return t;
+  }
+
+  return (Token){TOKEN_ERROR, 0, "", 0};
+}
+
+static int op_precedence(char op) {
+  if (op == '+' || op == '-')
+    return 1;
+  if (op == '*' || op == '/')
+    return 2;
+  return 0;
+}
+
+double aslan_table_eval_formula(const AslanTable *table, int col_idx,
+                                uint64_t row_id) {
+  if (!table || col_idx < 0 || col_idx >= (int)table->column_count)
+    return 0.0;
   const AslanColumn *col = &table->columns[col_idx];
   if (col->type != ASLAN_COL_FORMULA || !col->formula)
     return 0.0;
 
-  // Get the 'eval' function from global scope
-  lua_getglobal(L, "eval");
-  if (!lua_isfunction(L, -1)) {
-    lua_pop(L, 1);
-    return 0.0; // eval not found
-  }
+  const char *expr = col->formula;
+  Token output_queue[64];
+  int oq_count = 0;
+  Token op_stack[64];
+  int os_count = 0;
 
-  // Build row context table
-  lua_newtable(L);
-  int row_index = aslan_table_row_index(table, row_id);
-  if (row_index < 0) {
-    lua_pop(L, 2);
-    return 0.0;
-  }
-
-  for (size_t c = 0; c < table->column_count; c++) {
-    if ((int)c == col_idx)
-      continue;
-
-    const AslanColumn *cdef = &table->columns[c];
-    lua_pushstring(L, cdef->name);
-
-    switch (cdef->type) {
-    case ASLAN_COL_NUMBER:
-      lua_pushnumber(L, aslan_table_get_number(table, (int)c, row_id));
-      break;
-    case ASLAN_COL_TEXT:
-      lua_pushstring(L, aslan_table_get_text(table, (int)c, row_id));
-      break;
-    case ASLAN_COL_CHECKBOX:
-      lua_pushboolean(L, aslan_table_get_checkbox(table, (int)c, row_id));
-      break;
-    default:
-      lua_pushnil(L);
-      break;
+  const char *ptr = expr;
+  Token t;
+  while ((t = get_token(&ptr)).type != TOKEN_EOF) {
+    if (t.type == TOKEN_ERROR)
+      return 0.0;
+    if (t.type == TOKEN_NUMBER || t.type == TOKEN_COLUMN) {
+      output_queue[oq_count++] = t;
+    } else if (t.type == TOKEN_OPERATOR) {
+      while (os_count > 0 && op_stack[os_count - 1].type == TOKEN_OPERATOR &&
+             op_precedence(op_stack[os_count - 1].op) >= op_precedence(t.op)) {
+        output_queue[oq_count++] = op_stack[--os_count];
+      }
+      op_stack[os_count++] = t;
+    } else if (t.type == TOKEN_LPAREN) {
+      op_stack[os_count++] = t;
+    } else if (t.type == TOKEN_RPAREN) {
+      while (os_count > 0 && op_stack[os_count - 1].type != TOKEN_LPAREN) {
+        output_queue[oq_count++] = op_stack[--os_count];
+      }
+      if (os_count > 0)
+        os_count--; // Pop '('
     }
-    lua_settable(L, -3);
+  }
+  while (os_count > 0)
+    output_queue[oq_count++] = op_stack[--os_count];
+
+  // Evaluate RPN
+  double eval_stack[64];
+  int es_count = 0;
+  for (int i = 0; i < oq_count; i++) {
+    t = output_queue[i];
+    if (t.type == TOKEN_NUMBER) {
+      eval_stack[es_count++] = t.value;
+    } else if (t.type == TOKEN_COLUMN) {
+      int c_idx = aslan_table_find_column(table, t.name);
+      if (c_idx < 0)
+        eval_stack[es_count++] = 0.0;
+      else
+        eval_stack[es_count++] = aslan_table_get_number(table, c_idx, row_id);
+    } else if (t.type == TOKEN_OPERATOR) {
+      if (es_count < 2)
+        return 0.0;
+      double b = eval_stack[--es_count];
+      double a = eval_stack[--es_count];
+      switch (t.op) {
+      case '+':
+        eval_stack[es_count++] = a + b;
+        break;
+      case '-':
+        eval_stack[es_count++] = a - b;
+        break;
+      case '*':
+        eval_stack[es_count++] = a * b;
+        break;
+      case '/':
+        eval_stack[es_count++] = b != 0 ? a / b : 0;
+        break;
+      }
+    }
   }
 
-  // Push formula string
-  lua_pushstring(L, col->formula);
+  double result = es_count > 0 ? eval_stack[0] : 0.0;
 
-  // Call eval(context, formula) -> result
-  if (lua_pcall(L, 2, 1, 0) != LUA_OK) {
-    lua_pop(L, 1);
-    return 0.0;
+  // Update cached value if possible
+  int row_idx = aslan_table_row_index(table, row_id);
+  if (row_idx >= 0) {
+    ((double *)col->data)[row_idx] = result;
   }
-
-  // Get result
-  double result = 0.0;
-  if (lua_isnumber(L, -1)) {
-    result = lua_tonumber(L, -1);
-  }
-  lua_pop(L, 1);
-
-  // Update cached value
-  ((double *)col->data)[row_index] = result;
 
   return result;
 }
 
-void aslan_table_eval_formulas(AslanTable *table, void *lua_state) {
-  (void)table;
-  (void)lua_state;
-  // TODO: Evaluate all formula columns using Lua
+void aslan_table_eval_formulas(AslanTable *table) {
+  if (!table)
+    return;
+  for (size_t c = 0; c < table->column_count; c++) {
+    if (table->columns[c].type == ASLAN_COL_FORMULA) {
+      for (size_t r = 0; r < table->row_count; r++) {
+        if (bitmask_get(table->active_mask, r)) {
+          uint64_t row_id = table->row_ids[r];
+          aslan_table_eval_formula(table, (int)c, row_id);
+        }
+      }
+    }
+  }
 }
 
 // -----------------------------------------------------------------------------
