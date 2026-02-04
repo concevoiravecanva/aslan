@@ -146,11 +146,13 @@ static int copy_image_to_assets(const char *src_path, const char *doc_dir,
 // Colors
 // -----------------------------------------------------------------------------
 
-static struct nk_color COLOR_BG = {30, 32, 36, 255};
-static struct nk_color COLOR_PANEL = {40, 42, 46, 255};
-static struct nk_color COLOR_BORDER = {60, 62, 66, 255};
+static struct nk_color COLOR_BG = {251, 251, 250,
+                                   255}; // #FBFBFA (Notion Gray Hierarchy)
+static struct nk_color COLOR_PANEL = {251, 251, 250, 255};
+static struct nk_color COLOR_BORDER = {237, 236, 233, 255}; // #EDECE9
 static struct nk_color COLOR_TEXT = {220, 220, 220, 255};
-static struct nk_color COLOR_TEXT_DARK = {40, 42, 46, 255};
+static struct nk_color COLOR_TEXT_DARK = {55, 53, 47,
+                                          255}; // #37352F (Anthracite)
 static struct nk_color COLOR_TEXT_DIM = {140, 140, 140, 255};
 static struct nk_color COLOR_ACCENT = {80, 140, 200, 255};
 static struct nk_color COLOR_HIGHLIGHT_YELLOW = {255, 240, 100, 80};
@@ -1055,11 +1057,11 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
   // Colors - Dark header/footer for professional Notion-like look
   struct nk_color header_bg = nk_rgb(25, 25, 28); // Near-black in all modes
   struct nk_color row_alt =
-      ui->dark_mode ? nk_rgb(35, 37, 42) : nk_rgb(252, 252, 253);
+      ui->dark_mode ? nk_rgb(35, 37, 42) : nk_rgb(251, 251, 250); // #FBFBFA
   struct nk_color row_normal =
-      ui->dark_mode ? nk_rgb(30, 32, 36) : nk_rgb(255, 255, 255);
+      ui->dark_mode ? nk_rgb(30, 32, 36) : nk_rgb(251, 251, 250); // #FBFBFA
   struct nk_color border_color =
-      ui->dark_mode ? nk_rgb(60, 62, 68) : nk_rgb(220, 220, 225);
+      ui->dark_mode ? nk_rgb(60, 62, 68) : nk_rgb(237, 236, 233); // #EDECE9
   struct nk_color footer_bg = nk_rgb(30, 30, 34); // Near-black in all modes
   struct nk_color muted_gray =
       ui->dark_mode ? nk_rgb(100, 100, 105) : nk_rgb(160, 160, 165);
@@ -1127,65 +1129,18 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
   }
 
   // =========================================================================
-  // TOOLBAR: Add Column, Add Row
-  // =========================================================================
-  nk_layout_row_dynamic(ctx, toolbar_h, 1);
-  if (nk_group_begin(ctx, "table_toolbar", NK_WINDOW_NO_SCROLLBAR)) {
-    nk_layout_row_template_begin(ctx, 28);
-    nk_layout_row_template_push_static(ctx, 120);
-    nk_layout_row_template_push_static(ctx, 120);
-    nk_layout_row_template_push_variable(ctx, 10);
-    nk_layout_row_template_end(ctx);
-
-    // Add Row button - styled with accent
-    struct nk_style_button row_btn = ctx->style.button;
-    row_btn.normal = nk_style_item_color(nk_rgb(35, 131, 226)); // Notion blue
-    row_btn.hover = nk_style_item_color(nk_rgb(45, 141, 236));
-    row_btn.active = nk_style_item_color(nk_rgb(25, 121, 216));
-    row_btn.text_normal = nk_rgb(255, 255, 255);
-    row_btn.text_hover = nk_rgb(255, 255, 255);
-    row_btn.text_active = nk_rgb(255, 255, 255);
-    row_btn.rounding = 4;
-
-    if (nk_button_label_styled(ctx, &row_btn, "+ New Row")) {
-      if (tbl) {
-        aslan_table_add_row(tbl);
-      } else {
-        // Legacy: add row at end
-        block_table_insert_row(block, td->rows);
-      }
-    }
-
-    // Add Column button - styled subtly
-    struct nk_style_button col_btn = ctx->style.button;
-    col_btn.normal = nk_style_item_color(ui->dark_mode ? nk_rgb(50, 52, 56)
-                                                       : nk_rgb(238, 238, 242));
-    col_btn.hover = nk_style_item_color(ui->dark_mode ? nk_rgb(60, 62, 66)
-                                                      : nk_rgb(228, 228, 232));
-    col_btn.text_normal = ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
-    col_btn.text_hover = ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
-    col_btn.rounding = 4;
-
-    if (nk_button_label_styled(ctx, &col_btn, "+ Column")) {
-      struct nk_rect b = nk_widget_bounds(ctx);
-      ui->table_state.active_block_id = block->id;
-      ui->table_state.show_col_menu = !ui->table_state.show_col_menu;
-      ui->table_state.show_footer_menu = 0;
-      ui->table_state.menu_pos_x = b.x;
-      ui->table_state.menu_pos_y = b.y;
-    }
-
-    nk_spacing(ctx, 1);
-
-    nk_group_end(ctx);
-  }
-
-  // =========================================================================
   // COLUMNAR TABLE RENDERING
   // =========================================================================
   if (tbl && tbl->column_count > 0) {
     size_t col_count = tbl->column_count;
     size_t view_count = aslan_table_view_count(tbl);
+
+    // Set Inter font for the entire table block - Manual save/restore to avoid
+    // stack issues
+    struct nk_user_font *old_table_font = ctx->style.font;
+    if (ui->font_inter) {
+      nk_style_set_font(ctx, &ui->font_inter->handle);
+    }
 
     // Calculate column widths
     float *col_widths = (float *)alloca(col_count * sizeof(float));
@@ -1209,6 +1164,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           col_widths[c] = 60;
       }
     }
+    const float add_col_w = 32.0f;
 
     // Save and Push Global Table Styles (Zero Padding/Spacing for "Simple
     // Grid")
@@ -1231,10 +1187,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     ctx->style.button.padding = nk_vec2(8, 4); // Good padding for buttons
     nk_style_push_vec2(ctx, &ctx->style.text.padding, nk_vec2(4, 2));
 
-    // -----------------------------------------------------------------------
-    // HEADER ROW
-    // -----------------------------------------------------------------------
-    nk_layout_row_begin(ctx, NK_STATIC, header_h, (int)col_count + 1);
+    // HEADER ROW (+ Add Column button at end)
+    nk_layout_row_begin(ctx, NK_STATIC, header_h, (int)col_count + 2);
 
     // Row number header
     nk_layout_row_push(ctx, row_num_w);
@@ -1306,24 +1260,43 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
       }
     }
+
+    // Inline + Add Column header
+    nk_layout_row_push(ctx, add_col_w);
+    hdr_bounds = nk_widget_bounds(ctx);
+    nk_fill_rect(nk_window_get_canvas(ctx), hdr_bounds, 0, header_bg);
+    nk_stroke_rect(nk_window_get_canvas(ctx), hdr_bounds, 0, 1, border_color);
+
+    struct nk_style_button add_col_btn = ctx->style.button;
+    add_col_btn.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    add_col_btn.hover = nk_style_item_color(nk_rgba(255, 255, 255, 20));
+    add_col_btn.text_normal = header_text_col;
+    if (nk_button_label_styled(ctx, &add_col_btn, "+")) {
+      ui->table_state.active_block_id = block->id;
+      ui->table_state.show_col_menu = !ui->table_state.show_col_menu;
+      ui->table_state.show_footer_menu = 0;
+      ui->table_state.menu_pos_x = hdr_bounds.x;
+      ui->table_state.menu_pos_y = hdr_bounds.y + hdr_bounds.h;
+    }
+
     nk_layout_row_end(ctx);
 
     // -----------------------------------------------------------------------
     // DATA ROWS
     // -----------------------------------------------------------------------
     struct nk_color notion_row_bg =
-        ui->dark_mode ? nk_rgb(25, 26, 30) : nk_rgb(255, 255, 255);
+        ui->dark_mode ? nk_rgb(25, 26, 30) : nk_rgb(251, 251, 250); // #FBFBFA
     struct nk_color notion_border = ui->dark_mode
                                         ? nk_rgba(60, 62, 66, 60)
-                                        : nk_rgba(220, 221, 222, 120); // Subtle
+                                        : nk_rgb(237, 236, 233); // #EDECE9
     struct nk_color notion_text =
-        ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(55, 53, 47);
-    struct nk_color vert_sep = ui->dark_mode
-                                   ? nk_rgba(60, 62, 66, 40)
-                                   : nk_rgba(200, 201, 202, 80); // Very subtle
+        ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(55, 53, 47); // #37352F
+    struct nk_color vert_sep =
+        ui->dark_mode ? nk_rgba(60, 62, 66, 40)
+                      : nk_rgba(237, 236, 233, 180); // Subtle guide
     struct nk_color row_hover_bg =
         ui->dark_mode ? nk_rgba(255, 255, 255, 20)
-                      : nk_rgba(55, 53, 47, 15);                // Stronger tint
+                      : nk_rgba(55, 53, 47, 10); // Slightly more subtle hover
     struct nk_color active_cell_outline = nk_rgb(35, 131, 226); // Notion blue
 
     for (size_t v = 0; v < view_count && v < 100; v++) { // Limit visible rows
@@ -1332,7 +1305,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         continue;
 
       // Data Row Layout using nk_layout_row_begin/push/end (consistent API)
-      nk_layout_row_begin(ctx, NK_STATIC, row_h, (int)col_count + 1);
+      nk_layout_row_begin(ctx, NK_STATIC, row_h, (int)col_count + 2);
 
       // Calculate row hover state
       struct nk_rect row_bounds = nk_layout_widget_bounds(ctx);
@@ -1594,8 +1567,16 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         case ASLAN_COL_CHECKBOX: {
           bool checked = aslan_table_get_checkbox(tbl, (int)c, row_id);
 
-          // Toggle button
-          if (nk_button_label(ctx, checked ? "[x]" : "[ ]")) {
+          struct nk_style_button chk_style = ctx->style.button;
+          chk_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+          chk_style.hover = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+          chk_style.active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+          chk_style.text_normal = notion_text;
+          chk_style.text_hover = COLOR_ACCENT;
+          chk_style.padding = nk_vec2(0, 0);
+
+          if (nk_button_label_styled(ctx, &chk_style,
+                                     checked ? "[x]" : "[ ]")) {
             aslan_table_set_checkbox(tbl, (int)c, row_id, !checked);
           }
           break;
@@ -1608,14 +1589,24 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
         }
       }
+
+      // Fill a small empty space for the + column in data rows
+      nk_layout_row_push(ctx, add_col_w);
+      cell_bounds = nk_widget_bounds(ctx);
+      nk_fill_rect(canvas, cell_bounds, 0, current_row_bg);
+      if (is_row_hovered) {
+        nk_stroke_line(canvas, cell_bounds.x, cell_bounds.y + cell_bounds.h - 1,
+                       cell_bounds.x + cell_bounds.w,
+                       cell_bounds.y + cell_bounds.h - 1, 1.0f, notion_border);
+      }
+
       nk_layout_row_end(ctx);
     }
 
     // -----------------------------------------------------------------------
     // FOOTER ROW (Aggregations)
     // -----------------------------------------------------------------------
-    // Use nk_layout_row_begin/push/end for consistent API
-    nk_layout_row_begin(ctx, NK_STATIC, footer_h, (int)col_count + 1);
+    nk_layout_row_begin(ctx, NK_STATIC, footer_h, (int)col_count + 2);
 
     // Footer row number cell
     nk_layout_row_push(ctx, row_num_w);
@@ -1665,6 +1656,31 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
       }
     }
+
+    // Small empty space for the + column in footer
+    nk_layout_row_push(ctx, add_col_w);
+    ftr_bounds = nk_widget_bounds(ctx);
+    nk_fill_rect(nk_window_get_canvas(ctx), ftr_bounds, 0, footer_bg);
+    nk_stroke_rect(nk_window_get_canvas(ctx), ftr_bounds, 0, 0.5f,
+                   border_color);
+
+    nk_layout_row_end(ctx);
+
+    // -----------------------------------------------------------------------
+    // INLINE + ADD ROW (at the very bottom)
+    // -----------------------------------------------------------------------
+    nk_layout_row_begin(ctx, NK_STATIC, row_h, 1);
+    nk_layout_row_push(ctx, row_num_w + 100);
+    struct nk_style_button add_row_btn = ctx->style.button;
+    add_row_btn.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    add_row_btn.hover = nk_style_item_color(nk_rgba(35, 131, 226, 20));
+    add_row_btn.text_normal = muted_gray;
+    add_row_btn.text_hover = nk_rgb(35, 131, 226);
+    add_row_btn.text_alignment = NK_TEXT_LEFT;
+
+    if (nk_button_label_styled(ctx, &add_row_btn, "+ New Row")) {
+      aslan_table_add_row(tbl);
+    }
     nk_layout_row_end(ctx);
 
     // Restore styles AFTER the footer
@@ -1679,6 +1695,10 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     ctx->style.window.spacing = old_window_spacing;
     ctx->style.button.padding = old_button_padding;
     nk_style_pop_vec2(ctx); // Pop text padding
+
+    if (ui->font_inter) {
+      nk_style_set_font(ctx, old_table_font);
+    }
 
     // Row count info
     nk_layout_row_dynamic(ctx, 20, 1);
@@ -2436,7 +2456,8 @@ static void ui_render_sidebar_properties(UIHost *ui, struct nk_context *ctx,
   }
 
   // Detect if this is a Line
-  // 1. Rect with small height (horizontal line) or small width (vertical line)
+  // 1. Rect with small height (horizontal line) or small width (vertical
+  // line)
   // 2. Path with exactly 2 points (straight line segment)
   // 3. Explicit NODE_TYPE_LINE
   // 4. Stroke (Pen) - allow any stroke to have ends? Or just straight ones?
@@ -2457,10 +2478,10 @@ static void ui_render_sidebar_properties(UIHost *ui, struct nk_context *ctx,
   // Debug Print to Console
   static int last_debug_id = -1;
   if ((int)node->id != last_debug_id) {
-    printf(
-        "[DEBUG] Selected Node ID=%d Type=%d W=%.2f H=%.2f Pts=%d IsLine=%d\n",
-        node->id, node->type, node->width, node->height, node->path_point_count,
-        is_line);
+    printf("[DEBUG] Selected Node ID=%d Type=%d W=%.2f H=%.2f Pts=%d "
+           "IsLine=%d\n",
+           node->id, node->type, node->width, node->height,
+           node->path_point_count, is_line);
     last_debug_id = node->id;
   }
 
@@ -4737,8 +4758,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
             }
           }
         } else if (node->type == NODE_TYPE_LINE) {
-          // Render explicit LINE type as a horizontal stroke through the center
-          // of its bounds
+          // Render explicit LINE type as a horizontal stroke through the
+          // center of its bounds
           float line_y = nr.y + nr.h / 2.0f;
           float line_w =
               (node->stroke_width > 0 ? node->stroke_width : 2.0f) * scale;
@@ -4838,8 +4859,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
               float tip_y = start_y;
 
               // Move tip slightly out so it doesn't overlap line end exactly?
-              // No, exact is fine. Actually, if we want the arrow tip to be at
-              // start_x, we compute base from there.
+              // No, exact is fine. Actually, if we want the arrow tip to be
+              // at start_x, we compute base from there.
 
               float base_angle1 = arrow_angle + 0.5f; // ~28 deg
               float base_angle2 = arrow_angle - 0.5f;
@@ -5102,7 +5123,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                          display_text, strlen(display_text));
               float text_h = font->height;
 
-              // Only update if dimensions differ significantly (prevent jitter)
+              // Only update if dimensions differ significantly (prevent
+              // jitter)
               if (fabsf(node->width - (text_w + 10.0f)) > 1.0f ||
                   fabsf(node->height - (text_h + 10.0f)) > 1.0f) {
                 node->width = text_w + 10.0f; // Add padding
