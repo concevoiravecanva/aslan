@@ -283,6 +283,10 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
   ctx->style.button.normal = nk_style_item_color(COLOR_PANEL);
   ctx->style.button.hover = nk_style_item_color(COLOR_ACCENT);
   ctx->style.button.active = nk_style_item_color(COLOR_ACCENT);
+
+  // Initialize scroll state
+  ui->scroll_y = 0;
+  ui->scroll_target_y = 0;
   ctx->style.button.border_color = COLOR_BORDER;
   ctx->style.button.text_normal = COLOR_TEXT;
   ctx->style.button.text_hover = COLOR_TEXT;
@@ -581,7 +585,13 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
         strcat(ui->edit_buffer, evt->text.text);
       }
     }
-    return; // Don't process other events while editing
+  }
+  // Only return if it's a typing event or return/esc/backspace for editing
+  if (evt->type == SDL_TEXTINPUT ||
+      (evt->type == SDL_KEYDOWN && (evt->key.keysym.sym == SDLK_RETURN ||
+                                    evt->key.keysym.sym == SDLK_ESCAPE ||
+                                    evt->key.keysym.sym == SDLK_BACKSPACE))) {
+    return;
   }
 
   // Delete selected node
@@ -863,10 +873,12 @@ static void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx,
 
   if (is_expanded) {
     if (ui_icon_button(ui, ICON_FULLSCREEN_EXIT)) {
+      printf("[DEBUG] Clicked Fullscreen EXIT for block %u\n", block->id);
       ui->expanded_block_id = 0;
     }
   } else {
     if (ui_icon_button(ui, ICON_FULLSCREEN)) {
+      printf("[DEBUG] Clicked Fullscreen ENTER for block %u\n", block->id);
       ui->expanded_block_id = block->id;
     }
   }
@@ -5637,94 +5649,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           ds->show_forms_menu = 0;
         }
 
-        // --- Handle pending element creation ---
-        if (ds->pending_create > 0 && is_active_design) {
-          float center_x = (float)dd->width / 2.0f - 50.0f;
-          float center_y = (float)dd->height / 2.0f - 40.0f;
-          Node *new_node = NULL;
-          float def_w = 100.0f;
-          float def_h = 80.0f;
-
-          if (ds->pending_create == 1) {
-            // Text (Paragraph)
-            new_node = design_create_styled_node(dd, NODE_STYLE_TEXT, center_x,
-                                                 center_y, 200.0f, 40.0f,
-                                                 ds->selected_color);
-            if (new_node) {
-              strncpy(new_node->text, "Paragraph text",
-                      sizeof(new_node->text) - 1);
-            }
-          } else if (ds->pending_create == 3) {
-            // Image - Open file dialog
-            char path[512] = {0};
-            if (open_image_file_dialog(path, sizeof(path))) {
-              char rel[256] = {0};
-              if (copy_image_to_assets(path, ".", rel, sizeof(rel))) {
-                Node *img = (Node *)calloc(1, sizeof(Node));
-                if (img && dd->root) {
-                  img->id = dd->next_node_id++;
-                  img->type = NODE_TYPE_IMAGE;
-                  img->x = center_x;
-                  img->y = center_y;
-
-                  // Maintain aspect ratio
-                  int img_w = 0, img_h = 0;
-                  int size_ok = mac_get_image_size(path, &img_w, &img_h);
-                  if (size_ok && img_w > 0 && img_h > 0) {
-                    float aspect = (float)img_w / (float)img_h;
-                    if (aspect > 1.0f) {
-                      img->width = 300.0f;
-                      img->height = 300.0f / aspect;
-                    } else {
-                      img->height = 300.0f;
-                      img->width = 300.0f * aspect;
-                    }
-                  } else {
-                    img->width = 200.0f;
-                    img->height = 150.0f;
-                  }
-
-                  printf("[DEBUG] design image size for '%s': %.1f x %.1f "
-                         "(ok=%d)\n",
-                         path, img->width, img->height, size_ok);
-                  fflush(stdout);
-
-                  img->visible = 1;
-                  img->parent = dd->root;
-                  strncpy(img->image_path, rel, sizeof(img->image_path) - 1);
-                  if (!dd->root->first_child) {
-                    dd->root->first_child = img;
-                  } else {
-                    Node *last = dd->root->first_child;
-                    while (last->next_sibling)
-                      last = last->next_sibling;
-                    last->next_sibling = img;
-                  }
-                  new_node = img;
-                }
-              }
-            }
-          } else if (ds->pending_create >= 10 && ds->pending_create <= 13) {
-            NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
-                                      NODE_STYLE_TRIANGLE, NODE_STYLE_LINE};
-            int idx = ds->pending_create - 10;
-            if (idx == 3) {
-              new_node =
-                  design_create_styled_node(dd, styles[idx], center_x, center_y,
-                                            150.0f, 4.0f, ds->selected_color);
-            } else {
-              new_node =
-                  design_create_styled_node(dd, styles[idx], center_x, center_y,
-                                            100.0f, 80.0f, ds->selected_color);
-            }
-          }
-
-          if (new_node) {
-            ui->selected_node = new_node;
-          }
-          ds->pending_create = 0;
-        }
-
         // --- PEN TOOL logic (Adapted for Design) ---
         if (ds->tool == CANVAS_TOOL_PEN && is_active_design && !in_toolbar &&
             !in_forms_menu && ((ui->mouse_buttons & 1))) {
@@ -6423,9 +6347,53 @@ static void ui_apply_theme(UIHost *ui) {
   }
 }
 
-// -----------------------------------------------------------------------------
-// Main Render Function
-// -----------------------------------------------------------------------------
+static void ui_render_navigation(UIHost *ui, Engine *engine,
+                                 struct nk_context *ctx) {
+  Page *page = doc_page_get_active(engine->doc);
+  if (!page)
+    return;
+
+  if (nk_group_begin(ctx, "NavigationSidebar", NK_WINDOW_NO_SCROLLBAR)) {
+    nk_layout_row_dynamic(ctx, 30, 1);
+    nk_label(ctx, "OUTLINE", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 2, 1);
+    nk_spacing(ctx, 1);
+
+    int heading_count = 0;
+    for (Block *b = page->first_block; b; b = b->next) {
+      if (b->type == BLOCK_HEADING_1 || b->type == BLOCK_HEADING_2 ||
+          b->type == BLOCK_HEADING_3) {
+        heading_count++;
+        const char *text =
+            (b->text && b->text[0]) ? b->text : "(Untitled Heading)";
+        char display_text[128];
+
+        // Indentation based on level
+        int indent = (b->type == BLOCK_HEADING_1)   ? 0
+                     : (b->type == BLOCK_HEADING_2) ? 8
+                                                    : 16;
+        snprintf(display_text, sizeof(display_text), "%*s%s", indent, "", text);
+
+        if (nk_button_label(ctx, display_text)) {
+          // Calculate target Y (simplified: 100px per block index for now)
+          // In a real implementation we would track b->y_offset
+          int index = 0;
+          for (Block *curr = page->first_block; curr != b; curr = curr->next)
+            index++;
+          ui->scroll_target_y = index * 80.0f; // Approximate height per block
+        }
+      }
+    }
+
+    if (heading_count == 0) {
+      nk_layout_row_dynamic(ctx, 20, 1);
+      nk_label_colored(ctx, "No headings found", NK_TEXT_LEFT,
+                       nk_rgb(150, 150, 150));
+    }
+
+    nk_group_end(ctx);
+  }
+}
 
 void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   // Update window dims for smart placement
@@ -6468,20 +6436,43 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     }
     nk_end(ctx);
   } else {
-    const float top_h = 40.0f;
-    const float bottom_h = 0.0f; // Bottom bar removed
-    const float content_h = (float)win_h - top_h - bottom_h;
     const float padding = 40.0f;
-    const float content_w = (float)win_w - padding * 2;
+    const float top_h = 40.0f;
+    const float sidebar_w = 200.0f;
+    const float content_h = (float)win_h - top_h;
+    const float content_x = padding + sidebar_w;
+    const float content_w = (float)win_w - content_x - padding;
 
-    if (nk_begin(ctx, "Content", nk_rect(padding, top_h, content_w, content_h),
+    // Smooth Scrolling Interpolation
+    float scroll_speed = 0.15f;
+    if (fabsf(ui->scroll_target_y - ui->scroll_y) > 1.0f) {
+      ui->scroll_y += (ui->scroll_target_y - ui->scroll_y) * scroll_speed;
+    } else {
+      ui->scroll_y = ui->scroll_target_y;
+    }
+
+    // Layout: Sidebar + Content
+    nk_layout_row_template_begin(ctx, content_h);
+    nk_layout_row_template_push_static(ctx, sidebar_w);
+    nk_layout_row_template_push_dynamic(ctx);
+    nk_layout_row_template_end(ctx);
+
+    // 1. Navigation Sidebar
+    ui_render_navigation(ui, engine, ctx);
+
+    // 2. Main Content Area
+    if (nk_begin(ctx, "Content",
+                 nk_rect(content_x, top_h, content_w, content_h),
                  NK_WINDOW_SCROLL_AUTO_HIDE)) {
+
+      // Apply smooth scroll to window
+      nk_window_set_scroll(ctx, 0, (nk_uint)ui->scroll_y);
 
       Page *page = doc_page_get_active(engine->doc);
 
       if (page && page->block_count > 0) {
         for (Block *b = page->first_block; b; b = b->next) {
-          ui_render_block(ui, engine, ctx, page, b, content_w - 20);
+          ui_render_block(ui, engine, ctx, page, b, content_w - 60);
 
           // Small spacing between blocks
           nk_layout_row_dynamic(ctx, 8.0f, 1);
@@ -6495,6 +6486,20 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       }
     }
     nk_end(ctx);
+
+    // 3. Back to Top Button (Floating)
+    if (ui->scroll_y > 300.0f) {
+      struct nk_rect btt_rect =
+          nk_rect((float)win_w - 60, (float)win_h - 60, 40, 40);
+      if (nk_begin(ctx, "BackToTop", btt_rect,
+                   NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
+        nk_layout_row_dynamic(ctx, 30, 1);
+        if (nk_button_label(ctx, "^")) {
+          ui->scroll_target_y = 0;
+        }
+        nk_end(ctx);
+      }
+    }
   }
 
   // Bottom bar removed in single-page mode
