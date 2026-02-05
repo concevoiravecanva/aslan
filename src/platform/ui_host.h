@@ -191,6 +191,7 @@ typedef struct {
 
   // Color Selection
   uint32_t selected_color; // RGBA color for new shapes (default: 0x000000FF)
+  int show_color_picker_popup;
 } DesignInteraction;
 
 // -----------------------------------------------------------------------------
