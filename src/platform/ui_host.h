@@ -148,6 +148,9 @@ typedef struct {
 } CanvasInteraction;
 
 typedef struct {
+  // Current tool (same as canvas)
+  CanvasToolMode tool;
+
   // Toolbar state (same as canvas)
   CanvasCategory active_cat;
   int show_sub_menu;
@@ -182,6 +185,9 @@ typedef struct {
   // Pen Tool State
   float pen_thickness;
   int pen_is_marker;
+  struct Stroke *current_stroke;    // Active stroke being drawn
+  struct Node *current_stroke_node; // Node wrapping the active stroke
+  uint32_t stroke_block_id;         // Block ID where stroke started
 
   // Color Selection
   uint32_t selected_color; // RGBA color for new shapes (default: 0x000000FF)

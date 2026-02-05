@@ -2911,9 +2911,12 @@ static void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
         cs->bezier_mode = !cs->bezier_mode;
 
         // Convert ALL shapes in the current document to paths
-        if (cs->bezier_mode && block->type == BLOCK_CANVAS &&
-            block->data.canvas.root) {
-          recursive_convert_to_path(block->data.canvas.root);
+        if (cs->bezier_mode) {
+          if (block->type == BLOCK_CANVAS && block->data.canvas.root) {
+            recursive_convert_to_path(block->data.canvas.root);
+          } else if (block->type == BLOCK_DESIGN && block->data.design.root) {
+            recursive_convert_to_path(block->data.design.root);
+          }
         }
 
         cs->active_cat = CANVAS_CAT_SELECT;
@@ -4623,6 +4626,14 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
          ui->mouse_y >= toolbar_y && ui->mouse_y < toolbar_y + 52.0f);
     int in_forms_menu = ds->show_forms_menu;
 
+    // Early check for active state
+    int is_active_design = (ds->active_design_id == block->id);
+
+    // Hardened Input Check: Sync Nuklear input state
+    if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+      ds->mouse_just_pressed = 1;
+    }
+
     // 1. Draw Workspace background (Notion gray)
     nk_fill_rect(canvas_buf, ws_bounds, 0, nk_rgb(241, 241, 239));
 
@@ -4672,12 +4683,19 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ds->scale = scale;
 
       // Track if this design is active
-      int is_active_design = (ds->active_design_id == block->id);
-      if (!is_active_design && ui->mouse_x >= bounds.x &&
-          ui->mouse_x < bounds.x + bounds.w && ui->mouse_y >= bounds.y &&
-          ui->mouse_y < bounds.y + bounds.h) {
+      // Track if this design is active
+      is_active_design = (ds->active_design_id == block->id);
+
+      // Auto-activate if clicked inside WORKSPACE (including toolbar)
+      if (!is_active_design &&
+          nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
+          ui->mouse_x >= ws_bounds.x &&
+          ui->mouse_x < ws_bounds.x + ws_bounds.w &&
+          ui->mouse_y >= ws_bounds.y &&
+          ui->mouse_y < ws_bounds.y + ws_bounds.h) {
         ds->active_design_id = block->id;
         ds->active_block = block;
+        ui->editing_block_id = block->id;
         is_active_design = 1;
       }
 
@@ -4706,6 +4724,55 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
             new_node->stroke_color = 0xFBC02DFF;
             new_node->type = NODE_TYPE_TEXT;
             strncpy(new_node->text, "Note...", sizeof(new_node->text) - 1);
+          }
+        } else if (ds->pending_create == 3) { // Image
+          char path[512] = {0};
+          if (open_image_file_dialog(path, sizeof(path))) {
+            char rel[256] = {0};
+            if (copy_image_to_assets(path, ".", rel, sizeof(rel))) {
+              new_node = (Node *)calloc(1, sizeof(Node));
+              if (new_node && dd->root) {
+                new_node->id = dd->next_node_id++;
+                new_node->type = NODE_TYPE_IMAGE;
+                new_node->x = nx;
+                new_node->y = ny;
+
+                // Maintain aspect ratio
+                int img_w = 0, img_h = 0;
+                int size_ok = mac_get_image_size(path, &img_w, &img_h);
+                printf("[DEBUG] design image size for '%s': %d x %d (ok=%d)\n",
+                       path, img_w, img_h, size_ok);
+
+                if (size_ok && img_w > 0 && img_h > 0) {
+                  float aspect = (float)img_w / (float)img_h;
+                  if (aspect > 1.0f) {
+                    new_node->width = 300.0f;
+                    new_node->height = 300.0f / aspect;
+                  } else {
+                    new_node->height = 300.0f;
+                    new_node->width = 300.0f * aspect;
+                  }
+                } else {
+                  new_node->width = 200.0f;
+                  new_node->height = 150.0f;
+                }
+
+                new_node->visible = 1;
+                new_node->parent = dd->root;
+                strncpy(new_node->image_path, rel,
+                        sizeof(new_node->image_path) - 1);
+
+                // Add to tree
+                if (!dd->root->first_child)
+                  dd->root->first_child = new_node;
+                else {
+                  Node *l = dd->root->first_child;
+                  while (l->next_sibling)
+                    l = l->next_sibling;
+                  l->next_sibling = new_node;
+                }
+              }
+            }
           }
         } else if (ds->pending_create >= 10 && ds->pending_create <= 13) {
           NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
@@ -4765,19 +4832,26 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                     (node->stroke_color >> 8) & 0xFF,
                                     node->stroke_color & 0xFF};
 
+          int drawn_image = 0;
           int has_fill = (node->fill_color & 0xFF) > 10;
 
-          int drawn_image = 0;
-          if (node->is_container && node->image_path[0]) {
-            SDL_Texture *tex = get_image_texture(ui, node->image_path);
-            if (tex) {
-              struct nk_image img = nk_image_ptr(tex);
-              nk_draw_image(canvas_buf, nr, &img, nk_rgb(255, 255, 255));
-              drawn_image = 1;
+          if (node->type == NODE_TYPE_IMAGE) {
+            int drawn = 0;
+            if (node->image_path[0]) {
+              SDL_Texture *tex = get_image_texture(ui, node->image_path);
+              if (tex) {
+                struct nk_image img = nk_image_ptr(tex);
+                nk_draw_image(canvas_buf, nr, &img, nk_rgb(255, 255, 255));
+                drawn = 1;
+              }
             }
-          }
-
-          if (node->type == NODE_TYPE_RECT) {
+            if (!drawn) {
+              nk_fill_rect(canvas_buf, nr, 0, nk_rgb(200, 200, 200));
+            }
+            if (node->stroke_width > 0)
+              nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale,
+                             node->stroke_width * scale, stroke);
+          } else if (node->type == NODE_TYPE_RECT) {
             if (node->is_container && !node->image_path[0]) {
               struct nk_color cbg = nk_rgba(66, 133, 244, 40);
               struct nk_color cst = nk_rgba(66, 133, 244, 255);
@@ -5533,6 +5607,13 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
         Node *hit = design_find_node_at(dd, design_x, design_y);
         if (hit) {
+          // Auto-deselect pen tool when clicking an existing node (same as
+          // Canvas)
+          if (ds->tool == CANVAS_TOOL_PEN) {
+            ds->tool = CANVAS_TOOL_SELECT;
+            ds->active_cat = CANVAS_CAT_SELECT;
+          }
+
           // Check for double-click on text node
           if (hit == ui->selected_node && hit->type == NODE_TYPE_TEXT) {
             // Start inline editing
@@ -5669,6 +5750,173 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         ds->pending_create = 0;
       }
 
+      // --- PEN TOOL logic (Adapted for Design) ---
+      if (ds->tool == CANVAS_TOOL_PEN && is_active_design && !in_toolbar &&
+          !in_forms_menu && ((ui->mouse_buttons & 1))) {
+        float wx = (ui->mouse_x - bounds.x) / scale;
+        float wy = (ui->mouse_y - bounds.y) / scale;
+
+        if (ds->mouse_just_pressed) {
+          ds->current_stroke = (Stroke *)calloc(1, sizeof(Stroke));
+          ds->current_stroke->capacity = 128;
+          ds->current_stroke->points = (Point *)calloc(128, sizeof(Point));
+          if (ds->pen_is_marker) {
+            ds->current_stroke->thickness = ds->pen_thickness * 10.0f;
+            uint32_t c = ds->selected_color;
+            uint8_t r = (c >> 24) & 0xFF;
+            uint8_t g = (c >> 16) & 0xFF;
+            uint8_t b = (c >> 8) & 0xFF;
+            uint8_t a = c & 0xFF;
+            // Reduce alpha to 30% for marker effect
+            ds->current_stroke->color =
+                (r << 24) | (g << 16) | (b << 8) | (uint8_t)(a * 0.3f);
+          } else {
+            ds->current_stroke->thickness = ds->pen_thickness;
+            ds->current_stroke->color = ds->selected_color;
+          }
+          ds->current_stroke->points[0].x = wx;
+          ds->current_stroke->points[0].y = wy;
+          ds->current_stroke->count = 1;
+
+          // Wrap it in a Node so it appears in Layers
+          Node *node = (Node *)calloc(1, sizeof(Node));
+          if (node) {
+            node->id = dd->next_node_id++;
+            node->type = NODE_TYPE_STROKE;
+            node->stroke_data = ds->current_stroke;
+            node->visible = 1;
+            node->parent = dd->root;
+
+            // Add to document tree
+            if (!dd->root->first_child) {
+              dd->root->first_child = node;
+            } else {
+              Node *last = dd->root->first_child;
+              while (last->next_sibling)
+                last = last->next_sibling;
+              last->next_sibling = node;
+            }
+            ds->current_stroke_node = node;
+            ds->stroke_block_id = block->id;
+
+            // Initialize bounds
+            node->x = wx;
+            node->y = wy;
+            node->width = 1.0f;
+            node->height = 1.0f;
+          }
+        } else if (ds->current_stroke && ds->stroke_block_id == block->id) {
+          if (ds->current_stroke->count >= ds->current_stroke->capacity) {
+            ds->current_stroke->capacity *= 2;
+            ds->current_stroke->points =
+                (Point *)realloc(ds->current_stroke->points,
+                                 ds->current_stroke->capacity * sizeof(Point));
+          }
+          Point last =
+              ds->current_stroke->points[ds->current_stroke->count - 1];
+          if ((wx - last.x) * (wx - last.x) + (wy - last.y) * (wy - last.y) >
+              4.0f) {
+            ds->current_stroke->points[ds->current_stroke->count].x = wx;
+            ds->current_stroke->points[ds->current_stroke->count].y = wy;
+            ds->current_stroke->count++;
+
+            // Update node bounds for culling
+            if (ds->current_stroke_node) {
+              float min_x = ds->current_stroke_node->x;
+              float min_y = ds->current_stroke_node->y;
+              float max_x = min_x + ds->current_stroke_node->width;
+              float max_y = min_y + ds->current_stroke_node->height;
+
+              if (wx < min_x)
+                min_x = wx;
+              if (wy < min_y)
+                min_y = wy;
+              if (wx > max_x)
+                max_x = wx;
+              if (wy > max_y)
+                max_y = wy;
+
+              ds->current_stroke_node->x = min_x;
+              ds->current_stroke_node->y = min_y;
+              ds->current_stroke_node->width = max_x - min_x;
+              ds->current_stroke_node->height = max_y - min_y;
+            }
+          }
+        }
+        ds->current_stroke = NULL;
+        ds->stroke_block_id = 0;
+      }
+
+      // --- Active Stroke Rendering ---
+      if (ds->current_stroke && ds->current_stroke->count > 1 &&
+          ds->stroke_block_id == block->id) {
+        if (ds->pen_is_marker) {
+          for (int i = 0; i < ds->current_stroke->count - 1; i++) {
+            Point p1 = ds->current_stroke->points[i];
+            Point p2 = ds->current_stroke->points[i + 1];
+            struct nk_color col = nk_rgba_u32(ds->current_stroke->color);
+            nk_stroke_line(canvas_buf, bounds.x + p1.x * scale,
+                           bounds.y + p1.y * scale, bounds.x + p2.x * scale,
+                           bounds.y + p2.y * scale,
+                           ds->current_stroke->thickness * scale, col);
+          }
+        } else {
+          for (int i = 0; i < ds->current_stroke->count - 1; i++) {
+            Point p1 = ds->current_stroke->points[i];
+            Point p2 = ds->current_stroke->points[i + 1];
+            struct nk_color col = nk_rgba_u32(ds->current_stroke->color);
+            nk_stroke_line(canvas_buf, bounds.x + p1.x * scale,
+                           bounds.y + p1.y * scale, bounds.x + p2.x * scale,
+                           bounds.y + p2.y * scale,
+                           ds->current_stroke->thickness * scale, col);
+          }
+        }
+      }
+
+      // --- Bezier Handles Rendering Overlay ---
+      if (ds->bezier_mode && is_active_design && ui->selected_node &&
+          ui->selected_node->type == NODE_TYPE_PATH) {
+        Node *node = ui->selected_node;
+        // Ensure node belongs to this design block
+        // (Basic check: if it's selected and we are active, assume it is)
+        {
+          float sx = bounds.x + node->x * scale;
+          float sy = bounds.y + node->y * scale;
+
+          for (int i = 0; i < node->path_point_count; i++) {
+            NodePathPoint *p = &node->path_points[i];
+            float px = sx + p->x * scale;
+            float py = sy + p->y * scale;
+
+            // Anchor
+            struct nk_rect anchor_rect =
+                nk_rect(px - 5 * scale, py - 5 * scale, 10 * scale, 10 * scale);
+            nk_fill_rect(canvas_buf, anchor_rect, 0, nk_rgb(255, 255, 255));
+            nk_stroke_rect(canvas_buf, anchor_rect, 0, 1.5f * scale,
+                           nk_rgb(66, 133, 244));
+
+            if (p->type == 1) { // Cubic
+              float cp1x = sx + p->cp1x * scale;
+              float cp1y = sy + p->cp1y * scale;
+              float cp2x = sx + p->cp2x * scale;
+              float cp2y = sy + p->cp2y * scale;
+
+              nk_stroke_line(canvas_buf, px, py, cp1x, cp1y, 1,
+                             nk_rgb(200, 200, 200));
+              nk_stroke_line(canvas_buf, px, py, cp2x, cp2y, 1,
+                             nk_rgb(200, 200, 200));
+
+              struct nk_rect r1 = nk_rect(cp1x - 4 * scale, cp1y - 4 * scale,
+                                          8 * scale, 8 * scale);
+              struct nk_rect r2 = nk_rect(cp2x - 4 * scale, cp2y - 4 * scale,
+                                          8 * scale, 8 * scale);
+              nk_fill_circle(canvas_buf, r1, nk_rgb(66, 133, 244));
+              nk_fill_circle(canvas_buf, r2, nk_rgb(66, 133, 244));
+            }
+          }
+        }
+      }
+
       // Close Design content group (Artboard)
       nk_group_end(ctx);
     }
@@ -5682,6 +5930,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       CanvasInteraction temp_cs = ui->canvas_state;
 
       // Map Design state to Canvas state
+      ui->canvas_state.tool = ds->tool;
       ui->canvas_state.active_cat = ds->active_cat;
       ui->canvas_state.show_sub_menu = ds->show_sub_menu;
       ui->canvas_state.pending_create = ds->pending_create;
@@ -5692,6 +5941,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ui->canvas_state.dragging_point_idx = ds->dragging_point_idx;
       ui->canvas_state.dragging_cp_idx = ds->dragging_cp_idx;
       ui->canvas_state.selected_color = ds->selected_color;
+      ui->canvas_state.pen_thickness = ds->pen_thickness;
+      ui->canvas_state.pen_is_marker = ds->pen_is_marker;
 
       // Position toolbar at bottom of workspace
       canvas_render_toolbar(
@@ -5699,6 +5950,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           block);
 
       // Copy back relevant state
+      ds->tool = ui->canvas_state.tool;
       ds->active_cat = ui->canvas_state.active_cat;
       ds->show_sub_menu = ui->canvas_state.show_sub_menu;
       ds->pending_create = ui->canvas_state.pending_create;
@@ -5708,6 +5960,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ds->dragging_point_idx = ui->canvas_state.dragging_point_idx;
       ds->dragging_cp_idx = ui->canvas_state.dragging_cp_idx;
       ds->selected_color = ui->canvas_state.selected_color;
+      ds->pen_thickness = ui->canvas_state.pen_thickness;
+      ds->pen_is_marker = ui->canvas_state.pen_is_marker;
 
       // Restore Canvas state
       ui->canvas_state = temp_cs;

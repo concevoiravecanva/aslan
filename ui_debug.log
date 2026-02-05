@@ -1,4 +1,6 @@
 UI Init started (Aslan v0.1.5)
-Font Inter: 0x12a7631f0
-Font Mono: 0x12b852590
-Font Icons: 0x12a67c850 (path: assets/remixicon.ttf)
+Font Inter: 0x11d883da0
+Font Mono: 0x11d88f640
+Font Icons: 0x11d93a460 (path: assets/remixicon.ttf)
+Copying image: /Users/paolostraet/Desktop/Screenshot 2026-02-04 at 6.15.26 PM.png -> ./assets
+[DEBUG] mac_load_image_rgba called for: assets/1770293787_Screenshot 2026-02-04 at 6.15.26 PM.png
