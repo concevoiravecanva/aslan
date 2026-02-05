@@ -315,6 +315,24 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L);
 void ui_shutdown(UIHost *ui);
 
 // -----------------------------------------------------------------------------
+// Shared Color Constants (defined in ui_host.c)
+// -----------------------------------------------------------------------------
+
+extern struct nk_color COLOR_BG;
+extern struct nk_color COLOR_PANEL;
+extern struct nk_color COLOR_BORDER;
+extern struct nk_color COLOR_TEXT;
+extern struct nk_color COLOR_TEXT_DARK;
+extern struct nk_color COLOR_TEXT_DIM;
+extern struct nk_color COLOR_ACCENT;
+
+// -----------------------------------------------------------------------------
+// Shared UI Components
+// -----------------------------------------------------------------------------
+
+void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx, Block *block);
+
+// -----------------------------------------------------------------------------
 // UI Event Handling & Rendering
 // -----------------------------------------------------------------------------
 
@@ -345,6 +363,15 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                             Block *block, float width);
 void ui_render_block_lua(UIHost *ui, Engine *engine, struct nk_context *ctx,
                          Block *block, float width);
+
+// Shared UI Helpers
+int ui_icon_button(UIHost *ui, const char *icon);
+
+// Image Utilities
+int open_image_file_dialog(char *out_path, size_t path_size);
+int copy_image_to_assets(const char *src_path, const char *dest_dir,
+                         char *out_rel_path, size_t rel_path_size);
+int mac_get_image_size(const char *path, int *w, int *h);
 
 // -----------------------------------------------------------------------------
 // UI Components

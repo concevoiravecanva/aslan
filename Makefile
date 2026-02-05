@@ -17,6 +17,8 @@ CORE_SRC = src/document/document.c \
            src/scripting/lua_nk.c \
            src/platform/platform.c \
            src/platform/renderer.c \
+           src/platform/ui_table.c \
+           src/platform/ui_canvas.c \
            src/platform/ui_host.c \
            src/platform/recents.c \
            src/core/engine.c
