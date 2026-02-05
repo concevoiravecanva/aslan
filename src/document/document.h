@@ -206,6 +206,7 @@ typedef struct {
   int current_page;  // Currently displayed page index
   uint32_t next_node_id;
   int width, height; // Fixed dimensions in pixels (same for all pages)
+  int units;         // 0=px, 1=cm, 2=in
   float zoom;        // View zoom
   uint32_t bg_color; // Default background color for new pages
 

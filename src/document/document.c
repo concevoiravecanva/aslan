@@ -1553,6 +1553,7 @@ void block_design_init(Block *block, int width, int height) {
   dd->next_node_id = 1;
   dd->width = width > 0 ? width : 800;
   dd->height = height > 0 ? height : 400; // Optimized for inline document use
+  dd->units = 0;                          // 0 = Pixels
   dd->zoom = 1.0f;
   dd->bg_color = 0xFFFFFFFF;
 }
@@ -1694,6 +1695,16 @@ bool block_design_delete_node(Block *block, uint32_t node_id) {
 void block_design_set_size(Block *block, int width, int height) {
   if (!block || block->type != BLOCK_DESIGN)
     return;
+
+  // Enforce min/max bounds (100x100 to 4000x4000)
+  if (width < 100)
+    width = 100;
+  if (width > 4000)
+    width = 4000;
+  if (height < 100)
+    height = 100;
+  if (height > 4000)
+    height = 4000;
 
   block->data.design.width = width;
   block->data.design.height = height;

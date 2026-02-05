@@ -720,6 +720,22 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
     }
   }
 
+  else if (strcmp(verb, "block_design_resize") == 0 && cmd.argc >= 5) {
+    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
+    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
+    int w = atoi(cmd.argv[3]);
+    int h = atoi(cmd.argv[4]);
+    int units = (cmd.argc >= 6) ? atoi(cmd.argv[5]) : 0;
+
+    Block *block = find_block(engine, page_id, block_id);
+    if (block && block->type == BLOCK_DESIGN) {
+      block_design_set_size(block, w, h);
+      block->data.design.units = units;
+      engine_emit_command(engine, command_line);
+      success = true;
+    }
+  }
+
   else if (strcmp(verb, "block_design_node") == 0 && cmd.argc >= 5) {
     uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
     uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
