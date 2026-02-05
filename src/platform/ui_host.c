@@ -741,7 +741,7 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
       if (page) {
         Block *b = block_create(page, BLOCK_DESIGN);
         if (b) {
-          block_design_init(b, 800, 600);
+          block_design_init(b, 800, 400); // Consistent with document.c default
           page_append_block(page, b);
           char cmd[128];
           snprintf(cmd, sizeof(cmd), "block_create %u %u design", page_id,
@@ -4424,7 +4424,6 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
   cd->view_x = cs->cam_x;
   cd->view_y = cs->cam_y;
   cd->zoom = cs->zoom;
-  nk_spacing(ctx, 1);
 }
 
 // -----------------------------------------------------------------------------
@@ -4501,14 +4500,14 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
   int is_fullscreen = (ui->expanded_block_id == block->id);
   if (is_fullscreen) {
     // Fullscreen: Design + Sidebar layout
-    nk_layout_row_template_begin(ctx, display_h + toolbar_h + 20.0f);
+    nk_layout_row_template_begin(ctx, display_h + toolbar_h);
     nk_layout_row_template_push_variable(ctx, 75); // Design (flexible)
     nk_layout_row_template_push_static(ctx,
                                        250.0f); // Sidebar (fixed 250px)
     nk_layout_row_template_end(ctx);
   } else {
     // Normal mode: Single column
-    nk_layout_row_dynamic(ctx, display_h + toolbar_h + 20.0f, 1);
+    nk_layout_row_dynamic(ctx, display_h + toolbar_h, 1);
   }
 
   // Get bounds BEFORE opening the group (like Canvas does)
@@ -5685,8 +5684,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       nk_group_end(ctx);
     }
   }
-
-  nk_spacing(ctx, 1);
 }
 
 // -----------------------------------------------------------------------------

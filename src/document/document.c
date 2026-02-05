@@ -1552,7 +1552,7 @@ void block_design_init(Block *block, int width, int height) {
 
   dd->next_node_id = 1;
   dd->width = width > 0 ? width : 800;
-  dd->height = height > 0 ? height : 600;
+  dd->height = height > 0 ? height : 400; // Optimized for inline document use
   dd->zoom = 1.0f;
   dd->bg_color = 0xFFFFFFFF;
 }

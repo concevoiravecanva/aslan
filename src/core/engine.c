@@ -392,7 +392,7 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
           block_canvas_init(block);
           break;
         case BLOCK_DESIGN:
-          block_design_init(block, 800, 600);
+          block_design_init(block, 800, 400);
           break;
         case BLOCK_LUA:
           block_lua_init(block);
