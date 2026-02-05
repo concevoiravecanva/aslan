@@ -13,6 +13,12 @@
 // ASLAN UI HOST v3 - Block-Based Document Interface
 // =============================================================================
 
+// Helper functions (Shared between Host and Design)
+int open_image_file_dialog(char *out_path, size_t path_size);
+int copy_image_to_assets(const char *src_path, const char *doc_dir,
+                         char *out_rel_path, size_t out_size);
+int mac_get_image_size(const char *path, int *w, int *h);
+
 // Nuklear configuration
 #define NK_INCLUDE_FIXED_TYPES
 #define NK_INCLUDE_STANDARD_IO
@@ -359,8 +365,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                            Block *block, float width);
 void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
                             Block *block, float width);
-void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
-                            Block *block, float width);
+// ui_render_block_design moved to ui_design.c
 void ui_render_block_lua(UIHost *ui, Engine *engine, struct nk_context *ctx,
                          Block *block, float width);
 

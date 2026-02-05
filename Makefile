@@ -19,6 +19,7 @@ CORE_SRC = src/document/document.c \
            src/platform/renderer.c \
            src/platform/ui_table.c \
            src/platform/ui_canvas.c \
+           src/platform/ui_design.c \
            src/platform/ui_host.c \
            src/platform/recents.c \
            src/core/engine.c
