@@ -429,7 +429,8 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_MAGIC "\xEE\xBF\x9E"     // ri-pen-nib-line
 
 // Table column type icons
-#define ICON_COL_TEXT "\xEE\x87\x98"     // ri-text
+#define ICON_COL_TEXT                                                          \
+  "\xEE\xB4\x8F" // ri-file-text-line (matching working ICON_TEXT)
 #define ICON_COL_NUMBER "\xEE\xB7\xA4"   // ri-hashtag
 #define ICON_COL_CHECKBOX "\xEE\xAD\xB6" // ri-checkbox-line
 #define ICON_COL_SELECT "\xEE\xA9\x8B"   // ri-arrow-down-s-line

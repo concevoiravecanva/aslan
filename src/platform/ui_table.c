@@ -746,7 +746,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
   // =========================================================================
   if (ui->table_state.active_block_id == block->id) {
     if (ui->table_state.show_col_menu) {
-      struct nk_color menu_text = ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
+      struct nk_color menu_text =
+          ui->dark_mode ? COLOR_TEXT : nk_rgb(30, 30, 35);
       struct nk_color menu_bg =
           ui->dark_mode ? nk_rgb(45, 47, 52) : nk_rgb(255, 255, 255);
 
@@ -760,6 +761,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       menu_btn.border = 0.0f;
       menu_btn.rounding = 4.0f;
 
+      nk_style_push_style_item(ctx, &ctx->style.window.fixed_background,
+                               nk_style_item_color(menu_bg));
       if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Add Column",
                          NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER,
                          nk_rect(ui->table_state.menu_pos_x - 100,
@@ -801,27 +804,23 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       } else {
         ui->table_state.show_col_menu = 0;
       }
+      nk_style_pop_style_item(ctx);
     }
 
     if (ui->table_state.show_footer_menu &&
         ui->table_state.active_col_idx >= 0 &&
         ui->table_state.active_col_idx < (int)tbl->column_count) {
 
-      // Smart Placement: Check if there is space below
-      struct nk_rect b =
-          nk_rect(ui->table_state.menu_pos_x, ui->table_state.menu_pos_y, 0,
-                  0); // Origin button
-      float win_height = (float)ui->win_height;
-      if (win_height == 0)
-        win_height = 800; // Fallback
-
+      // Smart Placement (Simplified)
       float menu_h = 250.0f;
-      float popup_y = ui->table_state.menu_pos_y;
-
-      // Hotfix v0.1.6: Position Aggregation Menu ALWAYS ABOVE the footer
-      popup_y = ui->table_state.menu_pos_y - menu_h;
+      float popup_y = ui->table_state.menu_pos_y - menu_h;
       if (popup_y < 0)
         popup_y = 0;
+
+      struct nk_color menu_bg =
+          ui->dark_mode ? nk_rgb(45, 47, 52) : nk_rgb(255, 255, 255);
+      nk_style_push_style_item(ctx, &ctx->style.window.fixed_background,
+                               nk_style_item_color(menu_bg));
 
       if (nk_popup_begin(
               ctx, NK_POPUP_STATIC, "Aggregation",
@@ -829,7 +828,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               nk_rect(ui->table_state.menu_pos_x, popup_y, 180, menu_h))) {
 
         struct nk_color menu_text =
-            ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
+            ui->dark_mode ? COLOR_TEXT : nk_rgb(30, 30, 35);
         struct nk_style_button menu_btn = ctx->style.button;
         menu_btn.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
         menu_btn.hover = nk_style_item_color(
@@ -882,25 +881,18 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
 
         if (type == ASLAN_COL_CHECKBOX) {
-        }
-
-        if (type == ASLAN_COL_CHECKBOX) {
-          if (nk_button_label(ctx, "% Percent")) {
+          if (nk_button_label_styled(ctx, &menu_btn, "% Percent")) {
             aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_PERCENT);
             ui->table_state.show_footer_menu = 0;
             nk_popup_close(ctx);
           }
         }
 
-        if (nk_button_label(ctx, "# Count (all)")) {
-          aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_COUNT);
-          ui->table_state.show_footer_menu = 0;
-          nk_popup_close(ctx);
-        }
         nk_popup_end(ctx);
       } else {
         ui->table_state.show_footer_menu = 0;
       }
+      nk_style_pop_style_item(ctx);
     }
 
     if (ui->table_state.show_col_settings &&
