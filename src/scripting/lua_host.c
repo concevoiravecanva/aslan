@@ -59,7 +59,6 @@ void scripting_hot_reload_check(lua_State *L) { (void)L; }
 static Document *g_current_doc = NULL;
 static Engine *g_current_engine = NULL;
 static char g_script_base_dir[PATH_MAX] = {0};
-static LuaData *g_current_running_lua = NULL;
 char lua_output_buffer[4096] = "";
 
 // =============================================================================
@@ -333,9 +332,6 @@ static int l_create_block(lua_State *L) {
       break;
     case BLOCK_DESIGN:
       block_design_init(block, 800, 600);
-      break;
-    case BLOCK_LUA:
-      block_lua_init(block);
       break;
     default:
       break;
@@ -620,23 +616,6 @@ static int l_aslan_print(lua_State *L) {
   if (n == 0) {
     strncat(lua_output_buffer, "\n",
             sizeof(lua_output_buffer) - strlen(lua_output_buffer) - 1);
-    // Garde quand même la version par bloc pour la persistance si
-    // g_current_running_lua est set
-    if (g_current_running_lua) {
-      if (!g_current_running_lua->output) {
-        g_current_running_lua->output_cap = 4096;
-        g_current_running_lua->output =
-            calloc(1, g_current_running_lua->output_cap);
-        g_current_running_lua->output_len = 0;
-      }
-      if (g_current_running_lua->output) {
-        strncat(g_current_running_lua->output, "\n",
-                g_current_running_lua->output_cap -
-                    g_current_running_lua->output_len - 1);
-        g_current_running_lua->output_len =
-            strlen(g_current_running_lua->output);
-      }
-    }
     printf("[LUA PRINT BRIDGE]\n");
     return 0;
   }
@@ -649,7 +628,7 @@ static int l_aslan_print(lua_State *L) {
   for (int i = 1; i <= n; i++) {
     size_t len;
     const char *s = luaL_tolstring(L, i, &len); // Converts any value to string
-    if (s == NULL) { // Should not happen with luaL_tolstring, but for safety
+    if (s == NULL) {
       s = "nil";
       len = 3;
     }
@@ -666,7 +645,7 @@ static int l_aslan_print(lua_State *L) {
               sizeof(temp_msg_buffer) - current_temp_len - 1);
       current_temp_len += len;
     }
-    lua_pop(L, 1); // Pop the string returned by luaL_tolstring
+    lua_pop(L, 1);
   }
 
   // Concatène dans le buffer global (limité à 4096)
@@ -674,43 +653,6 @@ static int l_aslan_print(lua_State *L) {
           sizeof(lua_output_buffer) - strlen(lua_output_buffer) - 1);
   strncat(lua_output_buffer, "\n",
           sizeof(lua_output_buffer) - strlen(lua_output_buffer) - 1);
-
-  // Garde quand même la version par bloc pour la persistance si
-  // g_current_running_lua est set
-  if (g_current_running_lua) {
-    size_t msg_len = strlen(temp_msg_buffer);
-    if (!g_current_running_lua->output) {
-      g_current_running_lua->output_cap = 4096;
-      g_current_running_lua->output =
-          calloc(1, g_current_running_lua->output_cap);
-      g_current_running_lua->output_len = 0;
-    }
-
-    // Check if there's enough space for the new message + newline + null
-    // terminator
-    if (g_current_running_lua->output_len + msg_len + 2 >=
-        g_current_running_lua->output_cap) {
-      g_current_running_lua->output_cap *= 2;
-      g_current_running_lua->output = realloc(
-          g_current_running_lua->output, g_current_running_lua->output_cap);
-      if (!g_current_running_lua->output) {
-        // Handle realloc failure
-        g_current_running_lua->output_cap = 0;
-        g_current_running_lua->output_len = 0;
-        return 0;
-      }
-    }
-
-    if (g_current_running_lua->output) {
-      strncat(g_current_running_lua->output, temp_msg_buffer,
-              g_current_running_lua->output_cap -
-                  g_current_running_lua->output_len - 1);
-      strncat(g_current_running_lua->output, "\n",
-              g_current_running_lua->output_cap -
-                  strlen(g_current_running_lua->output) - 1);
-      g_current_running_lua->output_len = strlen(g_current_running_lua->output);
-    }
-  }
 
   // Debug dans le terminal avec un préfixe reconnaissable
   printf("[LUA PRINT BRIDGE] %s\n", temp_msg_buffer);
@@ -859,105 +801,6 @@ int scripting_run_file(lua_State *L, const char *filepath) {
   return 1;
 }
 
-int scripting_run_code(lua_State *L, void *lua_data) {
-  if (!L || L == (lua_State *)1 || !lua_data)
-    return 0;
-
-  LuaData *ld = (LuaData *)lua_data;
-
-  // Ensure output buffer exists
-  if (!ld->output) {
-    ld->output_cap = 4096;
-    ld->output = calloc(1, ld->output_cap);
-    ld->output_len = 0;
-  }
-
-  // Clear previous output/error state
-  if (ld->output) {
-    ld->output[0] = '\0';
-    ld->output_len = 0;
-  }
-  ld->has_error = false;
-
-  // Set redirection context
-  g_current_running_lua = ld;
-
-  // Clear global buffer on start of new run if it's too full
-  if (strlen(lua_output_buffer) > 3500) {
-    lua_output_buffer[0] = '\0';
-  }
-
-  strncat(lua_output_buffer, "--- Run Start ---\n",
-          sizeof(lua_output_buffer) - strlen(lua_output_buffer) - 1);
-
-  // Step 1: Compile (check syntax)
-  if (luaL_loadstring(L, ld->code) != LUA_OK) {
-    const char *err = lua_tostring(L, -1);
-    if (ld->output) {
-      snprintf(ld->output, ld->output_cap, "[COMPILE ERROR] %s", err);
-      ld->output_len = strlen(ld->output);
-    }
-    ld->has_error = true;
-    ld->is_compiled = false;
-    lua_pop(L, 1);
-    g_current_running_lua = NULL;
-    return 0;
-  }
-
-  ld->is_compiled = true;
-
-  // Step 2: Execute (run bytecode)
-  if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
-    const char *err = lua_tostring(L, -1);
-    if (ld->output) {
-      size_t current_len = strlen(ld->output);
-      snprintf(ld->output + current_len, ld->output_cap - current_len,
-               "\n[RUNTIME ERROR] %s", err);
-      ld->output_len = strlen(ld->output);
-    }
-    ld->has_error = true;
-    lua_pop(L, 1);
-    g_current_running_lua = NULL;
-    return 0;
-  }
-
-  g_current_running_lua = NULL;
-  return 1;
-}
-
-int scripting_run_visual(lua_State *L, void *lua_data) {
-  if (!L || L == (lua_State *)1 || !lua_data)
-    return 0;
-
-  LuaData *ld = (LuaData *)lua_data;
-  if (!ld->is_visual || ld->has_error)
-    return 0;
-
-  g_current_running_lua = ld;
-
-  // Try to call on_render()
-  lua_getglobal(L, "on_render");
-  if (lua_isfunction(L, -1)) {
-    if (lua_pcall(L, 0, 0, 0) != LUA_OK) {
-      const char *err = lua_tostring(L, -1);
-      if (ld->output) {
-        size_t current_len = strlen(ld->output);
-        snprintf(ld->output + current_len, ld->output_cap - current_len,
-                 "\n[VISUAL ERROR] %s", err);
-        ld->output_len = strlen(ld->output);
-      }
-      ld->has_error = true;
-      lua_pop(L, 1);
-      g_current_running_lua = NULL;
-      return 0;
-    }
-  } else {
-    lua_pop(L, 1);
-  }
-
-  g_current_running_lua = NULL;
-  return 1;
-}
 int scripting_load_plugins(lua_State *L) {
   if (!L || L == (lua_State *)1)
     return 0;

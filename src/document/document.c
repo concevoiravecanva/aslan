@@ -1,5 +1,4 @@
 #include "document.h"
-#include "../scripting/lua_host.h"
 #include "aslan_table.h"
 #include "spatial_index.h"
 #include <ctype.h>
@@ -57,8 +56,6 @@ const char *block_type_to_string(BlockType type) {
     return "h3";
   case BLOCK_SEPARATOR:
     return "separator";
-  case BLOCK_LUA:
-    return "lua";
   case BLOCK_TABLE:
     return "table";
   case BLOCK_CANVAS:
@@ -83,8 +80,6 @@ BlockType block_type_from_string(const char *str) {
     return BLOCK_HEADING_3;
   if (strcmp(str, "separator") == 0)
     return BLOCK_SEPARATOR;
-  if (strcmp(str, "lua") == 0)
-    return BLOCK_LUA;
   if (strcmp(str, "table") == 0)
     return BLOCK_TABLE;
   if (strcmp(str, "canvas") == 0)
@@ -552,9 +547,6 @@ void block_destroy(Block *block) {
   case BLOCK_DESIGN:
     block_design_destroy(block);
     break;
-  case BLOCK_LUA:
-    block_lua_destroy(block);
-    break;
   default:
     break;
   }
@@ -836,9 +828,6 @@ void block_convert_to(Block *block, BlockType new_type) {
     break;
   case BLOCK_DESIGN:
     block_design_destroy(block);
-    break;
-  case BLOCK_LUA:
-    block_lua_destroy(block);
     break;
   default:
     break;
@@ -1718,83 +1707,6 @@ void block_design_set_bg_color(Block *block, uint32_t color) {
 }
 
 // -----------------------------------------------------------------------------
-// Lua Block API
-// -----------------------------------------------------------------------------
-
-void block_lua_init(Block *block) {
-  if (!block || block->type != BLOCK_LUA)
-    return;
-
-  LuaData *ld = &block->data.lua;
-  ld->code = NULL;
-  ld->code_len = 0;
-  ld->code_cap = 0;
-  ld->output = NULL;
-  ld->output_len = 0;
-  ld->output_cap = 0;
-  ld->has_error = false;
-  ld->is_running = false;
-  ld->is_visual = false;
-  ld->is_compiled = false;
-}
-
-void block_lua_destroy(Block *block) {
-  if (!block)
-    return;
-
-  LuaData *ld = &block->data.lua;
-  free(ld->code);
-  free(ld->output);
-  ld->code = NULL;
-  ld->output = NULL;
-  ld->output_len = 0;
-  ld->output_cap = 0;
-}
-
-void block_lua_set_code(Block *block, const char *code) {
-  if (!block || block->type != BLOCK_LUA)
-    return;
-
-  LuaData *ld = &block->data.lua;
-
-  size_t len = code ? strlen(code) : 0;
-
-  if (len >= ld->code_cap) {
-    size_t new_cap = len + 256;
-    char *new_code = (char *)realloc(ld->code, new_cap);
-    if (!new_code)
-      return;
-    ld->code = new_code;
-    ld->code_cap = new_cap;
-  }
-
-  if (code) {
-    memcpy(ld->code, code, len);
-  }
-  ld->code[len] = '\0';
-  ld->code_len = len;
-}
-
-void block_lua_execute(Block *block, struct lua_State *L) {
-  if (!block || block->type != BLOCK_LUA || !L)
-    return;
-
-  LuaData *ld = &block->data.lua;
-  scripting_run_code(L, ld);
-}
-
-void block_lua_clear_output(Block *block) {
-  if (!block || block->type != BLOCK_LUA)
-    return;
-
-  LuaData *ld = &block->data.lua;
-  free(ld->output);
-  ld->output = NULL;
-  ld->output_len = 0;
-  ld->has_error = false;
-}
-
-// -----------------------------------------------------------------------------
 // Persistence - AOF Save
 // -----------------------------------------------------------------------------
 
@@ -1959,15 +1871,6 @@ void doc_save_aof(const Document *doc, FILE *fp) {
           for (Node *n = dd->root->first_child; n; n = n->next_sibling) {
             save_node_recursive(fp, page->id, b->id, "block_design", n);
           }
-        }
-        break;
-      }
-      case BLOCK_LUA: {
-        const LuaData *ld = &b->data.lua;
-        if (ld->code && ld->code_len > 0) {
-          fprintf(fp, "block_lua_code %u %u ", page->id, b->id);
-          escape_string(fp, ld->code);
-          fprintf(fp, "\n");
         }
         break;
       }

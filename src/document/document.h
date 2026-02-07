@@ -12,7 +12,7 @@
 //
 // Philosophy: Single document type with mixed blocks (Notion-like)
 // All content is a sequence of blocks within pages.
-// Blocks can be: Text, Headings, Separators, Lua Scripts, Tables,
+// Blocks can be: Text, Headings, Separators, Tables,
 //                Canvas (infinite), Design (finite).
 //
 // =============================================================================
@@ -36,7 +36,6 @@ typedef enum {
   BLOCK_HEADING_2, // H2 subtitle
   BLOCK_HEADING_3, // H3 section
   BLOCK_SEPARATOR, // Elegant visual divider
-  BLOCK_LUA,       // Executable Lua script block
   BLOCK_TABLE,     // Notion-style table with views
   BLOCK_CANVAS,    // Infinite canvas (Miro-style)
   BLOCK_DESIGN,    // Finite design surface (Canva-style)
@@ -215,20 +214,6 @@ typedef struct {
   Node *root;
 } DesignData;
 
-// --- Lua Script Block Data ---
-typedef struct {
-  char *code; // Lua source code
-  size_t code_len;
-  size_t code_cap;
-  char *output; // lua_console_output: Last execution output
-  size_t output_len;
-  size_t output_cap;
-  bool has_error;
-  bool is_running;
-  bool is_visual;   // 60 FPS visual mode
-  bool is_compiled; // Has bytecode ready
-} LuaData;
-
 // =============================================================================
 // BLOCK STRUCTURE (Unified)
 // =============================================================================
@@ -247,7 +232,6 @@ typedef struct Block {
     TableData table;
     CanvasData canvas;
     DesignData design;
-    LuaData lua;
   } data;
 
   // View state
@@ -423,16 +407,6 @@ bool block_design_delete_page(Block *block, int page_idx);
 void block_design_goto_page(Block *block, int page_idx);
 
 // =============================================================================
-// LUA BLOCK API
-// =============================================================================
-
-void block_lua_init(Block *block);
-void block_lua_destroy(Block *block);
-void block_lua_set_code(Block *block, const char *code);
-void block_lua_execute(Block *block, struct lua_State *L);
-void block_lua_clear_output(Block *block);
-
-// =============================================================================
 // NODE API (for Canvas/Design blocks)
 // =============================================================================
 
@@ -526,8 +500,6 @@ NodeType node_type_from_string(const char *str);
 // block_design_node <page_id> <block_id> ... (same as canvas_node)
 //
 //
-// # Lua Block
-// block_lua_code <page_id> <block_id> "<code>"
 //
 // # Callout Block
 // block_callout_theme <page_id> <block_id> info|alert|star|check|idea

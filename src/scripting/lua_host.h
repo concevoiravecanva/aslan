@@ -35,8 +35,6 @@ void scripting_set_key_mods(int mods);
 
 // --- Script Execution ---
 int scripting_run_file(lua_State *L, const char *filepath);
-int scripting_run_code(lua_State *L, void *lua_data);
-int scripting_run_visual(lua_State *L, void *lua_data);
 int scripting_load_plugins(lua_State *L);
 
 // --- Event Callbacks ---

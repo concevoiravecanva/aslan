@@ -5,6 +5,9 @@
 #include "ui_table.h"
 #include "../document/aslan_table.h"
 #include "ui_shared.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
 
 // Helper: Get icon for column type
 const char *table_col_type_icon(AslanColumnType type) {
@@ -58,6 +61,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   TableData *td = &block->data.table;
   AslanTable *tbl = td->columnar;
+  // printf("[DEBUG] Render Table %u. Tbl: %p, Rows: %zu\n", block->id,
+  // (void*)tbl, tbl ? tbl->row_count : 0);
 
   // Constants
   const float row_h = 28.0f;
@@ -712,6 +717,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     snprintf(info, sizeof(info), "%zu rows", view_count);
     nk_label(ctx, info, NK_TEXT_LEFT);
   } else {
+    // printf("[DEBUG] Table %u -> Legacy/Empty path. Rows: %d, Cols: %d\n",
+    // block->id, td->rows, td->cols);
     // =========================================================================
     // LEGACY TABLE RENDERING (fallback for old tables)
     // =========================================================================

@@ -366,8 +366,6 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
                             Block *block, float width);
 // ui_render_block_design moved to ui_design.c
-void ui_render_block_lua(UIHost *ui, Engine *engine, struct nk_context *ctx,
-                         Block *block, float width);
 
 // Shared UI Helpers
 int ui_icon_button(UIHost *ui, const char *icon);
@@ -411,7 +409,8 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_EXPAND "\xEE\xA9\x8B"          // ri-arrow-down-s-line
 #define ICON_COLLAPSE "\xEE\xA9\xB8"        // ri-arrow-up-s-line
 #define ICON_HOME "\xEE\xB8\x9D"            // ri-home-4-line
-#define ICON_LUA "\xEF\x87\xB6"             // ri-terminal-box-line
+#define ICON_LUA "\xEE\xAD\xA4"             // ri-checkbox-blank-line
+#define ICON_CHART "\xEE\xA9\xB1"           // ri-bar-chart-fill (placeholder)
 #define ICON_FULLSCREEN "\xEE\xB6\x9C"      // ri-fullscreen-line
 #define ICON_FULLSCREEN_EXIT "\xEE\xB6\x9A" // ri-fullscreen-exit-line
 #define ICON_EYE "\xEE\xB5\x9F"             // ri-eye-line

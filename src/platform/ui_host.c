@@ -728,10 +728,8 @@ void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
   strncpy(buf, block->text ? block->text : "", sizeof(buf) - 1);
   buf[sizeof(buf) - 1] = '\0';
 
-  // NK_EDIT_BOX for multiline (Enter = newline), NK_EDIT_SELECTABLE for text
-  // selection
-  nk_flags flags = NK_EDIT_FIELD | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD |
-                   NK_EDIT_SIG_ENTER;
+  // Capture state
+  nk_flags flags = NK_EDIT_FIELD | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD;
   nk_flags state = nk_edit_string_zero_terminated(
       ctx, flags, buf, (int)sizeof(buf) - 1, nk_filter_default);
 
@@ -740,8 +738,7 @@ void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
                    1.0f, nk_rgba(55, 120, 250, 80));
   }
 
-  // Draw placeholder text if buffer is empty and not active (check buf AFTER
-  // edit)
+  // Draw placeholder
   if (buf[0] == '\0' && !(state & NK_EDIT_ACTIVE)) {
     struct nk_color placeholder_color =
         ui->dark_mode ? nk_rgb(100, 100, 110) : nk_rgb(180, 180, 185);
@@ -756,34 +753,6 @@ void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
   // Update if changed
   if (strcmp(buf, block->text ? block->text : "") != 0) {
     block_set_text(block, buf);
-  }
-
-  // Notion-like: Enter creates new block
-  if (state & NK_EDIT_COMMITED) {
-    if (page && block) {
-      Block *new_b = block_create(page, BLOCK_TEXT);
-      if (new_b) {
-        // Insert after current block
-        new_b->next = block->next;
-        if (block->next)
-          block->next->prev = new_b;
-        block->next = new_b;
-        new_b->prev = block;
-        page->block_count++;
-        if (page->last_block == block)
-          page->last_block = new_b;
-
-        // Execute command to sync
-        char cmd[128];
-        snprintf(cmd, sizeof(cmd), "block_create %u %u text", page->id,
-                 new_b->id);
-        engine_execute_command(engine, cmd);
-      }
-    }
-  }
-
-  if (ui->font_inter) {
-    nk_style_set_font(ctx, &ui->font_inter->handle);
   }
 }
 
@@ -835,191 +804,6 @@ void ui_render_block_separator(UIHost *ui, struct nk_context *ctx, Block *block,
   nk_spacing(ctx, 1);
 }
 
-void ui_render_block_lua(UIHost *ui, Engine *engine, struct nk_context *ctx,
-                         Block *block, float width) {
-  if (!block || block->type != BLOCK_LUA)
-    return;
-
-  LuaData *ld = &block->data.lua;
-
-  // Header/Toolbar
-  nk_layout_row_static(ctx, 24.0f, 32, 4);
-  if (ui_icon_button(ui, ld->is_running ? ICON_STOP : ICON_PLAY)) {
-    if (ui->L) {
-      block_lua_execute(block, ui->L);
-    }
-  }
-  if (ui_icon_button(ui, ICON_DELETE)) {
-    block_lua_clear_output(block);
-    lua_output_buffer[0] = '\0'; // Clear global buffer too
-  }
-  // Expand/Collapse Button
-  if (ui_icon_button(ui, ui->expanded_block_id == block->id
-                             ? ICON_FULLSCREEN_EXIT
-                             : ICON_FULLSCREEN)) {
-    if (ui->expanded_block_id == block->id) {
-      ui->expanded_block_id = 0; // Exit fullscreen
-      ui->editing_block_id = 0;
-    } else {
-      ui->expanded_block_id = block->id; // Enter fullscreen
-      ui->editing_block_id = block->id;
-    }
-  }
-
-  // Visual Mode Toggle
-  if (nk_button_label(ctx, ld->is_visual ? "Visual: ON" : "Visual: OFF")) {
-    ld->is_visual = !ld->is_visual;
-  }
-
-  // --- LAYOUT LOGIC ---
-  int is_fullscreen = (ui->expanded_block_id == block->id);
-  float total_h = is_fullscreen ? (float)ui->win_height - 100 : 250.0f;
-
-  if (is_fullscreen) {
-    // === FULLSCREEN MODE: Stacked (Preview 80%, Editor 20%) ===
-
-    // 1. Top: Preview Area (80%)
-    float preview_h = total_h * 0.8f;
-    nk_layout_row_dynamic(ctx, preview_h, 1);
-
-    if (nk_group_begin(ctx, "lua_render", NK_WINDOW_BORDER)) {
-      struct nk_rect r = nk_window_get_content_region(ctx);
-      struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-
-      // Black background
-      nk_fill_rect(canvas, r, 0, nk_rgb(10, 10, 15));
-
-      if (ld->is_visual && ui->L) {
-        scripting_run_visual(ui->L, ld);
-      } else {
-        if (lua_output_buffer[0] != '\0') {
-          if (ui->font_mono)
-            nk_style_push_font(ctx, &ui->font_mono->handle);
-          struct nk_color out_color =
-              ld->has_error ? nk_rgb(255, 100, 100) : nk_rgb(100, 255, 150);
-
-          // Use a dynamic row that can accommodate multiple labels or a
-          // single wrapped one We use a large enough height or just wrap
-          nk_layout_row_dynamic(ctx, 18.0f * 10, 1); // Room for ~10 lines
-          nk_label_colored_wrap(ctx, lua_output_buffer, out_color);
-          if (ui->font_mono)
-            nk_style_pop_font(ctx);
-        } else {
-          nk_layout_row_dynamic(ctx, 20, 1);
-          nk_draw_text(canvas, nk_rect(r.x + 10, r.y + 10, r.w, 20),
-                       "Preview Area (Empty)", 20, &ui->font_inter->handle,
-                       nk_rgba(0, 0, 0, 0), nk_rgb(70, 70, 80));
-        }
-      }
-      nk_group_end(ctx);
-    }
-
-    // 2. Bottom: Editor Area (20%)
-    float editor_h = total_h * 0.2f;
-    nk_layout_row_dynamic(ctx, editor_h, 1);
-
-    if (nk_group_begin(ctx, "lua_editor_fs", NK_WINDOW_BORDER)) {
-      nk_layout_row_dynamic(ctx, editor_h - 10, 1);
-      char buf[4096];
-      strncpy(buf, ld->code ? ld->code : "", sizeof(buf) - 1);
-      buf[sizeof(buf) - 1] = '\0';
-
-      if (ui->font_mono)
-        nk_style_push_font(ctx, &ui->font_mono->handle);
-      nk_edit_string_zero_terminated(ctx, NK_EDIT_BOX | NK_EDIT_MULTILINE, buf,
-                                     sizeof(buf) - 1, nk_filter_default);
-      if (ui->font_mono)
-        nk_style_pop_font(ctx);
-
-      if (strcmp(buf, ld->code ? ld->code : "") != 0) {
-        block_lua_set_code(block, buf);
-      }
-      nk_group_end(ctx);
-    }
-
-  } else {
-    // === STANDARD MODE: Split (Editor 60%, Preview 40%) ===
-    nk_layout_row_begin(ctx, NK_STATIC, total_h, 2);
-    nk_layout_row_push(ctx, width * 0.6f);
-
-    // Group for Editor
-    if (nk_group_begin(ctx, "lua_editor", NK_WINDOW_NO_SCROLLBAR)) {
-      nk_layout_row_dynamic(ctx, total_h - 10, 1);
-      char buf[4096];
-      strncpy(buf, ld->code ? ld->code : "", sizeof(buf) - 1);
-      buf[sizeof(buf) - 1] = '\0';
-
-      if (ui->font_mono)
-        nk_style_push_font(ctx, &ui->font_mono->handle);
-      nk_edit_string_zero_terminated(ctx, NK_EDIT_BOX | NK_EDIT_MULTILINE, buf,
-                                     sizeof(buf) - 1, nk_filter_default);
-      if (ui->font_mono)
-        nk_style_pop_font(ctx);
-
-      if (strcmp(buf, ld->code ? ld->code : "") != 0) {
-        block_lua_set_code(block, buf);
-      }
-      nk_group_end(ctx);
-    }
-
-    nk_layout_row_push(ctx, width * 0.35f);
-    // Group for Rendering Preview
-    if (nk_group_begin(ctx, "lua_render", NK_WINDOW_BORDER)) {
-      struct nk_rect r = nk_window_get_content_region(ctx);
-      struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-
-      // Black background
-      nk_fill_rect(canvas, r, 0, nk_rgb(10, 10, 15));
-
-      if (ld->is_visual && ui->L) {
-        scripting_run_visual(ui->L, ld);
-      } else {
-        if (lua_output_buffer[0] != '\0') {
-          if (ui->font_mono)
-            nk_style_push_font(ctx, &ui->font_mono->handle);
-          struct nk_color out_color =
-              ld->has_error ? nk_rgb(255, 100, 100) : nk_rgb(100, 255, 150);
-
-          nk_layout_row_dynamic(ctx, total_h * 0.7f, 1);
-          nk_label_colored_wrap(ctx, lua_output_buffer, out_color);
-          if (ui->font_mono)
-            nk_style_pop_font(ctx);
-        } else {
-          nk_draw_text(canvas, nk_rect(r.x + 10, r.y + 10, r.w, 20),
-                       "Preview Area", 12, &ui->font_inter->handle,
-                       nk_rgba(0, 0, 0, 0), nk_rgb(70, 70, 80));
-        }
-      }
-      nk_group_end(ctx);
-    }
-    nk_layout_row_end(ctx);
-  }
-
-  // --- CONSOLE (Bottom) ---
-  if (ld->output && ld->output_len > 0) {
-    nk_layout_row_dynamic(ctx, 80.0f, 1);
-    if (nk_group_begin(ctx, "lua_console", NK_WINDOW_BORDER)) {
-      nk_layout_row_dynamic(ctx, 15.0f, 1);
-      if (ui->font_mono)
-        nk_style_push_font(ctx, &ui->font_mono->handle);
-
-      struct nk_color out_color =
-          ld->has_error ? nk_rgb(255, 100, 100) : nk_rgb(200, 200, 200);
-
-      // Simple multiline display (could be improved with a list)
-      nk_label_colored_wrap(ctx, ld->output, out_color);
-
-      if (ui->font_mono)
-        nk_style_pop_font(ctx);
-      nk_group_end(ctx);
-    }
-  }
-
-  if (ui->font_inter) {
-    nk_style_set_font(ctx, &ui->font_inter->handle);
-  }
-}
-
 // -----------------------------------------------------------------------------
 // Block Dispatcher
 // -----------------------------------------------------------------------------
@@ -1029,6 +813,7 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
   if (!block)
     return;
 
+  printf("[DEBUG] Rendering block %u (Type: %d)\n", block->id, block->type);
   switch (block->type) {
   case BLOCK_TEXT:
     ui_render_block_text(ui, engine, ctx, page, block, width);
@@ -1051,9 +836,6 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
     break;
   case BLOCK_SEPARATOR:
     ui_render_block_separator(ui, ctx, block, width);
-    break;
-  case BLOCK_LUA:
-    ui_render_block_lua(ui, engine, ctx, block, width);
     break;
   case BLOCK_TABLE:
     ui_render_block_table(ui, engine, ctx, block, width);
@@ -1142,7 +924,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       ctx->style.window.group_padding = nk_vec2(margin, 20.0f);
 
       // Single column layout
-      nk_layout_row_dynamic(ctx, content_h - 20, 1);
+      nk_layout_row_dynamic(ctx, content_h - 100, 1);
 
       // Main Content Area (as a group, not a window)
       if (nk_group_begin(ctx, "ContentGroup", NK_WINDOW_SCROLL_AUTO_HIDE)) {
@@ -1174,6 +956,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
           for (Block *b = page->first_block; b; b = b->next) {
             // Center the content by adding margins inside the render
             ui_render_block(ui, engine, ctx, page, b, content_w);
+            // printf("[DEBUG] Render loop: Block %u processed\n", b->id);
 
             // Small spacing between blocks
             nk_layout_row_dynamic(ctx, 8.0f, 1);

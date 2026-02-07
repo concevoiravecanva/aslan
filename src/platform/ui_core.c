@@ -66,12 +66,14 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
   float btn_x = toolbar_x + 12.0f;
   float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
 
-  const char *tool_icons[] = {ICON_HOME,   ICON_TEXT,   "H1",    ICON_TABLE,
-                              ICON_CANVAS, ICON_DESIGN, ICON_LUA};
+  const char *tool_icons[] = {ICON_HOME,   ICON_TEXT,   "H1",      ICON_TABLE,
+                              ICON_CANVAS, ICON_DESIGN, ICON_CHART};
   int tool_count = 7;
 
   Page *page = doc_page_get_active(engine->doc);
   uint32_t page_id = page ? page->id : 0;
+  // printf("[DEBUG] Toolbar render. Page: %p, ID: %u\n", (void*)page, page_id);
+  // // Commented out to reduce spam, enable if needed
 
   for (int i = 0; i < tool_count; i++) {
     struct nk_rect btn_rect = nk_rect(btn_x + i * (btn_size + btn_spacing),
@@ -82,7 +84,7 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
          ui->mouse_y >= btn_rect.y && ui->mouse_y < btn_rect.y + btn_rect.h);
 
     if (hovered) {
-      nk_fill_rect(canvas_buf, btn_rect, 8.0f, nk_rgba(0, 0, 0, 15));
+      nk_fill_rect(canvas_buf, btn_rect, 8.0f, nk_rgba(66, 133, 244, 40));
     }
 
     struct nk_color icon_color =
@@ -109,8 +111,11 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
       }
     }
 
-    if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
-                                        btn_rect)) {
+    int clicked = (hovered && ui->canvas_state.mouse_just_pressed);
+
+    if (clicked) {
+      printf("[DEBUG] Toolbar button %d clicked (icon: %s)\n", i,
+             tool_icons[i]);
       switch (i) {
       case 0:
         ui->screen = 0;
@@ -120,11 +125,16 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
           Block *b = block_create(page, BLOCK_TEXT);
           if (b) {
             page_append_block(page, b);
+            printf("[DEBUG] Created TEXT block %u\n", b->id);
             char cmd[128];
             snprintf(cmd, sizeof(cmd), "block_create %u %u text", page_id,
                      b->id);
             engine_execute_command(engine, cmd);
+          } else {
+            printf("[DEBUG] Failed to create TEXT block\n");
           }
+        } else {
+          printf("[DEBUG] No active page for TEXT block\n");
         }
         break;
       case 2: // H1
@@ -140,54 +150,63 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
         break;
       case 3: // Table
         if (page) {
+          printf("[DEBUG] Attempting to create TABLE block...\n");
           Block *b = block_create(page, BLOCK_TABLE);
           if (b) {
             block_table_init(b, 3, 3);
             page_append_block(page, b);
+            printf("[DEBUG] Created TABLE block %u\n", b->id);
             char cmd[128];
             snprintf(cmd, sizeof(cmd), "block_create %u %u table", page_id,
                      b->id);
             engine_execute_command(engine, cmd);
+          } else {
+            printf("[DEBUG] Failed to create TABLE block object\n");
           }
+        } else {
+          printf("[DEBUG] No active page for TABLE block\n");
         }
         break;
       case 4: // Canvas
         if (page) {
+          printf("[DEBUG] Attempting to create CANVAS block...\n");
           Block *b = block_create(page, BLOCK_CANVAS);
           if (b) {
             block_canvas_init(b);
             page_append_block(page, b);
+            printf("[DEBUG] Created CANVAS block %u\n", b->id);
             char cmd[128];
             snprintf(cmd, sizeof(cmd), "block_create %u %u canvas", page_id,
                      b->id);
             engine_execute_command(engine, cmd);
+          } else {
+            printf("[DEBUG] Failed to create CANVAS block object\n");
           }
+        } else {
+          printf("[DEBUG] No active page for CANVAS block\n");
         }
         break;
       case 5: // Design
         if (page) {
+          printf("[DEBUG] Attempting to create DESIGN block...\n");
           Block *b = block_create(page, BLOCK_DESIGN);
           if (b) {
             block_design_init(b, 800, 400);
             page_append_block(page, b);
+            printf("[DEBUG] Created DESIGN block %u\n", b->id);
             char cmd[128];
             snprintf(cmd, sizeof(cmd), "block_create %u %u design", page_id,
                      b->id);
             engine_execute_command(engine, cmd);
+          } else {
+            printf("[DEBUG] Failed to create DESIGN block object\n");
           }
+        } else {
+          printf("[DEBUG] No active page for DESIGN block\n");
         }
         break;
-      case 6: // Lua
-        if (page) {
-          Block *b = block_create(page, BLOCK_LUA);
-          if (b) {
-            page_append_block(page, b);
-            char cmd[128];
-            snprintf(cmd, sizeof(cmd), "block_create %u %u lua", page_id,
-                     b->id);
-            engine_execute_command(engine, cmd);
-          }
-        }
+      case 6: // Chart Placeholder
+        printf("[DEBUG] Chart placeholder clicked (no-op)\n");
         break;
       }
     }
@@ -270,13 +289,8 @@ void ui_render_home(UIHost *ui, Engine *engine, struct nk_context *ctx,
     struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
     struct nk_rect bounds = nk_rect(0, 0, (float)win_w, content_h);
 
-    // =======================================================================
     // CLICK DETECTION (Early for use in items)
-    // =======================================================================
-    static int home_mouse_was_down = 0;
-    int mouse_down = (ui->mouse_buttons & 1);
-    int mouse_just_pressed = mouse_down && !home_mouse_was_down;
-    home_mouse_was_down = mouse_down;
+    int mouse_just_pressed = ui->canvas_state.mouse_just_pressed;
 
     // Theme colors
     struct nk_color bg_color =

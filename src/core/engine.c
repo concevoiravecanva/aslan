@@ -394,9 +394,6 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
         case BLOCK_DESIGN:
           block_design_init(block, 800, 400);
           break;
-        case BLOCK_LUA:
-          block_lua_init(block);
-          break;
         default:
           break;
         }
@@ -787,24 +784,6 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
           success = true;
         }
       }
-    }
-  }
-
-  // =========================================================================
-  // LUA BLOCK COMMANDS
-  // =========================================================================
-
-  else if (strcmp(verb, "block_lua_code") == 0 && cmd.argc >= 4) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-
-    Block *block = find_block(engine, page_id, block_id);
-    if (block && block->type == BLOCK_LUA) {
-      char unescaped[4096];
-      unescape_string(cmd.argv[3], unescaped, sizeof(unescaped));
-      block_lua_set_code(block, unescaped);
-      engine_emit_command(engine, command_line);
-      success = true;
     }
   }
 

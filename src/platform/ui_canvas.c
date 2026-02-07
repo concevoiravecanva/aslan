@@ -6,6 +6,9 @@
 #include "platform/mac_image.h"
 #include "ui_shared.h"
 #include <SDL.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 // Forward declarations for external functions (will be in ui_host.h eventually)
 int open_image_file_dialog(char *out_path, size_t path_size);
@@ -1442,6 +1445,8 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   CanvasData *cd = &block->data.canvas;
   CanvasInteraction *cs = &ui->canvas_state;
+  // printf("[DEBUG] Render Canvas %u. Expanded: %d\n", block->id,
+  // (ui->expanded_block_id == block->id));
 
   // Sync UI state with canvas data on first render or when switching canvas
   if (cs->active_canvas_id != block->id) {
