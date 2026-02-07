@@ -1493,7 +1493,8 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
   cs->bounds_x = bounds.x;
   cs->bounds_y = bounds.y;
   cs->bounds_w = bounds.w;
-  cs->bounds_h = bounds.h;
+  cs->bounds_h = preview_h; // Use stable height for coordinate math instead of
+                            // visible rect
   cs->mouse_in_canvas =
       (ui->mouse_x >= bounds.x && ui->mouse_x < bounds.x + bounds.w &&
        ui->mouse_y >= bounds.y && ui->mouse_y < bounds.y + bounds.h);

@@ -94,10 +94,10 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     // 1. Draw Workspace background (Notion gray)
     nk_fill_rect(canvas_buf, ws_bounds, 0, nk_rgb(241, 241, 239));
 
-    // 2. Calculate Artboard Scale & Centering
+    // 2. Calculate Artboard Scale & Centering (Stable dimensions)
     float margin = 20.0f;
     float avail_w = ws_bounds.w - margin * 2;
-    float avail_h = ws_bounds.h - margin * 2;
+    float avail_h = display_h - margin * 2; // Fixed height, not visible bounds
 
     float scale_w = avail_w / (float)dd->width;
     float scale_h = avail_h / (float)dd->height;
@@ -107,8 +107,11 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     float art_w = (float)dd->width * scale;
     float art_h = (float)dd->height * scale;
+
+    // Centering: Vertical centering should use display_h, but absolute screen
+    // position
     float sx = ws_bounds.x + (ws_bounds.w - art_w) / 2.0f;
-    float sy = ws_bounds.y + (ws_bounds.h - art_h) / 2.0f;
+    float sy = ws_bounds.y + (display_h - art_h) / 2.0f;
 
     // 3. Draw Shadow
     struct nk_rect shadow_rect = nk_rect(sx + 2, sy + 2, art_w, art_h);
