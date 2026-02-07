@@ -78,7 +78,7 @@ int canvas_point_in_toolbar(struct nk_rect bounds, float mx, float my,
                             CanvasInteraction *cs) {
   const float btn_size = 36.0f;
   const float btn_spacing = 8.0f;
-  const float toolbar_w = 3 * btn_size + 2 * btn_spacing + 24.0f; // 3 buttons
+  const float toolbar_w = 6 * btn_size + 5 * btn_spacing + 24.0f; // 6 buttons
   const float toolbar_h = 52.0f;
   const float margin = 20.0f;
 
@@ -1506,8 +1506,15 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   int in_toolbar =
       canvas_point_in_toolbar(bounds, ui->mouse_x, ui->mouse_y, cs);
-  int in_forms_menu =
-      (cs->active_cat == CANVAS_CAT_SHAPES && cs->show_sub_menu);
+
+  // Proper in_forms_menu check (if sub-menu is open)
+  int in_forms_menu = 0;
+  if (cs->show_sub_menu) {
+    // We already check sub-menu bounds inside canvas_point_in_toolbar
+    // so we can reuse that or check specifically here.
+    // For now, in_toolbar already includes the sub-menu.
+    in_forms_menu = in_toolbar;
+  }
 
   // Close sub-menu if clicking elsewhere
   if (cs->mouse_just_pressed && !in_toolbar) {
@@ -1712,16 +1719,20 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
       float wy = cam_y + (ui->mouse_y - bounds.y) / zoom;
       Node *hit = canvas_find_node_at(cd, wx, wy);
       if (hit) {
-        if (hit->type == NODE_TYPE_TEXT && ui->selected_node == hit &&
-            !ui->editing_node) {
-          ui->editing_node = hit;
-          strncpy(ui->edit_buffer, hit->text, sizeof(ui->edit_buffer) - 1);
+        if (cs->tool == CANVAS_TOOL_PEN) {
+          // Skip node logic in pen mode to allow drawing over them
+          hit = NULL;
         } else {
-          // If we were in pen mode, deselect it when clicking a node
-          if (cs->tool == CANVAS_TOOL_PEN) {
-            cs->tool = CANVAS_TOOL_SELECT;
-            cs->active_cat = CANVAS_CAT_SELECT;
-            printf("[DEBUG] Auto-deselected pen tool due to node click\n");
+          if (hit->type == NODE_TYPE_TEXT && ui->selected_node == hit &&
+              !ui->editing_node) {
+            // Check for double-click on text node
+            // This condition is already met by the outer if, so it's a
+            // double-check if (hit == ui->selected_node && hit->type ==
+            // NODE_TYPE_TEXT) { Start inline editing
+            ui->editing_node = hit;
+            strncpy(ui->edit_buffer, hit->text, sizeof(ui->edit_buffer) - 1);
+            SDL_StartTextInput();
+            // }
           }
           ui->selected_node = hit;
           cs->is_dragging_node = 1;

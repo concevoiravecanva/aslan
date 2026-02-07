@@ -1115,24 +1115,22 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
         Node *hit = design_find_node_at(dd, design_x, design_y);
         if (hit) {
-          // Auto-deselect pen tool when clicking an existing node (same as
-          // Canvas)
           if (ds->tool == CANVAS_TOOL_PEN) {
-            ds->tool = CANVAS_TOOL_SELECT;
-            ds->active_cat = CANVAS_CAT_SELECT;
+            // Skip node logic in pen mode to allow drawing over them
+            hit = NULL;
+          } else {
+            // Check for double-click on text node
+            if (hit == ui->selected_node && hit->type == NODE_TYPE_TEXT) {
+              // Start inline editing
+              ui->editing_node = hit;
+              strncpy(ui->edit_buffer, hit->text, sizeof(ui->edit_buffer) - 1);
+              SDL_StartTextInput();
+            }
+            ui->selected_node = hit;
+            ds->is_dragging_node = 1;
+            ds->drag_offset_x = design_x - hit->x;
+            ds->drag_offset_y = design_y - hit->y;
           }
-
-          // Check for double-click on text node
-          if (hit == ui->selected_node && hit->type == NODE_TYPE_TEXT) {
-            // Start inline editing
-            ui->editing_node = hit;
-            strncpy(ui->edit_buffer, hit->text, sizeof(ui->edit_buffer) - 1);
-            SDL_StartTextInput();
-          }
-          ui->selected_node = hit;
-          ds->is_dragging_node = 1;
-          ds->drag_offset_x = design_x - hit->x;
-          ds->drag_offset_y = design_y - hit->y;
         } else {
           ui->selected_node = NULL;
           if (ui->editing_node) {
