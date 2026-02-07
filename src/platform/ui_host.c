@@ -685,8 +685,8 @@ void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx, Block *block) {
   }
 }
 
-void ui_render_block_text(UIHost *ui, struct nk_context *ctx, Block *block,
-                          float width) {
+void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
+                          Page *page, Block *block, float width) {
   if (!block)
     return;
 
@@ -730,9 +730,15 @@ void ui_render_block_text(UIHost *ui, struct nk_context *ctx, Block *block,
 
   // NK_EDIT_BOX for multiline (Enter = newline), NK_EDIT_SELECTABLE for text
   // selection
-  nk_flags flags = NK_EDIT_BOX | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD;
+  nk_flags flags = NK_EDIT_FIELD | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD |
+                   NK_EDIT_SIG_ENTER;
   nk_flags state = nk_edit_string_zero_terminated(
       ctx, flags, buf, (int)sizeof(buf) - 1, nk_filter_default);
+
+  if (state & NK_EDIT_ACTIVE) {
+    nk_stroke_rect(canvas, nk_rect(bounds.x, bounds.y, bounds.w, bounds.h), 0,
+                   1.0f, nk_rgba(55, 120, 250, 80));
+  }
 
   // Draw placeholder text if buffer is empty and not active (check buf AFTER
   // edit)
@@ -750,6 +756,30 @@ void ui_render_block_text(UIHost *ui, struct nk_context *ctx, Block *block,
   // Update if changed
   if (strcmp(buf, block->text ? block->text : "") != 0) {
     block_set_text(block, buf);
+  }
+
+  // Notion-like: Enter creates new block
+  if (state & NK_EDIT_COMMITED) {
+    if (page && block) {
+      Block *new_b = block_create(page, BLOCK_TEXT);
+      if (new_b) {
+        // Insert after current block
+        new_b->next = block->next;
+        if (block->next)
+          block->next->prev = new_b;
+        block->next = new_b;
+        new_b->prev = block;
+        page->block_count++;
+        if (page->last_block == block)
+          page->last_block = new_b;
+
+        // Execute command to sync
+        char cmd[128];
+        snprintf(cmd, sizeof(cmd), "block_create %u %u text", page->id,
+                 new_b->id);
+        engine_execute_command(engine, cmd);
+      }
+    }
   }
 
   if (ui->font_inter) {
@@ -1001,7 +1031,7 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   switch (block->type) {
   case BLOCK_TEXT:
-    ui_render_block_text(ui, ctx, block, width);
+    ui_render_block_text(ui, engine, ctx, page, block, width);
     break;
   case BLOCK_HEADING_1:
     ui_render_block_heading(ui, ctx, block, width, 1);
@@ -1060,10 +1090,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   // Apply current theme
   ui_apply_theme(ui);
 
-  // Top bar (only in editor and not expanded)
-  if (ui->screen == 1 && ui->expanded_block_id == 0) {
-    ui_render_top_bar(ui, engine, ctx, win_w);
-  }
+  // Top bar removed (now floating at bottom)
 
   // Home or Content area
   if (ui->screen == 0) {
@@ -1090,11 +1117,10 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     // Normal editor view - needs a window context for layout calls
     // Show editor windows (re-enable after hiding on home)
     nk_window_show(ctx, "EditorMain", NK_SHOWN);
-    if (nk_begin(ctx, "EditorMain",
-                 nk_rect(0, 40, (float)win_w, (float)win_h - 40),
+    if (nk_begin(ctx, "EditorMain", nk_rect(0, 0, (float)win_w, (float)win_h),
                  NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
       const float padding = 40.0f;
-      const float content_h = (float)win_h - 40.0f;
+      const float content_h = (float)win_h;
       const float content_w = (float)win_w - (padding * 2);
 
       // Smooth Scrolling Interpolation
@@ -1156,31 +1182,19 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         } else {
           // Empty state
           nk_layout_row_dynamic(ctx, 100.0f, 1);
-          nk_label(ctx, "No blocks yet. Use the toolbar above to add content.",
+          nk_label(ctx, "No blocks yet. Use the toolbar below to add content.",
                    NK_TEXT_CENTERED);
         }
         nk_group_end(ctx);
       }
       ctx->style.window.group_padding = old_group_padding;
+      // Render Toolbar inside EditorMain window context
+      if (ui->expanded_block_id == 0) {
+        ui_render_document_toolbar(ui, engine, ctx, win_w, win_h);
+      }
     }
     nk_end(ctx);
-
-    // 3. Back to Top Button (Floating) - outside EditorMain
-    if (ui->scroll_y > 300.0f) {
-      struct nk_rect btt_rect =
-          nk_rect((float)win_w - 60, (float)win_h - 60, 40, 40);
-      if (nk_begin(ctx, "BackToTop", btt_rect,
-                   NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
-        nk_layout_row_dynamic(ctx, 30, 1);
-        if (nk_button_label(ctx, "^")) {
-          ui->scroll_target_y = 0;
-        }
-      }
-      nk_end(ctx);
-    }
   }
-
-  // Bottom bar removed in single-page mode
 
   // Reset per-frame input state (after all processing is done)
   ui->canvas_state.mouse_just_pressed = 0;

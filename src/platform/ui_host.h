@@ -355,8 +355,8 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h);
 void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
                      Page *page, Block *block, float width);
 
-void ui_render_block_text(UIHost *ui, struct nk_context *ctx, Block *block,
-                          float width);
+void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
+                          Page *page, Block *block, float width);
 void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
                              float width, int level);
 void ui_render_block_separator(UIHost *ui, struct nk_context *ctx, Block *block,

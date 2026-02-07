@@ -3,9 +3,9 @@
 
 #include "ui_host.h"
 
-// Renders the top bar (Block Insertion Menu, etc.)
-void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
-                       int win_w);
+// Renders the Document toolbar (Floating Bottom Bar)
+void ui_render_document_toolbar(UIHost *ui, Engine *engine,
+                                struct nk_context *ctx, int win_w, int win_h);
 
 // Renders the bottom bar (Page Tabs)
 void ui_render_bottom_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,

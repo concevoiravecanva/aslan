@@ -28,113 +28,170 @@ int ui_icon_button(UIHost *ui, const char *icon) {
 // Top Bar - Block Insertion Menu
 // -----------------------------------------------------------------------------
 
-void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
-                       int win_w) {
+// -----------------------------------------------------------------------------
+// Document Toolbar - Floating Bottom Bar
+// -----------------------------------------------------------------------------
+
+void ui_render_document_toolbar(UIHost *ui, Engine *engine,
+                                struct nk_context *ctx, int win_w, int win_h) {
   if (!ui || !engine || !ctx)
     return;
 
-  const float bar_h = 40.0f;
-  const float btn_w = 36.0f;
-  const float btn_h = 28.0f;
+  const float btn_size = 36.0f;
+  const float btn_spacing = 8.0f;
+  const float toolbar_w = 7 * btn_size + 6 * btn_spacing + 24.0f;
+  const float toolbar_h = 52.0f;
 
-  if (nk_begin(ctx, "TopBar", nk_rect(0, 0, (float)win_w, bar_h),
-               NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
+  float toolbar_x = ((float)win_w - toolbar_w) / 2.0f;
+  float toolbar_y = (float)win_h - toolbar_h - 20.0f;
 
-    Page *page = doc_page_get_active(engine->doc);
-    uint32_t page_id = page ? page->id : 0;
+  struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
+  struct nk_color toolbar_bg =
+      ui->dark_mode ? nk_rgb(45, 45, 50) : nk_rgb(255, 255, 255);
+  struct nk_color toolbar_border =
+      ui->dark_mode ? nk_rgb(70, 70, 80) : nk_rgb(220, 220, 220);
 
-    // Layout: [FLEX spacer] [7 Icons Cluster] [FLEX spacer]
-    nk_layout_row_template_begin(ctx, btn_h);
-    nk_layout_row_template_push_variable(ctx, 1); // Left centering spacer
-    for (int i = 0; i < 7; i++) {
-      nk_layout_row_template_push_static(ctx, btn_w); // 7 icons
+  // Shadow
+  nk_fill_rect(canvas_buf,
+               nk_rect(toolbar_x + 2, toolbar_y + 4, toolbar_w, toolbar_h),
+               26.0f, nk_rgba(0, 0, 0, 20));
+
+  // Background
+  nk_fill_rect(canvas_buf, nk_rect(toolbar_x, toolbar_y, toolbar_w, toolbar_h),
+               26.0f, toolbar_bg);
+  nk_stroke_rect(canvas_buf,
+                 nk_rect(toolbar_x, toolbar_y, toolbar_w, toolbar_h), 26.0f,
+                 1.0f, toolbar_border);
+
+  float btn_x = toolbar_x + 12.0f;
+  float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
+
+  const char *tool_icons[] = {ICON_HOME,   ICON_TEXT,   "H1",    ICON_TABLE,
+                              ICON_CANVAS, ICON_DESIGN, ICON_LUA};
+  int tool_count = 7;
+
+  Page *page = doc_page_get_active(engine->doc);
+  uint32_t page_id = page ? page->id : 0;
+
+  for (int i = 0; i < tool_count; i++) {
+    struct nk_rect btn_rect = nk_rect(btn_x + i * (btn_size + btn_spacing),
+                                      btn_y, btn_size, btn_size);
+
+    int hovered =
+        (ui->mouse_x >= btn_rect.x && ui->mouse_x < btn_rect.x + btn_rect.w &&
+         ui->mouse_y >= btn_rect.y && ui->mouse_y < btn_rect.y + btn_rect.h);
+
+    if (hovered) {
+      nk_fill_rect(canvas_buf, btn_rect, 8.0f, nk_rgba(0, 0, 0, 15));
     }
-    nk_layout_row_template_push_variable(ctx, 1); // Right centering spacer
-    nk_layout_row_template_end(ctx);
 
-    // Left FLEX spacer
-    nk_spacing(ctx, 1);
+    struct nk_color icon_color =
+        ui->dark_mode ? nk_rgb(200, 200, 205) : nk_rgb(60, 60, 60);
 
-    // Home button (icon) - Now first in centered cluster
-    if (ui_icon_button(ui, ICON_HOME)) {
-      ui->screen = 0;
-    }
-
-    // Text block
-    if (ui_icon_button(ui, ICON_TEXT)) {
-      if (page) {
-        Block *b = block_create(page, BLOCK_TEXT);
-        if (b) {
-          page_append_block(page, b);
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u text", page_id, b->id);
-          engine_execute_command(engine, cmd);
-        }
+    if (i == 2) { // H1 text
+      if (ui->font_inter) {
+        float tw = ui->font_inter->handle.width(ui->font_inter->handle.userdata,
+                                                ui->font_inter->handle.height,
+                                                "H1", 2);
+        nk_draw_text(canvas_buf,
+                     nk_rect(btn_rect.x + (btn_size - tw) / 2,
+                             btn_rect.y + (btn_size - 16) / 2, tw, 16),
+                     "H1", 2, &ui->font_inter->handle, nk_rgba(0, 0, 0, 0),
+                     icon_color);
+      }
+    } else {
+      if (ui->font_icons) {
+        nk_draw_text(canvas_buf,
+                     nk_rect(btn_rect.x + 8, btn_rect.y + 8, btn_size - 16,
+                             btn_size - 16),
+                     tool_icons[i], strlen(tool_icons[i]),
+                     &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), icon_color);
       }
     }
 
-    // H1 block (keep text)
-    if (nk_button_label(ctx, "H1")) {
-      if (page) {
-        Block *b = block_create(page, BLOCK_HEADING_1);
-        if (b) {
-          page_append_block(page, b);
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u h1", page_id, b->id);
-          engine_execute_command(engine, cmd);
+    if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
+                                        btn_rect)) {
+      switch (i) {
+      case 0:
+        ui->screen = 0;
+        break;
+      case 1: // Text
+        if (page) {
+          Block *b = block_create(page, BLOCK_TEXT);
+          if (b) {
+            page_append_block(page, b);
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "block_create %u %u text", page_id,
+                     b->id);
+            engine_execute_command(engine, cmd);
+          }
         }
+        break;
+      case 2: // H1
+        if (page) {
+          Block *b = block_create(page, BLOCK_HEADING_1);
+          if (b) {
+            page_append_block(page, b);
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "block_create %u %u h1", page_id, b->id);
+            engine_execute_command(engine, cmd);
+          }
+        }
+        break;
+      case 3: // Table
+        if (page) {
+          Block *b = block_create(page, BLOCK_TABLE);
+          if (b) {
+            block_table_init(b, 3, 3);
+            page_append_block(page, b);
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "block_create %u %u table", page_id,
+                     b->id);
+            engine_execute_command(engine, cmd);
+          }
+        }
+        break;
+      case 4: // Canvas
+        if (page) {
+          Block *b = block_create(page, BLOCK_CANVAS);
+          if (b) {
+            block_canvas_init(b);
+            page_append_block(page, b);
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "block_create %u %u canvas", page_id,
+                     b->id);
+            engine_execute_command(engine, cmd);
+          }
+        }
+        break;
+      case 5: // Design
+        if (page) {
+          Block *b = block_create(page, BLOCK_DESIGN);
+          if (b) {
+            block_design_init(b, 800, 400);
+            page_append_block(page, b);
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "block_create %u %u design", page_id,
+                     b->id);
+            engine_execute_command(engine, cmd);
+          }
+        }
+        break;
+      case 6: // Lua
+        if (page) {
+          Block *b = block_create(page, BLOCK_LUA);
+          if (b) {
+            page_append_block(page, b);
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "block_create %u %u lua", page_id,
+                     b->id);
+            engine_execute_command(engine, cmd);
+          }
+        }
+        break;
       }
     }
-
-    // Table (icon)
-    if (ui_icon_button(ui, ICON_TABLE)) {
-      if (page) {
-        Block *b = block_create(page, BLOCK_TABLE);
-        if (b) {
-          block_table_init(b, 3, 3);
-          page_append_block(page, b);
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u table", page_id,
-                   b->id);
-          engine_execute_command(engine, cmd);
-        }
-      }
-    }
-
-    // Canvas (icon)
-    if (ui_icon_button(ui, ICON_CANVAS)) {
-      if (page) {
-        Block *b = block_create(page, BLOCK_CANVAS);
-        if (b) {
-          block_canvas_init(b);
-          page_append_block(page, b);
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u canvas", page_id,
-                   b->id);
-          engine_execute_command(engine, cmd);
-        }
-      }
-    }
-
-    // Design (icon)
-    if (ui_icon_button(ui, ICON_DESIGN)) {
-      if (page) {
-        Block *b = block_create(page, BLOCK_DESIGN);
-        if (b) {
-          block_design_init(b, 800, 400); // Consistent with document.c default
-          page_append_block(page, b);
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u design", page_id,
-                   b->id);
-          engine_execute_command(engine, cmd);
-        }
-      }
-    }
-
-    // Right FLEX spacer
-    nk_spacing(ctx, 1);
   }
-  nk_end(ctx);
 }
 
 // -----------------------------------------------------------------------------
@@ -143,85 +200,12 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
 void ui_render_bottom_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
                           int win_w, int win_h) {
-  if (!ui || !engine || !ctx)
-    return;
-
-  const float bar_h = 36.0f;
-  const float tab_w = 100.0f;
-  const float btn_w = 30.0f;
-
-  if (nk_begin(ctx, "BottomBar",
-               nk_rect(0, (float)win_h - bar_h, (float)win_w, bar_h),
-               NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
-
-    int page_count = engine->doc->page_count;
-    int col_count = page_count + 1; // +1 for [+] button
-
-    // Use padding aligned with document content
-    nk_layout_row_template_begin(ctx, bar_h - 8);
-    nk_layout_row_template_push_static(ctx, UI_SIDE_PADDING);
-    for (int i = 0; i < col_count; i++) {
-      nk_layout_row_template_push_static(ctx, tab_w);
-    }
-    nk_layout_row_template_push_variable(ctx, 1); // Right spacer
-    nk_layout_row_template_end(ctx);
-
-    // margin spacer
-    nk_spacing(ctx, 1);
-
-    // Render page tabs
-    for (int i = 0; i < 32; i++) {
-      if (!engine->doc->pages[i].in_use)
-        continue;
-
-      Page *p = &engine->doc->pages[i];
-      int is_active = (engine->doc->active_page_idx == i);
-
-      struct nk_style_button style = ctx->style.button;
-      if (is_active) {
-        style.normal = nk_style_item_color(COLOR_ACCENT);
-        style.hover = nk_style_item_color(COLOR_ACCENT);
-      }
-
-      if (nk_button_label_styled(ctx, &style, p->name)) {
-        doc_page_activate(engine->doc, p->id);
-        ui->screen = 1; // Switch to editor
-      }
-    }
-
-    // Add page button
-    if (nk_button_label(ctx, "+")) {
-      char name[64];
-      snprintf(name, sizeof(name), "New Note %d", engine->doc->page_count + 1);
-      Page *new_page = doc_page_create(engine->doc, name);
-      if (new_page) {
-        doc_page_activate(engine->doc, new_page->id);
-        ui->screen = 1;
-
-        // Add default H1 block
-        Block *b = block_create(new_page, BLOCK_HEADING_1);
-        if (b) {
-          block_set_text(b, name);
-          page_append_block(new_page, b);
-        }
-
-        char cmd[128];
-        snprintf(cmd, sizeof(cmd), "page_create %u \"%s\"", new_page->id, name);
-        engine_execute_command(engine, cmd);
-        if (b) {
-          snprintf(cmd, sizeof(cmd), "block_create %u %u h1", new_page->id,
-                   b->id);
-          engine_execute_command(engine, cmd);
-          snprintf(cmd, sizeof(cmd), "block_text %u %u \"%s\"", new_page->id,
-                   b->id, name);
-          engine_execute_command(engine, cmd);
-        }
-      }
-    }
-
-    // Home removed from bottom per request
-  }
-  nk_end(ctx);
+  // Function emptied as per user request to remove "old patterns"
+  (void)ui;
+  (void)engine;
+  (void)ctx;
+  (void)win_w;
+  (void)win_h;
 }
 
 // -----------------------------------------------------------------------------
