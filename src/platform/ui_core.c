@@ -533,7 +533,6 @@ void ui_apply_theme(UIHost *ui) {
   if (ui->dark_mode) {
     // Dark theme colors
     struct nk_color bg = nk_rgb(30, 30, 35);
-    struct nk_color bg_alt = nk_rgb(40, 40, 48);
     struct nk_color text = nk_rgb(230, 230, 235);
     struct nk_color border = nk_rgb(55, 55, 65);
     struct nk_color button = nk_rgb(50, 50, 58);
@@ -555,9 +554,9 @@ void ui_apply_theme(UIHost *ui) {
 
     s->text.color = text;
 
-    s->edit.normal = nk_style_item_color(bg_alt);
-    s->edit.hover = nk_style_item_color(bg_alt);
-    s->edit.active = nk_style_item_color(bg_alt);
+    s->edit.normal = nk_style_item_color(bg);
+    s->edit.hover = nk_style_item_color(bg);
+    s->edit.active = nk_style_item_color(bg);
     s->edit.text_normal = text;
     s->edit.text_hover = text;
     s->edit.text_active = text;
@@ -566,10 +565,10 @@ void ui_apply_theme(UIHost *ui) {
     s->edit.cursor_hover = text;
     s->edit.cursor_text_normal = bg;
     s->edit.cursor_text_hover = bg;
+    s->edit.border = 0.0f;
   } else {
     // Light theme colors
     struct nk_color bg = nk_rgb(252, 252, 253);
-    struct nk_color bg_alt = nk_rgb(255, 255, 255);
     struct nk_color text = nk_rgb(40, 40, 45);
     struct nk_color border = nk_rgb(220, 220, 225);
     struct nk_color button = nk_rgb(245, 245, 248);
@@ -591,16 +590,17 @@ void ui_apply_theme(UIHost *ui) {
 
     s->text.color = text;
 
-    s->edit.normal = nk_style_item_color(bg_alt);
-    s->edit.hover = nk_style_item_color(bg_alt);
-    s->edit.active = nk_style_item_color(bg_alt);
+    s->edit.normal = nk_style_item_color(bg);
+    s->edit.hover = nk_style_item_color(bg);
+    s->edit.active = nk_style_item_color(bg);
     s->edit.text_normal = text;
     s->edit.text_hover = text;
     s->edit.text_active = text;
     s->edit.border_color = border;
     s->edit.cursor_normal = text;
     s->edit.cursor_hover = text;
-    s->edit.cursor_text_normal = bg_alt;
-    s->edit.cursor_text_hover = bg_alt;
+    s->edit.cursor_text_normal = bg;
+    s->edit.cursor_text_hover = bg;
+    s->edit.border = 0.0f;
   }
 }

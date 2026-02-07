@@ -1105,6 +1105,16 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         ui->scroll_y = ui->scroll_target_y;
       }
 
+      // Responsive margin calculation (Notion-like) - Doubled margins
+      float target_w = 700.0f;
+      float canvas_padding = 80.0f;
+      float margin = (content_w - target_w) / 2.0f;
+      if (margin < canvas_padding)
+        margin = canvas_padding;
+
+      struct nk_vec2 old_group_padding = ctx->style.window.group_padding;
+      ctx->style.window.group_padding = nk_vec2(margin, 20.0f);
+
       // Single column layout
       nk_layout_row_dynamic(ctx, content_h - 20, 1);
 
@@ -1137,7 +1147,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         if (page && page->block_count > 0) {
           for (Block *b = page->first_block; b; b = b->next) {
             // Center the content by adding margins inside the render
-            ui_render_block(ui, engine, ctx, page, b, content_w - 60);
+            ui_render_block(ui, engine, ctx, page, b, content_w);
 
             // Small spacing between blocks
             nk_layout_row_dynamic(ctx, 8.0f, 1);
@@ -1151,6 +1161,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         }
         nk_group_end(ctx);
       }
+      ctx->style.window.group_padding = old_group_padding;
     }
     nk_end(ctx);
 
