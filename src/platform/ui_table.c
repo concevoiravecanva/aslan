@@ -247,7 +247,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       if (ui->font_icons) {
         nk_style_set_font(ctx, &ui->font_icons->handle);
         nk_draw_text(canvas,
-                     nk_rect(hdr_bounds.x + 2, hdr_bounds.y + 6, 20, 20), icon,
+                     nk_rect(hdr_bounds.x + 6, hdr_bounds.y + 6, 20, 20), icon,
                      strlen(icon), &ui->font_icons->handle, nk_rgba(0, 0, 0, 0),
                      header_icon_col);
         nk_style_set_font(ctx, &ui->font_inter->handle);
@@ -255,7 +255,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       nk_draw_text(
           canvas,
-          nk_rect(hdr_bounds.x + 22, hdr_bounds.y + 6, hdr_bounds.w - 24, 20),
+          nk_rect(hdr_bounds.x + 32, hdr_bounds.y + 6, hdr_bounds.w - 36, 20),
           tbl->columns[c].name, strlen(tbl->columns[c].name),
           &ui->font_inter->handle, nk_rgba(0, 0, 0, 0), header_text_col);
 
