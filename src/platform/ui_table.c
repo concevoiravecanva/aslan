@@ -3,8 +3,8 @@
 // =============================================================================
 
 #include "ui_table.h"
-#include "ui_shared.h"
 #include "../document/aslan_table.h"
+#include "ui_shared.h"
 
 // Helper: Get icon for column type
 const char *table_col_type_icon(AslanColumnType type) {
@@ -746,11 +746,25 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
   // =========================================================================
   if (ui->table_state.active_block_id == block->id) {
     if (ui->table_state.show_col_menu) {
+      struct nk_color menu_text = ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
+      struct nk_color menu_bg =
+          ui->dark_mode ? nk_rgb(45, 47, 52) : nk_rgb(255, 255, 255);
+
+      // Push menu style
+      struct nk_style_button menu_btn = ctx->style.button;
+      menu_btn.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+      menu_btn.hover = nk_style_item_color(
+          ui->dark_mode ? nk_rgba(255, 255, 255, 15) : nk_rgba(0, 0, 0, 10));
+      menu_btn.active = nk_style_item_color(
+          ui->dark_mode ? nk_rgba(255, 255, 255, 25) : nk_rgba(0, 0, 0, 20));
+      menu_btn.border = 0.0f;
+      menu_btn.rounding = 4.0f;
+
       if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Add Column",
                          NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER,
                          nk_rect(ui->table_state.menu_pos_x - 100,
-                                 ui->table_state.menu_pos_y + 30, 160, 250))) {
-        nk_layout_row_dynamic(ctx, 24, 1);
+                                 ui->table_state.menu_pos_y + 4, 160, 200))) {
+        nk_layout_row_dynamic(ctx, 28, 1);
         const char *types[] = {"Text",   "Number", "Checkbox",
                                "Select", "Date",   "Formula"};
         AslanColumnType type_vals[] = {ASLAN_COL_TEXT,     ASLAN_COL_NUMBER,
@@ -758,7 +772,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                        ASLAN_COL_DATE,     ASLAN_COL_FORMULA};
         for (int i = 0; i < 6; i++) {
           struct nk_rect item_rect = nk_widget_bounds(ctx);
-          if (nk_button_label(ctx, "")) {
+          if (nk_button_label_styled(ctx, &menu_btn, "")) {
             if (tbl) {
               char col_name[32];
               snprintf(col_name, sizeof(col_name), "Column %d",
@@ -773,15 +787,15 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           const char *icon = table_col_type_icon(type_vals[i]);
           if (ui->font_icons) {
             nk_draw_text(canvas,
-                         nk_rect(item_rect.x + 4, item_rect.y + 4, 20, 20),
+                         nk_rect(item_rect.x + 8, item_rect.y + 4, 20, 20),
                          icon, strlen(icon), &ui->font_icons->handle,
-                         nk_rgba(0, 0, 0, 0), COLOR_TEXT);
+                         nk_rgba(0, 0, 0, 0), menu_text);
           }
           nk_draw_text(
               canvas,
-              nk_rect(item_rect.x + 28, item_rect.y + 4, item_rect.w - 32, 20),
+              nk_rect(item_rect.x + 32, item_rect.y + 4, item_rect.w - 36, 20),
               types[i], strlen(types[i]), &ui->font_inter->handle,
-              nk_rgba(0, 0, 0, 0), COLOR_TEXT);
+              nk_rgba(0, 0, 0, 0), menu_text);
         }
         nk_popup_end(ctx);
       } else {
@@ -813,39 +827,54 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               ctx, NK_POPUP_STATIC, "Aggregation",
               NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER,
               nk_rect(ui->table_state.menu_pos_x, popup_y, 180, menu_h))) {
+
+        struct nk_color menu_text =
+            ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
+        struct nk_style_button menu_btn = ctx->style.button;
+        menu_btn.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+        menu_btn.hover = nk_style_item_color(
+            ui->dark_mode ? nk_rgba(255, 255, 255, 15) : nk_rgba(0, 0, 0, 10));
+        menu_btn.active = nk_style_item_color(
+            ui->dark_mode ? nk_rgba(255, 255, 255, 25) : nk_rgba(0, 0, 0, 20));
+        menu_btn.border = 0.0f;
+        menu_btn.rounding = 4.0f;
+        menu_btn.text_normal = menu_text;
+        menu_btn.text_hover = menu_text;
+        menu_btn.text_active = menu_text;
+
         nk_layout_row_dynamic(ctx, 28, 1);
         int c = ui->table_state.active_col_idx;
         AslanColumnType type = tbl->columns[c].type;
 
-        if (nk_button_label(ctx, "None")) {
+        if (nk_button_label_styled(ctx, &menu_btn, "None")) {
           aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_NONE);
           ui->table_state.show_footer_menu = 0;
           nk_popup_close(ctx);
         }
 
-        if (nk_button_label(ctx, "# Count")) {
+        if (nk_button_label_styled(ctx, &menu_btn, "# Count")) {
           aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_COUNT);
           ui->table_state.show_footer_menu = 0;
           nk_popup_close(ctx);
         }
 
         if (type == ASLAN_COL_NUMBER || type == ASLAN_COL_FORMULA) {
-          if (nk_button_label(ctx, "Σ Sum")) {
+          if (nk_button_label_styled(ctx, &menu_btn, "Σ Sum")) {
             aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_SUM);
             ui->table_state.show_footer_menu = 0;
             nk_popup_close(ctx);
           }
-          if (nk_button_label(ctx, "μ Average")) {
+          if (nk_button_label_styled(ctx, &menu_btn, "μ Average")) {
             aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_AVG);
             ui->table_state.show_footer_menu = 0;
             nk_popup_close(ctx);
           }
-          if (nk_button_label(ctx, "Min")) {
+          if (nk_button_label_styled(ctx, &menu_btn, "Min")) {
             aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_MIN);
             ui->table_state.show_footer_menu = 0;
             nk_popup_close(ctx);
           }
-          if (nk_button_label(ctx, "Max")) {
+          if (nk_button_label_styled(ctx, &menu_btn, "Max")) {
             aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_MAX);
             ui->table_state.show_footer_menu = 0;
             nk_popup_close(ctx);
@@ -853,11 +882,6 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
 
         if (type == ASLAN_COL_CHECKBOX) {
-          if (nk_button_label(ctx, "% Percent")) {
-            aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_PERCENT);
-            ui->table_state.show_footer_menu = 0;
-            nk_popup_close(ctx);
-          }
         }
 
         if (type == ASLAN_COL_CHECKBOX) {
@@ -1084,17 +1108,17 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 // =============================================================================
 
 int test_ui_table(void) {
-    ASLAN_INFO("Running ui_table tests...");
-    
-    // Test 1: Column type icon mapping
-    ASLAN_ASSERT(table_col_type_icon(ASLAN_COL_TEXT) != NULL);
-    ASLAN_ASSERT(table_col_type_icon(ASLAN_COL_NUMBER) != NULL);
-    ASLAN_ASSERT(table_col_type_icon(ASLAN_COL_CHECKBOX) != NULL);
-    
-    // Test 2: Column type name mapping
-    ASLAN_ASSERT(table_col_type_name(ASLAN_COL_TEXT) != NULL);
-    ASLAN_ASSERT(table_col_type_name(ASLAN_COL_DATE) != NULL);
-    
-    ASLAN_INFO("ui_table tests PASSED");
-    return 0;
+  ASLAN_INFO("Running ui_table tests...");
+
+  // Test 1: Column type icon mapping
+  ASLAN_ASSERT(table_col_type_icon(ASLAN_COL_TEXT) != NULL);
+  ASLAN_ASSERT(table_col_type_icon(ASLAN_COL_NUMBER) != NULL);
+  ASLAN_ASSERT(table_col_type_icon(ASLAN_COL_CHECKBOX) != NULL);
+
+  // Test 2: Column type name mapping
+  ASLAN_ASSERT(table_col_type_name(ASLAN_COL_TEXT) != NULL);
+  ASLAN_ASSERT(table_col_type_name(ASLAN_COL_DATE) != NULL);
+
+  ASLAN_INFO("ui_table tests PASSED");
+  return 0;
 }
