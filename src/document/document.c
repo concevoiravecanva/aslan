@@ -1015,14 +1015,25 @@ Node *node_create(uint32_t id, NodeType type, const char *name) {
 void node_destroy(Node *node) {
   if (!node)
     return;
+
+  // Free type-specific dynamic data
   if (node->type == NODE_TYPE_PATH) {
-    free(node->path_points);
+    if (node->path_points) {
+      free(node->path_points);
+      node->path_points = NULL;
+    }
   } else if (node->type == NODE_TYPE_STROKE) {
     if (node->stroke_data) {
-      free(node->stroke_data->points);
+      if (node->stroke_data->points) {
+        free(node->stroke_data->points);
+      }
       free(node->stroke_data);
+      node->stroke_data = NULL;
     }
   }
+  // Note: Text content is currently static char[256], so no free needed there.
+  // Note: Image path is currently static char[256], so no free needed there.
+
   free(node);
 }
 
@@ -1030,8 +1041,37 @@ void node_destroy_tree(Node *node) {
   if (!node)
     return;
 
-  node_destroy_tree(node->first_child);
-  node_destroy_tree(node->next_sibling);
+  // Iterative destruction to avoid stack overflow with deep hierarchies/many
+  // siblings Process the tree level by level or using a stack if needed, but
+  // for our
+  // firstChild/nextSibling structure, we can just recurse on children (usually
+  // shallow)
+  // and iterate on siblings (can be very long).
+
+  // 1. Destroy children (recursive is generally safe here as depth is low in
+  // canvas) If depth becomes an issue, we'll need a full iterative traverser.
+  if (node->first_child) {
+    node_destroy_tree(node->first_child);
+    node->first_child = NULL;
+  }
+
+  // 2. Destroy siblings iteratively (this is the critical fix for "10k items
+  // crash")
+  Node *sibling = node->next_sibling;
+  while (sibling) {
+    Node *next = sibling->next_sibling;
+
+    // Recurse on sibling's children
+    if (sibling->first_child) {
+      node_destroy_tree(sibling->first_child);
+      sibling->first_child = NULL;
+    }
+
+    node_destroy(sibling);
+    sibling = next;
+  }
+
+  // 3. Destroy self
   node_destroy(node);
 }
 
@@ -1246,7 +1286,10 @@ void block_canvas_destroy(Block *block) {
     cd->index = NULL;
   }
 
-  // Free strokes
+  // Free strokes (Legacy/Dead code cleanup: cd->strokes is unused in current
+  // node-based system) Node-based strokes are freed via
+  // node_destroy_tree(cd->root) above.
+  /*
   Stroke *s = cd->strokes;
   while (s) {
     Stroke *next = s->next;
@@ -1254,6 +1297,7 @@ void block_canvas_destroy(Block *block) {
     free(s);
     s = next;
   }
+  */
   cd->strokes = NULL;
 }
 
