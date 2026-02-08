@@ -146,18 +146,13 @@ typedef struct AslanTable AslanTable;
 
 // --- Table Block Data ---
 typedef struct {
-  // Legacy simple string-based storage (for backward compatibility)
-  char **cells; // Flat array: cells[row * cols + col]
-  int rows;
-  int cols;
-  int *col_widths; // Computed column widths
+  // UI state
   int active_row;
   int active_col;
   TableViewMode view_mode;
 
-  // New columnar engine (NULL if using legacy mode)
-  struct AslanTable *columnar; // High-performance column-store
-  int use_columnar;            // 1 = use new engine, 0 = legacy
+  // Columnar engine (high-performance column-store)
+  struct AslanTable *columnar;
 } TableData;
 
 // --- Canvas Block Data (Infinite) ---

@@ -712,35 +712,9 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     snprintf(info, sizeof(info), "%zu rows", view_count);
     nk_label(ctx, info, NK_TEXT_LEFT);
   } else {
-    // printf("[DEBUG] Table %u -> Legacy/Empty path. Rows: %d, Cols: %d\n",
-    // block->id, td->rows, td->cols);
-    // =========================================================================
-    // LEGACY TABLE RENDERING (fallback for old tables)
-    // =========================================================================
-    if (td->rows <= 0 || td->cols <= 0) {
-      nk_layout_row_dynamic(ctx, 30, 1);
-      nk_label(ctx, "Empty table - click '+ Row' to add data",
-               NK_TEXT_CENTERED);
-      return;
-    }
-
-    for (int r = 0; r < td->rows; r++) {
-      nk_layout_row_static(ctx, row_h, 120, td->cols);
-
-      for (int c = 0; c < td->cols; c++) {
-        char buf[256];
-        const char *cell = block_table_get_cell(block, r, c);
-        strncpy(buf, cell ? cell : "", sizeof(buf) - 1);
-        buf[sizeof(buf) - 1] = '\0';
-
-        nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, buf, sizeof(buf) - 1,
-                                       nk_filter_default);
-
-        if (strcmp(buf, cell ? cell : "") != 0) {
-          block_table_set_cell(block, r, c, buf);
-        }
-      }
-    }
+    // Empty/uninitialized table
+    nk_layout_row_dynamic(ctx, 30, 1);
+    nk_label(ctx, "Empty table - click '+ Row' to add data", NK_TEXT_CENTERED);
   }
 
   // =========================================================================

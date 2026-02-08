@@ -850,17 +850,6 @@ void block_table_init(Block *block, int rows, int cols) {
 
   TableData *td = &block->data.table;
 
-  // Free existing data
-  if (td->cells) {
-    for (int i = 0; i < td->rows * td->cols; i++) {
-      free(td->cells[i]);
-    }
-    free(td->cells);
-    td->cells = NULL;
-  }
-  free(td->col_widths);
-  td->col_widths = NULL;
-
   // Free existing columnar table
   if (td->columnar) {
     aslan_table_destroy(td->columnar);
@@ -869,7 +858,6 @@ void block_table_init(Block *block, int rows, int cols) {
 
   // Create new columnar table
   td->columnar = aslan_table_create(block->id, "Table");
-  td->use_columnar = 1;
 
   if (td->columnar) {
     // Add default columns
@@ -887,9 +875,6 @@ void block_table_init(Block *block, int rows, int cols) {
     }
   }
 
-  // Legacy fields (for backward compatibility display)
-  td->rows = rows;
-  td->cols = cols;
   td->active_row = 0;
   td->active_col = 0;
   td->view_mode = TABLE_VIEW_TABLE;
@@ -901,25 +886,11 @@ void block_table_destroy(Block *block) {
 
   TableData *td = &block->data.table;
 
-  // Free legacy cells
-  if (td->cells) {
-    for (int i = 0; i < td->rows * td->cols; i++) {
-      free(td->cells[i]);
-    }
-    free(td->cells);
-    td->cells = NULL;
-  }
-  free(td->col_widths);
-  td->col_widths = NULL;
-  td->rows = 0;
-  td->cols = 0;
-
   // Free columnar table
   if (td->columnar) {
     aslan_table_destroy(td->columnar);
     td->columnar = NULL;
   }
-  td->use_columnar = 0;
 }
 
 void block_table_set_cell(Block *block, int row, int col, const char *text) {
@@ -927,14 +898,15 @@ void block_table_set_cell(Block *block, int row, int col, const char *text) {
     return;
 
   TableData *td = &block->data.table;
-  if (row < 0 || row >= td->rows || col < 0 || col >= td->cols)
-    return;
-  if (!td->cells)
+  if (!td->columnar)
     return;
 
-  int idx = row * td->cols + col;
-  free(td->cells[idx]);
-  td->cells[idx] = aslan_strdup(text);
+  // Get row_id from view index
+  uint64_t row_id = aslan_table_view_row_id(td->columnar, row);
+  if (row_id == 0)
+    return;
+
+  aslan_table_set_cell(td->columnar, col, row_id, text);
 }
 
 const char *block_table_get_cell(const Block *block, int row, int col) {
@@ -942,94 +914,42 @@ const char *block_table_get_cell(const Block *block, int row, int col) {
     return NULL;
 
   const TableData *td = &block->data.table;
-  if (row < 0 || row >= td->rows || col < 0 || col >= td->cols)
-    return NULL;
-  if (!td->cells)
+  if (!td->columnar)
     return NULL;
 
-  return td->cells[row * td->cols + col];
+  // Get row_id from view index
+  uint64_t row_id = aslan_table_view_row_id(td->columnar, row);
+  if (row_id == 0)
+    return NULL;
+
+  return aslan_table_get_text(td->columnar, col, row_id);
 }
 
 void block_table_insert_row(Block *block, int row_idx) {
+  (void)row_idx; // Columnar always appends at end
   if (!block || block->type != BLOCK_TABLE)
     return;
 
   TableData *td = &block->data.table;
-  if (row_idx < 0)
-    row_idx = 0;
-  if (row_idx > td->rows)
-    row_idx = td->rows;
-
-  int new_rows = td->rows + 1;
-  char **new_cells = (char **)calloc(new_rows * td->cols, sizeof(char *));
-  if (!new_cells)
+  if (!td->columnar)
     return;
 
-  // Copy cells before insertion point
-  for (int r = 0; r < row_idx; r++) {
-    for (int c = 0; c < td->cols; c++) {
-      new_cells[r * td->cols + c] = td->cells[r * td->cols + c];
-    }
-  }
-
-  // New row is already NULL (calloc)
-
-  // Copy cells after insertion point
-  for (int r = row_idx; r < td->rows; r++) {
-    for (int c = 0; c < td->cols; c++) {
-      new_cells[(r + 1) * td->cols + c] = td->cells[r * td->cols + c];
-    }
-  }
-
-  free(td->cells);
-  td->cells = new_cells;
-  td->rows = new_rows;
+  aslan_table_add_row(td->columnar);
 }
 
 void block_table_insert_col(Block *block, int col_idx) {
+  (void)col_idx; // Columnar always appends at end
   if (!block || block->type != BLOCK_TABLE)
     return;
 
   TableData *td = &block->data.table;
-  if (col_idx < 0)
-    col_idx = 0;
-  if (col_idx > td->cols)
-    col_idx = td->cols;
-
-  int new_cols = td->cols + 1;
-  char **new_cells = (char **)calloc(td->rows * new_cols, sizeof(char *));
-  int *new_widths = (int *)calloc(new_cols, sizeof(int));
-  if (!new_cells || !new_widths) {
-    free(new_cells);
-    free(new_widths);
+  if (!td->columnar)
     return;
-  }
 
-  // Copy cells
-  for (int r = 0; r < td->rows; r++) {
-    for (int c = 0; c < col_idx; c++) {
-      new_cells[r * new_cols + c] = td->cells[r * td->cols + c];
-    }
-    // New column is NULL
-    for (int c = col_idx; c < td->cols; c++) {
-      new_cells[r * new_cols + c + 1] = td->cells[r * td->cols + c];
-    }
-  }
-
-  // Copy column widths
-  for (int c = 0; c < col_idx; c++) {
-    new_widths[c] = td->col_widths[c];
-  }
-  new_widths[col_idx] = 120;
-  for (int c = col_idx; c < td->cols; c++) {
-    new_widths[c + 1] = td->col_widths[c];
-  }
-
-  free(td->cells);
-  free(td->col_widths);
-  td->cells = new_cells;
-  td->col_widths = new_widths;
-  td->cols = new_cols;
+  char col_name[32];
+  snprintf(col_name, sizeof(col_name), "Column %d",
+           (int)td->columnar->column_count + 1);
+  aslan_table_add_column(td->columnar, col_name, ASLAN_COL_TEXT);
 }
 
 void block_table_delete_row(Block *block, int row_idx) {
@@ -1037,30 +957,14 @@ void block_table_delete_row(Block *block, int row_idx) {
     return;
 
   TableData *td = &block->data.table;
-  if (td->rows <= 1)
-    return; // Keep at least one row
-  if (row_idx < 0 || row_idx >= td->rows)
+  if (!td->columnar)
     return;
 
-  // Free cells in deleted row
-  for (int c = 0; c < td->cols; c++) {
-    free(td->cells[row_idx * td->cols + c]);
+  // Get row_id from view index and soft-delete
+  uint64_t row_id = aslan_table_view_row_id(td->columnar, row_idx);
+  if (row_id != 0) {
+    aslan_table_delete_row(td->columnar, row_id);
   }
-
-  // Shift rows up
-  for (int r = row_idx; r < td->rows - 1; r++) {
-    for (int c = 0; c < td->cols; c++) {
-      td->cells[r * td->cols + c] = td->cells[(r + 1) * td->cols + c];
-    }
-  }
-
-  td->rows--;
-
-  // Reallocate to save memory (optional)
-  char **new_cells =
-      (char **)realloc(td->cells, td->rows * td->cols * sizeof(char *));
-  if (new_cells)
-    td->cells = new_cells;
 }
 
 void block_table_delete_col(Block *block, int col_idx) {
@@ -1068,44 +972,10 @@ void block_table_delete_col(Block *block, int col_idx) {
     return;
 
   TableData *td = &block->data.table;
-  if (td->cols <= 1)
-    return; // Keep at least one column
-  if (col_idx < 0 || col_idx >= td->cols)
+  if (!td->columnar)
     return;
 
-  int new_cols = td->cols - 1;
-  char **new_cells = (char **)calloc(td->rows * new_cols, sizeof(char *));
-  int *new_widths = (int *)calloc(new_cols, sizeof(int));
-  if (!new_cells || !new_widths) {
-    free(new_cells);
-    free(new_widths);
-    return;
-  }
-
-  for (int r = 0; r < td->rows; r++) {
-    int dst_c = 0;
-    for (int c = 0; c < td->cols; c++) {
-      if (c == col_idx) {
-        free(td->cells[r * td->cols + c]);
-      } else {
-        new_cells[r * new_cols + dst_c] = td->cells[r * td->cols + c];
-        dst_c++;
-      }
-    }
-  }
-
-  int dst_c = 0;
-  for (int c = 0; c < td->cols; c++) {
-    if (c != col_idx) {
-      new_widths[dst_c++] = td->col_widths[c];
-    }
-  }
-
-  free(td->cells);
-  free(td->col_widths);
-  td->cells = new_cells;
-  td->col_widths = new_widths;
-  td->cols = new_cols;
+  aslan_table_remove_column(td->columnar, col_idx);
 }
 
 void block_table_set_view(Block *block, TableViewMode mode) {
@@ -1831,20 +1701,28 @@ void doc_save_aof(const Document *doc, FILE *fp) {
       switch (b->type) {
       case BLOCK_TABLE: {
         const TableData *td = &b->data.table;
-        fprintf(fp, "block_table_init %u %u %d %d\n", page->id, b->id, td->rows,
-                td->cols);
-        fprintf(fp, "block_table_view %u %u %s\n", page->id, b->id,
-                td->view_mode == TABLE_VIEW_LIST    ? "list"
-                : td->view_mode == TABLE_VIEW_BOARD ? "board"
-                                                    : "table");
-        for (int r = 0; r < td->rows; r++) {
-          for (int c = 0; c < td->cols; c++) {
-            const char *cell = td->cells ? td->cells[r * td->cols + c] : NULL;
-            if (cell && cell[0]) {
-              fprintf(fp, "block_table_cell %u %u %d %d ", page->id, b->id, r,
-                      c);
-              escape_string(fp, cell);
-              fprintf(fp, "\n");
+        if (td->columnar) {
+          size_t rows = aslan_table_view_count(td->columnar);
+          size_t cols = td->columnar->column_count;
+          fprintf(fp, "block_table_init %u %u %zu %zu\n", page->id, b->id, rows,
+                  cols);
+          fprintf(fp, "block_table_view %u %u %s\n", page->id, b->id,
+                  td->view_mode == TABLE_VIEW_LIST    ? "list"
+                  : td->view_mode == TABLE_VIEW_BOARD ? "board"
+                                                      : "table");
+          // Save cell data using columnar API
+          for (size_t r = 0; r < rows; r++) {
+            uint64_t row_id = aslan_table_view_row_id(td->columnar, (int)r);
+            for (size_t c = 0; c < cols; c++) {
+              char buf[1024];
+              const char *cell = aslan_table_get_cell_display(
+                  td->columnar, (int)c, row_id, buf, sizeof(buf));
+              if (cell && cell[0]) {
+                fprintf(fp, "block_table_cell %u %u %zu %zu ", page->id, b->id,
+                        r, c);
+                escape_string(fp, cell);
+                fprintf(fp, "\n");
+              }
             }
           }
         }
