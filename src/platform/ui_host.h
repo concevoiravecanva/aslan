@@ -311,6 +311,10 @@ typedef struct UIHost {
   // Sidebar state: 0=Properties/Layers, 1=Shape Selection
   int sidebar_mode;
 
+  // Event-driven rendering: redraw only when needed
+  int needs_redraw;         // 1 = re-render needed, 0 = idle
+  int has_active_animation; // 1 = cursor blink, transitions, etc.
+
 } UIHost;
 
 // -----------------------------------------------------------------------------
@@ -319,6 +323,7 @@ typedef struct UIHost {
 
 UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L);
 void ui_shutdown(UIHost *ui);
+void ui_request_redraw(UIHost *ui); // Mark UI as needing redraw
 
 // -----------------------------------------------------------------------------
 // Shared Color Constants (defined in ui_host.c)

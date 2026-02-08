@@ -59,8 +59,8 @@ int open_image_file_dialog(char *out_path, size_t path_size) {
 
 // Opens a native file dialog to select a video file
 // TODO: Enable when video block is implemented
-__attribute__((unused))
-static int open_video_file_dialog(char *out_path, size_t path_size) {
+__attribute__((unused)) static int open_video_file_dialog(char *out_path,
+                                                          size_t path_size) {
   const char *script =
       "osascript -e 'set theFile to choose file of type {\"public.movie\"} "
       "with prompt \"Select a video\"' -e 'POSIX path of theFile' 2>/dev/null";
@@ -308,6 +308,11 @@ void ui_shutdown(UIHost *ui) {
     return;
   nk_sdl_shutdown();
   free(ui);
+}
+
+void ui_request_redraw(UIHost *ui) {
+  if (ui)
+    ui->needs_redraw = 1;
 }
 
 // -----------------------------------------------------------------------------

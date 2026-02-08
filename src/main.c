@@ -55,145 +55,165 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
   const uint32_t dbl_click_ms = 350;
   const float dbl_click_dist = 6.0f;
 
+  // Initial render needed
+  ui->needs_redraw = 1;
+
   while (engine->is_running) {
+    // Event-driven: wait for events instead of polling
+    // Use 16ms timeout when animation active, 100ms for cursor blink, etc.
+    int timeout_ms = ui->has_active_animation ? 16 : 100;
+    int has_event = SDL_WaitEventTimeout(&e, timeout_ms);
+
     // 1. Input handling
     nk_input_begin(ui->ctx);
 
-    while (SDL_PollEvent(&e) != 0) {
-      // Debug: log all event types
-      if (e.type == SDL_DROPFILE) {
-        printf(
-            "[DEBUG] *** SDL_DROPFILE event detected in SDL_PollEvent! ***\n");
-      }
-
-      scripting_set_key_mods(SDL_GetModState());
-
-      // Quit event
-      if (e.type == SDL_QUIT) {
-        engine->is_running = false;
-      }
-
-      // Window resize for HiDPI support
-      if (e.type == SDL_WINDOWEVENT &&
-          (e.window.event == SDL_WINDOWEVENT_RESIZED ||
-           e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED)) {
-        renderer_update_size(renderer);
-      }
-
-      // DEBUG: Log mouse events directly from SDL
-      if (e.type == SDL_MOUSEMOTION) {
-        // Only log every few motions to avoid spam
-        static int motion_count = 0;
-        if (++motion_count % 30 == 0) {
-          printf("[DEBUG] MAIN SDL_MOUSEMOTION: (%d, %d)\n", e.motion.x,
-                 e.motion.y);
+    // Process events (either the one we got or check for more)
+    if (has_event) {
+      ui->needs_redraw = 1; // Any event triggers redraw
+      do {
+        // Debug: log all event types
+        if (e.type == SDL_DROPFILE) {
+          printf("[DEBUG] *** SDL_DROPFILE event detected in SDL_PollEvent! "
+                 "***\n");
         }
-      }
-      if (e.type == SDL_MOUSEBUTTONDOWN) {
-        printf("[DEBUG] MAIN SDL_MOUSEBUTTONDOWN: (%d, %d) btn=%d\n",
-               e.button.x, e.button.y, e.button.button);
-      }
 
-      // Keyboard shortcuts (macOS): Cmd+Z (Undo), Cmd+Shift+Z (Redo)
-      if (e.type == SDL_KEYDOWN && !nk_item_is_any_active(ui->ctx)) {
-        SDL_Keymod mods = SDL_GetModState();
-        bool cmd = (mods & KMOD_GUI) != 0;
-        bool shift = (mods & KMOD_SHIFT) != 0;
-        if (cmd && e.key.keysym.sym == SDLK_z) {
-          engine_execute_command(engine, shift ? "redo" : "undo");
+        scripting_set_key_mods(SDL_GetModState());
+
+        // Quit event
+        if (e.type == SDL_QUIT) {
+          engine->is_running = false;
         }
-      }
 
-      // Forward event to UI
-      ui_handle_event(ui, &e);
+        // Window resize for HiDPI support
+        if (e.type == SDL_WINDOWEVENT &&
+            (e.window.event == SDL_WINDOWEVENT_RESIZED ||
+             e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
+             e.window.event == SDL_WINDOWEVENT_EXPOSED)) {
+          renderer_update_size(renderer);
+          ui->needs_redraw = 1;
+        }
 
-      // Handle mouse/keyboard events for Lua tools
-      if (!nk_item_is_any_active(ui->ctx) &&
-          (!ui || ui->editing_block_id == 0)) {
-
-        int imx, imy;
-        SDL_GetMouseState(&imx, &imy);
-        float mx = (float)imx;
-        float my = (float)imy;
-
-        // Expose mouse position to Lua
-        scripting_set_mouse_screen(mx, my);
-
-        float world_x = mx;
-        float world_y = my;
-
-        if (e.type == SDL_MOUSEBUTTONDOWN) {
-          // Double-click detection for TEXT node editing
-          if (e.button.button == SDL_BUTTON_LEFT && ui && ui->selected_node &&
-              ui->selected_node->type == NODE_TYPE_TEXT) {
-            uint32_t now = SDL_GetTicks();
-            float dx = world_x - last_click_world_x;
-            float dy = world_y - last_click_world_y;
-            float d2 = dx * dx + dy * dy;
-
-            if (last_click_ms && (now - last_click_ms) <= dbl_click_ms &&
-                d2 <= (dbl_click_dist * dbl_click_dist)) {
-              ui->editing_block_id = ui->selected_node->id;
-              last_click_ms = 0;
-            } else {
-              last_click_ms = now;
-              last_click_world_x = world_x;
-              last_click_world_y = world_y;
-            }
+        // DEBUG: Log mouse events directly from SDL
+        if (e.type == SDL_MOUSEMOTION) {
+          // Only log every few motions to avoid spam
+          static int motion_count = 0;
+          if (++motion_count % 30 == 0) {
+            printf("[DEBUG] MAIN SDL_MOUSEMOTION: (%d, %d)\n", e.motion.x,
+                   e.motion.y);
           }
-
-          scripting_call_event(ui->L, "on_mouse_down", world_x, world_y);
-
-        } else if (e.type == SDL_MOUSEBUTTONUP) {
-          scripting_call_event(ui->L, "on_mouse_up", world_x, world_y);
-
-        } else if (e.type == SDL_MOUSEMOTION) {
-          scripting_call_event(ui->L, "on_mouse_move", world_x, world_y);
-
-        } else if (e.type == SDL_MOUSEWHEEL) {
-          float delta = (float)e.wheel.y;
-          scripting_call_event(ui->L, "on_mouse_wheel", delta, mx);
-
-        } else if (e.type == SDL_KEYDOWN) {
-          SDL_Keymod mods = SDL_GetModState();
-          scripting_call_key_event(ui->L, "on_key_down", (int)e.key.keysym.sym,
-                                   (int)mods);
         }
-      }
+        if (e.type == SDL_MOUSEBUTTONDOWN) {
+          printf("[DEBUG] MAIN SDL_MOUSEBUTTONDOWN: (%d, %d) btn=%d\n",
+                 e.button.x, e.button.y, e.button.button);
+        }
 
-      // 5. Handle File Drag & Drop (always process, regardless of UI state)
-      if (e.type == SDL_DROPFILE) {
-        char *dropped_filedir = e.drop.file;
-        int mx, my;
-        SDL_GetMouseState(&mx, &my);
-        printf("[DEBUG] SDL_DROPFILE event received\n");
-        ui_host_handle_file_drop(ui, dropped_filedir, mx, my);
-        SDL_free(dropped_filedir);
-      }
+        // Keyboard shortcuts (macOS): Cmd+Z (Undo), Cmd+Shift+Z (Redo)
+        if (e.type == SDL_KEYDOWN && !nk_item_is_any_active(ui->ctx)) {
+          SDL_Keymod mods = SDL_GetModState();
+          bool cmd = (mods & KMOD_GUI) != 0;
+          bool shift = (mods & KMOD_SHIFT) != 0;
+          if (cmd && e.key.keysym.sym == SDLK_z) {
+            engine_execute_command(engine, shift ? "redo" : "undo");
+          }
+        }
+
+        // Forward event to UI
+        ui_handle_event(ui, &e);
+
+        // Handle mouse/keyboard events for Lua tools
+        if (!nk_item_is_any_active(ui->ctx) &&
+            (!ui || ui->editing_block_id == 0)) {
+
+          int imx, imy;
+          SDL_GetMouseState(&imx, &imy);
+          float mx = (float)imx;
+          float my = (float)imy;
+
+          // Expose mouse position to Lua
+          scripting_set_mouse_screen(mx, my);
+
+          float world_x = mx;
+          float world_y = my;
+
+          if (e.type == SDL_MOUSEBUTTONDOWN) {
+            // Double-click detection for TEXT node editing
+            if (e.button.button == SDL_BUTTON_LEFT && ui && ui->selected_node &&
+                ui->selected_node->type == NODE_TYPE_TEXT) {
+              uint32_t now = SDL_GetTicks();
+              float dx = world_x - last_click_world_x;
+              float dy = world_y - last_click_world_y;
+              float d2 = dx * dx + dy * dy;
+
+              if (last_click_ms && (now - last_click_ms) <= dbl_click_ms &&
+                  d2 <= (dbl_click_dist * dbl_click_dist)) {
+                ui->editing_block_id = ui->selected_node->id;
+                last_click_ms = 0;
+              } else {
+                last_click_ms = now;
+                last_click_world_x = world_x;
+                last_click_world_y = world_y;
+              }
+            }
+
+            scripting_call_event(ui->L, "on_mouse_down", world_x, world_y);
+
+          } else if (e.type == SDL_MOUSEBUTTONUP) {
+            scripting_call_event(ui->L, "on_mouse_up", world_x, world_y);
+
+          } else if (e.type == SDL_MOUSEMOTION) {
+            scripting_call_event(ui->L, "on_mouse_move", world_x, world_y);
+
+          } else if (e.type == SDL_MOUSEWHEEL) {
+            float delta = (float)e.wheel.y;
+            scripting_call_event(ui->L, "on_mouse_wheel", delta, mx);
+
+          } else if (e.type == SDL_KEYDOWN) {
+            SDL_Keymod mods = SDL_GetModState();
+            scripting_call_key_event(ui->L, "on_key_down",
+                                     (int)e.key.keysym.sym, (int)mods);
+          }
+        }
+
+        // 5. Handle File Drag & Drop (always process, regardless of UI state)
+        if (e.type == SDL_DROPFILE) {
+          char *dropped_filedir = e.drop.file;
+          int mx, my;
+          SDL_GetMouseState(&mx, &my);
+          printf("[DEBUG] SDL_DROPFILE event received\n");
+          ui_host_handle_file_drop(ui, dropped_filedir, mx, my);
+          SDL_free(dropped_filedir);
+        }
+      } while (SDL_PollEvent(&e)); // Drain remaining events
     }
 
     nk_input_end(ui->ctx);
 
-    // 2. Render background
-    renderer_begin(renderer, ui->dark_mode);
+    // Only render if needed (event occurred or timeout for animations)
+    if (ui->needs_redraw) {
+      // 2. Render background
+      renderer_begin(renderer, ui->dark_mode);
 
-    // 3. Render document
-    renderer_draw_document(renderer, engine->doc, ui->ctx);
+      // 3. Render document
+      renderer_draw_document(renderer, engine->doc, ui->ctx);
 
-    // 4. Render selection handles
-    if (ui->selected_node) {
-      renderer_draw_selection(renderer, engine->doc, ui->selected_node);
+      // 4. Render selection handles
+      if (ui->selected_node) {
+        renderer_draw_selection(renderer, engine->doc, ui->selected_node);
+      }
+
+      // 5. Render UI overlay
+      int ww, wh;
+      SDL_GetWindowSize(renderer->window, &ww, &wh);
+      ui_render(ui, engine, ww, wh);
+
+      // 6. Present frame
+      renderer_end(renderer);
+
+      // Clear dirty flag
+      ui->needs_redraw = 0;
     }
 
-    // 5. Render UI overlay
-    int ww, wh;
-    SDL_GetWindowSize(renderer->window, &ww, &wh);
-    ui_render(ui, engine, ww, wh);
-
-    // 6. Present frame
-    renderer_end(renderer);
-
-    SDL_Delay(16); // ~60 FPS
+    // No SDL_Delay needed - WaitEventTimeout handles timing
   }
 }
 
