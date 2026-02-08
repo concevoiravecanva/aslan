@@ -3,6 +3,7 @@
 #include "../document/document.h"
 #include "recents.h" // For home screen access to recents
 #include "ui_shared.h"
+#include <SDL.h>
 #include <stdio.h>
 // stdlib.h removed
 
@@ -66,25 +67,24 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
   float btn_x = toolbar_x + 12.0f;
   float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
 
-  const char *tool_icons[] = {ICON_HOME,   ICON_TEXT,   "H1",      ICON_TABLE,
+  const char *tool_icons[] = {ICON_HOME,   ICON_TEXT,   ICON_H1,   ICON_TABLE,
                               ICON_CANVAS, ICON_DESIGN, ICON_CHART};
   int tool_count = 7;
 
   Page *page = doc_page_get_active(engine->doc);
   uint32_t page_id = page ? page->id : 0;
-  // printf("[DEBUG] Toolbar render. Page: %p, ID: %u\n", (void*)page, page_id);
-  // // Commented out to reduce spam, enable if needed
 
   for (int i = 0; i < tool_count; i++) {
     struct nk_rect btn_rect = nk_rect(btn_x + i * (btn_size + btn_spacing),
                                       btn_y, btn_size, btn_size);
 
-    int hovered =
-        (ui->mouse_x >= btn_rect.x && ui->mouse_x < btn_rect.x + btn_rect.w &&
-         ui->mouse_y >= btn_rect.y && ui->mouse_y < btn_rect.y + btn_rect.h);
+    // Use Nuklear's hovering logic for better reliability
+    int hovered = nk_input_is_mouse_hovering_rect(&ctx->input, btn_rect);
 
     if (hovered) {
-      nk_fill_rect(canvas_buf, btn_rect, 8.0f, nk_rgba(66, 133, 244, 40));
+      struct nk_color bg =
+          ui->dark_mode ? nk_rgb(60, 60, 70) : nk_rgb(240, 240, 240);
+      nk_fill_rect(canvas_buf, btn_rect, 6.0f, bg);
     }
 
     struct nk_color icon_color =
@@ -111,13 +111,23 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
       }
     }
 
-    int clicked = (hovered && ui->canvas_state.mouse_just_pressed);
+    // Check for click using Nuklear's standard way + our custom flag for safety
+    int clicked =
+        (hovered && (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) ||
+                     ui->canvas_state.mouse_just_pressed));
+
+    // Debug for Design button (index 5)
+    if (i == 5 && ui->canvas_state.mouse_just_pressed) {
+      printf("[DEBUG] Design Button Check: hovered=%d mouse=(%.1f, %.1f) "
+             "rect=(%.1f, %.1f, %.1f, %.1f)\n",
+             hovered, ui->mouse_x, ui->mouse_y, btn_rect.x, btn_rect.y,
+             btn_rect.w, btn_rect.h);
+    }
 
     if (clicked) {
-      printf("[DEBUG] Toolbar button %d clicked (icon: %s)\n", i,
-             tool_icons[i]);
+      printf("[DEBUG] Toolbar click: button %d (icon: %s)\n", i, tool_icons[i]);
       switch (i) {
-      case 0:
+      case 0: // Home
         ui->screen = 0;
         break;
       case 1: // Text
@@ -125,16 +135,12 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
           Block *b = block_create(page, BLOCK_TEXT);
           if (b) {
             page_append_block(page, b);
-            printf("[DEBUG] Created TEXT block %u\n", b->id);
             char cmd[128];
             snprintf(cmd, sizeof(cmd), "block_create %u %u text", page_id,
                      b->id);
             engine_execute_command(engine, cmd);
-          } else {
-            printf("[DEBUG] Failed to create TEXT block\n");
+            printf("[DEBUG] Created TEXT block %u\n", b->id);
           }
-        } else {
-          printf("[DEBUG] No active page for TEXT block\n");
         }
         break;
       case 2: // H1
@@ -145,68 +151,54 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
             char cmd[128];
             snprintf(cmd, sizeof(cmd), "block_create %u %u h1", page_id, b->id);
             engine_execute_command(engine, cmd);
+            printf("[DEBUG] Created H1 block %u\n", b->id);
           }
         }
         break;
       case 3: // Table
         if (page) {
-          printf("[DEBUG] Attempting to create TABLE block...\n");
           Block *b = block_create(page, BLOCK_TABLE);
           if (b) {
             block_table_init(b, 3, 3);
             page_append_block(page, b);
-            printf("[DEBUG] Created TABLE block %u\n", b->id);
             char cmd[128];
             snprintf(cmd, sizeof(cmd), "block_create %u %u table", page_id,
                      b->id);
             engine_execute_command(engine, cmd);
-          } else {
-            printf("[DEBUG] Failed to create TABLE block object\n");
+            printf("[DEBUG] Created TABLE block %u\n", b->id);
           }
-        } else {
-          printf("[DEBUG] No active page for TABLE block\n");
         }
         break;
       case 4: // Canvas
         if (page) {
-          printf("[DEBUG] Attempting to create CANVAS block...\n");
           Block *b = block_create(page, BLOCK_CANVAS);
           if (b) {
             block_canvas_init(b);
             page_append_block(page, b);
-            printf("[DEBUG] Created CANVAS block %u\n", b->id);
             char cmd[128];
             snprintf(cmd, sizeof(cmd), "block_create %u %u canvas", page_id,
                      b->id);
             engine_execute_command(engine, cmd);
-          } else {
-            printf("[DEBUG] Failed to create CANVAS block object\n");
+            printf("[DEBUG] Created CANVAS block %u\n", b->id);
           }
-        } else {
-          printf("[DEBUG] No active page for CANVAS block\n");
         }
         break;
       case 5: // Design
         if (page) {
-          printf("[DEBUG] Attempting to create DESIGN block...\n");
           Block *b = block_create(page, BLOCK_DESIGN);
           if (b) {
             block_design_init(b, 800, 400);
             page_append_block(page, b);
-            printf("[DEBUG] Created DESIGN block %u\n", b->id);
             char cmd[128];
             snprintf(cmd, sizeof(cmd), "block_create %u %u design", page_id,
                      b->id);
             engine_execute_command(engine, cmd);
-          } else {
-            printf("[DEBUG] Failed to create DESIGN block object\n");
+            printf("[DEBUG] Created DESIGN block %u\n", b->id);
           }
-        } else {
-          printf("[DEBUG] No active page for DESIGN block\n");
         }
         break;
-      case 6: // Chart Placeholder
-        printf("[DEBUG] Chart placeholder clicked (no-op)\n");
+      case 6: // Chart
+        printf("[DEBUG] Chart clicked (no-op)\n");
         break;
       }
     }

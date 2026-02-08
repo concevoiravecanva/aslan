@@ -80,6 +80,20 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
         renderer_update_size(renderer);
       }
 
+      // DEBUG: Log mouse events directly from SDL
+      if (e.type == SDL_MOUSEMOTION) {
+        // Only log every few motions to avoid spam
+        static int motion_count = 0;
+        if (++motion_count % 30 == 0) {
+          printf("[DEBUG] MAIN SDL_MOUSEMOTION: (%d, %d)\n", e.motion.x,
+                 e.motion.y);
+        }
+      }
+      if (e.type == SDL_MOUSEBUTTONDOWN) {
+        printf("[DEBUG] MAIN SDL_MOUSEBUTTONDOWN: (%d, %d) btn=%d\n",
+               e.button.x, e.button.y, e.button.button);
+      }
+
       // Keyboard shortcuts (macOS): Cmd+Z (Undo), Cmd+Shift+Z (Redo)
       if (e.type == SDL_KEYDOWN && !nk_item_is_any_active(ui->ctx)) {
         SDL_Keymod mods = SDL_GetModState();

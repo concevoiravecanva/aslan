@@ -65,6 +65,16 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
   }
 
   // --- Rendering Workspace ---
+  // DEBUG: Visualize the intended area
+  /*
+  nk_stroke_rect(nk_window_get_canvas(ctx),
+      nk_layout_widget_bounds(ctx),
+      2.0f, 2.0f, nk_rgb(255, 0, 0));
+  */
+  // Print dimensions to debug visibility
+  printf("[DEBUG] Design Block %u: width=%.1f height=%.1f display_h=%.1f\n",
+         block->id, width, (float)dd->height, display_h);
+
   if (nk_group_begin(ctx, "design_content_group",
                      NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER)) {
     struct nk_rect ws_bounds = nk_window_get_content_region(ctx);

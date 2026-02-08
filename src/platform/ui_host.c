@@ -418,6 +418,22 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
   if (!ui || !evt)
     return;
 
+  // LOG EVERY MOUSE EVENT AT THE VERY TOP
+  if (evt->type == SDL_MOUSEMOTION || evt->type == SDL_MOUSEBUTTONDOWN ||
+      evt->type == SDL_MOUSEBUTTONUP) {
+    if (evt->type == SDL_MOUSEMOTION) {
+      static int motion_spam = 0;
+      if (++motion_spam % 60 == 0)
+        printf("[EVENT] Raw Motion: (%d, %d)\n", evt->motion.x, evt->motion.y);
+    } else if (evt->type == SDL_MOUSEBUTTONDOWN) {
+      printf("[EVENT] Raw Button Down: button=%d at (%d, %d)\n",
+             evt->button.button, evt->button.x, evt->button.y);
+    } else if (evt->type == SDL_MOUSEBUTTONUP) {
+      printf("[EVENT] Raw Button Up: button=%d at (%d, %d)\n",
+             evt->button.button, evt->button.x, evt->button.y);
+    }
+  }
+
   // Pass to Nuklear first
   nk_sdl_handle_event(evt);
 
@@ -476,6 +492,10 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       ui->mouse_buttons |= 1;
       cs->mouse_just_pressed = 1;
       ui->design_state.mouse_just_pressed = 1; // Also track for design
+
+      // LOG COORDINATES ON EVERY CLICK
+      printf("[DEBUG] SDL CLICK DOWN: (%d, %d)\n", evt->button.x,
+             evt->button.y);
 
       // Start panning with space + left click
       if (cs->space_held && cs->mouse_in_canvas) {
@@ -541,6 +561,7 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
   // Track spacebar for pan mode
   if (evt->type == SDL_KEYDOWN && evt->key.keysym.sym == SDLK_SPACE) {
     ui->canvas_state.space_held = 1;
+    printf("[DEBUG] Spacebar DOWN\n");
   }
   if (evt->type == SDL_KEYUP && evt->key.keysym.sym == SDLK_SPACE) {
     // Only clear space_held if pan wasn't activated from menu
@@ -548,11 +569,14 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       ui->canvas_state.space_held = 0;
     }
     ui->canvas_state.is_panning = 0;
+    printf("[DEBUG] Spacebar UP\n");
   }
 
   // Inline text editing keyboard handling (Freeform-style)
   if (ui->editing_node) {
     if (evt->type == SDL_KEYDOWN) {
+      printf("[DEBUG] Editing node, Keydown: %s\n",
+             SDL_GetKeyName(evt->key.keysym.sym));
       if (evt->key.keysym.sym == SDLK_RETURN ||
           evt->key.keysym.sym == SDLK_KP_ENTER) {
         // Confirm edit and exit editing mode
@@ -560,15 +584,19 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
                 sizeof(ui->editing_node->text) - 1);
         ui->editing_node->text[sizeof(ui->editing_node->text) - 1] = '\0';
         ui->editing_node = NULL;
+        printf("[DEBUG] Editing node confirmed.\n");
       } else if (evt->key.keysym.sym == SDLK_ESCAPE) {
         // Cancel edit (revert to original)
         ui->editing_node = NULL;
+        printf("[DEBUG] Editing node cancelled.\n");
       } else if (evt->key.keysym.sym == SDLK_BACKSPACE) {
         // Delete last character
         size_t len = strlen(ui->edit_buffer);
         if (len > 0) {
           ui->edit_buffer[len - 1] = '\0';
         }
+        printf("[DEBUG] Editing node backspace. Buffer: '%s'\n",
+               ui->edit_buffer);
       }
     } else if (evt->type == SDL_TEXTINPUT) {
       // Append typed text
@@ -577,6 +605,8 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       if (len + input_len < sizeof(ui->edit_buffer) - 1) {
         strcat(ui->edit_buffer, evt->text.text);
       }
+      printf("[DEBUG] Editing node text input: '%s'. Buffer: '%s'\n",
+             evt->text.text, ui->edit_buffer);
     }
   }
   // Only return if it's a typing event or return/esc/backspace for editing
@@ -589,12 +619,15 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 
   // Delete selected node
   if (evt->type == SDL_KEYDOWN && evt->key.keysym.sym == SDLK_BACKSPACE) {
+    printf("[DEBUG] Backspace pressed, selected_node=%p\n",
+           (void *)ui->selected_node);
     if (ui->selected_node && ui->canvas_state.active_block) {
       CanvasData *cd = &ui->canvas_state.active_block->data.canvas;
       (void)cd;
       // Remove node from tree (simplified - just hide it)
       ui->selected_node->visible = 0;
       ui->selected_node = NULL;
+      printf("[DEBUG] Node deleted/hidden.\n");
     }
   }
 
@@ -631,12 +664,16 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       float world_y = cs->cam_y + mouse_rel_y / old_zoom;
       cs->cam_x = world_x - mouse_rel_x / cs->zoom;
       cs->cam_y = world_y - mouse_rel_y / cs->zoom;
+      printf("[DEBUG] Canvas Zoom: %.2f (wheel.y=%d)\n", cs->zoom,
+             evt->wheel.y);
     } else {
       // Global Page Scroll (Default behavior)
       float scroll_amount = 60.0f;
       ui->scroll_target_y -= evt->wheel.y * scroll_amount;
       if (ui->scroll_target_y < 0)
         ui->scroll_target_y = 0;
+      printf("[DEBUG] Page Scroll: %.1f (wheel.y=%d)\n", ui->scroll_target_y,
+             evt->wheel.y);
     }
   }
 }
@@ -729,7 +766,8 @@ void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
   buf[sizeof(buf) - 1] = '\0';
 
   // Capture state
-  nk_flags flags = NK_EDIT_FIELD | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD;
+  nk_flags flags =
+      NK_EDIT_BOX | NK_EDIT_MULTILINE | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD;
   nk_flags state = nk_edit_string_zero_terminated(
       ctx, flags, buf, (int)sizeof(buf) - 1, nk_filter_default);
 
@@ -777,12 +815,38 @@ void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
   strncpy(buf, block->text ? block->text : "", sizeof(buf) - 1);
   buf[sizeof(buf) - 1] = '\0';
 
-  nk_flags flags = NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT;
-  nk_edit_string_zero_terminated(ctx, flags, buf, (int)sizeof(buf) - 1,
-                                 nk_filter_default);
+  nk_flags flags = NK_EDIT_FIELD | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD;
+  nk_flags state = nk_edit_string_zero_terminated(
+      ctx, flags, buf, (int)sizeof(buf) - 1, nk_filter_default);
+
+  // Restore placeholder logic using bounds of the widget we just drew
+  struct nk_rect bounds = nk_layout_widget_bounds(ctx);
+  if (buf[0] == '\0' && !(state & NK_EDIT_ACTIVE)) {
+    struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+    struct nk_color placeholder_color =
+        ui->dark_mode ? nk_rgb(100, 100, 110) : nk_rgb(170, 170, 180);
+    const char *placeholder =
+        (level == 1) ? "Heading 1" : (level == 2 ? "Heading 2" : "Heading 3");
+    nk_draw_text(canvas, bounds, placeholder, strlen(placeholder),
+                 &font->handle, nk_rgba(0, 0, 0, 0), placeholder_color);
+  }
+
+  // Debug H1 editing
+  if (level == 1 &&
+      (state & (NK_EDIT_ACTIVE | NK_EDIT_ACTIVATED | NK_EDIT_DEACTIVATED))) {
+    printf("[DEBUG] H1 edit state: active=%d activated=%d deactivated=%d "
+           "commited=%d buf='%s'\n",
+           (state & NK_EDIT_ACTIVE) ? 1 : 0,
+           (state & NK_EDIT_ACTIVATED) ? 1 : 0,
+           (state & NK_EDIT_DEACTIVATED) ? 1 : 0,
+           (state & NK_EDIT_COMMITED) ? 1 : 0, buf);
+  }
 
   if (strcmp(buf, block->text ? block->text : "") != 0) {
     block_set_text(block, buf);
+    if (level == 1) {
+      printf("[DEBUG] H1 text updated to: '%s'\n", buf);
+    }
   }
 
   if (ui->font_inter) {
