@@ -113,7 +113,7 @@ typedef struct {
 // Table Structure (Collection of Columns)
 // -----------------------------------------------------------------------------
 
-typedef struct AslanTable {
+struct AslanTable {
   uint32_t id;   // Unique table ID
   char name[64]; // Table name
 
@@ -144,8 +144,12 @@ typedef struct AslanTable {
   // AOF logging callback (set externally)
   void (*log_callback)(const char *cmd, void *userdata);
   void *log_userdata;
+};
 
-} AslanTable;
+#ifndef ASLAN_TABLE_TYPEDEF
+#define ASLAN_TABLE_TYPEDEF
+typedef struct AslanTable AslanTable;
+#endif
 
 // -----------------------------------------------------------------------------
 // Table Lifecycle

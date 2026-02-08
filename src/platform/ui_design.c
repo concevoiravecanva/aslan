@@ -373,10 +373,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                     } else if (node->line_end_style == 2) { // Arrow
                       float tip_x = end_x;
                       float tip_y = end_y;
-                      float base_angle1 =
-                          angle + 3.14159f +
-                          0.5f; // Pointing away implies we should adhere to
-                                // direction?? No, arrow points AT end
+                      // Arrow tip at end, base points away
                       // standard arrow at end points OUTWARD usually.
                       // ui_canvas.c logic: base_angle = angle + PI +/- 0.5.
                       // Wait, ui_canvas.c had angle (dy,dx).
@@ -479,8 +476,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                 // Tip at start_x, start_y. Base towards center.
                 float angle =
                     rad + 3.14159f; // Pointing away from center (left)
-                float ac = cosf(angle);
-                float as = sinf(angle);
                 float tip_x = start_x; // Tip exactly at geometric start
                 float tip_y = start_y;
 
@@ -507,8 +502,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                          2) {      // Arrow (pointing right/outward)
                                    // Tip at end_x, end_y. Base towards center.
                 float angle = rad; // Pointing away from center (right)
-                float ac = cosf(angle);
-                float as = sinf(angle);
                 float tip_x = end_x; // Tip exactly at geometric end
                 float tip_y = end_y;
 
@@ -860,7 +853,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                              2.0f, 1.0f, nk_rgb(66, 133, 244));
             }
             if (display_text && strlen(display_text) > 0) {
-              struct nk_user_font *font =
+              const struct nk_user_font *font =
                   ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
 
               // Select font based on type and size

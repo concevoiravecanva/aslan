@@ -136,6 +136,7 @@ static void engine_emit_command(Engine *engine, const char *line) {
   fflush(engine->history_file);
 }
 
+__attribute__((unused))
 static void escape_and_emit(Engine *engine, const char *fmt, ...) {
   if (!engine || !engine->history_file)
     return;

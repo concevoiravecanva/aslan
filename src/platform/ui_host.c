@@ -58,6 +58,8 @@ int open_image_file_dialog(char *out_path, size_t path_size) {
 }
 
 // Opens a native file dialog to select a video file
+// TODO: Enable when video block is implemented
+__attribute__((unused))
 static int open_video_file_dialog(char *out_path, size_t path_size) {
   const char *script =
       "osascript -e 'set theFile to choose file of type {\"public.movie\"} "
@@ -634,7 +636,6 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
   // Handle canvas zoom or page scroll with mouse wheel
   if (evt->type == SDL_MOUSEWHEEL) {
     CanvasInteraction *cs = &ui->canvas_state;
-    DesignInteraction *ds = &ui->design_state;
 
     // Initialize zoom if not set
     if (cs->zoom < 0.01f)
@@ -724,6 +725,9 @@ void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx, Block *block) {
 
 void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
                           Page *page, Block *block, float width) {
+  (void)engine;
+  (void)page;
+  (void)width;
   if (!block)
     return;
 
@@ -796,6 +800,7 @@ void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
 void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
                              float width, int level) {
+  (void)width;
   if (!block)
     return;
 
@@ -856,6 +861,9 @@ void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
 
 void ui_render_block_separator(UIHost *ui, struct nk_context *ctx, Block *block,
                                float width) {
+  (void)ui;
+  (void)block;
+  (void)width;
   nk_layout_row_dynamic(ctx, 20.0f, 1);
 
   struct nk_rect bounds = nk_widget_bounds(ctx);

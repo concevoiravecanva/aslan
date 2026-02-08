@@ -139,7 +139,10 @@ typedef struct Node {
 // =============================================================================
 
 // Forward declare columnar table (implemented in aslan_table.h)
+#ifndef ASLAN_TABLE_TYPEDEF
+#define ASLAN_TABLE_TYPEDEF
 typedef struct AslanTable AslanTable;
+#endif
 
 // --- Table Block Data ---
 typedef struct {

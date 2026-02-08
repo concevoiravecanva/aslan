@@ -71,14 +71,9 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
   const float min_col_w = 80.0f;
   const float max_col_w = 250.0f;
   const float row_num_w = 40.0f;
-  const float toolbar_h = 32.0f;
 
   // Colors - Dark header/footer for professional Notion-like look
   struct nk_color header_bg = nk_rgb(25, 25, 28); // Near-black in all modes
-  struct nk_color row_alt =
-      ui->dark_mode ? nk_rgb(35, 37, 42) : nk_rgb(251, 251, 250); // #FBFBFA
-  struct nk_color row_normal =
-      ui->dark_mode ? nk_rgb(30, 32, 36) : nk_rgb(251, 251, 250); // #FBFBFA
   struct nk_color border_color =
       ui->dark_mode ? nk_rgb(60, 62, 68) : nk_rgb(237, 236, 233); // #EDECE9
   struct nk_color footer_bg = nk_rgb(30, 30, 34); // Near-black in all modes
@@ -156,7 +151,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     // Set Inter font for the entire table block - Manual save/restore to avoid
     // stack issues
-    struct nk_user_font *old_table_font = ctx->style.font;
+    const struct nk_user_font *old_table_font = ctx->style.font;
     if (ui->font_inter) {
       nk_style_set_font(ctx, &ui->font_inter->handle);
     }

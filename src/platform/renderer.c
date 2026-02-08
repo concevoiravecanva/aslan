@@ -186,6 +186,7 @@ static void draw_node_tree(Renderer *r, const Node *node, float ox, float oy,
 
 void renderer_draw_document(Renderer *r, const Document *doc,
                             struct nk_context *nk_ctx) {
+  (void)nk_ctx;
   if (!r || !doc)
     return;
 
@@ -219,6 +220,7 @@ void renderer_draw_document(Renderer *r, const Document *doc,
 
 void renderer_draw_selection(Renderer *r, const Document *doc,
                              Node *selected_node) {
+  (void)doc;
   if (!r || !selected_node)
     return;
 

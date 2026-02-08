@@ -781,19 +781,6 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
                               brush_icon, "",        ICON_MAGIC};
   int tool_count = 6;
 
-  // Preset colors for color swatch cycling
-  static uint32_t preset_colors[] = {
-      0x000000FF, // Black
-      0xFF0000FF, // Red
-      0x0000FFFF, // Blue
-      0x00FF00FF, // Green
-      0xFFFF00FF, // Yellow
-      0xFF00FFFF, // Magenta
-      0xFF8800FF, // Orange
-      0xFF69B4FF  // Pink
-  };
-  static int preset_count = 8;
-
   for (int i = 0; i < tool_count; i++) {
     struct nk_rect btn = nk_rect(btn_x + i * (btn_size + btn_spacing), btn_y,
                                  btn_size, btn_size);
@@ -1471,13 +1458,11 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
   // Canvas height
   float total_h = 400.0f;
   float preview_h = 400.0f;
-  float editor_h = 0.0f;
   int is_expanded = (ui->expanded_block_id == block->id);
 
   if (is_expanded) {
     total_h = nk_window_get_height(ctx) - 80.0f;
     preview_h = total_h; // Use 100% for canvas in fullscreen
-    editor_h = 0.0f;     // No editor in fullscreen
   }
 
   // Preview Area (Canvas) - 2 columns in fullscreen, 1 column otherwise
@@ -1626,7 +1611,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
   }
 
   // --- 3. Resize and Select logic ---
-  int on_resize_handle = 0, hit_handle_index = 0, on_prop_menu = 0;
+  int on_resize_handle = 0, hit_handle_index = 0;
   if (ui->selected_node && ui->selected_node->visible) {
     Node *sel = ui->selected_node;
     float sx = bounds.x + (sel->x - cam_x) * zoom,
@@ -1661,9 +1646,9 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
       mx = bounds.x + bounds.w - mw;
     if (my < bounds.y)
       my = sy + sh + 10.0f;
-    if (ui->mouse_x >= mx && ui->mouse_x < mx + mw && ui->mouse_y >= my &&
-        ui->mouse_y < my + mh)
-      on_prop_menu = 1;
+    // Check if mouse is over property menu (reserved for future use)
+    (void)(ui->mouse_x >= mx && ui->mouse_x < mx + mw && ui->mouse_y >= my &&
+           ui->mouse_y < my + mh);
   }
 
   if (cs->mouse_in_canvas && !cs->is_panning && cs->mouse_just_pressed) {
@@ -2326,7 +2311,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           display_text = ui->edit_buffer;
 
         if (display_text && strlen(display_text) > 0) {
-          struct nk_user_font *font =
+          const struct nk_user_font *font =
               ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
 
           // Select font based on type and size
