@@ -159,7 +159,7 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
         if (page) {
           Block *b = block_create(page, BLOCK_TABLE);
           if (b) {
-            block_table_init(b, 3, 3);
+            block_table_init(b);
             page_append_block(page, b);
             char cmd[128];
             snprintf(cmd, sizeof(cmd), "block_create %u %u table", page_id,
@@ -187,7 +187,7 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
         if (page) {
           Block *b = block_create(page, BLOCK_DESIGN);
           if (b) {
-            block_design_init(b, 800, 400);
+            block_design_init(b);
             page_append_block(page, b);
             char cmd[128];
             snprintf(cmd, sizeof(cmd), "block_create %u %u design", page_id,

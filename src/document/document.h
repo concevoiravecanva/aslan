@@ -364,7 +364,10 @@ void block_convert_to(Block *block, BlockType new_type);
 // TABLE BLOCK API
 // =============================================================================
 
-void block_table_init(Block *block, int rows, int cols);
+#define DEFAULT_TABLE_ROWS 3
+#define DEFAULT_TABLE_COLS 3
+
+void block_table_init(Block *block);
 void block_table_destroy(Block *block);
 void block_table_set_cell(Block *block, int row, int col, const char *text);
 const char *block_table_get_cell(const Block *block, int row, int col);
@@ -391,7 +394,10 @@ void block_canvas_add_stroke(Block *block, Stroke *stroke);
 // DESIGN BLOCK API
 // =============================================================================
 
-void block_design_init(Block *block, int width, int height);
+#define DEFAULT_DESIGN_WIDTH 800
+#define DEFAULT_DESIGN_HEIGHT 600
+
+void block_design_init(Block *block);
 void block_design_destroy(Block *block);
 Node *block_design_create_node(Block *block, NodeType type, const char *name);
 Node *block_design_find_node(Block *block, uint32_t node_id);

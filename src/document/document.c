@@ -840,13 +840,12 @@ void block_convert_to(Block *block, BlockType new_type) {
 // Table Block API
 // -----------------------------------------------------------------------------
 
-void block_table_init(Block *block, int rows, int cols) {
+void block_table_init(Block *block) {
   if (!block || block->type != BLOCK_TABLE)
     return;
-  if (rows < 1)
-    rows = 1;
-  if (cols < 1)
-    cols = 1;
+
+  int rows = DEFAULT_TABLE_ROWS;
+  int cols = DEFAULT_TABLE_COLS;
 
   TableData *td = &block->data.table;
 
@@ -1434,7 +1433,7 @@ void block_canvas_clear_strokes(Block *block) {
 // Design Block API
 // -----------------------------------------------------------------------------
 
-void block_design_init(Block *block, int width, int height) {
+void block_design_init(Block *block) {
   if (!block || block->type != BLOCK_DESIGN)
     return;
 
@@ -1454,9 +1453,9 @@ void block_design_init(Block *block, int width, int height) {
   dd->root = dd->pages[0].root;
 
   dd->next_node_id = 1;
-  dd->width = width > 0 ? width : 800;
-  dd->height = height > 0 ? height : 400; // Optimized for inline document use
-  dd->units = 0;                          // 0 = Pixels
+  dd->width = DEFAULT_DESIGN_WIDTH;
+  dd->height = DEFAULT_DESIGN_HEIGHT;
+  dd->units = 0; // 0 = Pixels
   dd->zoom = 1.0f;
   dd->bg_color = 0xFFFFFFFF;
 }

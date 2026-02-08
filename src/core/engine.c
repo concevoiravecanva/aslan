@@ -136,8 +136,8 @@ static void engine_emit_command(Engine *engine, const char *line) {
   fflush(engine->history_file);
 }
 
-__attribute__((unused))
-static void escape_and_emit(Engine *engine, const char *fmt, ...) {
+__attribute__((unused)) static void escape_and_emit(Engine *engine,
+                                                    const char *fmt, ...) {
   if (!engine || !engine->history_file)
     return;
 
@@ -387,13 +387,13 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
         // Initialize type-specific data
         switch (type) {
         case BLOCK_TABLE:
-          block_table_init(block, 3, 3);
+          block_table_init(block);
           break;
         case BLOCK_CANVAS:
           block_canvas_init(block);
           break;
         case BLOCK_DESIGN:
-          block_design_init(block, 800, 400);
+          block_design_init(block);
           break;
         default:
           break;
@@ -492,7 +492,25 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
 
     Block *block = find_block(engine, page_id, block_id);
     if (block && block->type == BLOCK_TABLE) {
-      block_table_init(block, rows, cols);
+      block_table_init(block);
+      // If we support resizing, we would do it here.
+      // For now, rows/cols from AOF are ignored in init,
+      // but rows/cols are added dynamically anyway.
+      // If specific size is needed, we can loop add_row/col here.
+
+      // Adjust rows
+      int current_rows = DEFAULT_TABLE_ROWS;
+      while (current_rows < rows) {
+        block_table_insert_row(block, -1);
+        current_rows++;
+      }
+      // Adjust cols
+      int current_cols = DEFAULT_TABLE_COLS;
+      while (current_cols < cols) {
+        block_table_insert_col(block, -1);
+        current_cols++;
+      }
+
       engine_emit_command(engine, command_line);
       success = true;
     }
@@ -699,7 +717,9 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
 
     Block *block = find_block(engine, page_id, block_id);
     if (block && block->type == BLOCK_DESIGN) {
-      block_design_init(block, width, height);
+      block_design_init(block);
+      // Apply correct size from AOF
+      block_design_set_size(block, width, height);
       engine_emit_command(engine, command_line);
       success = true;
     }

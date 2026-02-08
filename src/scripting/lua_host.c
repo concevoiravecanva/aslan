@@ -325,13 +325,13 @@ static int l_create_block(lua_State *L) {
     // Initialize type-specific data
     switch (type) {
     case BLOCK_TABLE:
-      block_table_init(block, 3, 3);
+      block_table_init(block);
       break;
     case BLOCK_CANVAS:
       block_canvas_init(block);
       break;
     case BLOCK_DESIGN:
-      block_design_init(block, 800, 600);
+      block_design_init(block);
       break;
     default:
       break;
