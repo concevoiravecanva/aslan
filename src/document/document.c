@@ -58,8 +58,6 @@ const char *block_type_to_string(BlockType type) {
     return "separator";
   case BLOCK_TABLE:
     return "table";
-  case BLOCK_CANVAS:
-    return "canvas";
   case BLOCK_DESIGN:
     return "design";
   default:
@@ -818,9 +816,6 @@ void block_convert_to(Block *block, BlockType new_type) {
   case BLOCK_DESIGN:
     block_design_destroy(block);
     break;
-  case BLOCK_CHART:
-    block_chart_destroy(block);
-    break;
   default:
     break;
   }
@@ -1467,38 +1462,6 @@ void block_design_init(Block *block) {
   dd->units = 0; // 0 = Pixels
   dd->zoom = 1.0f;
   dd->bg_color = 0xFFFFFFFF;
-}
-
-// -----------------------------------------------------------------------------
-// Chart Block API
-// -----------------------------------------------------------------------------
-
-void block_chart_init(Block *block) {
-  if (!block || block->type != BLOCK_CHART)
-    return;
-
-  ChartData *cd = &block->data.chart;
-
-  // Defaults
-  cd->type = CHART_BAR;
-  cd->source_table_id = 0; // No source initially
-  cd->label_col_idx = 0;   // Default to first column for labels
-  cd->value_col_idx = 1;   // Default to second column for values
-  cd->color =
-      0xFF5578FA; // Default Blue (RGBA: 250, 120, 85, 255 -> 0xFA7855FF)
-                  // Wait, internal color is usually 0xAABBGGRR or similar
-                  // depending on endianness Let's use a safe default compatible
-                  // with Nuklear's nk_rgba/nk_rgb We'll trust the UI to
-                  // interpret this uint32_t. For now, 0xFFFFFFFF (White) or a
-                  // nice Aslan Blue.
-  cd->show_values = true;
-}
-
-void block_chart_destroy(Block *block) {
-  if (!block)
-    return;
-  // No dynamic memory to free for now
-  (void)block;
 }
 
 // -----------------------------------------------------------------------------

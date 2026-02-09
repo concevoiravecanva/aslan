@@ -420,117 +420,6 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
       nk_label(ctx, "Background", NK_TEXT_LEFT);
       // Background color picker could go here too if needed, but per-page
       // exists
-    } else if (block && block->type == BLOCK_CHART) {
-      ChartData *cd = &block->data.chart;
-      nk_layout_row_dynamic(ctx, 30, 1);
-      nk_label(ctx, "Chart Settings", NK_TEXT_LEFT);
-      nk_layout_row_dynamic(ctx, 5, 1);
-      nk_spacing(ctx, 1);
-
-      // --- Chart Type Selector ---
-      nk_layout_row_dynamic(ctx, 25, 1);
-      nk_label(ctx, "Chart Type", NK_TEXT_LEFT);
-      const char *chart_types[] = {"Bar Chart", "Line Chart", "Pie Chart"};
-      int current_type = (int)cd->type;
-      int new_type =
-          nk_combo(ctx, chart_types, 3, current_type, 25, nk_vec2(200, 200));
-      if (new_type != current_type) {
-        cd->type = (ChartType)new_type;
-      }
-
-      // --- Source Table Selector ---
-      nk_layout_row_dynamic(ctx, 25, 1);
-      nk_label(ctx, "Source Table", NK_TEXT_LEFT);
-
-      Page *page = doc_page_get_active(engine->doc);
-      if (page) {
-        char *table_names[32];
-        uint32_t table_ids[32];
-        int table_count = 0;
-        int current_table_idx = -1;
-
-        table_names[0] = "None";
-        table_ids[0] = 0;
-        table_count++;
-        if (cd->source_table_id == 0)
-          current_table_idx = 0;
-
-        char name_storage[32][64];
-
-        for (Block *b = page->first_block; b && table_count < 32; b = b->next) {
-          if (b->type == BLOCK_TABLE) {
-            snprintf(name_storage[table_count], 64, "Table %u", b->id);
-            table_names[table_count] = name_storage[table_count];
-            table_ids[table_count] = b->id;
-            if (b->id == cd->source_table_id)
-              current_table_idx = table_count;
-            table_count++;
-          }
-        }
-
-        if (current_table_idx == -1)
-          current_table_idx = 0;
-
-        int new_table_idx =
-            nk_combo(ctx, (const char **)table_names, table_count,
-                     current_table_idx, 25, nk_vec2(200, 200));
-        if (new_table_idx != current_table_idx) {
-          cd->source_table_id = table_ids[new_table_idx];
-          cd->label_col_idx = 0;
-          cd->value_col_idx = 1;
-        }
-
-        if (cd->source_table_id != 0) {
-          Block *src_block = NULL;
-          for (Block *b = page->first_block; b; b = b->next) {
-            if (b->id == cd->source_table_id) {
-              src_block = b;
-              break;
-            }
-          }
-
-          if (src_block && src_block->data.table.columnar) {
-            AslanTable *tbl = src_block->data.table.columnar;
-            int col_count = tbl->column_count;
-            if (col_count > 0) {
-              char *col_names[32];
-              for (int k = 0; k < col_count && k < 32; k++) {
-                col_names[k] = tbl->columns[k].name;
-              }
-
-              nk_layout_row_dynamic(ctx, 25, 1);
-              nk_label(ctx, "Label Column (X)", NK_TEXT_LEFT);
-              int l_idx = cd->label_col_idx;
-              if (l_idx >= col_count)
-                l_idx = 0;
-              int new_l = nk_combo(ctx, (const char **)col_names, col_count,
-                                   l_idx, 25, nk_vec2(200, 200));
-              if (new_l != cd->label_col_idx)
-                cd->label_col_idx = new_l;
-
-              nk_layout_row_dynamic(ctx, 25, 1);
-              nk_label(ctx, "Value Column (Y)", NK_TEXT_LEFT);
-              int v_idx = cd->value_col_idx;
-              if (v_idx >= col_count)
-                v_idx = 0;
-              int new_v = nk_combo(ctx, (const char **)col_names, col_count,
-                                   v_idx, 25, nk_vec2(200, 200));
-              if (new_v != cd->value_col_idx)
-                cd->value_col_idx = new_v;
-            }
-          }
-        }
-      }
-
-      // --- Appearance ---
-      nk_layout_row_dynamic(ctx, 25, 1);
-      nk_label(ctx, "Color", NK_TEXT_LEFT);
-      nk_layout_row_dynamic(ctx, 120, 1);
-      struct nk_colorf cf = nk_color_cf(nk_rgba_u32(cd->color));
-      if (nk_color_pick(ctx, &cf, NK_RGBA)) {
-        cd->color = nk_color_u32(nk_rgba_cf(cf));
-      }
-
     } else {
       nk_layout_row_dynamic(ctx, 30, 1);
       nk_label(ctx, "No element selected", NK_TEXT_LEFT);
@@ -2586,6 +2475,11 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           }
         }
 
+        if (node->stroke_width > 0)
+          nk_stroke_rect(canvas_buf, nr, node->corner_radius * zoom,
+                         node->stroke_width * zoom, stroke);
+      } else if (node->type == NODE_TYPE_CHART) {
+        ui_render_chart_node(ui, ctx, node, nr);
         if (node->stroke_width > 0)
           nk_stroke_rect(canvas_buf, nr, node->corner_radius * zoom,
                          node->stroke_width * zoom, stroke);

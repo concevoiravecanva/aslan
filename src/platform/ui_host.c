@@ -908,9 +908,6 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
   case BLOCK_DESIGN:
     ui_render_block_design(ui, engine, ctx, block, width);
     break;
-  case BLOCK_CHART:
-    ui_render_block_chart(ui, block, ctx);
-    break;
   default:
     break;
   }

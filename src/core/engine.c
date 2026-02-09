@@ -486,9 +486,6 @@ static bool handle_block_create(Engine *engine, const AofCommand *cmd,
     case BLOCK_DESIGN:
       block_design_init(block);
       break;
-    case BLOCK_CHART:
-      block_chart_init(block);
-      break;
     default:
       break;
     }

@@ -39,7 +39,6 @@ typedef enum {
   BLOCK_TABLE,     // Notion-style table with views
   BLOCK_CANVAS,    // Infinite canvas (Miro-style)
   BLOCK_DESIGN,    // Finite design surface (Canva-style)
-  BLOCK_CHART,     // Data visualization linked to a table
 
   BLOCK_COUNT
 } BlockType;
@@ -251,7 +250,6 @@ typedef struct Block {
     TableData table;
     CanvasData canvas;
     DesignData design;
-    ChartData chart;
   } data;
 
   // View state

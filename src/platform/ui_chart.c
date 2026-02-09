@@ -48,17 +48,11 @@ void ui_render_chart_impl(UIHost *ui, struct nk_context *ctx, ChartData *cd,
                          cd->color >> 8 & 0xFF, cd->color & 0xFF));
 }
 
-void ui_render_block_chart(UIHost *ui, Block *block, struct nk_context *ctx) {
-  if (!ui || !block || !ctx)
+void ui_render_chart_node(UIHost *ui, struct nk_context *ctx, Node *node,
+                          struct nk_rect bounds) {
+  if (!ui || !node || !ctx || node->type != NODE_TYPE_CHART ||
+      !node->chart_data)
     return;
 
-  ChartData *cd = &block->data.chart;
-
-  // Layout state
-  nk_layout_row_dynamic(ctx, block->height > 0 ? block->height : 250, 1);
-  if (nk_group_begin(ctx, "ChartGroup", NK_WINDOW_NO_SCROLLBAR)) {
-    struct nk_rect bounds = nk_widget_bounds(ctx);
-    ui_render_chart_impl(ui, ctx, cd, bounds);
-    nk_group_end(ctx);
-  }
+  ui_render_chart_impl(ui, ctx, node->chart_data, bounds);
 }
