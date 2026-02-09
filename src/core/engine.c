@@ -227,6 +227,625 @@ static Block *find_block(Engine *engine, uint32_t page_id, uint32_t block_id) {
 // Command Execution
 // -----------------------------------------------------------------------------
 
+// -----------------------------------------------------------------------------
+// Command Dispatch Table handlers
+// -----------------------------------------------------------------------------
+
+typedef bool (*CommandHandler)(Engine *engine, const AofCommand *cmd,
+                               const char *command_line);
+
+typedef struct {
+  const char *verb;
+  CommandHandler handler;
+} CommandEntry;
+
+// SYSTEM COMMANDS
+static bool handle_exit(Engine *engine, const AofCommand *cmd,
+                        const char *command_line) {
+  (void)cmd;
+  (void)command_line;
+  engine->is_running = false;
+  return true;
+}
+
+static bool handle_clear(Engine *engine, const AofCommand *cmd,
+                         const char *command_line) {
+  (void)cmd;
+  (void)command_line;
+  if (engine->history_file) {
+    fclose(engine->history_file);
+    engine->history_file = NULL;
+  }
+  clear_history_log();
+  clear_redo_log();
+
+  doc_destroy(engine->doc);
+  engine->doc = doc_create();
+
+  if (engine->ui_host) {
+    engine->ui_host->selected_node = NULL;
+  }
+  scripting_set_document(engine->doc);
+
+  engine->history_file = fopen(k_history_path, "a");
+  if (engine->history_file) {
+    fprintf(engine->history_file, "-- Session started --\n");
+    fflush(engine->history_file);
+  }
+  return true;
+}
+
+// DOCUMENT COMMANDS
+static bool handle_doc_title(Engine *engine, const AofCommand *cmd,
+                             const char *command_line) {
+  if (cmd->argc < 2)
+    return false;
+  char unescaped[256];
+  unescape_string(cmd->argv[1], unescaped, sizeof(unescaped));
+  doc_set_title(engine->doc, unescaped);
+  engine_emit_command(engine, command_line);
+  return true;
+}
+
+static bool handle_set_global(Engine *engine, const AofCommand *cmd,
+                              const char *command_line) {
+  if (cmd->argc < 3)
+    return false;
+  char unescaped[256];
+  unescape_string(cmd->argv[2], unescaped, sizeof(unescaped));
+  bool success = doc_set_global(engine->doc, cmd->argv[1], unescaped);
+  if (success)
+    engine_emit_command(engine, command_line);
+  return success;
+}
+
+static bool handle_unset_global(Engine *engine, const AofCommand *cmd,
+                                const char *command_line) {
+  if (cmd->argc < 2)
+    return false;
+  bool success = doc_unset_global(engine->doc, cmd->argv[1]);
+  if (success)
+    engine_emit_command(engine, command_line);
+  return success;
+}
+
+// PAGE COMMANDS
+static bool handle_page_create(Engine *engine, const AofCommand *cmd,
+                               const char *command_line) {
+  (void)command_line;
+  if (cmd->argc < 2)
+    return false;
+  uint32_t forced_id = 0;
+  const char *page_name = NULL;
+
+  if (cmd->argc >= 3) {
+    forced_id = (uint32_t)atoi(cmd->argv[1]);
+    page_name = cmd->argv[2];
+  } else {
+    page_name = cmd->argv[1];
+  }
+
+  char unescaped[64];
+  unescape_string(page_name, unescaped, sizeof(unescaped));
+
+  Page *page = NULL;
+  if (forced_id > 0) {
+    page = doc_page_get(engine->doc, forced_id);
+    if (page)
+      return true;
+    page = doc_page_create_with_id(engine->doc, forced_id, unescaped);
+  } else {
+    page = doc_page_create(engine->doc, unescaped);
+  }
+
+  if (page) {
+    char canon[256];
+    snprintf(canon, sizeof(canon), "page_create %u \"%s\"", page->id,
+             page->name);
+    engine_emit_command(engine, canon);
+    return true;
+  }
+  return false;
+}
+
+static bool handle_page_delete(Engine *engine, const AofCommand *cmd,
+                               const char *command_line) {
+  if (cmd->argc < 2)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  bool success = doc_page_delete(engine->doc, page_id);
+  if (success)
+    engine_emit_command(engine, command_line);
+  return success;
+}
+
+static bool handle_page_rename(Engine *engine, const AofCommand *cmd,
+                               const char *command_line) {
+  if (cmd->argc < 3)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  char unescaped[64];
+  unescape_string(cmd->argv[2], unescaped, sizeof(unescaped));
+  bool success = doc_page_rename(engine->doc, page_id, unescaped);
+  if (success)
+    engine_emit_command(engine, command_line);
+  return success;
+}
+
+static bool handle_page_activate(Engine *engine, const AofCommand *cmd,
+                                 const char *command_line) {
+  if (cmd->argc < 2)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  doc_page_activate(engine->doc, page_id);
+  if (engine->ui_host)
+    engine->ui_host->selected_node = NULL;
+  engine_emit_command(engine, command_line);
+  return true;
+}
+
+// BLOCK COMMANDS
+static bool handle_block_create(Engine *engine, const AofCommand *cmd,
+                                const char *command_line) {
+  if (cmd->argc < 4)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  BlockType type = block_type_from_string(cmd->argv[3]);
+
+  Page *page = find_page(engine, page_id);
+  if (!page)
+    return false;
+
+  if (page_find_block_by_id(page, block_id))
+    return true;
+
+  Block *block = block_create_with_id(page, block_id, type);
+  if (block) {
+    page_append_block(page, block);
+    switch (type) {
+    case BLOCK_TABLE:
+      block_table_init(block);
+      break;
+    case BLOCK_CANVAS:
+      block_canvas_init(block);
+      break;
+    case BLOCK_DESIGN:
+      block_design_init(block);
+      break;
+    case BLOCK_CHART:
+      block_chart_init(block);
+      break;
+    default:
+      break;
+    }
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+static bool handle_block_delete(Engine *engine, const AofCommand *cmd,
+                                const char *command_line) {
+  if (cmd->argc < 3)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  Page *page = find_page(engine, page_id);
+  if (page) {
+    Block *block = page_find_block_by_id(page, block_id);
+    if (block) {
+      page_remove_block(page, block);
+      block_destroy(block);
+      engine_emit_command(engine, command_line);
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool handle_block_text(Engine *engine, const AofCommand *cmd,
+                              const char *command_line) {
+  if (cmd->argc < 4)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (block) {
+    char unescaped[4096];
+    unescape_string(cmd->argv[3], unescaped, sizeof(unescaped));
+    block_set_text(block, unescaped);
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+static bool handle_block_move_after(Engine *engine, const AofCommand *cmd,
+                                    const char *command_line) {
+  if (cmd->argc < 4)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  uint32_t after_id = (uint32_t)atoi(cmd->argv[3]);
+  Page *page = find_page(engine, page_id);
+  if (page) {
+    Block *block = page_find_block_by_id(page, block_id);
+    Block *after = after_id ? page_find_block_by_id(page, after_id) : NULL;
+    if (block) {
+      page_remove_block(page, block);
+      page_insert_block_after(page, after, block);
+      engine_emit_command(engine, command_line);
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool handle_block_collapse(Engine *engine, const AofCommand *cmd,
+                                  const char *command_line) {
+  if (cmd->argc < 4)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  int collapsed = atoi(cmd->argv[3]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (block) {
+    block->is_collapsed = collapsed != 0;
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+static bool handle_block_highlight(Engine *engine, const AofCommand *cmd,
+                                   const char *command_line) {
+  if (cmd->argc < 4)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  int color = atoi(cmd->argv[3]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (block) {
+    block->highlight_color = color;
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+// TABLE BLOCK COMMANDS
+static bool handle_block_table_init(Engine *engine, const AofCommand *cmd,
+                                    const char *command_line) {
+  if (cmd->argc < 5)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  int rows = atoi(cmd->argv[3]);
+  int cols = atoi(cmd->argv[4]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (block && block->type == BLOCK_TABLE) {
+    block_table_init(block);
+    int current_rows = DEFAULT_TABLE_ROWS;
+    while (current_rows < rows) {
+      block_table_insert_row(block, -1);
+      current_rows++;
+    }
+    int current_cols = DEFAULT_TABLE_COLS;
+    while (current_cols < cols) {
+      block_table_insert_col(block, -1);
+      current_cols++;
+    }
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+static bool handle_block_table_cell(Engine *engine, const AofCommand *cmd,
+                                    const char *command_line) {
+  if (cmd->argc < 6)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  int row = atoi(cmd->argv[3]);
+  int col = atoi(cmd->argv[4]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (block && block->type == BLOCK_TABLE) {
+    char unescaped[1024];
+    unescape_string(cmd->argv[5], unescaped, sizeof(unescaped));
+    block_table_set_cell(block, row, col, unescaped);
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+static bool handle_block_table_view(Engine *engine, const AofCommand *cmd,
+                                    const char *command_line) {
+  if (cmd->argc < 4)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  const char *view_str = cmd->argv[3];
+  Block *block = find_block(engine, page_id, block_id);
+  if (block && block->type == BLOCK_TABLE) {
+    TableViewMode mode = TABLE_VIEW_TABLE;
+    if (strcmp(view_str, "list") == 0)
+      mode = TABLE_VIEW_LIST;
+    else if (strcmp(view_str, "board") == 0)
+      mode = TABLE_VIEW_BOARD;
+    block_table_set_view(block, mode);
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+static bool handle_block_table_insert_row(Engine *engine, const AofCommand *cmd,
+                                          const char *command_line) {
+  if (cmd->argc < 4)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  int row_idx = atoi(cmd->argv[3]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (block && block->type == BLOCK_TABLE) {
+    block_table_insert_row(block, row_idx);
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+static bool handle_block_table_insert_col(Engine *engine, const AofCommand *cmd,
+                                          const char *command_line) {
+  if (cmd->argc < 4)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  int col_idx = atoi(cmd->argv[3]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (block && block->type == BLOCK_TABLE) {
+    block_table_insert_col(block, col_idx);
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+static bool handle_block_table_delete_row(Engine *engine, const AofCommand *cmd,
+                                          const char *command_line) {
+  if (cmd->argc < 4)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  int row_idx = atoi(cmd->argv[3]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (block && block->type == BLOCK_TABLE) {
+    block_table_delete_row(block, row_idx);
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+static bool handle_block_table_delete_col(Engine *engine, const AofCommand *cmd,
+                                          const char *command_line) {
+  if (cmd->argc < 4)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  int col_idx = atoi(cmd->argv[3]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (block && block->type == BLOCK_TABLE) {
+    block_table_delete_col(block, col_idx);
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+// CANVAS BLOCK COMMANDS
+static bool handle_block_canvas_view(Engine *engine, const AofCommand *cmd,
+                                     const char *command_line) {
+  if (cmd->argc < 6)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  float x = (float)atof(cmd->argv[3]);
+  float y = (float)atof(cmd->argv[4]);
+  float zoom = (float)atof(cmd->argv[5]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (block && block->type == BLOCK_CANVAS) {
+    block_canvas_set_view(block, x, y, zoom);
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+static bool handle_block_canvas_node(Engine *engine, const AofCommand *cmd,
+                                     const char *command_line) {
+  if (cmd->argc < 5)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  const char *action = cmd->argv[3];
+  Block *block = find_block(engine, page_id, block_id);
+  if (block && block->type == BLOCK_CANVAS) {
+    if (strcmp(action, "create") == 0 && cmd->argc >= 7) {
+      uint32_t node_id = (uint32_t)atoi(cmd->argv[4]);
+      NodeType type = node_type_from_string(cmd->argv[5]);
+      char unescaped[64];
+      unescape_string(cmd->argv[6], unescaped, sizeof(unescaped));
+      if (!block_canvas_find_node(block, node_id)) {
+        Node *node = node_create(node_id, type, unescaped);
+        if (node && block->data.canvas.root) {
+          node_add_child(block->data.canvas.root, node);
+          if (node_id >= block->data.canvas.next_node_id)
+            block->data.canvas.next_node_id = node_id + 1;
+        }
+      }
+    } else if (strcmp(action, "delete") == 0 && cmd->argc >= 5) {
+      block_canvas_delete_node(block, (uint32_t)atoi(cmd->argv[4]));
+    } else if (strcmp(action, "move") == 0 && cmd->argc >= 7) {
+      Node *node = block_canvas_find_node(block, (uint32_t)atoi(cmd->argv[4]));
+      if (node)
+        node_set_position(node, (float)atof(cmd->argv[5]),
+                          (float)atof(cmd->argv[6]));
+    } else if (strcmp(action, "resize") == 0 && cmd->argc >= 7) {
+      Node *node = block_canvas_find_node(block, (uint32_t)atoi(cmd->argv[4]));
+      if (node)
+        node_set_size(node, (float)atof(cmd->argv[5]),
+                      (float)atof(cmd->argv[6]));
+    } else if (strcmp(action, "text") == 0 && cmd->argc >= 6) {
+      Node *node = block_canvas_find_node(block, (uint32_t)atoi(cmd->argv[4]));
+      if (node) {
+        char unescaped[256];
+        unescape_string(cmd->argv[5], unescaped, sizeof(unescaped));
+        node_set_text(node, unescaped);
+      }
+    } else if (strcmp(action, "fill") == 0 && cmd->argc >= 6) {
+      Node *node = block_canvas_find_node(block, (uint32_t)atoi(cmd->argv[4]));
+      if (node)
+        node_set_fill_color(node, (uint32_t)strtoul(cmd->argv[5], NULL, 0));
+    } else if (strcmp(action, "stroke") == 0 && cmd->argc >= 7) {
+      Node *node = block_canvas_find_node(block, (uint32_t)atoi(cmd->argv[4]));
+      if (node)
+        node_set_stroke(node, (uint32_t)strtoul(cmd->argv[5], NULL, 0),
+                        (float)atof(cmd->argv[6]));
+    } else {
+      return false;
+    }
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+// DESIGN BLOCK COMMANDS
+static bool handle_block_design_init(Engine *engine, const AofCommand *cmd,
+                                     const char *command_line) {
+  if (cmd->argc < 5)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (block && block->type == BLOCK_DESIGN) {
+    block_design_init(block);
+    block_design_set_size(block, atoi(cmd->argv[3]), atoi(cmd->argv[4]));
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+static bool handle_block_design_bg(Engine *engine, const AofCommand *cmd,
+                                   const char *command_line) {
+  if (cmd->argc < 4)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (block && block->type == BLOCK_DESIGN) {
+    block_design_set_bg_color(block, (uint32_t)strtoul(cmd->argv[3], NULL, 0));
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+static bool handle_block_design_resize(Engine *engine, const AofCommand *cmd,
+                                       const char *command_line) {
+  if (cmd->argc < 5)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (block && block->type == BLOCK_DESIGN) {
+    block_design_set_size(block, atoi(cmd->argv[3]), atoi(cmd->argv[4]));
+    block->data.design.units = (cmd->argc >= 6) ? atoi(cmd->argv[5]) : 0;
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+static bool handle_block_design_node(Engine *engine, const AofCommand *cmd,
+                                     const char *command_line) {
+  if (cmd->argc < 5)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  const char *action = cmd->argv[3];
+  Block *block = find_block(engine, page_id, block_id);
+  if (block && block->type == BLOCK_DESIGN) {
+    if (strcmp(action, "create") == 0 && cmd->argc >= 7) {
+      uint32_t node_id = (uint32_t)atoi(cmd->argv[4]);
+      NodeType type = node_type_from_string(cmd->argv[5]);
+      char unescaped[64];
+      unescape_string(cmd->argv[6], unescaped, sizeof(unescaped));
+      if (!block_design_find_node(block, node_id)) {
+        Node *node = node_create(node_id, type, unescaped);
+        if (node && block->data.design.root) {
+          node_add_child(block->data.design.root, node);
+          if (node_id >= block->data.design.next_node_id)
+            block->data.design.next_node_id = node_id + 1;
+        }
+      }
+    } else if (strcmp(action, "delete") == 0 && cmd->argc >= 5) {
+      block_design_delete_node(block, (uint32_t)atoi(cmd->argv[4]));
+    } else if (strcmp(action, "move") == 0 && cmd->argc >= 7) {
+      Node *node = block_design_find_node(block, (uint32_t)atoi(cmd->argv[4]));
+      if (node)
+        node_set_position(node, (float)atof(cmd->argv[5]),
+                          (float)atof(cmd->argv[6]));
+    } else if (strcmp(action, "resize") == 0 && cmd->argc >= 7) {
+      Node *node = block_design_find_node(block, (uint32_t)atoi(cmd->argv[4]));
+      if (node)
+        node_set_size(node, (float)atof(cmd->argv[5]),
+                      (float)atof(cmd->argv[6]));
+    } else {
+      return false;
+    }
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+static const CommandEntry k_dispatch_table[] = {
+    {"exit", handle_exit},
+    {"clear", handle_clear},
+    {"doc_title", handle_doc_title},
+    {"set_global", handle_set_global},
+    {"unset_global", handle_unset_global},
+    {"page_create", handle_page_create},
+    {"page_delete", handle_page_delete},
+    {"page_rename", handle_page_rename},
+    {"page_activate", handle_page_activate},
+    {"block_create", handle_block_create},
+    {"block_delete", handle_block_delete},
+    {"block_text", handle_block_text},
+    {"block_move_after", handle_block_move_after},
+    {"block_collapse", handle_block_collapse},
+    {"block_highlight", handle_block_highlight},
+    {"block_table_init", handle_block_table_init},
+    {"block_table_cell", handle_block_table_cell},
+    {"block_table_view", handle_block_table_view},
+    {"block_table_insert_row", handle_block_table_insert_row},
+    {"block_table_insert_col", handle_block_table_insert_col},
+    {"block_table_delete_row", handle_block_table_delete_row},
+    {"block_table_delete_col", handle_block_table_delete_col},
+    {"block_canvas_view", handle_block_canvas_view},
+    {"block_canvas_node", handle_block_canvas_node},
+    {"block_design_init", handle_block_design_init},
+    {"block_design_bg", handle_block_design_bg},
+    {"block_design_resize", handle_block_design_resize},
+    {"block_design_node", handle_block_design_node},
+    {NULL, NULL}};
+
 bool engine_execute_command(Engine *engine, const char *command_line) {
   if (!engine || !command_line || !*command_line)
     return false;
@@ -236,584 +855,13 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
     return false;
 
   const char *verb = cmd.argv[0];
-  bool success = false;
-
-  // =========================================================================
-  // SYSTEM COMMANDS
-  // =========================================================================
-
-  if (strcmp(verb, "exit") == 0) {
-    engine->is_running = false;
-    success = true;
-  }
-
-  else if (strcmp(verb, "clear") == 0) {
-    if (engine->history_file) {
-      fclose(engine->history_file);
-      engine->history_file = NULL;
-    }
-    clear_history_log();
-    clear_redo_log();
-
-    doc_destroy(engine->doc);
-    engine->doc = doc_create();
-
-    if (engine->ui_host) {
-      engine->ui_host->selected_node = NULL;
-    }
-    scripting_set_document(engine->doc);
-
-    engine->history_file = fopen(k_history_path, "a");
-    if (engine->history_file) {
-      fprintf(engine->history_file, "-- Session started --\n");
-      fflush(engine->history_file);
-    }
-    success = true;
-  }
-
-  // =========================================================================
-  // DOCUMENT COMMANDS
-  // =========================================================================
-
-  else if (strcmp(verb, "doc_title") == 0 && cmd.argc >= 2) {
-    char unescaped[256];
-    unescape_string(cmd.argv[1], unescaped, sizeof(unescaped));
-    doc_set_title(engine->doc, unescaped);
-    engine_emit_command(engine, command_line);
-    success = true;
-  }
-
-  else if (strcmp(verb, "set_global") == 0 && cmd.argc >= 3) {
-    char unescaped[256];
-    unescape_string(cmd.argv[2], unescaped, sizeof(unescaped));
-    success = doc_set_global(engine->doc, cmd.argv[1], unescaped);
-    if (success)
-      engine_emit_command(engine, command_line);
-  }
-
-  else if (strcmp(verb, "unset_global") == 0 && cmd.argc >= 2) {
-    success = doc_unset_global(engine->doc, cmd.argv[1]);
-    if (success)
-      engine_emit_command(engine, command_line);
-  }
-
-  // =========================================================================
-  // PAGE COMMANDS
-  // =========================================================================
-
-  else if (strcmp(verb, "page_create") == 0 && cmd.argc >= 2) {
-    uint32_t forced_id = 0;
-    const char *page_name = NULL;
-
-    if (cmd.argc >= 3) {
-      forced_id = (uint32_t)atoi(cmd.argv[1]);
-      page_name = cmd.argv[2];
-    } else {
-      page_name = cmd.argv[1];
-    }
-
-    char unescaped[64];
-    unescape_string(page_name, unescaped, sizeof(unescaped));
-
-    Page *page = NULL;
-    if (forced_id > 0) {
-      // Check if already exists (idempotent)
-      page = doc_page_get(engine->doc, forced_id);
-      if (page) {
-        success = true;
-        return success;
-      }
-      page = doc_page_create_with_id(engine->doc, forced_id, unescaped);
-    } else {
-      page = doc_page_create(engine->doc, unescaped);
-    }
-
-    if (page) {
-      char canon[256];
-      snprintf(canon, sizeof(canon), "page_create %u \"%s\"", page->id,
-               page->name);
-      engine_emit_command(engine, canon);
-      success = true;
+  for (int i = 0; k_dispatch_table[i].verb != NULL; i++) {
+    if (strcmp(verb, k_dispatch_table[i].verb) == 0) {
+      return k_dispatch_table[i].handler(engine, &cmd, command_line);
     }
   }
 
-  else if (strcmp(verb, "page_delete") == 0 && cmd.argc >= 2) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    success = doc_page_delete(engine->doc, page_id);
-    if (success)
-      engine_emit_command(engine, command_line);
-  }
-
-  else if (strcmp(verb, "page_rename") == 0 && cmd.argc >= 3) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    char unescaped[64];
-    unescape_string(cmd.argv[2], unescaped, sizeof(unescaped));
-    success = doc_page_rename(engine->doc, page_id, unescaped);
-    if (success)
-      engine_emit_command(engine, command_line);
-  }
-
-  else if (strcmp(verb, "page_activate") == 0 && cmd.argc >= 2) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    doc_page_activate(engine->doc, page_id);
-    if (engine->ui_host)
-      engine->ui_host->selected_node = NULL;
-    engine_emit_command(engine, command_line);
-    success = true;
-  }
-
-  // =========================================================================
-  // BLOCK COMMANDS
-  // =========================================================================
-
-  else if (strcmp(verb, "block_create") == 0 && cmd.argc >= 4) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-    BlockType type = block_type_from_string(cmd.argv[3]);
-
-    Page *page = find_page(engine, page_id);
-    if (page) {
-      // Check idempotent
-      Block *existing = page_find_block_by_id(page, block_id);
-      if (existing) {
-        success = true;
-        return success;
-      }
-
-      Block *block = block_create_with_id(page, block_id, type);
-      if (block) {
-        page_append_block(page, block);
-
-        // Initialize type-specific data
-        switch (type) {
-        case BLOCK_TABLE:
-          block_table_init(block);
-          break;
-        case BLOCK_CANVAS:
-          block_canvas_init(block);
-          break;
-        case BLOCK_DESIGN:
-          block_design_init(block);
-          break;
-        case BLOCK_CHART:
-          block_chart_init(block);
-          break;
-        default:
-          break;
-        }
-
-        engine_emit_command(engine, command_line);
-        success = true;
-      }
-    }
-  }
-
-  else if (strcmp(verb, "block_delete") == 0 && cmd.argc >= 3) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-
-    Page *page = find_page(engine, page_id);
-    if (page) {
-      Block *block = page_find_block_by_id(page, block_id);
-      if (block) {
-        page_remove_block(page, block);
-        block_destroy(block);
-        engine_emit_command(engine, command_line);
-        success = true;
-      }
-    }
-  }
-
-  else if (strcmp(verb, "block_text") == 0 && cmd.argc >= 4) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-
-    Block *block = find_block(engine, page_id, block_id);
-    if (block) {
-      char unescaped[4096];
-      unescape_string(cmd.argv[3], unescaped, sizeof(unescaped));
-      block_set_text(block, unescaped);
-      engine_emit_command(engine, command_line);
-      success = true;
-    }
-  }
-
-  else if (strcmp(verb, "block_move_after") == 0 && cmd.argc >= 4) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-    uint32_t after_id = (uint32_t)atoi(cmd.argv[3]);
-
-    Page *page = find_page(engine, page_id);
-    if (page) {
-      Block *block = page_find_block_by_id(page, block_id);
-      Block *after = after_id ? page_find_block_by_id(page, after_id) : NULL;
-
-      if (block) {
-        page_remove_block(page, block);
-        page_insert_block_after(page, after, block);
-        engine_emit_command(engine, command_line);
-        success = true;
-      }
-    }
-  }
-
-  else if (strcmp(verb, "block_collapse") == 0 && cmd.argc >= 4) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-    int collapsed = atoi(cmd.argv[3]);
-
-    Block *block = find_block(engine, page_id, block_id);
-    if (block) {
-      block->is_collapsed = collapsed != 0;
-      engine_emit_command(engine, command_line);
-      success = true;
-    }
-  }
-
-  else if (strcmp(verb, "block_highlight") == 0 && cmd.argc >= 4) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-    int color = atoi(cmd.argv[3]);
-
-    Block *block = find_block(engine, page_id, block_id);
-    if (block) {
-      block->highlight_color = color;
-      engine_emit_command(engine, command_line);
-      success = true;
-    }
-  }
-
-  // =========================================================================
-  // TABLE BLOCK COMMANDS
-  // =========================================================================
-
-  else if (strcmp(verb, "block_table_init") == 0 && cmd.argc >= 5) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-    int rows = atoi(cmd.argv[3]);
-    int cols = atoi(cmd.argv[4]);
-
-    Block *block = find_block(engine, page_id, block_id);
-    if (block && block->type == BLOCK_TABLE) {
-      block_table_init(block);
-      // If we support resizing, we would do it here.
-      // For now, rows/cols from AOF are ignored in init,
-      // but rows/cols are added dynamically anyway.
-      // If specific size is needed, we can loop add_row/col here.
-
-      // Adjust rows
-      int current_rows = DEFAULT_TABLE_ROWS;
-      while (current_rows < rows) {
-        block_table_insert_row(block, -1);
-        current_rows++;
-      }
-      // Adjust cols
-      int current_cols = DEFAULT_TABLE_COLS;
-      while (current_cols < cols) {
-        block_table_insert_col(block, -1);
-        current_cols++;
-      }
-
-      engine_emit_command(engine, command_line);
-      success = true;
-    }
-  }
-
-  else if (strcmp(verb, "block_table_cell") == 0 && cmd.argc >= 6) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-    int row = atoi(cmd.argv[3]);
-    int col = atoi(cmd.argv[4]);
-
-    Block *block = find_block(engine, page_id, block_id);
-    if (block && block->type == BLOCK_TABLE) {
-      char unescaped[1024];
-      unescape_string(cmd.argv[5], unescaped, sizeof(unescaped));
-      block_table_set_cell(block, row, col, unescaped);
-      engine_emit_command(engine, command_line);
-      success = true;
-    }
-  }
-
-  else if (strcmp(verb, "block_table_view") == 0 && cmd.argc >= 4) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-    const char *view_str = cmd.argv[3];
-
-    Block *block = find_block(engine, page_id, block_id);
-    if (block && block->type == BLOCK_TABLE) {
-      TableViewMode mode = TABLE_VIEW_TABLE;
-      if (strcmp(view_str, "list") == 0)
-        mode = TABLE_VIEW_LIST;
-      else if (strcmp(view_str, "board") == 0)
-        mode = TABLE_VIEW_BOARD;
-      block_table_set_view(block, mode);
-      engine_emit_command(engine, command_line);
-      success = true;
-    }
-  }
-
-  else if (strcmp(verb, "block_table_insert_row") == 0 && cmd.argc >= 4) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-    int row_idx = atoi(cmd.argv[3]);
-
-    Block *block = find_block(engine, page_id, block_id);
-    if (block && block->type == BLOCK_TABLE) {
-      block_table_insert_row(block, row_idx);
-      engine_emit_command(engine, command_line);
-      success = true;
-    }
-  }
-
-  else if (strcmp(verb, "block_table_insert_col") == 0 && cmd.argc >= 4) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-    int col_idx = atoi(cmd.argv[3]);
-
-    Block *block = find_block(engine, page_id, block_id);
-    if (block && block->type == BLOCK_TABLE) {
-      block_table_insert_col(block, col_idx);
-      engine_emit_command(engine, command_line);
-      success = true;
-    }
-  }
-
-  else if (strcmp(verb, "block_table_delete_row") == 0 && cmd.argc >= 4) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-    int row_idx = atoi(cmd.argv[3]);
-
-    Block *block = find_block(engine, page_id, block_id);
-    if (block && block->type == BLOCK_TABLE) {
-      block_table_delete_row(block, row_idx);
-      engine_emit_command(engine, command_line);
-      success = true;
-    }
-  }
-
-  else if (strcmp(verb, "block_table_delete_col") == 0 && cmd.argc >= 4) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-    int col_idx = atoi(cmd.argv[3]);
-
-    Block *block = find_block(engine, page_id, block_id);
-    if (block && block->type == BLOCK_TABLE) {
-      block_table_delete_col(block, col_idx);
-      engine_emit_command(engine, command_line);
-      success = true;
-    }
-  }
-
-  // =========================================================================
-  // CANVAS BLOCK COMMANDS
-  // =========================================================================
-
-  else if (strcmp(verb, "block_canvas_view") == 0 && cmd.argc >= 6) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-    float x = (float)atof(cmd.argv[3]);
-    float y = (float)atof(cmd.argv[4]);
-    float zoom = (float)atof(cmd.argv[5]);
-
-    Block *block = find_block(engine, page_id, block_id);
-    if (block && block->type == BLOCK_CANVAS) {
-      block_canvas_set_view(block, x, y, zoom);
-      engine_emit_command(engine, command_line);
-      success = true;
-    }
-  }
-
-  else if (strcmp(verb, "block_canvas_node") == 0 && cmd.argc >= 5) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-    const char *action = cmd.argv[3];
-
-    Block *block = find_block(engine, page_id, block_id);
-    if (block && block->type == BLOCK_CANVAS) {
-      if (strcmp(action, "create") == 0 && cmd.argc >= 7) {
-        uint32_t node_id = (uint32_t)atoi(cmd.argv[4]);
-        NodeType type = node_type_from_string(cmd.argv[5]);
-        char unescaped[64];
-        unescape_string(cmd.argv[6], unescaped, sizeof(unescaped));
-
-        // Check if node exists
-        Node *existing = block_canvas_find_node(block, node_id);
-        if (!existing) {
-          Node *node = node_create(node_id, type, unescaped);
-          if (node && block->data.canvas.root) {
-            node_add_child(block->data.canvas.root, node);
-            if (node_id >= block->data.canvas.next_node_id) {
-              block->data.canvas.next_node_id = node_id + 1;
-            }
-          }
-        }
-        engine_emit_command(engine, command_line);
-        success = true;
-      } else if (strcmp(action, "delete") == 0 && cmd.argc >= 5) {
-        uint32_t node_id = (uint32_t)atoi(cmd.argv[4]);
-        block_canvas_delete_node(block, node_id);
-        engine_emit_command(engine, command_line);
-        success = true;
-      } else if (strcmp(action, "move") == 0 && cmd.argc >= 7) {
-        uint32_t node_id = (uint32_t)atoi(cmd.argv[4]);
-        float x = (float)atof(cmd.argv[5]);
-        float y = (float)atof(cmd.argv[6]);
-        Node *node = block_canvas_find_node(block, node_id);
-        if (node) {
-          node_set_position(node, x, y);
-          engine_emit_command(engine, command_line);
-          success = true;
-        }
-      } else if (strcmp(action, "resize") == 0 && cmd.argc >= 7) {
-        uint32_t node_id = (uint32_t)atoi(cmd.argv[4]);
-        float w = (float)atof(cmd.argv[5]);
-        float h = (float)atof(cmd.argv[6]);
-        Node *node = block_canvas_find_node(block, node_id);
-        if (node) {
-          node_set_size(node, w, h);
-          engine_emit_command(engine, command_line);
-          success = true;
-        }
-      } else if (strcmp(action, "text") == 0 && cmd.argc >= 6) {
-        uint32_t node_id = (uint32_t)atoi(cmd.argv[4]);
-        char unescaped[256];
-        unescape_string(cmd.argv[5], unescaped, sizeof(unescaped));
-        Node *node = block_canvas_find_node(block, node_id);
-        if (node) {
-          node_set_text(node, unescaped);
-          engine_emit_command(engine, command_line);
-          success = true;
-        }
-      } else if (strcmp(action, "fill") == 0 && cmd.argc >= 6) {
-        uint32_t node_id = (uint32_t)atoi(cmd.argv[4]);
-        uint32_t rgba = (uint32_t)strtoul(cmd.argv[5], NULL, 0);
-        Node *node = block_canvas_find_node(block, node_id);
-        if (node) {
-          node_set_fill_color(node, rgba);
-          engine_emit_command(engine, command_line);
-          success = true;
-        }
-      } else if (strcmp(action, "stroke") == 0 && cmd.argc >= 7) {
-        uint32_t node_id = (uint32_t)atoi(cmd.argv[4]);
-        uint32_t rgba = (uint32_t)strtoul(cmd.argv[5], NULL, 0);
-        float width = (float)atof(cmd.argv[6]);
-        Node *node = block_canvas_find_node(block, node_id);
-        if (node) {
-          node_set_stroke(node, rgba, width);
-          engine_emit_command(engine, command_line);
-          success = true;
-        }
-      }
-    }
-  }
-
-  // =========================================================================
-  // DESIGN BLOCK COMMANDS
-  // =========================================================================
-
-  else if (strcmp(verb, "block_design_init") == 0 && cmd.argc >= 5) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-    int width = atoi(cmd.argv[3]);
-    int height = atoi(cmd.argv[4]);
-
-    Block *block = find_block(engine, page_id, block_id);
-    if (block && block->type == BLOCK_DESIGN) {
-      block_design_init(block);
-      // Apply correct size from AOF
-      block_design_set_size(block, width, height);
-      engine_emit_command(engine, command_line);
-      success = true;
-    }
-  }
-
-  else if (strcmp(verb, "block_design_bg") == 0 && cmd.argc >= 4) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-    uint32_t color = (uint32_t)strtoul(cmd.argv[3], NULL, 0);
-
-    Block *block = find_block(engine, page_id, block_id);
-    if (block && block->type == BLOCK_DESIGN) {
-      block_design_set_bg_color(block, color);
-      engine_emit_command(engine, command_line);
-      success = true;
-    }
-  }
-
-  else if (strcmp(verb, "block_design_resize") == 0 && cmd.argc >= 5) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-    int w = atoi(cmd.argv[3]);
-    int h = atoi(cmd.argv[4]);
-    int units = (cmd.argc >= 6) ? atoi(cmd.argv[5]) : 0;
-
-    Block *block = find_block(engine, page_id, block_id);
-    if (block && block->type == BLOCK_DESIGN) {
-      block_design_set_size(block, w, h);
-      block->data.design.units = units;
-      engine_emit_command(engine, command_line);
-      success = true;
-    }
-  }
-
-  else if (strcmp(verb, "block_design_node") == 0 && cmd.argc >= 5) {
-    uint32_t page_id = (uint32_t)atoi(cmd.argv[1]);
-    uint32_t block_id = (uint32_t)atoi(cmd.argv[2]);
-    const char *action = cmd.argv[3];
-
-    Block *block = find_block(engine, page_id, block_id);
-    if (block && block->type == BLOCK_DESIGN) {
-      if (strcmp(action, "create") == 0 && cmd.argc >= 7) {
-        uint32_t node_id = (uint32_t)atoi(cmd.argv[4]);
-        NodeType type = node_type_from_string(cmd.argv[5]);
-        char unescaped[64];
-        unescape_string(cmd.argv[6], unescaped, sizeof(unescaped));
-
-        Node *existing = block_design_find_node(block, node_id);
-        if (!existing) {
-          Node *node = node_create(node_id, type, unescaped);
-          if (node && block->data.design.root) {
-            node_add_child(block->data.design.root, node);
-            if (node_id >= block->data.design.next_node_id) {
-              block->data.design.next_node_id = node_id + 1;
-            }
-          }
-        }
-        engine_emit_command(engine, command_line);
-        success = true;
-      } else if (strcmp(action, "delete") == 0 && cmd.argc >= 5) {
-        uint32_t node_id = (uint32_t)atoi(cmd.argv[4]);
-        block_design_delete_node(block, node_id);
-        engine_emit_command(engine, command_line);
-        success = true;
-      } else if (strcmp(action, "move") == 0 && cmd.argc >= 7) {
-        uint32_t node_id = (uint32_t)atoi(cmd.argv[4]);
-        float x = (float)atof(cmd.argv[5]);
-        float y = (float)atof(cmd.argv[6]);
-        Node *node = block_design_find_node(block, node_id);
-        if (node) {
-          node_set_position(node, x, y);
-          engine_emit_command(engine, command_line);
-          success = true;
-        }
-      } else if (strcmp(action, "resize") == 0 && cmd.argc >= 7) {
-        uint32_t node_id = (uint32_t)atoi(cmd.argv[4]);
-        float w = (float)atof(cmd.argv[5]);
-        float h = (float)atof(cmd.argv[6]);
-        Node *node = block_design_find_node(block, node_id);
-        if (node) {
-          node_set_size(node, w, h);
-          engine_emit_command(engine, command_line);
-          success = true;
-        }
-      }
-    }
-  }
-
-  // NOTE: CALLOUT and CHECKLIST block types are reserved for future use
-
-  return success;
+  return false;
 }
 
 // -----------------------------------------------------------------------------
