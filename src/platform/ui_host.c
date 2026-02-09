@@ -413,11 +413,11 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 
   // Log mouse events at debug level (silenced by default)
   if (evt->type == SDL_MOUSEBUTTONDOWN) {
-    ASLAN_DEBUG("Button Down: button=%d at (%d, %d)",
-                evt->button.button, evt->button.x, evt->button.y);
+    ASLAN_DEBUG("Button Down: button=%d at (%d, %d)", evt->button.button,
+                evt->button.x, evt->button.y);
   } else if (evt->type == SDL_MOUSEBUTTONUP) {
-    ASLAN_DEBUG("Button Up: button=%d at (%d, %d)",
-                evt->button.button, evt->button.x, evt->button.y);
+    ASLAN_DEBUG("Button Up: button=%d at (%d, %d)", evt->button.button,
+                evt->button.x, evt->button.y);
   }
 
   // Pass to Nuklear first
@@ -588,8 +588,8 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       if (len + input_len < sizeof(ui->edit_buffer) - 1) {
         strcat(ui->edit_buffer, evt->text.text);
       }
-      ASLAN_DEBUG("Editing node text input: '%s'. Buffer: '%s'",
-                  evt->text.text, ui->edit_buffer);
+      ASLAN_DEBUG("Editing node text input: '%s'. Buffer: '%s'", evt->text.text,
+                  ui->edit_buffer);
     }
   }
   // Only return if it's a typing event or return/esc/backspace for editing
@@ -605,12 +605,22 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     ASLAN_DEBUG("Backspace pressed, selected_node=%p",
                 (void *)ui->selected_node);
     if (ui->selected_node && ui->canvas_state.active_block) {
-      CanvasData *cd = &ui->canvas_state.active_block->data.canvas;
-      (void)cd;
-      // Remove node from tree (simplified - just hide it)
-      ui->selected_node->visible = 0;
-      ui->selected_node = NULL;
-      ASLAN_DEBUG("Node deleted/hidden");
+      // Get the page and block IDs for the engine command
+      Page *page = doc_page_get_active(ui->engine->doc);
+      if (page && ui->canvas_state.active_block) {
+        uint32_t page_id = page->id;
+        uint32_t block_id = ui->canvas_state.active_block->id;
+        uint32_t node_id = ui->selected_node->id;
+
+        // Properly delete the node via engine command (persists to AOF)
+        char cmd[256];
+        snprintf(cmd, sizeof(cmd), "block_canvas_node %u %u delete %u", page_id,
+                 block_id, node_id);
+        engine_execute_command(ui->engine, cmd);
+
+        ui->selected_node = NULL;
+        ASLAN_DEBUG("Node deleted properly via engine command");
+      }
     }
   }
 
