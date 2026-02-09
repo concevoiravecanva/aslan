@@ -4,7 +4,7 @@
 
 #include "ui_canvas.h"
 #include "../document/aslan_table.h"
-#include "platform/mac_image.h"
+#include "platform/image_loader.h"
 #include "ui_shared.h"
 #include <SDL.h>
 #include <math.h>
@@ -1384,7 +1384,7 @@ SDL_Texture *get_image_texture(UIHost *ui, const char *path) {
 
   // Not in cache, load it using macOS native loader
   int w, h;
-  void *pixels = mac_load_image_rgba(path, &w, &h);
+  void *pixels = image_load_rgba(path, &w, &h);
 
   ASLAN_DEBUG("get_image_texture: trying path '%s' -> %p", path, pixels);
 
@@ -1393,9 +1393,9 @@ SDL_Texture *get_image_texture(UIHost *ui, const char *path) {
     if (strncmp(path, "assets/", 7) != 0) {
       char full_path[512];
       snprintf(full_path, sizeof(full_path), "assets/%s", path);
-      pixels = mac_load_image_rgba(full_path, &w, &h);
-      ASLAN_DEBUG("get_image_texture: trying full_path '%s' -> %p",
-                  full_path, pixels);
+      pixels = image_load_rgba(full_path, &w, &h);
+      ASLAN_DEBUG("get_image_texture: trying full_path '%s' -> %p", full_path,
+                  pixels);
     }
   }
 
@@ -1776,9 +1776,9 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
             // Maintain aspect ratio
             int img_w = 0, img_h = 0;
-            int size_ok = mac_get_image_size(path, &img_w, &img_h);
-            ASLAN_DEBUG("canvas image size for '%s': %d x %d (ok=%d)",
-                        path, img_w, img_h, size_ok);
+            int size_ok = image_get_size(path, &img_w, &img_h);
+            ASLAN_DEBUG("canvas image size for '%s': %d x %d (ok=%d)", path,
+                        img_w, img_h, size_ok);
 
             if (size_ok && img_w > 0 && img_h > 0) {
               float aspect = (float)img_w / (float)img_h;

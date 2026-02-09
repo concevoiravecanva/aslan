@@ -24,9 +24,12 @@ CORE_SRC = src/document/document.c \
            src/platform/ui_core.c \
            src/platform/ui_host.c \
            src/platform/recents.c \
+           src/platform/image_loader.c \
            src/core/engine.c
 
+# macOS-specific Objective-C sources (CoreGraphics image loading)
 OBJC_SRC = src/platform/mac_image.m
+
 
 SRC = src/main.c \
       $(CORE_SRC)
@@ -54,10 +57,10 @@ $(TEST_TARGET): $(CORE_OBJ) $(TEST_OBJ)
 test: $(TEST_TARGET)
 	./$(TEST_TARGET)
 
-%.o: %.c
+%.o: %.c $(wildcard src/*.h) $(wildcard src/**/*.h) $(wildcard include/*.h)
 	$(CC) $(CFLAGS) $(LUA_INC) $(SDL_INC) -c $< -o $@
 
-%.o: %.m
+%.o: %.m $(wildcard src/*.h) $(wildcard src/**/*.h) $(wildcard include/*.h)
 	$(CC) $(CFLAGS) $(LUA_INC) $(SDL_INC) -c $< -o $@
 
 clean:
