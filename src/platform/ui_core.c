@@ -122,87 +122,60 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
       case 0: // Home
         ui->screen = 0;
         break;
-      case 1: // Text
+      case 1: { // Text
         if (page) {
-          Block *b = block_create(page, BLOCK_TEXT);
-          if (b) {
-            page_append_block(page, b);
-            char cmd[128];
-            snprintf(cmd, sizeof(cmd), "block_create %u %u text", page_id,
-                     b->id);
-            engine_execute_command(engine, cmd);
-            ASLAN_DEBUG("Created TEXT block %u", b->id);
-          }
+          char cmd[128];
+          snprintf(cmd, sizeof(cmd), "block_create %u %u text", page_id,
+                   page->next_block_id);
+          engine_execute_command(engine, cmd);
         }
         break;
-      case 2: // H1
+      }
+      case 2: { // H1
         if (page) {
-          Block *b = block_create(page, BLOCK_HEADING_1);
-          if (b) {
-            page_append_block(page, b);
-            char cmd[128];
-            snprintf(cmd, sizeof(cmd), "block_create %u %u h1", page_id, b->id);
-            engine_execute_command(engine, cmd);
-            ASLAN_DEBUG("Created H1 block %u", b->id);
-          }
+          char cmd[128];
+          snprintf(cmd, sizeof(cmd), "block_create %u %u h1", page_id,
+                   page->next_block_id);
+          engine_execute_command(engine, cmd);
         }
         break;
-      case 3: // Table
+      }
+      case 3: { // Table
         if (page) {
-          Block *b = block_create(page, BLOCK_TABLE);
-          if (b) {
-            block_table_init(b);
-            page_append_block(page, b);
-            char cmd[128];
-            snprintf(cmd, sizeof(cmd), "block_create %u %u table", page_id,
-                     b->id);
-            engine_execute_command(engine, cmd);
-            ASLAN_DEBUG("Created TABLE block %u", b->id);
-          }
+          char cmd[128];
+          snprintf(cmd, sizeof(cmd), "block_create %u %u table", page_id,
+                   page->next_block_id);
+          engine_execute_command(engine, cmd);
         }
         break;
-      case 4: // Canvas
+      }
+      case 4: { // Canvas
         if (page) {
-          Block *b = block_create(page, BLOCK_CANVAS);
-          if (b) {
-            block_canvas_init(b);
-            page_append_block(page, b);
-            char cmd[128];
-            snprintf(cmd, sizeof(cmd), "block_create %u %u canvas", page_id,
-                     b->id);
-            engine_execute_command(engine, cmd);
-            ASLAN_DEBUG("Created CANVAS block %u", b->id);
-          }
+          char cmd[128];
+          snprintf(cmd, sizeof(cmd), "block_create %u %u canvas", page_id,
+                   page->next_block_id);
+          engine_execute_command(engine, cmd);
         }
         break;
-      case 5: // Design
+      }
+      case 5: { // Design
         if (page) {
-          Block *b = block_create(page, BLOCK_DESIGN);
-          if (b) {
-            block_design_init(b);
-            page_append_block(page, b);
-            char cmd[128];
-            snprintf(cmd, sizeof(cmd), "block_create %u %u design", page_id,
-                     b->id);
-            engine_execute_command(engine, cmd);
-            ASLAN_DEBUG("Created DESIGN block %u", b->id);
-          }
+          char cmd[128];
+          snprintf(cmd, sizeof(cmd), "block_create %u %u design", page_id,
+                   page->next_block_id);
+          engine_execute_command(engine, cmd);
         }
         break;
-      case 6: // Chart
+      }
+      case 6: { // Chart
         if (page) {
-          Block *b = block_create(page, BLOCK_CHART);
-          if (b) {
-            block_chart_init(b);
-            page_append_block(page, b);
-            char cmd[128];
-            snprintf(cmd, sizeof(cmd), "block_create %u %u chart", page_id,
-                     b->id);
-            engine_execute_command(engine, cmd);
-            ASLAN_DEBUG("Created CHART block %u", b->id);
-          }
+          char cmd[128];
+          snprintf(cmd, sizeof(cmd), "block_create %u %u chart", page_id,
+                   page->next_block_id);
+          engine_execute_command(engine, cmd);
         }
         break;
+      }
       }
     }
   }
@@ -232,41 +205,39 @@ static void home_create_new_document(UIHost *ui, Engine *engine) {
   engine_execute_command(engine, "clear");
 
   char name[64] = "New Note";
-  Page *new_page = doc_page_create(engine->doc, name);
+  char cmd[256];
+
+  // Create page via engine (handles creation + persistence)
+  uint32_t page_id = engine->doc->next_page_id;
+  ASLAN_WARN("home_create_new_document: next_page_id=%u", page_id);
+  snprintf(cmd, sizeof(cmd), "page_create \"%s\"", name);
+  bool ok = engine_execute_command(engine, cmd);
+  ASLAN_WARN("home_create_new_document: page_create returned %d", ok);
+
+  Page *new_page = doc_page_get(engine->doc, page_id);
+  ASLAN_WARN("home_create_new_document: new_page=%p", (void *)new_page);
   if (new_page) {
-    doc_page_activate(engine->doc, new_page->id);
+    snprintf(cmd, sizeof(cmd), "page_activate %u", page_id);
+    engine_execute_command(engine, cmd);
     ui->screen = 1;
 
-    // Default Note setup: H1 + Text
-    Block *h1 = block_create(new_page, BLOCK_HEADING_1);
-    if (h1) {
-      block_set_text(h1, name);
-      page_append_block(new_page, h1);
-    }
-
-    Block *txt = block_create(new_page, BLOCK_TEXT);
-    if (txt) {
-      // Empty text block - placeholder will show visually
-      page_append_block(new_page, txt);
-    }
-
-    char cmd[128];
-    snprintf(cmd, sizeof(cmd), "page_create %u \"%s\"", new_page->id, name);
+    // Create H1 block with title
+    uint32_t h1_id = new_page->next_block_id;
+    snprintf(cmd, sizeof(cmd), "block_create %u %u h1", page_id, h1_id);
+    engine_execute_command(engine, cmd);
+    snprintf(cmd, sizeof(cmd), "block_text %u %u \"%s\"", page_id, h1_id, name);
     engine_execute_command(engine, cmd);
 
-    // Add to recents if matched to a file (for now just use general log)
+    // Create empty text block
+    snprintf(cmd, sizeof(cmd), "block_create %u %u text", page_id,
+             new_page->next_block_id);
+    engine_execute_command(engine, cmd);
+
+    // Add to recents
     recents_add(&ui->recents, "history.log");
     recents_save(&ui->recents, "recents.log");
-
-    if (h1) {
-      snprintf(cmd, sizeof(cmd), "block_create %u %u h1", new_page->id, h1->id);
-      engine_execute_command(engine, cmd);
-    }
-    if (txt) {
-      snprintf(cmd, sizeof(cmd), "block_create %u %u text", new_page->id,
-               txt->id);
-      engine_execute_command(engine, cmd);
-    }
+  } else {
+    ASLAN_WARN("home_create_new_document: FAILED - page_id %u not found", page_id);
   }
 }
 
@@ -485,9 +456,13 @@ void ui_render_home(UIHost *ui, Engine *engine, struct nk_context *ctx,
                  "Dark", 4, ctx->style.font, nk_rgba(0, 0, 0, 0), dark_text);
 
     if (mouse_just_pressed) {
+      ASLAN_WARN("Home click: mouse=(%.0f,%.0f) btn=(%.0f,%.0f,%.0f,%.0f)",
+                 ui->mouse_x, ui->mouse_y, new_btn.x, new_btn.y, new_btn.w,
+                 new_btn.h);
       // New Document button
       if (ui->mouse_x >= new_btn.x && ui->mouse_x < new_btn.x + new_btn.w &&
           ui->mouse_y >= new_btn.y && ui->mouse_y < new_btn.y + new_btn.h) {
+        ASLAN_WARN("Home: New Document clicked!");
         home_create_new_document(ui, engine);
       }
 

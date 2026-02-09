@@ -179,9 +179,6 @@ Document *doc_create(void) {
   doc->doc_width = 800;
   doc->doc_height = 600;
 
-  // Always create at least one page
-  doc_page_create(doc, "Page 1");
-
   return doc;
 }
 
@@ -311,14 +308,6 @@ static int page_find_by_id(const Document *doc, uint32_t page_id) {
 Page *doc_page_create(Document *doc, const char *name) {
   if (!doc)
     return NULL;
-
-  // Single Page Mode: Reuse the first slot if it's already in use
-  if (doc->pages[0].in_use) {
-    if (name && name[0]) {
-      safe_strcpy(doc->pages[0].name, name, sizeof(doc->pages[0].name));
-    }
-    return &doc->pages[0];
-  }
 
   int slot = page_find_free_slot(doc);
   if (slot < 0)

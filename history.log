@@ -1,1 +1,6 @@
 -- Session started --
+page_create 1 "New Note"
+page_activate 1
+block_create 1 1 h1
+block_text 1 1 "New Note"
+block_create 1 2 text
