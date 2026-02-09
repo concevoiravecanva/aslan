@@ -20,13 +20,18 @@ void ui_render_chart_impl(UIHost *ui, struct nk_context *ctx, ChartData *cd,
 
   // Title / Placeholder if no source
   if (cd->source_table_id == 0) {
-    // Center text in bounds
+    // instructional text
     struct nk_rect text_bounds = bounds;
-    text_bounds.h = 20;
-    text_bounds.y += (bounds.h - 20) / 2;
+    text_bounds.h = 40;
+    text_bounds.y += (bounds.h - 40) / 2;
     nk_draw_text(canvas, text_bounds, "No source table linked", 22,
                  &ui->font_inter->handle, nk_rgba(0, 0, 0, 0),
-                 nk_rgba(0, 0, 0, 255));
+                 nk_rgba(100, 100, 100, 255));
+
+    text_bounds.y += 25;
+    nk_draw_text(canvas, text_bounds, "Select a 'Table' block in Properties",
+                 37, ctx->style.font, nk_rgba(0, 0, 0, 0),
+                 nk_rgba(150, 150, 150, 255));
     return;
   }
 

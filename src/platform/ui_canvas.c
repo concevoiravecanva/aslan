@@ -508,7 +508,7 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
 
     // Source Table Selector
     nk_layout_row_dynamic(ctx, 25, 1);
-    nk_label(ctx, "Source Table", NK_TEXT_LEFT);
+    nk_label(ctx, "Data Source (Table)", NK_TEXT_LEFT);
 
     Page *page = doc_page_get_active(engine->doc);
     if (page) {
@@ -982,6 +982,9 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
           // DIRECT ACTION: Open image dialog
           cs->pending_create = 3; // 3 = Image
           cs->show_sub_menu = 0;
+        } else if (i == 6) { // Chart button (direct action)
+          cs->pending_create = 11;
+          cs->show_sub_menu = 0;
         } else if (cs->active_cat == cat) {
           cs->show_sub_menu = !cs->show_sub_menu;
         } else {
@@ -1071,11 +1074,9 @@ Node *design_create_styled_node(DesignData *dd, NodeStyleType style, float x,
   if (!dd || !dd->root)
     return NULL;
 
-  Node *node = (Node *)calloc(1, sizeof(Node));
+  Node *node = node_create(dd->next_node_id++, NODE_TYPE_RECT, NULL);
   if (!node)
     return NULL;
-
-  node->id = dd->next_node_id++;
   node->x = x;
   node->y = y;
   node->width = w;
@@ -1148,11 +1149,9 @@ Node *canvas_create_styled_node(CanvasData *cd, NodeStyleType style, float x,
   if (!cd->root)
     return NULL;
 
-  Node *node = (Node *)calloc(1, sizeof(Node));
+  Node *node = node_create(cd->next_node_id++, NODE_TYPE_RECT, NULL);
   if (!node)
     return NULL;
-
-  node->id = cd->next_node_id++;
   node->x = x;
   node->y = y;
   node->width = w;
@@ -1654,10 +1653,8 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
       if (open_image_file_dialog(path, sizeof(path))) {
         char rel[256] = {0};
         if (copy_image_to_assets(path, ".", rel, sizeof(rel))) {
-          new_node = (Node *)calloc(1, sizeof(Node));
+          new_node = node_create(cd->next_node_id++, NODE_TYPE_IMAGE, NULL);
           if (new_node && cd->root) {
-            new_node->id = cd->next_node_id++;
-            new_node->type = NODE_TYPE_IMAGE;
             new_node->x = nx;
             new_node->y = ny;
 
@@ -1705,11 +1702,14 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
         new_node->type = NODE_TYPE_IMAGE;
     } else if (cs->pending_create == 11) {
       // Chart
-      new_node = canvas_create_styled_node(cd, NODE_STYLE_RECT, nx, ny, 300,
-                                           200, 0xFFFFFFFF);
+      new_node = node_create(cd->next_node_id++, NODE_TYPE_CHART, "Chart");
       if (new_node) {
-        new_node->type = NODE_TYPE_CHART;
-        // ChartData already initialized by node_create
+        new_node->x = nx;
+        new_node->y = ny;
+        new_node->width = 400;
+        new_node->height = 300;
+        new_node->parent = cd->root;
+        node_add_child(cd->root, new_node);
       }
     } else if (cs->pending_create >= 10 && cs->pending_create <= 13) {
       NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,

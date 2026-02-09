@@ -201,18 +201,16 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           if (open_image_file_dialog(path, sizeof(path))) {
             char rel[256] = {0};
             if (copy_image_to_assets(path, ".", rel, sizeof(rel))) {
-              new_node = (Node *)calloc(1, sizeof(Node));
+              new_node = node_create(dd->next_node_id++, NODE_TYPE_IMAGE, NULL);
               if (new_node && dd->root) {
-                new_node->id = dd->next_node_id++;
-                new_node->type = NODE_TYPE_IMAGE;
                 new_node->x = nx;
                 new_node->y = ny;
 
                 // Maintain aspect ratio
                 int img_w = 0, img_h = 0;
                 int size_ok = mac_get_image_size(path, &img_w, &img_h);
-                ASLAN_DEBUG("design image size for '%s': %d x %d (ok=%d)",
-                            path, img_w, img_h, size_ok);
+                ASLAN_DEBUG("design image size for '%s': %d x %d (ok=%d)", path,
+                            img_w, img_h, size_ok);
 
                 if (size_ok && img_w > 0 && img_h > 0) {
                   float aspect = (float)img_w / (float)img_h;
@@ -247,11 +245,14 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           }
         } else if (ds->pending_create == 11) {
           // Chart
-          new_node = design_create_styled_node(dd, NODE_STYLE_RECT, nx, ny, 300,
-                                               200, 0xFFFFFFFF);
+          new_node = node_create(dd->next_node_id++, NODE_TYPE_CHART, "Chart");
           if (new_node) {
-            new_node->type = NODE_TYPE_CHART;
-            // ChartData initialized by node_create
+            new_node->x = nx;
+            new_node->y = ny;
+            new_node->width = 400;
+            new_node->height = 300;
+            new_node->parent = dd->root;
+            node_add_child(dd->root, new_node);
           }
         } else if (ds->pending_create >= 10 && ds->pending_create <= 13) {
           NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
