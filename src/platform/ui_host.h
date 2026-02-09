@@ -217,8 +217,6 @@ typedef struct UIHost {
   struct nk_font *font_inter; // Default UI font
   struct nk_font *font_mono;  // Monospace for text blocks
   struct nk_font *font_h1;    // Heading 1 (28pt)
-  struct nk_font *font_h2;    // Heading 2 (24pt)
-  struct nk_font *font_h3;    // Heading 3 (18pt)
   struct nk_font *font_icons; // Remix Icons
   float font_size_px;
 
@@ -364,8 +362,6 @@ void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
                           Page *page, Block *block, float width);
 void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
                              float width, int level);
-void ui_render_block_separator(UIHost *ui, struct nk_context *ctx, Block *block,
-                               float width);
 void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                            Block *block, float width);
 void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
@@ -406,14 +402,12 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 // Remix Icon Codepoints (subset)
 // -----------------------------------------------------------------------------
 
-#define ICON_TEXT "\xEE\xB4\x8F"      // ri-file-text-line
-#define ICON_H1 "\xEE\xB7\xA6"        // ri-h-1
-#define ICON_H2 "\xEE\xB7\xA7"        // ri-h-2 (Approx, guessed +1)
-#define ICON_SEPARATOR "\xEF\x83\x9E" // ri-separator
-#define ICON_CODE "\xEE\xBA\xA9"      // ri-code-line
-#define ICON_TABLE "\xEF\x87\x9A"     // ri-table-2
-#define ICON_CANVAS "\xEE\xA9\xBA"    // ri-artboard-2-line
-#define ICON_DESIGN "\xEE\xBA\x83"    // ri-layout-4-line
+#define ICON_TEXT "\xEE\xB4\x8F"   // ri-file-text-line
+#define ICON_H1 "\xEE\xB7\xA6"     // ri-h-1
+#define ICON_CODE "\xEE\xBA\xA9"   // ri-code-line
+#define ICON_TABLE "\xEF\x87\x9A"  // ri-table-2
+#define ICON_CANVAS "\xEE\xA9\xBA" // ri-artboard-2-line
+#define ICON_DESIGN "\xEE\xBA\x83" // ri-layout-4-line
 
 #define ICON_ADD "\xEE\xA8\x93"             // ri-add-line
 #define ICON_STOP "\xEF\x83\xA7"            // ri-stop-line

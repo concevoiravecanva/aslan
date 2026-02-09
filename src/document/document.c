@@ -50,12 +50,6 @@ const char *block_type_to_string(BlockType type) {
     return "text";
   case BLOCK_HEADING_1:
     return "h1";
-  case BLOCK_HEADING_2:
-    return "h2";
-  case BLOCK_HEADING_3:
-    return "h3";
-  case BLOCK_SEPARATOR:
-    return "separator";
   case BLOCK_TABLE:
     return "table";
   case BLOCK_DESIGN:
@@ -74,12 +68,6 @@ BlockType block_type_from_string(const char *str) {
     return BLOCK_TEXT;
   if (strcmp(str, "h1") == 0)
     return BLOCK_HEADING_1;
-  if (strcmp(str, "h2") == 0)
-    return BLOCK_HEADING_2;
-  if (strcmp(str, "h3") == 0)
-    return BLOCK_HEADING_3;
-  if (strcmp(str, "separator") == 0)
-    return BLOCK_SEPARATOR;
   if (strcmp(str, "table") == 0)
     return BLOCK_TABLE;
   if (strcmp(str, "canvas") == 0)
@@ -1840,9 +1828,9 @@ void doc_save_aof(const Document *doc, FILE *fp) {
       }
       case BLOCK_CHART: {
         const ChartData *cd = &b->data.chart;
-        const char *type_str = cd->type == CHART_LINE ? "line"
-                             : cd->type == CHART_PIE  ? "pie"
-                                                      : "bar";
+        const char *type_str = cd->type == CHART_LINE  ? "line"
+                               : cd->type == CHART_PIE ? "pie"
+                                                       : "bar";
         fprintf(fp, "block_chart_init %u %u %s %u %d %d\n", page->id, b->id,
                 type_str, cd->source_table_id, cd->label_col_idx,
                 cd->value_col_idx);

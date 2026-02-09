@@ -33,9 +33,6 @@ struct lua_State;
 typedef enum {
   BLOCK_TEXT = 0,  // Monospace text (Kilo-style editor)
   BLOCK_HEADING_1, // H1 title
-  BLOCK_HEADING_2, // H2 subtitle
-  BLOCK_HEADING_3, // H3 section
-  BLOCK_SEPARATOR, // Elegant visual divider
   BLOCK_TABLE,     // Notion-style table with views
   BLOCK_CANVAS,    // Infinite canvas (Miro-style)
   BLOCK_DESIGN,    // Finite design surface (Canva-style)

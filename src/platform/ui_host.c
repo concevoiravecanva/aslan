@@ -211,14 +211,6 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
   if (!ui->font_h1)
     ui->font_h1 = nk_font_atlas_add_default(ui->atlas, 28.0f, NULL);
 
-  ui->font_h2 = nk_font_atlas_add_from_file(ui->atlas, inter_path, 22.0f, NULL);
-  if (!ui->font_h2)
-    ui->font_h2 = nk_font_atlas_add_default(ui->atlas, 22.0f, NULL);
-
-  ui->font_h3 = nk_font_atlas_add_from_file(ui->atlas, inter_path, 18.0f, NULL);
-  if (!ui->font_h3)
-    ui->font_h3 = nk_font_atlas_add_default(ui->atlas, 18.0f, NULL);
-
   // Load variable sizes for Text tool
   float sizes[] = {12.0f, 14.0f, 16.0f, 20.0f, 24.0f,
                    32.0f, 48.0f, 64.0f, 96.0f};
@@ -794,11 +786,9 @@ void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
   if (!block)
     return;
 
-  struct nk_font *font = level == 1   ? ui->font_h1
-                         : level == 2 ? ui->font_h2
-                                      : ui->font_h3;
+  struct nk_font *font = ui->font_h1;
 
-  float row_h = level == 1 ? 40.0f : level == 2 ? 34.0f : 28.0f;
+  float row_h = 40.0f;
 
   if (font) {
     nk_style_set_font(ctx, &font->handle);
@@ -820,8 +810,7 @@ void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
     struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
     struct nk_color placeholder_color =
         ui->dark_mode ? nk_rgb(100, 100, 110) : nk_rgb(170, 170, 180);
-    const char *placeholder =
-        (level == 1) ? "Heading 1" : (level == 2 ? "Heading 2" : "Heading 3");
+    const char *placeholder = "Heading 1";
     nk_draw_text(canvas, bounds, placeholder, strlen(placeholder),
                  &font->handle, nk_rgba(0, 0, 0, 0), placeholder_color);
   }
@@ -849,23 +838,6 @@ void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
   }
 }
 
-void ui_render_block_separator(UIHost *ui, struct nk_context *ctx, Block *block,
-                               float width) {
-  (void)ui;
-  (void)block;
-  (void)width;
-  nk_layout_row_dynamic(ctx, 20.0f, 1);
-
-  struct nk_rect bounds = nk_widget_bounds(ctx);
-  struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-
-  float y = bounds.y + bounds.h / 2.0f;
-  nk_stroke_line(canvas, bounds.x + 20, y, bounds.x + bounds.w - 20, y, 1.0f,
-                 COLOR_BORDER);
-
-  nk_spacing(ctx, 1);
-}
-
 // -----------------------------------------------------------------------------
 // Block Dispatcher
 // -----------------------------------------------------------------------------
@@ -889,15 +861,6 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
         page->name[sizeof(page->name) - 1] = '\0';
       }
     }
-    break;
-  case BLOCK_HEADING_2:
-    ui_render_block_heading(ui, ctx, block, width, 2);
-    break;
-  case BLOCK_HEADING_3:
-    ui_render_block_heading(ui, ctx, block, width, 3);
-    break;
-  case BLOCK_SEPARATOR:
-    ui_render_block_separator(ui, ctx, block, width);
     break;
   case BLOCK_TABLE:
     ui_render_block_table(ui, engine, ctx, block, width);
