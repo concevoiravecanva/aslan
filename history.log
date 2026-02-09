@@ -9,4 +9,3 @@ block_create 1 4 h1
 block_create 1 5 table
 block_create 1 6 canvas
 block_create 1 7 design
-block_create 1 8 chart

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 // =============================================================================
 // ASLAN ENGINE v3 - Block-Based AOF Command Processor
@@ -107,20 +108,58 @@ static AofCommand aof_tokenize(const char *line) {
 }
 
 // -----------------------------------------------------------------------------
-// AOF File Paths
+// -----------------------------------------------------------------------------
+// Path handling
 // -----------------------------------------------------------------------------
 
-static const char *k_history_path = "history.log";
-static const char *k_redo_path = "redo.log";
+void engine_set_document_path(Engine *engine, const char *new_path) {
+  if (!engine || !new_path)
+    return;
 
-static void clear_history_log(void) {
-  FILE *f = fopen(k_history_path, "w");
+  // Si un fichier est déjà ouvert, on le ferme proprement avant de changer de
+  // chemin
+  bool was_open = (engine->history_file != NULL);
+  if (was_open) {
+    fclose(engine->history_file);
+    engine->history_file = NULL;
+  }
+
+  // 1. Stocker le chemin de base
+  strncpy(engine->doc_path, new_path, sizeof(engine->doc_path) - 1);
+  engine->doc_path[sizeof(engine->doc_path) - 1] = '\0';
+
+  // 2. Construire les chemins absolus vers les fichiers de log
+  snprintf(engine->history_path, sizeof(engine->history_path), "%s/history.log",
+           engine->doc_path);
+  snprintf(engine->redo_path, sizeof(engine->redo_path), "%s/redo.log",
+           engine->doc_path);
+
+  // 3. Créer le répertoire s'il n'existe pas (MacOS/Linux)
+  mkdir(engine->doc_path, 0755);
+
+  // 4. Si on avait un fichier ouvert, on le réouvre sur le nouveau chemin
+  if (was_open) {
+    engine->history_file = fopen(engine->history_path, "a");
+    if (engine->history_file) {
+      // Si on vient de "." vers autre chose, on peut le noter,
+      // mais si c'est l'init de main.c (argc >= 2), on veut rester discret.
+      if (strcmp(engine->doc_path, ".") != 0) {
+        fprintf(engine->history_file, "-- Document path set to %s --\n",
+                engine->doc_path);
+        fflush(engine->history_file);
+      }
+    }
+  }
+}
+
+static void clear_history_log(Engine *engine) {
+  FILE *f = fopen(engine->history_path, "w");
   if (f)
     fclose(f);
 }
 
-static void clear_redo_log(void) {
-  FILE *f = fopen(k_redo_path, "w");
+static void clear_redo_log(Engine *engine) {
+  FILE *f = fopen(engine->redo_path, "w");
   if (f)
     fclose(f);
 }
@@ -188,7 +227,10 @@ Engine *engine_create(void) {
   engine->doc = doc_create();
   engine->is_running = true;
 
-  engine->history_file = fopen(k_history_path, "a");
+  // Default path is current directory
+  engine_set_document_path(engine, ".");
+
+  engine->history_file = fopen(engine->history_path, "a");
   if (engine->history_file) {
     fprintf(engine->history_file, "-- Session started --\n");
     fflush(engine->history_file);
@@ -256,8 +298,8 @@ static bool handle_clear(Engine *engine, const AofCommand *cmd,
     fclose(engine->history_file);
     engine->history_file = NULL;
   }
-  clear_history_log();
-  clear_redo_log();
+  clear_history_log(engine);
+  clear_redo_log(engine);
 
   doc_destroy(engine->doc);
   engine->doc = doc_create();
@@ -267,7 +309,7 @@ static bool handle_clear(Engine *engine, const AofCommand *cmd,
   }
   scripting_set_document(engine->doc);
 
-  engine->history_file = fopen(k_history_path, "a");
+  engine->history_file = fopen(engine->history_path, "a");
   if (engine->history_file) {
     fprintf(engine->history_file, "-- Session started --\n");
     fflush(engine->history_file);
@@ -307,6 +349,37 @@ static bool handle_unset_global(Engine *engine, const AofCommand *cmd,
   if (success)
     engine_emit_command(engine, command_line);
   return success;
+}
+
+static bool handle_doc_save_as(Engine *engine, const AofCommand *cmd,
+                               const char *command_line) {
+  (void)command_line;
+  if (cmd->argc < 2)
+    return false;
+
+  const char *new_path = cmd->argv[1];
+
+  // Changer le chemin (cela fermera/réouvrira le history_file s'il était
+  // ouvert)
+  engine_set_document_path(engine, new_path);
+
+  // Pour un "Save As", on veut souvent que le nouveau fichier contienne l'état
+  // actuel Si on vient d'ouvrir le fichier en mode "a" via
+  // engine_set_document_path, on peut y injecter le dump AOF.
+  if (engine->history_file) {
+    doc_save_aof(engine->doc, engine->history_file);
+    fflush(engine->history_file);
+    return true;
+  }
+  return false;
+}
+
+static bool handle_doc_save_snapshot(Engine *engine, const AofCommand *cmd,
+                                     const char *command_line) {
+  (void)command_line;
+  if (cmd->argc < 2)
+    return false;
+  return engine_save_snapshot_as_aslan(engine, cmd->argv[1]);
 }
 
 // PAGE COMMANDS
@@ -821,6 +894,8 @@ static const CommandEntry k_dispatch_table[] = {
     {"doc_title", handle_doc_title},
     {"set_global", handle_set_global},
     {"unset_global", handle_unset_global},
+    {"doc_save_as", handle_doc_save_as},
+    {"doc_save_snapshot", handle_doc_save_snapshot},
     {"page_create", handle_page_create},
     {"page_delete", handle_page_delete},
     {"page_rename", handle_page_rename},
@@ -872,7 +947,7 @@ void engine_load_history(Engine *engine) {
   if (!engine)
     return;
 
-  FILE *f = fopen(k_history_path, "r");
+  FILE *f = fopen(engine->history_path, "r");
   if (!f)
     return;
 

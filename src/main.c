@@ -93,8 +93,8 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
         }
 
         if (e.type == SDL_MOUSEBUTTONDOWN) {
-          ASLAN_DEBUG("MAIN SDL_MOUSEBUTTONDOWN: (%d, %d) btn=%d",
-                      e.button.x, e.button.y, e.button.button);
+          ASLAN_DEBUG("MAIN SDL_MOUSEBUTTONDOWN: (%d, %d) btn=%d", e.button.x,
+                      e.button.y, e.button.button);
         }
 
         // Keyboard shortcuts (macOS): Cmd+Z (Undo), Cmd+Shift+Z (Redo)
@@ -223,6 +223,11 @@ int main(int argc, char **argv) {
   if (!engine)
     return 1;
 
+  // Handle command-line project path
+  if (argc >= 2) {
+    engine_set_document_path(engine, argv[1]);
+  }
+
   // 2. Initialize Renderer (SDL2)
   Renderer *renderer = renderer_create("Aslan Editor v0.1", 1024, 768);
   if (!renderer) {
@@ -253,7 +258,7 @@ int main(int argc, char **argv) {
 
   // 6. Create default content only on first launch
   bool history_has_content = false;
-  FILE *hf = fopen("history.log", "r");
+  FILE *hf = fopen(engine->history_path, "r");
   if (hf) {
     int c = fgetc(hf);
     if (c != EOF)
