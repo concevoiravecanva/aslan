@@ -371,10 +371,12 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
                             Block *block, float width);
 // ui_render_block_design moved to ui_design.c
+void ui_render_block_chart(UIHost *ui, Engine *engine, struct nk_context *ctx,
+                           Page *page, Block *block, float width);
 void ui_render_chart_node(UIHost *ui, struct nk_context *ctx, Node *node,
                           struct nk_rect bounds);
 void ui_render_chart_impl(UIHost *ui, struct nk_context *ctx, ChartData *cd,
-                          struct nk_rect bounds);
+                          struct nk_rect bounds, Page *page);
 
 // Shared UI Helpers
 int ui_icon_button(UIHost *ui, const char *icon);

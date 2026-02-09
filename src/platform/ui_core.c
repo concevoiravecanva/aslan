@@ -40,7 +40,7 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
 
   const float btn_size = 36.0f;
   const float btn_spacing = 8.0f;
-  const float toolbar_w = 6 * btn_size + 5 * btn_spacing + 24.0f;
+  const float toolbar_w = 7 * btn_size + 6 * btn_spacing + 24.0f;
   const float toolbar_h = 52.0f;
 
   float toolbar_x = ((float)win_w - toolbar_w) / 2.0f;
@@ -68,8 +68,8 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
   float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
 
   const char *tool_icons[] = {ICON_HOME,  ICON_TEXT,   ICON_H1,
-                              ICON_TABLE, ICON_CANVAS, ICON_DESIGN};
-  int tool_count = 6;
+                              ICON_TABLE, ICON_CANVAS, ICON_DESIGN, ICON_CHART};
+  int tool_count = 7;
 
   Page *page = doc_page_get_active(engine->doc);
   uint32_t page_id = page ? page->id : 0;

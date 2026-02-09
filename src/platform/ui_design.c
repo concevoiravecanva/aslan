@@ -316,7 +316,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           int has_fill = (node->fill_color & 0xFF) > 10;
 
           if (node->type == NODE_TYPE_CHART && node->chart_data) {
-            ui_render_chart_impl(ui, ctx, node->chart_data, nr);
+            ui_render_chart_impl(ui, ctx, node->chart_data, nr, NULL);
           } else if (node->type == NODE_TYPE_STROKE && node->stroke_data) {
             Stroke *s = node->stroke_data;
             if (s->count >= 2) {

@@ -486,6 +486,9 @@ static bool handle_block_create(Engine *engine, const AofCommand *cmd,
     case BLOCK_DESIGN:
       block_design_init(block);
       break;
+    case BLOCK_CHART:
+      block_chart_init(block);
+      break;
     default:
       break;
     }
@@ -885,6 +888,70 @@ static bool handle_block_design_node(Engine *engine, const AofCommand *cmd,
   return false;
 }
 
+// =========================================================================
+// CHART BLOCK COMMANDS
+// =========================================================================
+
+static bool handle_block_chart_init(Engine *engine, const AofCommand *cmd,
+                                    const char *command_line) {
+  // block_chart_init <page_id> <block_id> <type> <source_table_id> <label_col>
+  // <value_col>
+  if (cmd->argc < 7)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (!block || block->type != BLOCK_CHART)
+    return false;
+
+  ChartData *cd = &block->data.chart;
+  const char *type_str = cmd->argv[3];
+  if (strcmp(type_str, "line") == 0)
+    cd->type = CHART_LINE;
+  else if (strcmp(type_str, "pie") == 0)
+    cd->type = CHART_PIE;
+  else
+    cd->type = CHART_BAR;
+  cd->source_table_id = (uint32_t)atoi(cmd->argv[4]);
+  cd->label_col_idx = atoi(cmd->argv[5]);
+  cd->value_col_idx = atoi(cmd->argv[6]);
+  engine_emit_command(engine, command_line);
+  return true;
+}
+
+static bool handle_block_chart_color(Engine *engine, const AofCommand *cmd,
+                                     const char *command_line) {
+  // block_chart_color <page_id> <block_id> <rgba>
+  if (cmd->argc < 4)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (!block || block->type != BLOCK_CHART)
+    return false;
+
+  block->data.chart.color = (uint32_t)strtoul(cmd->argv[3], NULL, 0);
+  engine_emit_command(engine, command_line);
+  return true;
+}
+
+static bool handle_block_chart_show_values(Engine *engine,
+                                           const AofCommand *cmd,
+                                           const char *command_line) {
+  // block_chart_show_values <page_id> <block_id> 0|1
+  if (cmd->argc < 4)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (!block || block->type != BLOCK_CHART)
+    return false;
+
+  block->data.chart.show_values = atoi(cmd->argv[3]) != 0;
+  engine_emit_command(engine, command_line);
+  return true;
+}
+
 static const CommandEntry k_dispatch_table[] = {
     {"exit", handle_exit},
     {"clear", handle_clear},
@@ -916,6 +983,9 @@ static const CommandEntry k_dispatch_table[] = {
     {"block_design_bg", handle_block_design_bg},
     {"block_design_resize", handle_block_design_resize},
     {"block_design_node", handle_block_design_node},
+    {"block_chart_init", handle_block_chart_init},
+    {"block_chart_color", handle_block_chart_color},
+    {"block_chart_show_values", handle_block_chart_show_values},
     {NULL, NULL}};
 
 bool engine_execute_command(Engine *engine, const char *command_line) {

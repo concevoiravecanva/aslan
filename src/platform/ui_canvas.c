@@ -2199,7 +2199,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
 
       } else if (node->type == NODE_TYPE_CHART && node->chart_data) {
-        ui_render_chart_impl(ui, ctx, node->chart_data, nr);
+        ui_render_chart_impl(ui, ctx, node->chart_data, nr, NULL);
       } else if (node->type == NODE_TYPE_ELLIPSE) {
         if (node->is_container && !node->image_path[0]) {
           struct nk_color cbg = nk_rgba(66, 133, 244, 40);
