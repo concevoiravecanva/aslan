@@ -254,7 +254,7 @@ int main(int argc, char **argv) {
   engine->ui_host = ui;
 
   // 5. Replay history (AOF)
-  engine_load_history(engine);
+  engine_load_from_history(engine);
 
   // 6. Create default content only on first launch
   bool history_has_content = false;

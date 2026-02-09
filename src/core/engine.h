@@ -13,6 +13,7 @@ struct Engine {
   bool is_running;
   struct UIHost *ui_host;
   FILE *history_file;
+  bool is_loading;         // If true, commands are not recorded to history
   char doc_path[1024];     // Chemin vers le dossier du document
   char history_path[1100]; // doc_path + "/history.log"
   char redo_path[1100];    // doc_path + "/redo.log"
@@ -32,7 +33,7 @@ void engine_destroy(Engine *engine);
 bool engine_execute_command(Engine *engine, const char *command_line);
 
 // Charge et rejoue le fichier history.log
-void engine_load_history(Engine *engine);
+void engine_load_from_history(Engine *engine);
 
 // Write a canonical snapshot of the current document to a user-chosen path.
 // This is the on-disk `.aslan` v1 format (Photoshop-like: single state).

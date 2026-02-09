@@ -171,6 +171,11 @@ static void clear_redo_log(Engine *engine) {
 static void engine_emit_command(Engine *engine, const char *line) {
   if (!engine || !engine->history_file || !line)
     return;
+
+  // Do not re-emit commands during document loading
+  if (engine->is_loading)
+    return;
+
   fprintf(engine->history_file, "%s\n", line);
   fflush(engine->history_file);
 }
@@ -1010,7 +1015,7 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
 // History Loading
 // -----------------------------------------------------------------------------
 
-void engine_load_history(Engine *engine) {
+void engine_load_from_history(Engine *engine) {
   if (!engine)
     return;
 
@@ -1018,22 +1023,23 @@ void engine_load_history(Engine *engine) {
   if (!f)
     return;
 
+  engine->is_loading = true;
+
   char line[2048];
   while (fgets(line, sizeof(line), f)) {
     strip_trailing_newlines(line);
     if (is_comment_or_empty(line))
       continue;
 
-    // Don't re-emit commands during replay
-    FILE *saved = engine->history_file;
-    engine->history_file = NULL;
-
     engine_execute_command(engine, line);
-
-    engine->history_file = saved;
   }
 
   fclose(f);
+  engine->is_loading = false;
+
+  if (engine->ui_host) {
+    ui_request_redraw(engine->ui_host);
+  }
 }
 
 // -----------------------------------------------------------------------------
