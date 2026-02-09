@@ -1710,6 +1710,17 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
         new_node->height = 300;
         new_node->parent = cd->root;
         node_add_child(cd->root, new_node);
+
+        // Auto-detect source table
+        Page *page = doc_page_get_active(engine->doc);
+        if (page && new_node->chart_data) {
+          for (Block *b = page->first_block; b; b = b->next) {
+            if (b->type == BLOCK_TABLE && b->data.table.columnar) {
+              new_node->chart_data->source_table_id = b->id;
+              break;
+            }
+          }
+        }
       }
     } else if (cs->pending_create >= 10 && cs->pending_create <= 13) {
       NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
@@ -2479,7 +2490,15 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           nk_stroke_rect(canvas_buf, nr, node->corner_radius * zoom,
                          node->stroke_width * zoom, stroke);
       } else if (node->type == NODE_TYPE_CHART) {
-        ui_render_chart_node(ui, ctx, node, nr);
+        Page *curr_page = doc_page_get_active(engine->doc);
+        ui_render_chart_node(ui, ctx, node, nr, curr_page);
+
+        // Rendering configuration bar if selected
+        if (ui->selected_node == node && !cs->is_panning &&
+            !cs->is_dragging_node && !cs->is_resizing) {
+          ui_render_chart_node_config_bar(ui, engine, ctx, node, nr, curr_page);
+        }
+
         if (node->stroke_width > 0)
           nk_stroke_rect(canvas_buf, nr, node->corner_radius * zoom,
                          node->stroke_width * zoom, stroke);
