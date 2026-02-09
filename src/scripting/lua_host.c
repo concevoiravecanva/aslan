@@ -1,6 +1,7 @@
 #include "lua_host.h"
 #include "../core/engine.h"
 #include "../document/aslan_table.h"
+#include "../platform/ui_shared.h"
 #include <dirent.h>
 #include <limits.h>
 #include <stdio.h>
@@ -18,7 +19,7 @@
 // Stub implementation when Lua is disabled
 lua_State *scripting_init(Engine *engine) {
   (void)engine;
-  printf("[WARN] Lua support disabled (NO_LUA defined).\n");
+  ASLAN_WARN("Lua support disabled (NO_LUA defined)");
   return (lua_State *)1;
 }
 
@@ -26,7 +27,7 @@ void scripting_shutdown(lua_State *L) { (void)L; }
 
 int scripting_run_file(lua_State *L, const char *filepath) {
   (void)L;
-  printf("[WARN] Cannot run script '%s': Lua disabled.\n", filepath);
+  ASLAN_WARN("Cannot run script '%s': Lua disabled", filepath);
   return 0;
 }
 
@@ -94,7 +95,7 @@ static int track_script(const char *path) {
   }
 
   if (g_tracked_count >= MAX_TRACKED_SCRIPTS) {
-    fprintf(stderr, "[WARN] Maximum tracked scripts reached\n");
+    ASLAN_WARN("Maximum tracked scripts reached");
     return -1;
   }
 
@@ -121,10 +122,10 @@ void scripting_hot_reload_check(lua_State *L) {
 
     time_t current_mtime = get_file_mtime(g_tracked_scripts[i].path);
     if (current_mtime > g_tracked_scripts[i].last_modified) {
-      printf("[HOT-RELOAD] Reloading: %s\n", g_tracked_scripts[i].path);
+      ASLAN_INFO("Hot-reload: %s", g_tracked_scripts[i].path);
 
       if (luaL_dofile(L, g_tracked_scripts[i].path) != LUA_OK) {
-        fprintf(stderr, "[LUA ERROR] %s\n", lua_tostring(L, -1));
+        ASLAN_ERROR("Lua hot-reload error: %s", lua_tostring(L, -1));
         lua_pop(L, 1);
       }
 
@@ -182,7 +183,7 @@ void scripting_call_event(lua_State *L, const char *func_name, float x,
   lua_pushnumber(L, y);
 
   if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
-    fprintf(stderr, "[LUA] %s error: %s\n", func_name, lua_tostring(L, -1));
+    ASLAN_ERROR("Lua %s error: %s", func_name, lua_tostring(L, -1));
     lua_pop(L, 1);
   }
 }
@@ -202,7 +203,7 @@ void scripting_call_key_event(lua_State *L, const char *func_name, int key,
   lua_pushinteger(L, mods);
 
   if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
-    fprintf(stderr, "[LUA] %s error: %s\n", func_name, lua_tostring(L, -1));
+    ASLAN_ERROR("Lua %s error: %s", func_name, lua_tostring(L, -1));
     lua_pop(L, 1);
   }
 }
@@ -616,7 +617,7 @@ static int l_aslan_print(lua_State *L) {
   if (n == 0) {
     strncat(lua_output_buffer, "\n",
             sizeof(lua_output_buffer) - strlen(lua_output_buffer) - 1);
-    printf("[LUA PRINT BRIDGE]\n");
+    ASLAN_DEBUG("Lua print (empty)");
     return 0;
   }
 
@@ -654,8 +655,7 @@ static int l_aslan_print(lua_State *L) {
   strncat(lua_output_buffer, "\n",
           sizeof(lua_output_buffer) - strlen(lua_output_buffer) - 1);
 
-  // Debug dans le terminal avec un préfixe reconnaissable
-  printf("[LUA PRINT BRIDGE] %s\n", temp_msg_buffer);
+  ASLAN_DEBUG("Lua print: %s", temp_msg_buffer);
 
   return 0;
 }
@@ -729,14 +729,14 @@ lua_State *aslan_lua_init(Engine *engine) {
   if (engine)
     g_current_doc = engine->doc;
 
-  printf("[LUA] Notebook sandbox initialized\n");
+  ASLAN_INFO("Lua notebook sandbox initialized");
   return L;
 }
 
 lua_State *scripting_init(Engine *engine) {
   lua_State *L = luaL_newstate();
   if (!L) {
-    fprintf(stderr, "[ERROR] Failed to create Lua state\n");
+    ASLAN_ERROR("Failed to create Lua state");
     return NULL;
   }
 
@@ -757,13 +757,13 @@ lua_State *scripting_init(Engine *engine) {
 
   // Load formula evaluation script
   if (luaL_dofile(L, "scripts/formula_eval.lua") != LUA_OK) {
-    printf("[WARN] Failed to load formula_eval.lua: %s\n", lua_tostring(L, -1));
+    ASLAN_WARN("Failed to load formula_eval.lua: %s", lua_tostring(L, -1));
     lua_pop(L, 1);
   } else {
-    printf("[LUA] Loaded scripts/formula_eval.lua\n");
+    ASLAN_INFO("Loaded scripts/formula_eval.lua");
   }
 
-  printf("[LUA] Scripting initialized\n");
+  ASLAN_INFO("Lua scripting initialized");
   return L;
 }
 
@@ -774,7 +774,7 @@ void scripting_shutdown(lua_State *L) {
   g_current_doc = NULL;
   g_current_engine = NULL;
   g_tracked_count = 0;
-  printf("[LUA] Scripting shutdown\n");
+  ASLAN_INFO("Lua scripting shutdown");
 }
 
 int scripting_run_file(lua_State *L, const char *filepath) {
@@ -791,13 +791,13 @@ int scripting_run_file(lua_State *L, const char *filepath) {
   }
 
   if (luaL_dofile(L, resolved) != LUA_OK) {
-    fprintf(stderr, "[LUA ERROR] %s: %s\n", filepath, lua_tostring(L, -1));
+    ASLAN_ERROR("Lua load error %s: %s", filepath, lua_tostring(L, -1));
     lua_pop(L, 1);
     return 0;
   }
 
   track_script(resolved);
-  printf("[LUA] Loaded: %s\n", filepath);
+  ASLAN_INFO("Lua loaded: %s", filepath);
   return 1;
 }
 
@@ -808,7 +808,7 @@ int scripting_load_plugins(lua_State *L) {
   const char *plugin_dir = "scripts/plugins";
   DIR *dir = opendir(plugin_dir);
   if (!dir) {
-    printf("[LUA] No plugins directory found at %s\n", plugin_dir);
+    ASLAN_DEBUG("No plugins directory found at %s", plugin_dir);
     return 0;
   }
 
@@ -831,7 +831,7 @@ int scripting_load_plugins(lua_State *L) {
   }
 
   closedir(dir);
-  printf("[LUA] Loaded %d plugins\n", loaded);
+  ASLAN_INFO("Loaded %d Lua plugins", loaded);
   return loaded;
 }
 

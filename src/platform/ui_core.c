@@ -116,16 +116,8 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
         (hovered && (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) ||
                      ui->canvas_state.mouse_just_pressed));
 
-    // Debug for Design button (index 5)
-    if (i == 5 && ui->canvas_state.mouse_just_pressed) {
-      printf("[DEBUG] Design Button Check: hovered=%d mouse=(%.1f, %.1f) "
-             "rect=(%.1f, %.1f, %.1f, %.1f)\n",
-             hovered, ui->mouse_x, ui->mouse_y, btn_rect.x, btn_rect.y,
-             btn_rect.w, btn_rect.h);
-    }
-
     if (clicked) {
-      printf("[DEBUG] Toolbar click: button %d (icon: %s)\n", i, tool_icons[i]);
+      ASLAN_DEBUG("Toolbar click: button %d", i);
       switch (i) {
       case 0: // Home
         ui->screen = 0;
@@ -139,7 +131,7 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
             snprintf(cmd, sizeof(cmd), "block_create %u %u text", page_id,
                      b->id);
             engine_execute_command(engine, cmd);
-            printf("[DEBUG] Created TEXT block %u\n", b->id);
+            ASLAN_DEBUG("Created TEXT block %u", b->id);
           }
         }
         break;
@@ -151,7 +143,7 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
             char cmd[128];
             snprintf(cmd, sizeof(cmd), "block_create %u %u h1", page_id, b->id);
             engine_execute_command(engine, cmd);
-            printf("[DEBUG] Created H1 block %u\n", b->id);
+            ASLAN_DEBUG("Created H1 block %u", b->id);
           }
         }
         break;
@@ -165,7 +157,7 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
             snprintf(cmd, sizeof(cmd), "block_create %u %u table", page_id,
                      b->id);
             engine_execute_command(engine, cmd);
-            printf("[DEBUG] Created TABLE block %u\n", b->id);
+            ASLAN_DEBUG("Created TABLE block %u", b->id);
           }
         }
         break;
@@ -179,7 +171,7 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
             snprintf(cmd, sizeof(cmd), "block_create %u %u canvas", page_id,
                      b->id);
             engine_execute_command(engine, cmd);
-            printf("[DEBUG] Created CANVAS block %u\n", b->id);
+            ASLAN_DEBUG("Created CANVAS block %u", b->id);
           }
         }
         break;
@@ -193,12 +185,23 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
             snprintf(cmd, sizeof(cmd), "block_create %u %u design", page_id,
                      b->id);
             engine_execute_command(engine, cmd);
-            printf("[DEBUG] Created DESIGN block %u\n", b->id);
+            ASLAN_DEBUG("Created DESIGN block %u", b->id);
           }
         }
         break;
       case 6: // Chart
-        printf("[DEBUG] Chart clicked (no-op)\n");
+        if (page) {
+          Block *b = block_create(page, BLOCK_CHART);
+          if (b) {
+            block_chart_init(b);
+            page_append_block(page, b);
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "block_create %u %u chart", page_id,
+                     b->id);
+            engine_execute_command(engine, cmd);
+            ASLAN_DEBUG("Created CHART block %u", b->id);
+          }
+        }
         break;
       }
     }

@@ -97,12 +97,7 @@ int copy_image_to_assets(const char *src_path, const char *doc_dir,
   snprintf(assets_dir, sizeof(assets_dir), "%s/assets", doc_dir);
   mkdir(assets_dir, 0755); // Ignore error if exists
 
-  // Debug log
-  FILE *log = fopen("ui_debug.log", "a");
-  if (log) {
-    fprintf(log, "Copying image: %s -> %s\n", src_path, assets_dir);
-    fclose(log);
-  }
+  ASLAN_DEBUG("Copying image: %s -> %s", src_path, assets_dir);
 
   // Get filename from path
   const char *filename = strrchr(src_path, '/');
@@ -186,11 +181,7 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
     return NULL;
   }
 
-  FILE *log = fopen("ui_debug.log", "w");
-  if (log) {
-    fprintf(log, "UI Init started (Aslan v0.1.5)\n");
-    fflush(log);
-  }
+  ASLAN_INFO("UI Init started (Aslan v0.1.7)");
 
   // Load fonts
   nk_sdl_font_stash_begin(&ui->atlas);
@@ -246,15 +237,11 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
   icons_cfg.merge_mode = nk_false;
   ui->font_icons =
       nk_font_atlas_add_from_file(ui->atlas, icons_path, 20.0f, &icons_cfg);
-  if (log) {
-    fprintf(log, "Font Inter: %p\n", (void *)ui->font_inter);
-    fprintf(log, "Font Mono: %p\n", (void *)ui->font_mono);
-    fprintf(log, "Font Icons: %p (path: %s)\n", (void *)ui->font_icons,
-            icons_path);
-    if (!ui->font_icons) {
-      fprintf(log, "ERROR: Failed to load icons!\n");
-    }
-    fclose(log);
+  ASLAN_INFO("Font Inter: %p", (void *)ui->font_inter);
+  ASLAN_INFO("Font Mono: %p", (void *)ui->font_mono);
+  ASLAN_INFO("Font Icons: %p (path: %s)", (void *)ui->font_icons, icons_path);
+  if (!ui->font_icons) {
+    ASLAN_ERROR("Failed to load icons font!");
   }
 
   nk_sdl_font_stash_end();
@@ -324,7 +311,7 @@ void ui_host_handle_file_drop(UIHost *ui, const char *file_path, int mx,
   if (!ui || !file_path)
     return;
 
-  printf("[DEBUG] File dropped: %s at (%d, %d)\n", file_path, mx, my);
+  ASLAN_DEBUG("File dropped: %s at (%d, %d)", file_path, mx, my);
 
   // Get document directory (use current working directory as fallback)
   char doc_dir[512] = ".";
@@ -338,107 +325,99 @@ void ui_host_handle_file_drop(UIHost *ui, const char *file_path, int mx,
       strcpy(doc_dir, ".");
     }
   }
-  printf("[DEBUG] Document directory: %s\n", doc_dir);
+  ASLAN_DEBUG("Document directory: %s", doc_dir);
 
   // 1. Try Canvas blocks
   CanvasInteraction *cs = &ui->canvas_state;
-  printf("[DEBUG] Canvas bounds: x=%.1f y=%.1f w=%.1f h=%.1f\n", cs->bounds_x,
-         cs->bounds_y, cs->bounds_w, cs->bounds_h);
+  ASLAN_DEBUG("Canvas bounds: x=%.1f y=%.1f w=%.1f h=%.1f", cs->bounds_x,
+              cs->bounds_y, cs->bounds_w, cs->bounds_h);
 
   if (mx >= cs->bounds_x && mx < cs->bounds_x + cs->bounds_w &&
       my >= cs->bounds_y && my < cs->bounds_y + cs->bounds_h) {
-    printf("[DEBUG] Mouse is in canvas bounds\n");
+    ASLAN_DEBUG("Mouse is in canvas bounds");
     if (cs->active_block && cs->active_block->type == BLOCK_CANVAS) {
-      printf("[DEBUG] Active canvas block found\n");
+      ASLAN_DEBUG("Active canvas block found");
       CanvasData *cd = &cs->active_block->data.canvas;
       float wx = cs->cam_x + (mx - cs->bounds_x) / cs->zoom;
       float wy = cs->cam_y + (my - cs->bounds_y) / cs->zoom;
-      printf(
-          "[DEBUG] World coords: wx=%.1f wy=%.1f (cam: %.1f,%.1f zoom: %.2f)\n",
-          wx, wy, cs->cam_x, cs->cam_y, cs->zoom);
+      ASLAN_DEBUG("World coords: wx=%.1f wy=%.1f (cam: %.1f,%.1f zoom: %.2f)",
+                  wx, wy, cs->cam_x, cs->cam_y, cs->zoom);
       Node *hit = canvas_find_node_at(cd, wx, wy);
       if (hit) {
-        printf("[DEBUG] Hit node found, is_container=%d\n", hit->is_container);
+        ASLAN_DEBUG("Hit node found, is_container=%d", hit->is_container);
         if (hit->is_container) {
           char rel[256];
           if (copy_image_to_assets(file_path, doc_dir, rel, sizeof(rel))) {
             strncpy(hit->image_path, rel, sizeof(hit->image_path) - 1);
-            printf("[DEBUG] Set container image: %s\n", hit->image_path);
+            ASLAN_DEBUG("Set container image: %s", hit->image_path);
           } else {
-            printf("[DEBUG] Failed to copy image to assets\n");
+            ASLAN_WARN("Failed to copy image to assets");
           }
           return;
         }
       } else {
-        printf("[DEBUG] No node hit at world coords\n");
+        ASLAN_DEBUG("No node hit at world coords");
       }
     } else {
-      printf("[DEBUG] No active canvas block\n");
+      ASLAN_DEBUG("No active canvas block");
     }
   } else {
-    printf("[DEBUG] Mouse NOT in canvas bounds\n");
+    ASLAN_DEBUG("Mouse NOT in canvas bounds");
   }
 
   // 2. Try Design blocks
   DesignInteraction *ds = &ui->design_state;
-  printf("[DEBUG] Design bounds: x=%.1f y=%.1f w=%.1f h=%.1f\n", ds->bounds_x,
-         ds->bounds_y, ds->bounds_w, ds->bounds_h);
+  ASLAN_DEBUG("Design bounds: x=%.1f y=%.1f w=%.1f h=%.1f", ds->bounds_x,
+              ds->bounds_y, ds->bounds_w, ds->bounds_h);
 
   if (mx >= ds->bounds_x && mx < ds->bounds_x + ds->bounds_w &&
       my >= ds->bounds_y && my < ds->bounds_y + ds->bounds_h) {
-    printf("[DEBUG] Mouse is in design bounds\n");
+    ASLAN_DEBUG("Mouse is in design bounds");
     if (ds->active_block && ds->active_block->type == BLOCK_DESIGN) {
-      printf("[DEBUG] Active design block found\n");
+      ASLAN_DEBUG("Active design block found");
       DesignData *dd = &ds->active_block->data.design;
       float scale = ds->scale;
       float design_x = (mx - ds->bounds_x) / (scale > 0 ? scale : 1.0f);
       float design_y = (my - ds->bounds_y) / (scale > 0 ? scale : 1.0f);
-      printf("[DEBUG] Design coords: x=%.1f y=%.1f (scale: %.2f)\n", design_x,
-             design_y, scale);
+      ASLAN_DEBUG("Design coords: x=%.1f y=%.1f (scale: %.2f)", design_x,
+                  design_y, scale);
       Node *hit = design_find_node_at(dd, design_x, design_y);
       if (hit) {
-        printf("[DEBUG] Hit node found, is_container=%d\n", hit->is_container);
+        ASLAN_DEBUG("Hit node found, is_container=%d", hit->is_container);
         if (hit->is_container) {
           char rel[256];
           if (copy_image_to_assets(file_path, doc_dir, rel, sizeof(rel))) {
             strncpy(hit->image_path, rel, sizeof(hit->image_path) - 1);
-            printf("[DEBUG] Set container image: %s\n", hit->image_path);
+            ASLAN_DEBUG("Set container image: %s", hit->image_path);
           } else {
-            printf("[DEBUG] Failed to copy image to assets\n");
+            ASLAN_WARN("Failed to copy image to assets");
           }
           return;
         }
       } else {
-        printf("[DEBUG] No node hit at design coords\n");
+        ASLAN_DEBUG("No node hit at design coords");
       }
     } else {
-      printf("[DEBUG] No active design block\n");
+      ASLAN_DEBUG("No active design block");
     }
   } else {
-    printf("[DEBUG] Mouse NOT in design bounds\n");
+    ASLAN_DEBUG("Mouse NOT in design bounds");
   }
 
-  printf("[DEBUG] File drop not handled\n");
+  ASLAN_DEBUG("File drop not handled");
 }
 
 void ui_handle_event(UIHost *ui, SDL_Event *evt) {
   if (!ui || !evt)
     return;
 
-  // LOG EVERY MOUSE EVENT AT THE VERY TOP
-  if (evt->type == SDL_MOUSEMOTION || evt->type == SDL_MOUSEBUTTONDOWN ||
-      evt->type == SDL_MOUSEBUTTONUP) {
-    if (evt->type == SDL_MOUSEMOTION) {
-      static int motion_spam = 0;
-      if (++motion_spam % 60 == 0)
-        printf("[EVENT] Raw Motion: (%d, %d)\n", evt->motion.x, evt->motion.y);
-    } else if (evt->type == SDL_MOUSEBUTTONDOWN) {
-      printf("[EVENT] Raw Button Down: button=%d at (%d, %d)\n",
-             evt->button.button, evt->button.x, evt->button.y);
-    } else if (evt->type == SDL_MOUSEBUTTONUP) {
-      printf("[EVENT] Raw Button Up: button=%d at (%d, %d)\n",
-             evt->button.button, evt->button.x, evt->button.y);
-    }
+  // Log mouse events at debug level (silenced by default)
+  if (evt->type == SDL_MOUSEBUTTONDOWN) {
+    ASLAN_DEBUG("Button Down: button=%d at (%d, %d)",
+                evt->button.button, evt->button.x, evt->button.y);
+  } else if (evt->type == SDL_MOUSEBUTTONUP) {
+    ASLAN_DEBUG("Button Up: button=%d at (%d, %d)",
+                evt->button.button, evt->button.x, evt->button.y);
   }
 
   // Pass to Nuklear first
@@ -500,9 +479,7 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       cs->mouse_just_pressed = 1;
       ui->design_state.mouse_just_pressed = 1; // Also track for design
 
-      // LOG COORDINATES ON EVERY CLICK
-      printf("[DEBUG] SDL CLICK DOWN: (%d, %d)\n", evt->button.x,
-             evt->button.y);
+      ASLAN_DEBUG("SDL click down: (%d, %d)", evt->button.x, evt->button.y);
 
       // Start panning with space + left click
       if (cs->space_held && cs->mouse_in_canvas) {
@@ -568,7 +545,7 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
   // Track spacebar for pan mode
   if (evt->type == SDL_KEYDOWN && evt->key.keysym.sym == SDLK_SPACE) {
     ui->canvas_state.space_held = 1;
-    printf("[DEBUG] Spacebar DOWN\n");
+    ASLAN_DEBUG("Spacebar DOWN");
   }
   if (evt->type == SDL_KEYUP && evt->key.keysym.sym == SDLK_SPACE) {
     // Only clear space_held if pan wasn't activated from menu
@@ -576,14 +553,14 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       ui->canvas_state.space_held = 0;
     }
     ui->canvas_state.is_panning = 0;
-    printf("[DEBUG] Spacebar UP\n");
+    ASLAN_DEBUG("Spacebar UP");
   }
 
   // Inline text editing keyboard handling (Freeform-style)
   if (ui->editing_node) {
     if (evt->type == SDL_KEYDOWN) {
-      printf("[DEBUG] Editing node, Keydown: %s\n",
-             SDL_GetKeyName(evt->key.keysym.sym));
+      ASLAN_DEBUG("Editing node, Keydown: %s",
+                  SDL_GetKeyName(evt->key.keysym.sym));
       if (evt->key.keysym.sym == SDLK_RETURN ||
           evt->key.keysym.sym == SDLK_KP_ENTER) {
         // Confirm edit and exit editing mode
@@ -591,19 +568,18 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
                 sizeof(ui->editing_node->text) - 1);
         ui->editing_node->text[sizeof(ui->editing_node->text) - 1] = '\0';
         ui->editing_node = NULL;
-        printf("[DEBUG] Editing node confirmed.\n");
+        ASLAN_DEBUG("Editing node confirmed");
       } else if (evt->key.keysym.sym == SDLK_ESCAPE) {
         // Cancel edit (revert to original)
         ui->editing_node = NULL;
-        printf("[DEBUG] Editing node cancelled.\n");
+        ASLAN_DEBUG("Editing node cancelled");
       } else if (evt->key.keysym.sym == SDLK_BACKSPACE) {
         // Delete last character
         size_t len = strlen(ui->edit_buffer);
         if (len > 0) {
           ui->edit_buffer[len - 1] = '\0';
         }
-        printf("[DEBUG] Editing node backspace. Buffer: '%s'\n",
-               ui->edit_buffer);
+        ASLAN_DEBUG("Editing node backspace. Buffer: '%s'", ui->edit_buffer);
       }
     } else if (evt->type == SDL_TEXTINPUT) {
       // Append typed text
@@ -612,8 +588,8 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       if (len + input_len < sizeof(ui->edit_buffer) - 1) {
         strcat(ui->edit_buffer, evt->text.text);
       }
-      printf("[DEBUG] Editing node text input: '%s'. Buffer: '%s'\n",
-             evt->text.text, ui->edit_buffer);
+      ASLAN_DEBUG("Editing node text input: '%s'. Buffer: '%s'",
+                  evt->text.text, ui->edit_buffer);
     }
   }
   // Only return if it's a typing event or return/esc/backspace for editing
@@ -626,15 +602,15 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 
   // Delete selected node
   if (evt->type == SDL_KEYDOWN && evt->key.keysym.sym == SDLK_BACKSPACE) {
-    printf("[DEBUG] Backspace pressed, selected_node=%p\n",
-           (void *)ui->selected_node);
+    ASLAN_DEBUG("Backspace pressed, selected_node=%p",
+                (void *)ui->selected_node);
     if (ui->selected_node && ui->canvas_state.active_block) {
       CanvasData *cd = &ui->canvas_state.active_block->data.canvas;
       (void)cd;
       // Remove node from tree (simplified - just hide it)
       ui->selected_node->visible = 0;
       ui->selected_node = NULL;
-      printf("[DEBUG] Node deleted/hidden.\n");
+      ASLAN_DEBUG("Node deleted/hidden");
     }
   }
 
@@ -670,16 +646,15 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       float world_y = cs->cam_y + mouse_rel_y / old_zoom;
       cs->cam_x = world_x - mouse_rel_x / cs->zoom;
       cs->cam_y = world_y - mouse_rel_y / cs->zoom;
-      printf("[DEBUG] Canvas Zoom: %.2f (wheel.y=%d)\n", cs->zoom,
-             evt->wheel.y);
+      ASLAN_DEBUG("Canvas Zoom: %.2f (wheel.y=%d)", cs->zoom, evt->wheel.y);
     } else {
       // Global Page Scroll (Default behavior)
       float scroll_amount = 60.0f;
       ui->scroll_target_y -= evt->wheel.y * scroll_amount;
       if (ui->scroll_target_y < 0)
         ui->scroll_target_y = 0;
-      printf("[DEBUG] Page Scroll: %.1f (wheel.y=%d)\n", ui->scroll_target_y,
-             evt->wheel.y);
+      ASLAN_DEBUG("Page Scroll: %.1f (wheel.y=%d)", ui->scroll_target_y,
+                  evt->wheel.y);
     }
   }
 }
@@ -717,12 +692,12 @@ void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx, Block *block) {
 
   if (is_expanded) {
     if (ui_icon_button(ui, ICON_FULLSCREEN_EXIT)) {
-      printf("[DEBUG] Clicked Fullscreen EXIT for block %u\n", block->id);
+      ASLAN_DEBUG("Clicked Fullscreen EXIT for block %u", block->id);
       ui->expanded_block_id = 0;
     }
   } else {
     if (ui_icon_button(ui, ICON_FULLSCREEN)) {
-      printf("[DEBUG] Clicked Fullscreen ENTER for block %u\n", block->id);
+      ASLAN_DEBUG("Clicked Fullscreen ENTER for block %u", block->id);
       ui->expanded_block_id = block->id;
     }
   }
@@ -844,18 +819,18 @@ void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
   // Debug H1 editing
   if (level == 1 &&
       (state & (NK_EDIT_ACTIVE | NK_EDIT_ACTIVATED | NK_EDIT_DEACTIVATED))) {
-    printf("[DEBUG] H1 edit state: active=%d activated=%d deactivated=%d "
-           "commited=%d buf='%s'\n",
-           (state & NK_EDIT_ACTIVE) ? 1 : 0,
-           (state & NK_EDIT_ACTIVATED) ? 1 : 0,
-           (state & NK_EDIT_DEACTIVATED) ? 1 : 0,
-           (state & NK_EDIT_COMMITED) ? 1 : 0, buf);
+    ASLAN_DEBUG("H1 edit state: active=%d activated=%d deactivated=%d "
+                "commited=%d buf='%s'",
+                (state & NK_EDIT_ACTIVE) ? 1 : 0,
+                (state & NK_EDIT_ACTIVATED) ? 1 : 0,
+                (state & NK_EDIT_DEACTIVATED) ? 1 : 0,
+                (state & NK_EDIT_COMMITED) ? 1 : 0, buf);
   }
 
   if (strcmp(buf, block->text ? block->text : "") != 0) {
     block_set_text(block, buf);
     if (level == 1) {
-      printf("[DEBUG] H1 text updated to: '%s'\n", buf);
+      ASLAN_DEBUG("H1 text updated to: '%s'", buf);
     }
   }
 
@@ -890,7 +865,7 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
   if (!block)
     return;
 
-  printf("[DEBUG] Rendering block %u (Type: %d)\n", block->id, block->type);
+  ASLAN_DEBUG("Rendering block %u (Type: %d)", block->id, block->type);
   switch (block->type) {
   case BLOCK_TEXT:
     ui_render_block_text(ui, engine, ctx, page, block, width);
@@ -922,6 +897,9 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
     break;
   case BLOCK_DESIGN:
     ui_render_block_design(ui, engine, ctx, block, width);
+    break;
+  case BLOCK_CHART:
+    ui_render_block_chart(ui, block, ctx);
     break;
   default:
     break;

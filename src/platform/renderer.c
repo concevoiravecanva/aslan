@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include "ui_shared.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -56,7 +57,7 @@ Renderer *renderer_create(const char *title, int width, int height) {
 
   // Enable drag-and-drop file events
   SDL_EventState(SDL_DROPFILE, SDL_ENABLE);
-  printf("[DEBUG] SDL_DROPFILE events enabled\n");
+  ASLAN_DEBUG("SDL_DROPFILE events enabled");
 
   return r;
 }

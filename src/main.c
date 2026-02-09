@@ -3,6 +3,7 @@
 #include "platform/platform.h"
 #include "platform/renderer.h"
 #include "platform/ui_host.h"
+#include "platform/ui_shared.h"
 #include "scripting/lua_host.h"
 #include <stdbool.h>
 #include <stdio.h>
@@ -71,10 +72,8 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
     if (has_event) {
       ui->needs_redraw = 1; // Any event triggers redraw
       do {
-        // Debug: log all event types
         if (e.type == SDL_DROPFILE) {
-          printf("[DEBUG] *** SDL_DROPFILE event detected in SDL_PollEvent! "
-                 "***\n");
+          ASLAN_DEBUG("SDL_DROPFILE event detected in event loop");
         }
 
         scripting_set_key_mods(SDL_GetModState());
@@ -93,18 +92,9 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
           ui->needs_redraw = 1;
         }
 
-        // DEBUG: Log mouse events directly from SDL
-        if (e.type == SDL_MOUSEMOTION) {
-          // Only log every few motions to avoid spam
-          static int motion_count = 0;
-          if (++motion_count % 30 == 0) {
-            printf("[DEBUG] MAIN SDL_MOUSEMOTION: (%d, %d)\n", e.motion.x,
-                   e.motion.y);
-          }
-        }
         if (e.type == SDL_MOUSEBUTTONDOWN) {
-          printf("[DEBUG] MAIN SDL_MOUSEBUTTONDOWN: (%d, %d) btn=%d\n",
-                 e.button.x, e.button.y, e.button.button);
+          ASLAN_DEBUG("MAIN SDL_MOUSEBUTTONDOWN: (%d, %d) btn=%d",
+                      e.button.x, e.button.y, e.button.button);
         }
 
         // Keyboard shortcuts (macOS): Cmd+Z (Undo), Cmd+Shift+Z (Redo)
@@ -179,7 +169,7 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
           char *dropped_filedir = e.drop.file;
           int mx, my;
           SDL_GetMouseState(&mx, &my);
-          printf("[DEBUG] SDL_DROPFILE event received\n");
+          ASLAN_DEBUG("SDL_DROPFILE event received");
           ui_host_handle_file_drop(ui, dropped_filedir, mx, my);
           SDL_free(dropped_filedir);
         }

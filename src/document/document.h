@@ -39,6 +39,7 @@ typedef enum {
   BLOCK_TABLE,     // Notion-style table with views
   BLOCK_CANVAS,    // Infinite canvas (Miro-style)
   BLOCK_DESIGN,    // Finite design surface (Canva-style)
+  BLOCK_CHART,     // Data visualization linked to a table
 
   BLOCK_COUNT
 } BlockType;
@@ -70,7 +71,8 @@ typedef enum {
   NODE_TYPE_HEXAGON = 12,
   NODE_TYPE_STAR = 13,
   NODE_TYPE_PATH = 14,
-  NODE_TYPE_STROKE = 15
+  NODE_TYPE_STROKE = 15,
+  NODE_TYPE_CHART = 16
 } NodeType;
 
 // -----------------------------------------------------------------------------
@@ -87,6 +89,8 @@ typedef struct {
 // =============================================================================
 // NODE STRUCTURE (for Canvas/Design blocks)
 // =============================================================================
+
+typedef struct ChartData ChartData; // Forward declaration
 
 typedef struct Node {
   uint32_t id;
@@ -127,6 +131,9 @@ typedef struct Node {
 
   // Stroke data (for NODE_TYPE_STROKE)
   struct Stroke *stroke_data;
+
+  // Chart data (for NODE_TYPE_CHART)
+  ChartData *chart_data;
 
   // Hierarchy (linked list tree)
   struct Node *parent;
@@ -212,6 +219,20 @@ typedef struct {
   Node *root;
 } DesignData;
 
+// --- Chart Block Data (Data-Driven) ---
+
+typedef enum { CHART_BAR = 0, CHART_LINE, CHART_PIE } ChartType;
+
+struct ChartData {
+  ChartType type;
+  uint32_t source_table_id; // ID of the source table block
+  int label_col_idx;        // Column index for X-axis/Labels (-1 if none)
+  int value_col_idx;        // Column index for Y-axis/Values (-1 if none)
+
+  uint32_t color;   // Main chart color (RGBA)
+  bool show_values; // Draw values on chart
+};
+
 // =============================================================================
 // BLOCK STRUCTURE (Unified)
 // =============================================================================
@@ -230,6 +251,7 @@ typedef struct Block {
     TableData table;
     CanvasData canvas;
     DesignData design;
+    ChartData chart;
   } data;
 
   // View state
@@ -409,6 +431,13 @@ void block_design_set_bg_color(Block *block, uint32_t color);
 int block_design_add_page(Block *block);
 bool block_design_delete_page(Block *block, int page_idx);
 void block_design_goto_page(Block *block, int page_idx);
+
+// =============================================================================
+// CHART BLOCK API
+// =============================================================================
+
+void block_chart_init(Block *block);
+void block_chart_destroy(Block *block);
 
 // =============================================================================
 // NODE API (for Canvas/Design blocks)

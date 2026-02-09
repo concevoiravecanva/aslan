@@ -20,7 +20,7 @@
 #define ASLAN_LOG_ERROR 3
 
 #ifndef ASLAN_LOG_LEVEL
-#define ASLAN_LOG_LEVEL ASLAN_LOG_INFO
+#define ASLAN_LOG_LEVEL ASLAN_LOG_WARN
 #endif
 
 #define ASLAN_LOG(level, fmt, ...)                                             \

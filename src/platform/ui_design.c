@@ -2,6 +2,7 @@
 #include "../document/document.h"
 #include "ui_canvas.h"
 #include "ui_shared.h"
+#include <SDL.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -72,8 +73,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       2.0f, 2.0f, nk_rgb(255, 0, 0));
   */
   // Print dimensions to debug visibility
-  printf("[DEBUG] Design Block %u: width=%.1f height=%.1f display_h=%.1f\n",
-         block->id, width, (float)dd->height, display_h);
+  ASLAN_DEBUG("Design Block %u: width=%.1f height=%.1f display_h=%.1f",
+              block->id, width, (float)dd->height, display_h);
 
   if (nk_group_begin(ctx, "design_content_group",
                      NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER)) {
@@ -210,8 +211,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                 // Maintain aspect ratio
                 int img_w = 0, img_h = 0;
                 int size_ok = mac_get_image_size(path, &img_w, &img_h);
-                printf("[DEBUG] design image size for '%s': %d x %d (ok=%d)\n",
-                       path, img_w, img_h, size_ok);
+                ASLAN_DEBUG("design image size for '%s': %d x %d (ok=%d)",
+                            path, img_w, img_h, size_ok);
 
                 if (size_ok && img_w > 0 && img_h > 0) {
                   float aspect = (float)img_w / (float)img_h;
@@ -243,6 +244,14 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                 }
               }
             }
+          }
+        } else if (ds->pending_create == 11) {
+          // Chart
+          new_node = design_create_styled_node(dd, NODE_STYLE_RECT, nx, ny, 300,
+                                               200, 0xFFFFFFFF);
+          if (new_node) {
+            new_node->type = NODE_TYPE_CHART;
+            // ChartData initialized by node_create
           }
         } else if (ds->pending_create >= 10 && ds->pending_create <= 13) {
           NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
@@ -305,7 +314,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           int drawn_image = 0;
           int has_fill = (node->fill_color & 0xFF) > 10;
 
-          if (node->type == NODE_TYPE_STROKE && node->stroke_data) {
+          if (node->type == NODE_TYPE_CHART && node->chart_data) {
+            ui_render_chart_impl(ui, ctx, node->chart_data, nr);
+          } else if (node->type == NODE_TYPE_STROKE && node->stroke_data) {
             Stroke *s = node->stroke_data;
             if (s->count >= 2) {
               struct nk_color st_col =
@@ -475,7 +486,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                 // Rotate arrow points
                 // Tip at start_x, start_y. Base towards center.
                 float angle =
-                    rad + 3.14159f; // Pointing away from center (left)
+                    rad + 3.14159f;    // Pointing away from center (left)
                 float tip_x = start_x; // Tip exactly at geometric start
                 float tip_y = start_y;
 

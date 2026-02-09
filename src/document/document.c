@@ -829,6 +829,9 @@ void block_convert_to(Block *block, BlockType new_type) {
   case BLOCK_DESIGN:
     block_design_destroy(block);
     break;
+  case BLOCK_CHART:
+    block_chart_destroy(block);
+    break;
   default:
     break;
   }
@@ -1008,6 +1011,18 @@ Node *node_create(uint32_t id, NodeType type, const char *name) {
     safe_strcpy(node->name, name, sizeof(node->name));
   }
 
+  if (type == NODE_TYPE_CHART) {
+    node->chart_data = (ChartData *)calloc(1, sizeof(ChartData));
+    if (node->chart_data) {
+      node->chart_data->type = CHART_BAR;
+      node->chart_data->source_table_id = 0;
+      node->chart_data->label_col_idx = 0;
+      node->chart_data->value_col_idx = 1;
+      node->chart_data->color = 0xFF5578FA; // Default Blue
+      node->chart_data->show_values = true;
+    }
+  }
+
   return node;
 }
 
@@ -1028,6 +1043,11 @@ void node_destroy(Node *node) {
       }
       free(node->stroke_data);
       node->stroke_data = NULL;
+    }
+  } else if (node->type == NODE_TYPE_CHART) {
+    if (node->chart_data) {
+      free(node->chart_data);
+      node->chart_data = NULL;
     }
   }
   // Note: Text content is currently static char[256], so no free needed there.
@@ -1459,6 +1479,42 @@ void block_design_init(Block *block) {
   dd->zoom = 1.0f;
   dd->bg_color = 0xFFFFFFFF;
 }
+
+// -----------------------------------------------------------------------------
+// Chart Block API
+// -----------------------------------------------------------------------------
+
+void block_chart_init(Block *block) {
+  if (!block || block->type != BLOCK_CHART)
+    return;
+
+  ChartData *cd = &block->data.chart;
+
+  // Defaults
+  cd->type = CHART_BAR;
+  cd->source_table_id = 0; // No source initially
+  cd->label_col_idx = 0;   // Default to first column for labels
+  cd->value_col_idx = 1;   // Default to second column for values
+  cd->color =
+      0xFF5578FA; // Default Blue (RGBA: 250, 120, 85, 255 -> 0xFA7855FF)
+                  // Wait, internal color is usually 0xAABBGGRR or similar
+                  // depending on endianness Let's use a safe default compatible
+                  // with Nuklear's nk_rgba/nk_rgb We'll trust the UI to
+                  // interpret this uint32_t. For now, 0xFFFFFFFF (White) or a
+                  // nice Aslan Blue.
+  cd->show_values = true;
+}
+
+void block_chart_destroy(Block *block) {
+  if (!block)
+    return;
+  // No dynamic memory to free for now
+  (void)block;
+}
+
+// -----------------------------------------------------------------------------
+// Design Block API
+// -----------------------------------------------------------------------------
 
 void block_design_destroy(Block *block) {
   if (!block)

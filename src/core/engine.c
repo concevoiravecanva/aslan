@@ -395,6 +395,9 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
         case BLOCK_DESIGN:
           block_design_init(block);
           break;
+        case BLOCK_CHART:
+          block_chart_init(block);
+          break;
         default:
           break;
         }

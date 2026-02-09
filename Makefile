@@ -20,6 +20,7 @@ CORE_SRC = src/document/document.c \
            src/platform/ui_table.c \
            src/platform/ui_canvas.c \
            src/platform/ui_design.c \
+           src/platform/ui_chart.c \
            src/platform/ui_core.c \
            src/platform/ui_host.c \
            src/platform/recents.c \

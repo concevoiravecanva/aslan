@@ -1,4 +1,5 @@
 #include "aslan_table.h"
+#include "../platform/ui_shared.h"
 #include <lauxlib.h>
 #include <lua.h>
 #include <lualib.h>
@@ -1638,7 +1639,7 @@ static const char *column_type_name(AslanColumnType type) {
 
 void aslan_table_print_debug(const AslanTable *table) {
   if (!table) {
-    printf("[AslanTable] NULL\n");
+    ASLAN_DEBUG("AslanTable: NULL");
     return;
   }
 

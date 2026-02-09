@@ -3,6 +3,7 @@
 // =============================================================================
 
 #include "ui_canvas.h"
+#include "../document/aslan_table.h"
 #include "platform/mac_image.h"
 #include "ui_shared.h"
 #include <SDL.h>
@@ -419,6 +420,117 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
       nk_label(ctx, "Background", NK_TEXT_LEFT);
       // Background color picker could go here too if needed, but per-page
       // exists
+    } else if (block && block->type == BLOCK_CHART) {
+      ChartData *cd = &block->data.chart;
+      nk_layout_row_dynamic(ctx, 30, 1);
+      nk_label(ctx, "Chart Settings", NK_TEXT_LEFT);
+      nk_layout_row_dynamic(ctx, 5, 1);
+      nk_spacing(ctx, 1);
+
+      // --- Chart Type Selector ---
+      nk_layout_row_dynamic(ctx, 25, 1);
+      nk_label(ctx, "Chart Type", NK_TEXT_LEFT);
+      const char *chart_types[] = {"Bar Chart", "Line Chart", "Pie Chart"};
+      int current_type = (int)cd->type;
+      int new_type =
+          nk_combo(ctx, chart_types, 3, current_type, 25, nk_vec2(200, 200));
+      if (new_type != current_type) {
+        cd->type = (ChartType)new_type;
+      }
+
+      // --- Source Table Selector ---
+      nk_layout_row_dynamic(ctx, 25, 1);
+      nk_label(ctx, "Source Table", NK_TEXT_LEFT);
+
+      Page *page = doc_page_get_active(engine->doc);
+      if (page) {
+        char *table_names[32];
+        uint32_t table_ids[32];
+        int table_count = 0;
+        int current_table_idx = -1;
+
+        table_names[0] = "None";
+        table_ids[0] = 0;
+        table_count++;
+        if (cd->source_table_id == 0)
+          current_table_idx = 0;
+
+        char name_storage[32][64];
+
+        for (Block *b = page->first_block; b && table_count < 32; b = b->next) {
+          if (b->type == BLOCK_TABLE) {
+            snprintf(name_storage[table_count], 64, "Table %u", b->id);
+            table_names[table_count] = name_storage[table_count];
+            table_ids[table_count] = b->id;
+            if (b->id == cd->source_table_id)
+              current_table_idx = table_count;
+            table_count++;
+          }
+        }
+
+        if (current_table_idx == -1)
+          current_table_idx = 0;
+
+        int new_table_idx =
+            nk_combo(ctx, (const char **)table_names, table_count,
+                     current_table_idx, 25, nk_vec2(200, 200));
+        if (new_table_idx != current_table_idx) {
+          cd->source_table_id = table_ids[new_table_idx];
+          cd->label_col_idx = 0;
+          cd->value_col_idx = 1;
+        }
+
+        if (cd->source_table_id != 0) {
+          Block *src_block = NULL;
+          for (Block *b = page->first_block; b; b = b->next) {
+            if (b->id == cd->source_table_id) {
+              src_block = b;
+              break;
+            }
+          }
+
+          if (src_block && src_block->data.table.columnar) {
+            AslanTable *tbl = src_block->data.table.columnar;
+            int col_count = tbl->column_count;
+            if (col_count > 0) {
+              char *col_names[32];
+              for (int k = 0; k < col_count && k < 32; k++) {
+                col_names[k] = tbl->columns[k].name;
+              }
+
+              nk_layout_row_dynamic(ctx, 25, 1);
+              nk_label(ctx, "Label Column (X)", NK_TEXT_LEFT);
+              int l_idx = cd->label_col_idx;
+              if (l_idx >= col_count)
+                l_idx = 0;
+              int new_l = nk_combo(ctx, (const char **)col_names, col_count,
+                                   l_idx, 25, nk_vec2(200, 200));
+              if (new_l != cd->label_col_idx)
+                cd->label_col_idx = new_l;
+
+              nk_layout_row_dynamic(ctx, 25, 1);
+              nk_label(ctx, "Value Column (Y)", NK_TEXT_LEFT);
+              int v_idx = cd->value_col_idx;
+              if (v_idx >= col_count)
+                v_idx = 0;
+              int new_v = nk_combo(ctx, (const char **)col_names, col_count,
+                                   v_idx, 25, nk_vec2(200, 200));
+              if (new_v != cd->value_col_idx)
+                cd->value_col_idx = new_v;
+            }
+          }
+        }
+      }
+
+      // --- Appearance ---
+      nk_layout_row_dynamic(ctx, 25, 1);
+      nk_label(ctx, "Color", NK_TEXT_LEFT);
+      nk_layout_row_dynamic(ctx, 120, 1);
+      struct nk_colorf cf = nk_color_cf(nk_rgba_u32(cd->color));
+      if (nk_color_pick(ctx, &cf, NK_RGBA)) {
+        cd->color = nk_color_u32(nk_rgba_cf(cf));
+      }
+
     } else {
       nk_layout_row_dynamic(ctx, 30, 1);
       nk_label(ctx, "No element selected", NK_TEXT_LEFT);
@@ -486,6 +598,111 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
     return;
   }
 
+  // --- SPECIAL HANDLING FOR CHART NODES ---
+  if (node->type == NODE_TYPE_CHART && node->chart_data) {
+    ChartData *cd = node->chart_data;
+    nk_layout_row_dynamic(ctx, 25, 1);
+    nk_label(ctx, "Chart Settings", NK_TEXT_LEFT);
+
+    // Type
+    nk_layout_row_dynamic(ctx, 25, 1);
+    nk_label(ctx, "Type", NK_TEXT_LEFT);
+    const char *chart_types[] = {"Bar Chart", "Line Chart", "Pie Chart"};
+    int current_type = (int)cd->type;
+    int new_type =
+        nk_combo(ctx, chart_types, 3, current_type, 25, nk_vec2(200, 200));
+    if (new_type != current_type)
+      cd->type = (ChartType)new_type;
+
+    // Color
+    ui_render_color_property(ctx, "Color", &cd->color);
+
+    // Source Table Selector
+    nk_layout_row_dynamic(ctx, 25, 1);
+    nk_label(ctx, "Source Table", NK_TEXT_LEFT);
+
+    Page *page = doc_page_get_active(engine->doc);
+    if (page) {
+      char *table_names[32];
+      uint32_t table_ids[32];
+      int table_count = 0;
+      int current_table_idx = -1;
+
+      table_names[0] = "None";
+      table_ids[0] = 0;
+      table_count++;
+      if (cd->source_table_id == 0)
+        current_table_idx = 0;
+
+      char name_storage[32][64];
+
+      for (Block *b = page->first_block; b && table_count < 32; b = b->next) {
+        if (b->type == BLOCK_TABLE) {
+          snprintf(name_storage[table_count], 64, "Table %u", b->id);
+          table_names[table_count] = name_storage[table_count];
+          table_ids[table_count] = b->id;
+          if (b->id == cd->source_table_id)
+            current_table_idx = table_count;
+          table_count++;
+        }
+      }
+
+      if (current_table_idx == -1)
+        current_table_idx = 0;
+
+      int new_table_idx = nk_combo(ctx, (const char **)table_names, table_count,
+                                   current_table_idx, 25, nk_vec2(200, 200));
+      if (new_table_idx != current_table_idx) {
+        cd->source_table_id = table_ids[new_table_idx];
+        cd->label_col_idx = 0;
+        cd->value_col_idx = 1;
+      }
+
+      // Column Selectors
+      if (cd->source_table_id != 0) {
+        Block *src_block = NULL;
+        for (Block *b = page->first_block; b; b = b->next) {
+          if (b->id == cd->source_table_id) {
+            src_block = b;
+            break;
+          }
+        }
+
+        if (src_block && src_block->data.table.columnar) {
+          AslanTable *tbl = src_block->data.table.columnar;
+          int col_count = tbl->column_count;
+          if (col_count > 0) {
+            char *col_names[32];
+            for (int k = 0; k < col_count && k < 32; k++) {
+              col_names[k] = tbl->columns[k].name;
+            }
+
+            nk_layout_row_dynamic(ctx, 25, 1);
+            nk_label(ctx, "Label Column (X)", NK_TEXT_LEFT);
+            int l_idx = cd->label_col_idx;
+            if (l_idx >= col_count)
+              l_idx = 0;
+            int new_l = nk_combo(ctx, (const char **)col_names, col_count,
+                                 l_idx, 25, nk_vec2(200, 200));
+            if (new_l != cd->label_col_idx)
+              cd->label_col_idx = new_l;
+
+            nk_layout_row_dynamic(ctx, 25, 1);
+            nk_label(ctx, "Value Column (Y)", NK_TEXT_LEFT);
+            int v_idx = cd->value_col_idx;
+            if (v_idx >= col_count)
+              v_idx = 0;
+            int new_v = nk_combo(ctx, (const char **)col_names, col_count,
+                                 v_idx, 25, nk_vec2(200, 200));
+            if (new_v != cd->value_col_idx)
+              cd->value_col_idx = new_v;
+          }
+        }
+      }
+    }
+    return;
+  }
+
   // Node Name
   nk_layout_row_dynamic(ctx, 25, 1);
   nk_label(ctx, "Name", NK_TEXT_LEFT);
@@ -526,10 +743,10 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
   // Debug Print to Console
   static int last_debug_id = -1;
   if ((int)node->id != last_debug_id) {
-    printf("[DEBUG] Selected Node ID=%d Type=%d W=%.2f H=%.2f Pts=%d "
-           "IsLine=%d\n",
-           node->id, node->type, node->width, node->height,
-           node->path_point_count, is_line);
+    ASLAN_DEBUG("Selected Node ID=%d Type=%d W=%.2f H=%.2f Pts=%d "
+                "IsLine=%d",
+                node->id, node->type, node->width, node->height,
+                node->path_point_count, is_line);
     last_debug_id = node->id;
   }
 
@@ -746,7 +963,7 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
   // 6 buttons: Shapes, Text, Image, Brush, Color, Bezier
   const float btn_size = 36.0f;
   const float btn_spacing = 8.0f;
-  const float toolbar_w = 6 * btn_size + 5 * btn_spacing + 24.0f;
+  const float toolbar_w = 7 * btn_size + 6 * btn_spacing + 24.0f; // 7 buttons
   const float toolbar_h = 52.0f;
   const float margin = 20.0f;
 
@@ -774,12 +991,12 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
   float btn_x = toolbar_x + 12.0f;
   float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
 
-  // 6 buttons: Shapes, Text, Image, Brush, Color, Bezier
+  // 7 buttons: Shapes, Text, Image, Brush, Color, Bezier, Chart
   // Brush icon changes based on marker mode
   const char *brush_icon = cs->pen_is_marker ? ICON_MARKER : ICON_BRUSH;
-  const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT, ICON_IMAGE,
-                              brush_icon, "",        ICON_MAGIC};
-  int tool_count = 6;
+  const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT,  ICON_IMAGE, brush_icon,
+                              "",         ICON_MAGIC, ICON_CHART};
+  int tool_count = 7;
 
   for (int i = 0; i < tool_count; i++) {
     struct nk_rect btn = nk_rect(btn_x + i * (btn_size + btn_spacing), btn_y,
@@ -793,6 +1010,9 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
       is_active = (cs->active_cat == CANVAS_CAT_COLOR);
     if (i == 5)
       is_active = cs->bezier_mode;
+    if (i == 6)
+      is_active = (cs->pending_create == 11); // Chart active state (transient)
+
     int hovered = (ui->mouse_x >= btn.x && ui->mouse_x < btn.x + btn.w &&
                    ui->mouse_y >= btn.y && ui->mouse_y < btn.y + btn.h);
 
@@ -813,30 +1033,29 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
 
     if (hovered && cs->mouse_just_pressed) {
       if (i == 5) {
-        printf("[DEBUG] Bezier button hovered and mouse_just_pressed=%d\n",
-               cs->mouse_just_pressed);
+        ASLAN_DEBUG("Bezier button hovered and mouse_just_pressed=%d",
+                    cs->mouse_just_pressed);
       }
       if (i ==
           3) { // Brush button - toggles between brush, marker and deselected
-        printf("[DEBUG] Clicked Brush/Marker button. Current tool: %d, marker: "
-               "%d\n",
-               cs->tool, cs->pen_is_marker);
+        ASLAN_DEBUG("Clicked Brush/Marker button. Current tool: %d, marker: %d",
+                    cs->tool, cs->pen_is_marker);
         if (cs->tool == CANVAS_TOOL_PEN) {
           if (!cs->pen_is_marker) {
             // State 1 (Pen) -> State 2 (Marker)
             cs->pen_is_marker = 1;
-            printf("[DEBUG] Switched to Marker mode\n");
+            ASLAN_DEBUG("Switched to Marker mode");
           } else {
             // State 2 (Marker) -> State 3 (None/Select)
             cs->tool = CANVAS_TOOL_SELECT;
             cs->pen_is_marker = 0; // Reset for next time
-            printf("[DEBUG] Deselected pen tool\n");
+            ASLAN_DEBUG("Deselected pen tool");
           }
         } else {
           // State 3 (None) -> State 1 (Pen)
           cs->tool = CANVAS_TOOL_PEN;
           cs->pen_is_marker = 0;
-          printf("[DEBUG] Set tool to CANVAS_TOOL_PEN\n");
+          ASLAN_DEBUG("Set tool to CANVAS_TOOL_PEN");
         }
         cs->active_cat =
             (cs->tool == CANVAS_TOOL_PEN)
@@ -1167,7 +1386,7 @@ SDL_Texture *get_image_texture(UIHost *ui, const char *path) {
   int w, h;
   void *pixels = mac_load_image_rgba(path, &w, &h);
 
-  printf("[DEBUG] get_image_texture: trying path '%s' -> %p\n", path, pixels);
+  ASLAN_DEBUG("get_image_texture: trying path '%s' -> %p", path, pixels);
 
   if (!pixels) {
     // Try relative to assets if not already starting with assets/
@@ -1175,15 +1394,13 @@ SDL_Texture *get_image_texture(UIHost *ui, const char *path) {
       char full_path[512];
       snprintf(full_path, sizeof(full_path), "assets/%s", path);
       pixels = mac_load_image_rgba(full_path, &w, &h);
-      printf("[DEBUG] get_image_texture: trying full_path '%s' -> %p\n",
-             full_path, pixels);
+      ASLAN_DEBUG("get_image_texture: trying full_path '%s' -> %p",
+                  full_path, pixels);
     }
   }
 
-  fflush(stdout);
-
   if (!pixels) {
-    fprintf(stderr, "[ERROR] get_image_texture failed to load: %s\n", path);
+    ASLAN_ERROR("get_image_texture failed to load: %s", path);
     return NULL;
   }
 
@@ -1560,8 +1777,8 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
             // Maintain aspect ratio
             int img_w = 0, img_h = 0;
             int size_ok = mac_get_image_size(path, &img_w, &img_h);
-            printf("[DEBUG] canvas image size for '%s': %d x %d (ok=%d)\n",
-                   path, img_w, img_h, size_ok);
+            ASLAN_DEBUG("canvas image size for '%s': %d x %d (ok=%d)",
+                        path, img_w, img_h, size_ok);
 
             if (size_ok && img_w > 0 && img_h > 0) {
               float aspect = (float)img_w / (float)img_h;
@@ -1581,7 +1798,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
             new_node->parent = cd->root;
             strncpy(new_node->image_path, rel,
                     sizeof(new_node->image_path) - 1);
-            printf("[DEBUG] set image_path to: %s\n", new_node->image_path);
+            ASLAN_DEBUG("set image_path to: %s", new_node->image_path);
             if (!cd->root->first_child)
               cd->root->first_child = new_node;
             else {
@@ -1593,11 +1810,18 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           }
         }
       }
-    } else if (cs->pending_create == 4) {
       new_node = canvas_create_styled_node(cd, NODE_STYLE_RECT, nx, ny, 200.0f,
                                            120.0f, cs->selected_color);
       if (new_node)
         new_node->type = NODE_TYPE_IMAGE;
+    } else if (cs->pending_create == 11) {
+      // Chart
+      new_node = canvas_create_styled_node(cd, NODE_STYLE_RECT, nx, ny, 300,
+                                           200, 0xFFFFFFFF);
+      if (new_node) {
+        new_node->type = NODE_TYPE_CHART;
+        // ChartData already initialized by node_create
+      }
     } else if (cs->pending_create >= 10 && cs->pending_create <= 13) {
       NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
                                 NODE_STYLE_TRIANGLE, NODE_STYLE_LINE};
@@ -1962,8 +2186,8 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
             // Start Style
             if (node->line_start_style > 0 && s->count >= 2) {
               if (node == ui->selected_node && (int)(SDL_GetTicks() % 100 == 0))
-                printf("[DEBUG] Render Start Style: %d for Node %d\n",
-                       node->line_start_style, node->id);
+                ASLAN_DEBUG("Render Start Style: %d for Node %d",
+                            node->line_start_style, node->id);
 
               float start_x = pts[0].x;
               float start_y = pts[0].y;
@@ -2085,6 +2309,8 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           }
         }
 
+      } else if (node->type == NODE_TYPE_CHART && node->chart_data) {
+        ui_render_chart_impl(ui, ctx, node->chart_data, nr);
       } else if (node->type == NODE_TYPE_ELLIPSE) {
         if (node->is_container && !node->image_path[0]) {
           struct nk_color cbg = nk_rgba(66, 133, 244, 40);
