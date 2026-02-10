@@ -301,12 +301,12 @@ typedef struct UIHost {
     int is_editing_cell; // Prevent nav while typing
     float menu_pos_x, menu_pos_y;
     char rename_buffer[64];
-    char option_buffer[64]; // Buffer for adding new Select options
-    char date_buffer[32];   // Persistent buffer for date editing
-    int date_field_active;  // Trigger focus on first frame
-    int resizing_col;       // Column being resized (-1 = none)
-    float resize_start_x;   // Mouse X at resize start
-    float resize_start_w;   // Column width at resize start
+    char option_buffer[64];  // Buffer for adding new Select options
+    char date_buffer[32];    // Persistent buffer for date editing
+    int date_field_active;   // Trigger focus on first frame
+    int resizing_col;        // Column being resized (-1 = none)
+    float resize_start_x;    // Mouse X at resize start
+    float resize_start_w;    // Column width at resize start
     char filter_buffer[128]; // Search/filter text input
   } table_state;
 
@@ -444,6 +444,7 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
   "\xEE\xB4\x8F" // ri-file-text-line (matching working ICON_TEXT)
 #define ICON_COL_NUMBER "\xEE\xB7\xA4"   // ri-hashtag
 #define ICON_COL_CHECKBOX "\xEE\xAD\xB6" // ri-checkbox-line
+#define ICON_CHECK_FILL "\xEE\xAD\xB5"   // ri-checkbox-fill
 #define ICON_COL_SELECT "\xEE\xA9\x8B"   // ri-arrow-down-s-line
 #define ICON_COL_DATE "\xEE\xAA\xB2"     // ri-calendar-line
 #define ICON_COL_RELATION "\xEE\xB0\xB5" // ri-links-line

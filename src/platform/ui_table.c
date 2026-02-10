@@ -184,9 +184,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       total_w += w;
     }
 
-    // Column scaling logic (Notion-like)
-    // If not full_width, we might want to scale down if it exceeds a target
-    float target_w = td->full_width ? width - 40 : 700.0f;
+    // Column scaling logic: scale down only if it exceeds the available space
+    float target_w = width - 40.0f;
     if (total_w > target_w) {
       float scale = (target_w - row_num_w) / (total_w - row_num_w);
       for (size_t c = 0; c < col_count; c++) {
@@ -268,10 +267,9 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ctx->style.edit.text_hover = ctx->style.edit.text_normal;
       ctx->style.edit.text_active = ctx->style.edit.text_normal;
 
-      nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD,
-                                     ui->table_state.filter_buffer,
-                                     sizeof(ui->table_state.filter_buffer) - 1,
-                                     nk_filter_default);
+      nk_edit_string_zero_terminated(
+          ctx, NK_EDIT_FIELD, ui->table_state.filter_buffer,
+          sizeof(ui->table_state.filter_buffer) - 1, nk_filter_default);
 
       ctx->style.edit = old_es;
 
@@ -286,8 +284,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       // Placeholder text when empty
       if (ui->table_state.filter_buffer[0] == '\0') {
-        nk_draw_text(fcanvas,
-                     nk_rect(fb.x + 8, fb.y + 4, fb.w - 16, fb.h - 8),
+        nk_draw_text(fcanvas, nk_rect(fb.x + 8, fb.y + 4, fb.w - 16, fb.h - 8),
                      "Search...", 9, &ui->font_inter->handle,
                      nk_rgba(0, 0, 0, 0), muted_gray);
       }
@@ -334,7 +331,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       // Right-click: open column settings
       if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_RIGHT,
-                                           hdr_bounds)) {
+                                          hdr_bounds)) {
         ui->table_state.active_block_id = block->id;
         ui->table_state.active_col_idx = (int)c;
         ui->table_state.show_col_settings = !ui->table_state.show_col_settings;
@@ -382,15 +379,15 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
 
       // Resize handle — detect hover/click on right edge of header
-      struct nk_rect resize_zone = nk_rect(
-          hdr_bounds.x + hdr_bounds.w - 3, hdr_bounds.y, 6, hdr_bounds.h);
+      struct nk_rect resize_zone = nk_rect(hdr_bounds.x + hdr_bounds.w - 3,
+                                           hdr_bounds.y, 6, hdr_bounds.h);
       if (nk_input_is_mouse_hovering_rect(&ctx->input, resize_zone)) {
         nk_stroke_line(canvas, hdr_bounds.x + hdr_bounds.w - 1,
                        hdr_bounds.y + 4, hdr_bounds.x + hdr_bounds.w - 1,
                        hdr_bounds.y + hdr_bounds.h - 4, 2.0f, COLOR_ACCENT);
       }
       if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
-                                           resize_zone) &&
+                                          resize_zone) &&
           ui->table_state.resizing_col < 0) {
         ui->table_state.active_block_id = block->id;
         ui->table_state.resizing_col = (int)c;
@@ -457,7 +454,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       struct nk_color odd_row_bg =
           ui->dark_mode ? nk_rgb(29, 30, 35) : nk_rgb(245, 245, 243);
       struct nk_color base_row_bg = (v % 2 == 0) ? notion_row_bg : odd_row_bg;
-      struct nk_color current_row_bg = is_row_hovered ? row_hover_bg : base_row_bg;
+      struct nk_color current_row_bg =
+          is_row_hovered ? row_hover_bg : base_row_bg;
       struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
 
       // Row number cell — show delete "x" on hover
@@ -470,7 +468,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       // Right-click on row number = duplicate row
       if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_RIGHT,
-                                           cell_bounds)) {
+                                          cell_bounds)) {
         aslan_table_duplicate_row(tbl, row_id);
       }
 
@@ -735,15 +733,29 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
           struct nk_style_button chk_style = ctx->style.button;
           chk_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-          chk_style.hover = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-          chk_style.active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-          chk_style.text_normal = notion_text;
-          chk_style.text_hover = COLOR_ACCENT;
+          chk_style.hover = nk_style_item_color(nk_rgba(80, 80, 80, 20));
+          chk_style.active = nk_style_item_color(nk_rgba(60, 60, 60, 40));
           chk_style.padding = nk_vec2(0, 0);
+          chk_style.border = 0;
 
-          if (nk_button_label_styled(ctx, &chk_style,
-                                     checked ? "[x]" : "[ ]")) {
+          // Align the checkbox in the center
+          if (nk_button_label_styled(ctx, &chk_style, "")) {
             aslan_table_set_checkbox(tbl, (int)c, row_id, !checked);
+          }
+
+          // Draw icon manually for better control
+          const char *chk_icon = checked ? ICON_CHECK_FILL : ICON_COL_CHECKBOX;
+          struct nk_color chk_col =
+              checked ? active_cell_outline
+                      : (ui->dark_mode ? muted_gray : nk_rgb(180, 180, 185));
+
+          if (ui->font_icons) {
+            nk_draw_text(nk_window_get_canvas(ctx),
+                         nk_rect(cell_bounds.x + (cell_bounds.w - 18) / 2,
+                                 cell_bounds.y + (cell_bounds.h - 18) / 2, 18,
+                                 18),
+                         chk_icon, strlen(chk_icon), &ui->font_icons->handle,
+                         nk_rgba(0, 0, 0, 0), chk_col);
           }
           break;
         }

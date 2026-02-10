@@ -1225,9 +1225,9 @@ double aslan_table_eval_formula(const AslanTable *table, int col_idx,
 
   // Track if a COLUMN token is directly inside an aggregate function
   // so we can resolve it as column-level instead of row-level
-  int func_depth = 0;          // nesting level of function calls
-  FormulaFunc func_ctx[16];    // function context at each depth
-  int func_argc[16];           // argument count at each depth
+  int func_depth = 0;       // nesting level of function calls
+  FormulaFunc func_ctx[16]; // function context at each depth
+  int func_argc[16];        // argument count at each depth
   memset(func_ctx, 0, sizeof(func_ctx));
   memset(func_argc, 0, sizeof(func_argc));
 
@@ -1861,18 +1861,18 @@ const char *aslan_table_get_footer_display(const AslanTable *table, int col_idx,
   case ASLAN_AGG_SUM:
     if (col->type == ASLAN_COL_NUMBER || col->type == ASLAN_COL_FORMULA) {
       double sum = aslan_table_col_sum(table, col_idx);
-      snprintf(buf, buf_size, "\xCE\xA3 %.2f", sum); // Σ
+      snprintf(buf, buf_size, "Sum %.2f", sum);
     }
     break;
   case ASLAN_AGG_AVG:
     if (col->type == ASLAN_COL_NUMBER || col->type == ASLAN_COL_FORMULA) {
       double avg = aslan_table_col_avg(table, col_idx);
-      snprintf(buf, buf_size, "\xCE\xBC %.2f", avg); // μ
+      snprintf(buf, buf_size, "Avg %.2f", avg);
     }
     break;
   case ASLAN_AGG_COUNT: {
     size_t count = aslan_table_col_count(table, col_idx);
-    snprintf(buf, buf_size, "# %zu", count);
+    snprintf(buf, buf_size, "Count %zu", count);
     break;
   }
   case ASLAN_AGG_PERCENT:
