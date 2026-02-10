@@ -9,8 +9,9 @@
 #include <string.h>
 
 // External: shape-masked image texture (defined in ui_canvas.c)
-SDL_Texture *get_masked_image_texture(UIHost *ui, const char *path,
-                                      NodeType shape, float corner_ratio);
+SDL_Texture *get_masked_image_texture(UIHost *ui, const char *path, Node *node);
+int node_get_path_polygon(Node *node, float *out_pts, int max_pts, float sx,
+                          float sy, float zoom);
 int open_image_file_dialog(char *out_path, size_t path_size);
 int copy_image_to_assets(const char *src_path, const char *doc_dir,
                          char *out_rel_path, size_t out_size);
@@ -335,13 +336,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
           // Container with image: render shape-masked image
           if (node->is_container && node->image_path[0]) {
-            float cr =
-                (node->type == NODE_TYPE_RECT && node->width > 0 &&
-                 node->height > 0)
-                    ? node->corner_radius / fminf(node->width, node->height)
-                    : 0;
-            SDL_Texture *tex = get_masked_image_texture(
-                ui, node->image_path, node->type, cr);
+            SDL_Texture *tex =
+                get_masked_image_texture(ui, node->image_path, node);
             if (tex) {
               struct nk_image img = nk_image_ptr(tex);
               nk_draw_image(canvas_buf, nr, &img, nk_rgb(255, 255, 255));
@@ -617,8 +613,28 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
           } else if (node->type == NODE_TYPE_PATH && node->path_points &&
                      node->path_point_count > 1) {
+            if (node->is_container && !node->image_path[0]) {
+              // Empty container placeholder for PATH shape
+              struct nk_color cbg = nk_rgba(66, 133, 244, 40);
+              struct nk_color cst = nk_rgba(66, 133, 244, 255);
+              float poly_pts[512 * 2];
+              int poly_count =
+                  node_get_path_polygon(node, poly_pts, 512, sx, sy, scale);
+              if (poly_count > 2) {
+                nk_fill_polygon(canvas_buf, poly_pts, poly_count, cbg);
+                nk_stroke_polygon(canvas_buf, poly_pts, poly_count, 1.0f, cst);
+              }
+              if (ui->font_icons) {
+                struct nk_rect ir =
+                    nk_rect(nr.x + nr.w / 2 - 10, nr.y + nr.h / 2 - 10, 20, 20);
+                nk_draw_text(canvas_buf, ir, ICON_ADD, strlen(ICON_ADD),
+                             &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), cst);
+              }
+              drawn_image = 1;
+            }
+
             // Fill path
-            if (fill.a > 0) {
+            if (!drawn_image && fill.a > 0) {
               float poly_pts[512 * 2];
               int poly_count =
                   node_get_path_polygon(node, poly_pts, 512, sx, sy, scale);

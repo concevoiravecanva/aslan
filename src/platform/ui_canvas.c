@@ -19,6 +19,9 @@ int mac_get_image_size(const char *path, int *w, int *h);
 
 // Forward declarations for internal functions
 void node_convert_to_path(Node *node);
+int tessellate_bezier(float x1, float y1, float cp1x, float cp1y, float cp2x,
+                      float cp2y, float x2, float y2, float *out_pts,
+                      int max_pts, int include_last);
 
 // -----------------------------------------------------------------------------
 // Canvas Helper: Draw infinite dot grid
@@ -1349,12 +1352,84 @@ static struct {
   char path[256];
   int shape_type;
   int corner_key; // corner_ratio * 100
+  uint32_t path_hash; // hash of path points for PATH nodes
   SDL_Texture *tex;
   int width, height;
   int in_use;
   uint32_t last_used;
 } masked_tex_cache[MASKED_TEX_CACHE_SIZE];
 static uint32_t masked_tex_counter = 0;
+
+// Simple hash of path points for cache invalidation
+static uint32_t hash_path_points(NodePathPoint *pts, int count) {
+  uint32_t h = 0x811c9dc5; // FNV-1a offset basis
+  const uint8_t *data = (const uint8_t *)pts;
+  size_t len = (size_t)count * sizeof(NodePathPoint);
+  for (size_t i = 0; i < len; i++) {
+    h ^= data[i];
+    h *= 0x01000193; // FNV-1a prime
+  }
+  return h;
+}
+
+// Tessellate path to normalized [0,1] polygon coords relative to node bounds
+static int tessellate_path_normalized(Node *node, float *out_pts, int max_pts) {
+  if (!node || !node->path_points || node->path_point_count < 2)
+    return 0;
+  float w = node->width, h = node->height;
+  if (w < 1.0f) w = 1.0f;
+  if (h < 1.0f) h = 1.0f;
+
+  int total = 0;
+  for (int i = 0; i < node->path_point_count; i++) {
+    int next = (i + 1) % node->path_point_count;
+    NodePathPoint p1 = node->path_points[i];
+    NodePathPoint p2 = node->path_points[next];
+
+    if (p1.type == 1) { // Cubic Bezier - tessellate in node-local coords then normalize
+      float seg_pts[128];
+      int c = tessellate_bezier(p1.x, p1.y, p1.cp2x, p1.cp2y,
+                                p2.cp1x, p2.cp1y, p2.x, p2.y,
+                                seg_pts, 64, 0);
+      for (int j = 0; j < c && total < max_pts; j++) {
+        out_pts[total * 2]     = seg_pts[j * 2] / w;
+        out_pts[total * 2 + 1] = seg_pts[j * 2 + 1] / h;
+        total++;
+      }
+    } else {
+      if (total < max_pts) {
+        out_pts[total * 2]     = p1.x / w;
+        out_pts[total * 2 + 1] = p1.y / h;
+        total++;
+      }
+    }
+  }
+  return total;
+}
+
+// Winding number point-in-polygon test
+static float path_winding_alpha(float px, float py, const float *poly, int count) {
+  int winding = 0;
+  for (int i = 0; i < count; i++) {
+    int j = (i + 1) % count;
+    float y0 = poly[i * 2 + 1], y1 = poly[j * 2 + 1];
+    float x0 = poly[i * 2],     x1 = poly[j * 2];
+    if (y0 <= py) {
+      if (y1 > py) {
+        float vt = (py - y0) / (y1 - y0);
+        if (px < x0 + vt * (x1 - x0))
+          winding++;
+      }
+    } else {
+      if (y1 <= py) {
+        float vt = (py - y0) / (y1 - y0);
+        if (px < x0 + vt * (x1 - x0))
+          winding--;
+      }
+    }
+  }
+  return winding != 0 ? 1.0f : 0.0f;
+}
 
 // Compute alpha for a pixel at normalized coords (nx, ny) in [0,1]
 // Returns 0.0 (outside) to 1.0 (inside), with smooth AA at edges
@@ -1486,18 +1561,27 @@ static float shape_alpha(NodeType shape, float nx, float ny, float cr,
 }
 
 SDL_Texture *get_masked_image_texture(UIHost *ui, const char *path,
-                                      NodeType shape, float corner_ratio) {
-  if (!path || !path[0])
+                                      Node *node) {
+  if (!path || !path[0] || !node)
     return NULL;
+
+  NodeType shape = node->type;
+  float corner_ratio = 0;
+  if (shape == NODE_TYPE_RECT && node->width > 0 && node->height > 0)
+    corner_ratio = node->corner_radius / fminf(node->width, node->height);
 
   masked_tex_counter++;
   int cr_key = (int)(corner_ratio * 100);
+  uint32_t ph = 0;
+  if (shape == NODE_TYPE_PATH && node->path_points && node->path_point_count > 0)
+    ph = hash_path_points(node->path_points, node->path_point_count);
 
   // Check cache
   for (int i = 0; i < MASKED_TEX_CACHE_SIZE; i++) {
     if (masked_tex_cache[i].in_use &&
         masked_tex_cache[i].shape_type == (int)shape &&
         masked_tex_cache[i].corner_key == cr_key &&
+        masked_tex_cache[i].path_hash == ph &&
         strcmp(masked_tex_cache[i].path, path) == 0) {
       masked_tex_cache[i].last_used = masked_tex_counter;
       return masked_tex_cache[i].tex;
@@ -1518,13 +1602,31 @@ SDL_Texture *get_masked_image_texture(UIHost *ui, const char *path,
   // Apply shape mask to pixels
   uint8_t *rgba = (uint8_t *)pixels;
   int img_size = w > h ? w : h;
-  for (int y = 0; y < h; y++) {
-    for (int x = 0; x < w; x++) {
-      float nx = ((float)x + 0.5f) / (float)w;
-      float ny = ((float)y + 0.5f) / (float)h;
-      float a = shape_alpha(shape, nx, ny, corner_ratio, img_size);
-      int idx = (y * w + x) * 4;
-      rgba[idx + 3] = (uint8_t)((float)rgba[idx + 3] * a);
+
+  if (shape == NODE_TYPE_PATH) {
+    // Tessellate path to normalized polygon, then use winding number test
+    float poly[1024 * 2];
+    int poly_count = tessellate_path_normalized(node, poly, 1024);
+    if (poly_count > 2) {
+      for (int py = 0; py < h; py++) {
+        for (int px = 0; px < w; px++) {
+          float nx = ((float)px + 0.5f) / (float)w;
+          float ny = ((float)py + 0.5f) / (float)h;
+          float a = path_winding_alpha(nx, ny, poly, poly_count);
+          int idx = (py * w + px) * 4;
+          rgba[idx + 3] = (uint8_t)((float)rgba[idx + 3] * a);
+        }
+      }
+    }
+  } else {
+    for (int y = 0; y < h; y++) {
+      for (int x = 0; x < w; x++) {
+        float nx = ((float)x + 0.5f) / (float)w;
+        float ny = ((float)y + 0.5f) / (float)h;
+        float a = shape_alpha(shape, nx, ny, corner_ratio, img_size);
+        int idx = (y * w + x) * 4;
+        rgba[idx + 3] = (uint8_t)((float)rgba[idx + 3] * a);
+      }
     }
   }
 
@@ -1561,8 +1663,9 @@ SDL_Texture *get_masked_image_texture(UIHost *ui, const char *path,
 
   strncpy(masked_tex_cache[slot].path, path,
           sizeof(masked_tex_cache[slot].path) - 1);
-  masked_tex_cache[slot].shape_type = shape;
+  masked_tex_cache[slot].shape_type = (int)shape;
   masked_tex_cache[slot].corner_key = cr_key;
+  masked_tex_cache[slot].path_hash = ph;
   masked_tex_cache[slot].tex = tex;
   masked_tex_cache[slot].width = w;
   masked_tex_cache[slot].height = h;
@@ -2292,13 +2395,8 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       int drawn_image = 0;
       if (node->is_container && node->image_path[0]) {
-        float cr =
-            (node->type == NODE_TYPE_RECT && node->width > 0 &&
-             node->height > 0)
-                ? node->corner_radius / fminf(node->width, node->height)
-                : 0;
         SDL_Texture *tex =
-            get_masked_image_texture(ui, node->image_path, node->type, cr);
+            get_masked_image_texture(ui, node->image_path, node);
         if (tex) {
           struct nk_image img = nk_image_ptr(tex);
           nk_draw_image(canvas_buf, nr, &img, nk_rgb(255, 255, 255));
@@ -2645,8 +2743,28 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
                             node->stroke_width * zoom, stroke);
       } else if (node->type == NODE_TYPE_PATH && node->path_points &&
                  node->path_point_count > 1) {
+        if (node->is_container && !node->image_path[0]) {
+          // Empty container placeholder for PATH shape
+          struct nk_color cbg = nk_rgba(66, 133, 244, 40);
+          struct nk_color cst = nk_rgba(66, 133, 244, 255);
+          float poly_pts[512 * 2];
+          int poly_count =
+              node_get_path_polygon(node, poly_pts, 512, sx, sy, zoom);
+          if (poly_count > 2) {
+            nk_fill_polygon(canvas_buf, poly_pts, poly_count, cbg);
+            nk_stroke_polygon(canvas_buf, poly_pts, poly_count, 1.0f, cst);
+          }
+          if (ui->font_icons) {
+            struct nk_rect ir =
+                nk_rect(nr.x + nr.w / 2 - 10, nr.y + nr.h / 2 - 10, 20, 20);
+            nk_draw_text(canvas_buf, ir, ICON_ADD, strlen(ICON_ADD),
+                         &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), cst);
+          }
+          drawn_image = 1;
+        }
+
         // Fill path
-        if (fill.a > 0) {
+        if (!drawn_image && fill.a > 0) {
           float poly_pts[512 * 2];
           int poly_count =
               node_get_path_polygon(node, poly_pts, 512, sx, sy, zoom);
