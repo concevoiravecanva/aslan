@@ -83,6 +83,7 @@ typedef struct {
 
   // Column metadata
   double width_px;     // Display width in pixels
+  uint32_t bg_color;   // Column background tint RGBA (0 = none)
   bool is_primary_key; // If true, values must be unique
   bool is_nullable;    // If true, allows NULL values
 

@@ -1810,6 +1810,14 @@ void doc_save_aof(const Document *doc, FILE *fp) {
                       b->id, cw, w);
             }
           }
+          // Save column background colors (non-zero only)
+          for (size_t cc = 0; cc < cols; cc++) {
+            uint32_t bgc = td->columnar->columns[cc].bg_color;
+            if (bgc != 0) {
+              fprintf(fp, "block_table_col_color %u %u %zu %u\n", page->id,
+                      b->id, cc, bgc);
+            }
+          }
           // Save cell data using columnar API
           for (size_t r = 0; r < rows; r++) {
             uint64_t row_id = aslan_table_view_row_id(td->columnar, (int)r);
