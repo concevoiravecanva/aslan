@@ -34,7 +34,8 @@ Renderer *renderer_create(const char *title, int width, int height) {
 
   r->window = SDL_CreateWindow(
       title, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height,
-      SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE);
+      SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE |
+          SDL_WINDOW_FULLSCREEN_DESKTOP);
 
   if (!r->window) {
     printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
@@ -52,8 +53,8 @@ Renderer *renderer_create(const char *title, int width, int height) {
     return NULL;
   }
 
-  // Logical size for consistent coordinates on HiDPI
-  SDL_RenderSetLogicalSize(r->sdl_renderer, width, height);
+  // Sync logical size with actual window size (fullscreen desktop may differ)
+  renderer_update_size(r);
 
   // Enable drag-and-drop file events
   SDL_EventState(SDL_DROPFILE, SDL_ENABLE);

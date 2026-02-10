@@ -713,11 +713,11 @@ void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
   if (!block)
     return;
 
-  if (ui->font_mono) {
-    nk_style_set_font(ctx, &ui->font_mono->handle);
+  if (ui->font_inter) {
+    nk_style_set_font(ctx, &ui->font_inter->handle);
   }
 
-  const float line_h = 24.0f;
+  const float line_h = 22.0f;
 
   // Calculate number of lines for multiline support
   int line_count = 1;
@@ -728,10 +728,11 @@ void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
     }
   }
 
-  // Dynamic height based on content (minimum 1 line)
-  float edit_height = line_h * (line_count > 0 ? line_count : 1);
-  if (edit_height < line_h)
-    edit_height = line_h;
+  // Dynamic height: content lines + 1 extra line of padding
+  // The extra line prevents a jarring jump when pressing Enter
+  float edit_height = line_h * (line_count + 1);
+  if (edit_height < line_h * 2)
+    edit_height = line_h * 2;
 
   nk_layout_row_dynamic(ctx, edit_height, 1);
 
@@ -769,9 +770,11 @@ void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
     const char *placeholder = "Write something...";
     float text_x = bounds.x + 8;
     float text_y = bounds.y + (bounds.h - line_h) / 2 + 4;
+    const struct nk_user_font *ph_font =
+        ui->font_inter ? &ui->font_inter->handle : &ui->font_mono->handle;
     nk_draw_text(canvas, nk_rect(text_x, text_y, bounds.w - 16, line_h),
-                 placeholder, strlen(placeholder), &ui->font_mono->handle,
-                 nk_rgba(0, 0, 0, 0), placeholder_color);
+                 placeholder, strlen(placeholder), ph_font, nk_rgba(0, 0, 0, 0),
+                 placeholder_color);
   }
 
   // Update if changed
