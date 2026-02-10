@@ -929,7 +929,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     nk_window_show(ctx, "EditorMain", NK_SHOWN);
     if (nk_begin(ctx, "EditorMain", nk_rect(0, 0, (float)win_w, (float)win_h),
                  NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
-      const float padding = 40.0f;
+      const float padding = 10.0f;
       const float content_h = (float)win_h;
       const float content_w = (float)win_w - (padding * 2);
 
@@ -941,12 +941,8 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         ui->scroll_y = ui->scroll_target_y;
       }
 
-      // Responsive margin calculation (Notion-like) - Doubled margins
-      float target_w = 700.0f;
-      float canvas_padding = 80.0f;
-      float margin = (content_w - target_w) / 2.0f;
-      if (margin < canvas_padding)
-        margin = canvas_padding;
+      // Responsive margin (~2cm each side ≈ 75px)
+      float margin = 75.0f;
 
       struct nk_vec2 old_group_padding = ctx->style.window.group_padding;
       ctx->style.window.group_padding = nk_vec2(margin, 20.0f);
