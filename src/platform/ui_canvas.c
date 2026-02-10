@@ -1340,6 +1340,238 @@ SDL_Texture *get_image_texture(UIHost *ui, const char *path) {
   return tex;
 }
 
+// =============================================================================
+// Shape-Masked Image Texture (Canva-like container image clipping)
+// =============================================================================
+
+#define MASKED_TEX_CACHE_SIZE 32
+static struct {
+  char path[256];
+  int shape_type;
+  int corner_key; // corner_ratio * 100
+  SDL_Texture *tex;
+  int width, height;
+  int in_use;
+  uint32_t last_used;
+} masked_tex_cache[MASKED_TEX_CACHE_SIZE];
+static uint32_t masked_tex_counter = 0;
+
+// Compute alpha for a pixel at normalized coords (nx, ny) in [0,1]
+// Returns 0.0 (outside) to 1.0 (inside), with smooth AA at edges
+static float shape_alpha(NodeType shape, float nx, float ny, float cr,
+                         int img_size) {
+  float aa = 1.5f / (float)img_size; // Anti-aliasing band
+
+  switch (shape) {
+  case NODE_TYPE_ELLIPSE: {
+    float dx = nx - 0.5f, dy = ny - 0.5f;
+    float r = sqrtf(dx * dx * 4.0f + dy * dy * 4.0f);
+    float d = 1.0f - r; // >0 inside, <0 outside
+    if (d > aa)
+      return 1.0f;
+    if (d < -aa)
+      return 0.0f;
+    return (d + aa) / (2.0f * aa);
+  }
+  case NODE_TYPE_RECT: {
+    if (cr <= 0.001f)
+      return 1.0f; // No rounding => no masking needed
+    float r = cr * 0.5f;
+    float cx = (nx < r) ? r : (nx > 1.0f - r) ? 1.0f - r : nx;
+    float cy = (ny < r) ? r : (ny > 1.0f - r) ? 1.0f - r : ny;
+    if (cx != nx || cy != ny) { // In a corner region
+      float dd = sqrtf((nx - cx) * (nx - cx) + (ny - cy) * (ny - cy));
+      float d = r - dd;
+      if (d > aa)
+        return 1.0f;
+      if (d < -aa)
+        return 0.0f;
+      return (d + aa) / (2.0f * aa);
+    }
+    return 1.0f;
+  }
+  case NODE_TYPE_TRIANGLE: {
+    // Triangle: top-center(0.5,0), bottom-left(0,1), bottom-right(1,1)
+    // Edge normals pointing inward
+    // Left edge: (0.5,0)->(0,1), normal = (1, 0.5)/|n|
+    float d_left = (nx - 0.0f) * (0.0f - 1.0f) - (ny - 1.0f) * (0.5f - 0.0f);
+    // Right edge: (1,1)->(0.5,0), normal = (-1, 0.5)/|n|
+    float d_right =
+        (nx - 0.5f) * (1.0f - 0.0f) - (ny - 0.0f) * (1.0f - 0.5f);
+    // Bottom edge: (0,1)->(1,1), normal = (0, -1)
+    float d_bottom = 1.0f - ny;
+
+    float edge_len = sqrtf(0.25f + 1.0f); // length of left/right edges
+    float min_d = fminf(fminf(d_left / edge_len, d_right / edge_len), d_bottom);
+
+    if (min_d > aa)
+      return 1.0f;
+    if (min_d < -aa)
+      return 0.0f;
+    return (min_d + aa) / (2.0f * aa);
+  }
+  case NODE_TYPE_PENTAGON:
+  case NODE_TYPE_HEXAGON:
+  case NODE_TYPE_OCTAGON:
+  case NODE_TYPE_STAR: {
+    int sides = (shape == NODE_TYPE_PENTAGON)  ? 5
+                : (shape == NODE_TYPE_HEXAGON) ? 6
+                : (shape == NODE_TYPE_STAR)    ? 10
+                                               : 8;
+    float angle_off = (shape == NODE_TYPE_PENTAGON)  ? -3.14159f / 2.0f
+                      : (shape == NODE_TYPE_HEXAGON) ? 0.0f
+                      : (shape == NODE_TYPE_STAR)    ? -3.14159f / 2.0f
+                                                     : 3.14159f / 8.0f;
+    float dx = nx - 0.5f, dy = ny - 0.5f;
+    float angle = atan2f(dy, dx) - angle_off;
+    float sector = 2.0f * 3.14159f / (float)sides;
+    angle = fmodf(angle, sector);
+    if (angle < 0)
+      angle += sector;
+    float cos_half = cosf(sector / 2.0f);
+    float edge_r;
+    if (shape == NODE_TYPE_STAR) {
+      // Alternating outer/inner radii for star points
+      int idx = (int)((atan2f(dy, dx) - angle_off) / (3.14159f / 5.0f));
+      if (idx < 0)
+        idx += 10;
+      idx = idx % 10;
+      float outer_r = 0.5f;
+      float inner_r = 0.2f;
+      float r_at = (idx % 2 == 0) ? outer_r : inner_r;
+      float r_next = (idx % 2 == 0) ? inner_r : outer_r;
+      float frac = fmodf(angle, sector) / sector;
+      edge_r = r_at + (r_next - r_at) * frac;
+    } else {
+      edge_r = 0.5f * cos_half / cosf(angle - sector / 2.0f);
+    }
+    float point_r = sqrtf(dx * dx + dy * dy);
+    float d = edge_r - point_r;
+    if (d > aa)
+      return 1.0f;
+    if (d < -aa)
+      return 0.0f;
+    return (d + aa) / (2.0f * aa);
+  }
+  case NODE_TYPE_HEART: {
+    // Winding number test on sampled parametric heart boundary
+    float hx = (nx - 0.5f) * 32.0f;
+    float hy = (ny - 0.45f) * 32.0f;
+    int winding = 0;
+    float prev_bx = 0, prev_by = 0;
+    for (int i = 0; i <= 48; i++) {
+      float t = (float)(i % 48) * 2.0f * 3.14159f / 48.0f;
+      float bx = 16.0f * powf(sinf(t), 3.0f);
+      float by = -(13.0f * cosf(t) - 5.0f * cosf(2.0f * t) -
+                   2.0f * cosf(3.0f * t) - cosf(4.0f * t));
+      if (i > 0) {
+        if (prev_by <= hy && by > hy) {
+          float vt = (hy - prev_by) / (by - prev_by);
+          if (hx < prev_bx + vt * (bx - prev_bx))
+            winding++;
+        } else if (prev_by > hy && by <= hy) {
+          float vt = (hy - prev_by) / (by - prev_by);
+          if (hx < prev_bx + vt * (bx - prev_bx))
+            winding--;
+        }
+      }
+      prev_bx = bx;
+      prev_by = by;
+    }
+    return winding != 0 ? 1.0f : 0.0f;
+  }
+  default:
+    return 1.0f; // No masking for unknown shapes
+  }
+}
+
+SDL_Texture *get_masked_image_texture(UIHost *ui, const char *path,
+                                      NodeType shape, float corner_ratio) {
+  if (!path || !path[0])
+    return NULL;
+
+  masked_tex_counter++;
+  int cr_key = (int)(corner_ratio * 100);
+
+  // Check cache
+  for (int i = 0; i < MASKED_TEX_CACHE_SIZE; i++) {
+    if (masked_tex_cache[i].in_use &&
+        masked_tex_cache[i].shape_type == (int)shape &&
+        masked_tex_cache[i].corner_key == cr_key &&
+        strcmp(masked_tex_cache[i].path, path) == 0) {
+      masked_tex_cache[i].last_used = masked_tex_counter;
+      return masked_tex_cache[i].tex;
+    }
+  }
+
+  // Load original image pixels
+  int w, h;
+  void *pixels = image_load_rgba(path, &w, &h);
+  if (!pixels && strncmp(path, "assets/", 7) != 0) {
+    char full_path[512];
+    snprintf(full_path, sizeof(full_path), "assets/%s", path);
+    pixels = image_load_rgba(full_path, &w, &h);
+  }
+  if (!pixels)
+    return NULL;
+
+  // Apply shape mask to pixels
+  uint8_t *rgba = (uint8_t *)pixels;
+  int img_size = w > h ? w : h;
+  for (int y = 0; y < h; y++) {
+    for (int x = 0; x < w; x++) {
+      float nx = ((float)x + 0.5f) / (float)w;
+      float ny = ((float)y + 0.5f) / (float)h;
+      float a = shape_alpha(shape, nx, ny, corner_ratio, img_size);
+      int idx = (y * w + x) * 4;
+      rgba[idx + 3] = (uint8_t)((float)rgba[idx + 3] * a);
+    }
+  }
+
+  // Create texture
+  SDL_Texture *tex = SDL_CreateTexture(ui->renderer, SDL_PIXELFORMAT_RGBA32,
+                                       SDL_TEXTUREACCESS_STATIC, w, h);
+  if (tex) {
+    SDL_UpdateTexture(tex, NULL, pixels, w * 4);
+    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+  }
+  free(pixels);
+  if (!tex)
+    return NULL;
+
+  // Find cache slot (LRU eviction)
+  int slot = -1;
+  for (int i = 0; i < MASKED_TEX_CACHE_SIZE; i++) {
+    if (!masked_tex_cache[i].in_use) {
+      slot = i;
+      break;
+    }
+  }
+  if (slot == -1) {
+    uint32_t min_time = 0xFFFFFFFF;
+    for (int i = 0; i < MASKED_TEX_CACHE_SIZE; i++) {
+      if (masked_tex_cache[i].last_used < min_time) {
+        min_time = masked_tex_cache[i].last_used;
+        slot = i;
+      }
+    }
+    if (masked_tex_cache[slot].tex)
+      SDL_DestroyTexture(masked_tex_cache[slot].tex);
+  }
+
+  strncpy(masked_tex_cache[slot].path, path,
+          sizeof(masked_tex_cache[slot].path) - 1);
+  masked_tex_cache[slot].shape_type = shape;
+  masked_tex_cache[slot].corner_key = cr_key;
+  masked_tex_cache[slot].tex = tex;
+  masked_tex_cache[slot].width = w;
+  masked_tex_cache[slot].height = h;
+  masked_tex_cache[slot].last_used = masked_tex_counter;
+  masked_tex_cache[slot].in_use = 1;
+
+  return tex;
+}
+
 int tessellate_bezier(float x1, float y1, float cp1x, float cp1y, float cp2x,
                       float cp2y, float x2, float y2, float *out_pts,
                       int max_pts, int include_last) {
@@ -1836,17 +2068,23 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
         if (cs->tool == CANVAS_TOOL_PEN) {
           // Skip node logic in pen mode to allow drawing over them
           hit = NULL;
+        } else if (hit->is_container && !hit->image_path[0]) {
+          // Click on empty container "+" -> open image file dialog
+          char path[512] = {0};
+          if (open_image_file_dialog(path, sizeof(path))) {
+            char rel[256] = {0};
+            if (copy_image_to_assets(path, ".", rel, sizeof(rel))) {
+              strncpy(hit->image_path, rel, sizeof(hit->image_path) - 1);
+              hit->image_path[sizeof(hit->image_path) - 1] = '\0';
+            }
+          }
+          ui->selected_node = hit;
         } else {
           if (hit->type == NODE_TYPE_TEXT && ui->selected_node == hit &&
               !ui->editing_node) {
-            // Check for double-click on text node
-            // This condition is already met by the outer if, so it's a
-            // double-check if (hit == ui->selected_node && hit->type ==
-            // NODE_TYPE_TEXT) { Start inline editing
             ui->editing_node = hit;
             strncpy(ui->edit_buffer, hit->text, sizeof(ui->edit_buffer) - 1);
             SDL_StartTextInput();
-            // }
           }
           ui->selected_node = hit;
           cs->is_dragging_node = 1;
@@ -2054,7 +2292,13 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       int drawn_image = 0;
       if (node->is_container && node->image_path[0]) {
-        SDL_Texture *tex = get_image_texture(ui, node->image_path);
+        float cr =
+            (node->type == NODE_TYPE_RECT && node->width > 0 &&
+             node->height > 0)
+                ? node->corner_radius / fminf(node->width, node->height)
+                : 0;
+        SDL_Texture *tex =
+            get_masked_image_texture(ui, node->image_path, node->type, cr);
         if (tex) {
           struct nk_image img = nk_image_ptr(tex);
           nk_draw_image(canvas_buf, nr, &img, nk_rgb(255, 255, 255));
@@ -2356,14 +2600,29 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           nk_stroke_polygon(canvas_buf, (const float *)pts, 8,
                             node->stroke_width * zoom, stroke);
       } else if (node->type == NODE_TYPE_HEART) {
-        int drawn_image = 0;
-        if (node->is_container && node->image_path[0]) {
-          SDL_Texture *tex = get_image_texture(ui, node->image_path);
-          if (tex) {
-            struct nk_image img = nk_image_ptr(tex);
-            nk_draw_image(canvas_buf, nr, &img, nk_rgb(255, 255, 255));
-            drawn_image = 1;
+        if (node->is_container && !node->image_path[0]) {
+          struct nk_color cbg = nk_rgba(66, 133, 244, 40);
+          struct nk_color cst = nk_rgba(66, 133, 244, 255);
+          const int vhcount = 48;
+          struct nk_vec2 vhpts[48];
+          for (int i = 0; i < vhcount; i++) {
+            float t = (float)i * 2.0f * 3.14159f / (float)vhcount;
+            float hx2 = 16.0f * powf(sinf(t), 3.0f);
+            float hy2 = -(13.0f * cosf(t) - 5.0f * cosf(2.0f * t) -
+                          2.0f * cosf(3.0f * t) - cosf(4.0f * t));
+            vhpts[i].x = nr.x + nr.w / 2.0f + (hx2 / 32.0f) * nr.w;
+            vhpts[i].y = nr.y + nr.h * 0.45f + (hy2 / 32.0f) * nr.h;
           }
+          nk_fill_polygon(canvas_buf, (const float *)vhpts, vhcount, cbg);
+          nk_stroke_polygon(canvas_buf, (const float *)vhpts, vhcount, 1.0f,
+                            cst);
+          if (ui->font_icons) {
+            struct nk_rect ir =
+                nk_rect(nr.x + nr.w / 2 - 10, nr.y + nr.h / 2 - 10, 20, 20);
+            nk_draw_text(canvas_buf, ir, ICON_ADD, strlen(ICON_ADD),
+                         &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), cst);
+          }
+          drawn_image = 1;
         }
         // Parametric heart: (16sin^3(t), 13cos(t) - 5cos(2t) - 2cos(3t) -
         // cos(4t))
@@ -2374,7 +2633,6 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           float hx = 16.0f * powf(sinf(t), 3.0f);
           float hy = -(13.0f * cosf(t) - 5.0f * cosf(2.0f * t) -
                        2.0f * cosf(3.0f * t) - cosf(4.0f * t));
-          // Normalize to (-16, 16) and (-13, 17) approx, then scale to nr
           hpts[i].x = nr.x + nr.w / 2.0f + (hx / 32.0f) * nr.w;
           hpts[i].y = nr.y + nr.h * 0.45f + (hy / 32.0f) * nr.h;
         }

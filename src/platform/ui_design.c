@@ -8,6 +8,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+// External: shape-masked image texture (defined in ui_canvas.c)
+SDL_Texture *get_masked_image_texture(UIHost *ui, const char *path,
+                                      NodeType shape, float corner_ratio);
+int open_image_file_dialog(char *out_path, size_t path_size);
+int copy_image_to_assets(const char *src_path, const char *doc_dir,
+                         char *out_rel_path, size_t out_size);
+
 void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                             Block *block, float width) {
   (void)engine;
@@ -325,6 +332,22 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
           int drawn_image = 0;
           int has_fill = (node->fill_color & 0xFF) > 10;
+
+          // Container with image: render shape-masked image
+          if (node->is_container && node->image_path[0]) {
+            float cr =
+                (node->type == NODE_TYPE_RECT && node->width > 0 &&
+                 node->height > 0)
+                    ? node->corner_radius / fminf(node->width, node->height)
+                    : 0;
+            SDL_Texture *tex = get_masked_image_texture(
+                ui, node->image_path, node->type, cr);
+            if (tex) {
+              struct nk_image img = nk_image_ptr(tex);
+              nk_draw_image(canvas_buf, nr, &img, nk_rgb(255, 255, 255));
+              drawn_image = 1;
+            }
+          }
 
           if (node->type == NODE_TYPE_CHART && node->chart_data) {
             Page *curr_page = doc_page_get_active(engine->doc);
@@ -1151,6 +1174,17 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           if (ds->tool == CANVAS_TOOL_PEN) {
             // Skip node logic in pen mode to allow drawing over them
             hit = NULL;
+          } else if (hit->is_container && !hit->image_path[0]) {
+            // Click on empty container "+" -> open image file dialog
+            char path[512] = {0};
+            if (open_image_file_dialog(path, sizeof(path))) {
+              char rel[256] = {0};
+              if (copy_image_to_assets(path, ".", rel, sizeof(rel))) {
+                strncpy(hit->image_path, rel, sizeof(hit->image_path) - 1);
+                hit->image_path[sizeof(hit->image_path) - 1] = '\0';
+              }
+            }
+            ui->selected_node = hit;
           } else {
             // Check for double-click on text node
             if (hit == ui->selected_node && hit->type == NODE_TYPE_TEXT) {
