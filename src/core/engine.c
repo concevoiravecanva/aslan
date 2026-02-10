@@ -1,4 +1,5 @@
 #include "engine.h"
+#include "../document/aslan_table.h"
 #include "../platform/ui_host.h"
 #include <SDL.h>
 #include <ctype.h>
@@ -724,6 +725,26 @@ static bool handle_block_table_delete_col(Engine *engine, const AofCommand *cmd,
   return false;
 }
 
+static bool handle_block_table_col_width(Engine *engine, const AofCommand *cmd,
+                                         const char *command_line) {
+  if (cmd->argc < 5)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  int col_idx = atoi(cmd->argv[3]);
+  float width = (float)atof(cmd->argv[4]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (block && block->type == BLOCK_TABLE && block->data.table.columnar) {
+    AslanTable *tbl = block->data.table.columnar;
+    if (col_idx >= 0 && col_idx < (int)tbl->column_count) {
+      tbl->columns[col_idx].width_px = width;
+    }
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
 // CANVAS BLOCK COMMANDS
 static bool handle_block_canvas_view(Engine *engine, const AofCommand *cmd,
                                      const char *command_line) {
@@ -982,6 +1003,7 @@ static const CommandEntry k_dispatch_table[] = {
     {"block_table_insert_col", handle_block_table_insert_col},
     {"block_table_delete_row", handle_block_table_delete_row},
     {"block_table_delete_col", handle_block_table_delete_col},
+    {"block_table_col_width", handle_block_table_col_width},
     {"block_canvas_view", handle_block_canvas_view},
     {"block_canvas_node", handle_block_canvas_node},
     {"block_design_init", handle_block_design_init},

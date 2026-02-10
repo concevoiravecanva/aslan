@@ -1784,6 +1784,14 @@ void doc_save_aof(const Document *doc, FILE *fp) {
                   td->view_mode == TABLE_VIEW_LIST    ? "list"
                   : td->view_mode == TABLE_VIEW_BOARD ? "board"
                                                       : "table");
+          // Save column widths (non-default only)
+          for (size_t cw = 0; cw < cols; cw++) {
+            float w = (float)td->columnar->columns[cw].width_px;
+            if (w > 0 && (w < 119.0f || w > 121.0f)) {
+              fprintf(fp, "block_table_col_width %u %u %zu %.0f\n", page->id,
+                      b->id, cw, w);
+            }
+          }
           // Save cell data using columnar API
           for (size_t r = 0; r < rows; r++) {
             uint64_t row_id = aslan_table_view_row_id(td->columnar, (int)r);

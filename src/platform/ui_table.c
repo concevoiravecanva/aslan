@@ -84,8 +84,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
   const float header_h = 32.0f;
   const float footer_h = 26.0f;
   const float min_col_w = 80.0f;
-  const float max_col_w = 250.0f;
-  const float row_num_w = 40.0f;
+  const float max_col_w = 500.0f;
+  const float row_num_w = 44.0f;
 
   // Colors - Dark header/footer for professional Notion-like look
   struct nk_color header_bg = nk_rgb(25, 25, 28); // Near-black in all modes
@@ -218,6 +218,81 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     ctx->style.button.padding = nk_vec2(8, 4); // Good padding for buttons
     nk_style_push_vec2(ctx, &ctx->style.text.padding, nk_vec2(4, 2));
 
+    // Column resize drag handling
+    if (ui->table_state.resizing_col >= 0 &&
+        ui->table_state.active_block_id == block->id) {
+      if (nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+        float dx = ctx->input.mouse.pos.x - ui->table_state.resize_start_x;
+        float new_w = ui->table_state.resize_start_w + dx;
+        if (new_w < min_col_w)
+          new_w = min_col_w;
+        if (new_w > max_col_w)
+          new_w = max_col_w;
+        int rc = ui->table_state.resizing_col;
+        if (rc >= 0 && rc < (int)tbl->column_count) {
+          tbl->columns[rc].width_px = new_w;
+          col_widths[rc] = new_w;
+        }
+      } else {
+        // Mouse released — emit col_width command for persistence
+        int rc = ui->table_state.resizing_col;
+        if (rc >= 0 && rc < (int)tbl->column_count) {
+          Page *pg = doc_page_get_active(engine->doc);
+          if (pg) {
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "block_table_col_width %u %u %d %.0f",
+                     pg->id, block->id, rc, tbl->columns[rc].width_px);
+            engine_execute_command(engine, cmd);
+          }
+        }
+        ui->table_state.resizing_col = -1;
+      }
+    }
+
+    // SEARCH / FILTER BAR
+    {
+      nk_layout_row_dynamic(ctx, 26, 1);
+      struct nk_rect fb = nk_widget_bounds(ctx);
+      struct nk_command_buffer *fcanvas = nk_window_get_canvas(ctx);
+      struct nk_color filter_bg =
+          ui->dark_mode ? nk_rgb(35, 36, 40) : nk_rgb(248, 248, 248);
+      nk_fill_rect(fcanvas, fb, 0, filter_bg);
+
+      struct nk_style_edit old_es = ctx->style.edit;
+      ctx->style.edit.normal = nk_style_item_color(filter_bg);
+      ctx->style.edit.hover = nk_style_item_color(filter_bg);
+      ctx->style.edit.active = nk_style_item_color(filter_bg);
+      ctx->style.edit.border = 0;
+      ctx->style.edit.text_normal =
+          ui->dark_mode ? nk_rgb(200, 200, 205) : nk_rgb(80, 80, 85);
+      ctx->style.edit.text_hover = ctx->style.edit.text_normal;
+      ctx->style.edit.text_active = ctx->style.edit.text_normal;
+
+      nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD,
+                                     ui->table_state.filter_buffer,
+                                     sizeof(ui->table_state.filter_buffer) - 1,
+                                     nk_filter_default);
+
+      ctx->style.edit = old_es;
+
+      // Live filtering: sync filter text and rebuild on change
+      if (strcmp(tbl->filter_text, ui->table_state.filter_buffer) != 0) {
+        strncpy(tbl->filter_text, ui->table_state.filter_buffer, 127);
+        tbl->filter_text[127] = '\0';
+        aslan_table_filter_rebuild(tbl);
+        // Refresh view_count after filter
+        view_count = aslan_table_view_count(tbl);
+      }
+
+      // Placeholder text when empty
+      if (ui->table_state.filter_buffer[0] == '\0') {
+        nk_draw_text(fcanvas,
+                     nk_rect(fb.x + 8, fb.y + 4, fb.w - 16, fb.h - 8),
+                     "Search...", 9, &ui->font_inter->handle,
+                     nk_rgba(0, 0, 0, 0), muted_gray);
+      }
+    }
+
     // HEADER ROW (+ Add Column button at end)
     nk_layout_row_begin(ctx, NK_STATIC, header_h, (int)col_count + 2);
 
@@ -245,6 +320,21 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       hdr_btn_style.text_active = header_text_col;
 
       if (nk_button_label_styled(ctx, &hdr_btn_style, "")) {
+        // Left-click: cycle sort (none → asc → desc → none)
+        if (tbl->sort_column == (int)c) {
+          if (tbl->sort_ascending) {
+            aslan_table_sort(tbl, (int)c, false); // asc → desc
+          } else {
+            aslan_table_sort_clear(tbl); // desc → none
+          }
+        } else {
+          aslan_table_sort(tbl, (int)c, true); // new column, ascending
+        }
+      }
+
+      // Right-click: open column settings
+      if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_RIGHT,
+                                           hdr_bounds)) {
         ui->table_state.active_block_id = block->id;
         ui->table_state.active_col_idx = (int)c;
         ui->table_state.show_col_settings = !ui->table_state.show_col_settings;
@@ -289,6 +379,23 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                        nk_rgba(0, 0, 0, 0), COLOR_ACCENT);
           nk_style_set_font(ctx, &ui->font_inter->handle);
         }
+      }
+
+      // Resize handle — detect hover/click on right edge of header
+      struct nk_rect resize_zone = nk_rect(
+          hdr_bounds.x + hdr_bounds.w - 3, hdr_bounds.y, 6, hdr_bounds.h);
+      if (nk_input_is_mouse_hovering_rect(&ctx->input, resize_zone)) {
+        nk_stroke_line(canvas, hdr_bounds.x + hdr_bounds.w - 1,
+                       hdr_bounds.y + 4, hdr_bounds.x + hdr_bounds.w - 1,
+                       hdr_bounds.y + hdr_bounds.h - 4, 2.0f, COLOR_ACCENT);
+      }
+      if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
+                                           resize_zone) &&
+          ui->table_state.resizing_col < 0) {
+        ui->table_state.active_block_id = block->id;
+        ui->table_state.resizing_col = (int)c;
+        ui->table_state.resize_start_x = ctx->input.mouse.pos.x;
+        ui->table_state.resize_start_w = col_widths[c];
       }
     }
 
@@ -347,11 +454,13 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       struct nk_rect row_bounds = nk_layout_widget_bounds(ctx);
       int is_row_hovered =
           nk_input_is_mouse_hovering_rect(&ctx->input, row_bounds);
-      struct nk_color current_row_bg =
-          is_row_hovered ? row_hover_bg : notion_row_bg;
+      struct nk_color odd_row_bg =
+          ui->dark_mode ? nk_rgb(29, 30, 35) : nk_rgb(245, 245, 243);
+      struct nk_color base_row_bg = (v % 2 == 0) ? notion_row_bg : odd_row_bg;
+      struct nk_color current_row_bg = is_row_hovered ? row_hover_bg : base_row_bg;
       struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
 
-      // Row number cell
+      // Row number cell — show delete "x" on hover
       nk_layout_row_push(ctx, row_num_w);
       struct nk_rect cell_bounds = nk_widget_bounds(ctx);
       nk_fill_rect(canvas, cell_bounds, 0, current_row_bg);
@@ -359,9 +468,30 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                      cell_bounds.x + cell_bounds.w,
                      cell_bounds.y + cell_bounds.h - 1, 1.0f, notion_border);
 
-      char row_num_str[16];
-      snprintf(row_num_str, sizeof(row_num_str), "%zu", v + 1);
-      nk_label_colored(ctx, row_num_str, NK_TEXT_CENTERED, muted_gray);
+      // Right-click on row number = duplicate row
+      if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_RIGHT,
+                                           cell_bounds)) {
+        aslan_table_duplicate_row(tbl, row_id);
+      }
+
+      if (is_row_hovered) {
+        struct nk_style_button del_style = ctx->style.button;
+        del_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+        del_style.hover = nk_style_item_color(nk_rgba(220, 60, 60, 40));
+        del_style.active = nk_style_item_color(nk_rgba(220, 60, 60, 80));
+        del_style.text_normal = nk_rgb(180, 60, 60);
+        del_style.text_hover = nk_rgb(240, 60, 60);
+        del_style.text_active = nk_rgb(255, 80, 80);
+        del_style.border = 0;
+        del_style.rounding = 0;
+        if (nk_button_label_styled(ctx, &del_style, "x")) {
+          aslan_table_delete_row(tbl, row_id);
+        }
+      } else {
+        char row_num_str[16];
+        snprintf(row_num_str, sizeof(row_num_str), "%zu", v + 1);
+        nk_label_colored(ctx, row_num_str, NK_TEXT_CENTERED, muted_gray);
+      }
 
       // Data cells - direct widget placement (no nk_group)
       for (size_t c = 0; c < col_count; c++) {

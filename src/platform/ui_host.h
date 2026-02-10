@@ -304,6 +304,10 @@ typedef struct UIHost {
     char option_buffer[64]; // Buffer for adding new Select options
     char date_buffer[32];   // Persistent buffer for date editing
     int date_field_active;  // Trigger focus on first frame
+    int resizing_col;       // Column being resized (-1 = none)
+    float resize_start_x;   // Mouse X at resize start
+    float resize_start_w;   // Column width at resize start
+    char filter_buffer[128]; // Search/filter text input
   } table_state;
 
   // Sidebar state: 0=Properties/Layers, 1=Shape Selection

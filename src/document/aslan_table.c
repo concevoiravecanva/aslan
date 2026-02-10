@@ -462,6 +462,41 @@ bool aslan_table_restore_row(AslanTable *table, uint64_t row_id) {
   return true;
 }
 
+uint64_t aslan_table_duplicate_row(AslanTable *table, uint64_t source_row_id) {
+  if (!table)
+    return 0;
+  int src_idx = aslan_table_row_index(table, source_row_id);
+  if (src_idx < 0 || !bitmask_get(table->active_mask, src_idx))
+    return 0;
+
+  uint64_t new_id = aslan_table_add_row(table);
+  if (new_id == 0)
+    return 0;
+  int dst_idx = aslan_table_row_index(table, new_id);
+  if (dst_idx < 0)
+    return 0;
+
+  for (size_t c = 0; c < table->column_count; c++) {
+    AslanColumn *col = &table->columns[c];
+    if (col->type == ASLAN_COL_FORMULA)
+      continue; // Computed, skip
+    if (col->type == ASLAN_COL_TEXT) {
+      char **strings = (char **)col->data;
+      if (strings[src_idx] && strings[src_idx][0]) {
+        free(strings[dst_idx]);
+        strings[dst_idx] = strdup(strings[src_idx]);
+      }
+    } else {
+      size_t elem = column_element_size(col->type);
+      memcpy((char *)col->data + (size_t)dst_idx * elem,
+             (char *)col->data + (size_t)src_idx * elem, elem);
+    }
+  }
+
+  table->view_dirty = true;
+  return new_id;
+}
+
 bool aslan_table_row_active(const AslanTable *table, uint64_t row_id) {
   if (!table)
     return false;
@@ -1033,46 +1068,82 @@ typedef enum {
   TOKEN_OPERATOR,
   TOKEN_LPAREN,
   TOKEN_RPAREN,
-  TOKEN_COLUMN, // [ColumnName]
+  TOKEN_COLUMN,   // [ColumnName]
+  TOKEN_FUNCTION, // SUM, AVG, etc.
+  TOKEN_COMMA,
   TOKEN_EOF,
   TOKEN_ERROR
 } TokenType;
+
+typedef enum {
+  FUNC_NONE = 0,
+  FUNC_SUM,
+  FUNC_AVG,
+  FUNC_MIN,
+  FUNC_MAX,
+  FUNC_COUNT,
+  FUNC_IF,
+  FUNC_ROUND,
+  FUNC_ABS
+} FormulaFunc;
 
 typedef struct {
   TokenType type;
   double value;
   char name[64];
   char op;
+  FormulaFunc func_id;
+  int arg_count; // for functions: number of comma-separated args
 } Token;
+
+static int strcasecmp_n(const char *a, const char *b, size_t n) {
+  for (size_t i = 0; i < n; i++) {
+    char ca = a[i], cb = b[i];
+    if (ca >= 'A' && ca <= 'Z')
+      ca += 32;
+    if (cb >= 'A' && cb <= 'Z')
+      cb += 32;
+    if (ca != cb)
+      return ca - cb;
+    if (ca == '\0')
+      return 0;
+  }
+  return 0;
+}
 
 static Token get_token(const char **input) {
   while (**input && (**input == ' ' || **input == '\t'))
     (*input)++;
 
   if (**input == '\0')
-    return (Token){TOKEN_EOF, 0, "", 0};
+    return (Token){TOKEN_EOF, 0, "", 0, FUNC_NONE, 0};
 
   char c = **input;
   if ((c >= '0' && c <= '9') || c == '.') {
     char *end;
     double val = strtod(*input, &end);
     *input = end;
-    return (Token){TOKEN_NUMBER, val, "", 0};
+    return (Token){TOKEN_NUMBER, val, "", 0, FUNC_NONE, 0};
   }
 
-  if (c == '+' || c == '-' || c == '*' || c == '/') {
+  if (c == '+' || c == '-' || c == '*' || c == '/' || c == '>' || c == '<') {
     (*input)++;
-    return (Token){TOKEN_OPERATOR, 0, "", c};
+    return (Token){TOKEN_OPERATOR, 0, "", c, FUNC_NONE, 0};
+  }
+
+  if (c == ',') {
+    (*input)++;
+    return (Token){TOKEN_COMMA, 0, "", 0, FUNC_NONE, 0};
   }
 
   if (c == '(') {
     (*input)++;
-    return (Token){TOKEN_LPAREN, 0, "", 0};
+    return (Token){TOKEN_LPAREN, 0, "", 0, FUNC_NONE, 0};
   }
 
   if (c == ')') {
     (*input)++;
-    return (Token){TOKEN_RPAREN, 0, "", 0};
+    return (Token){TOKEN_RPAREN, 0, "", 0, FUNC_NONE, 0};
   }
 
   if (c == '[') {
@@ -1081,7 +1152,7 @@ static Token get_token(const char **input) {
     while (**input && **input != ']')
       (*input)++;
     size_t len = *input - start;
-    Token t = {TOKEN_COLUMN, 0, "", 0};
+    Token t = {TOKEN_COLUMN, 0, "", 0, FUNC_NONE, 0};
     if (len < 64) {
       strncpy(t.name, start, len);
       t.name[len] = '\0';
@@ -1091,10 +1162,46 @@ static Token get_token(const char **input) {
     return t;
   }
 
-  return (Token){TOKEN_ERROR, 0, "", 0};
+  // Function names (alphabetic identifiers)
+  if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
+    const char *start = *input;
+    while (**input && ((**input >= 'A' && **input <= 'Z') ||
+                       (**input >= 'a' && **input <= 'z')))
+      (*input)++;
+    size_t len = *input - start;
+    Token t = {TOKEN_FUNCTION, 0, "", 0, FUNC_NONE, 1};
+    if (len < 64)
+      strncpy(t.name, start, len);
+    t.name[len < 64 ? len : 63] = '\0';
+
+    if (len == 3 && strcasecmp_n(t.name, "SUM", 3) == 0)
+      t.func_id = FUNC_SUM;
+    else if (len == 3 && strcasecmp_n(t.name, "AVG", 3) == 0)
+      t.func_id = FUNC_AVG;
+    else if (len == 3 && strcasecmp_n(t.name, "MIN", 3) == 0)
+      t.func_id = FUNC_MIN;
+    else if (len == 3 && strcasecmp_n(t.name, "MAX", 3) == 0)
+      t.func_id = FUNC_MAX;
+    else if (len == 5 && strcasecmp_n(t.name, "COUNT", 5) == 0)
+      t.func_id = FUNC_COUNT;
+    else if (len == 2 && strcasecmp_n(t.name, "IF", 2) == 0)
+      t.func_id = FUNC_IF;
+    else if (len == 5 && strcasecmp_n(t.name, "ROUND", 5) == 0)
+      t.func_id = FUNC_ROUND;
+    else if (len == 3 && strcasecmp_n(t.name, "ABS", 3) == 0)
+      t.func_id = FUNC_ABS;
+    else
+      return (Token){TOKEN_ERROR, 0, "", 0, FUNC_NONE, 0};
+
+    return t;
+  }
+
+  return (Token){TOKEN_ERROR, 0, "", 0, FUNC_NONE, 0};
 }
 
 static int op_precedence(char op) {
+  if (op == '>' || op == '<')
+    return 0;
   if (op == '+' || op == '-')
     return 1;
   if (op == '*' || op == '/')
@@ -1116,13 +1223,75 @@ double aslan_table_eval_formula(const AslanTable *table, int col_idx,
   Token op_stack[64];
   int os_count = 0;
 
+  // Track if a COLUMN token is directly inside an aggregate function
+  // so we can resolve it as column-level instead of row-level
+  int func_depth = 0;          // nesting level of function calls
+  FormulaFunc func_ctx[16];    // function context at each depth
+  int func_argc[16];           // argument count at each depth
+  memset(func_ctx, 0, sizeof(func_ctx));
+  memset(func_argc, 0, sizeof(func_argc));
+
   const char *ptr = expr;
   Token t;
   while ((t = get_token(&ptr)).type != TOKEN_EOF) {
     if (t.type == TOKEN_ERROR)
       return 0.0;
-    if (t.type == TOKEN_NUMBER || t.type == TOKEN_COLUMN) {
+    if (oq_count >= 63 || os_count >= 63)
+      return 0.0;
+
+    if (t.type == TOKEN_NUMBER) {
       output_queue[oq_count++] = t;
+    } else if (t.type == TOKEN_COLUMN) {
+      // Check if inside an aggregate function
+      if (func_depth > 0) {
+        FormulaFunc fc = func_ctx[func_depth - 1];
+        if (fc == FUNC_SUM || fc == FUNC_AVG || fc == FUNC_MIN ||
+            fc == FUNC_MAX || fc == FUNC_COUNT) {
+          // Resolve as aggregate over entire column
+          int c_idx = aslan_table_find_column(table, t.name);
+          double agg_val = 0.0;
+          if (c_idx >= 0) {
+            switch (fc) {
+            case FUNC_SUM:
+              agg_val = aslan_table_col_sum(table, c_idx);
+              break;
+            case FUNC_AVG:
+              agg_val = aslan_table_col_avg(table, c_idx);
+              break;
+            case FUNC_MIN:
+              agg_val = aslan_table_col_min(table, c_idx);
+              break;
+            case FUNC_MAX:
+              agg_val = aslan_table_col_max(table, c_idx);
+              break;
+            case FUNC_COUNT:
+              agg_val = (double)aslan_table_col_count(table, c_idx);
+              break;
+            default:
+              break;
+            }
+          }
+          t.type = TOKEN_NUMBER;
+          t.value = agg_val;
+          output_queue[oq_count++] = t;
+          continue;
+        }
+      }
+      output_queue[oq_count++] = t;
+    } else if (t.type == TOKEN_FUNCTION) {
+      op_stack[os_count++] = t;
+      if (func_depth < 16) {
+        func_ctx[func_depth] = t.func_id;
+        func_argc[func_depth] = 1;
+        func_depth++;
+      }
+    } else if (t.type == TOKEN_COMMA) {
+      // Pop until '(' for the current function
+      while (os_count > 0 && op_stack[os_count - 1].type != TOKEN_LPAREN) {
+        output_queue[oq_count++] = op_stack[--os_count];
+      }
+      if (func_depth > 0)
+        func_argc[func_depth - 1]++;
     } else if (t.type == TOKEN_OPERATOR) {
       while (os_count > 0 && op_stack[os_count - 1].type == TOKEN_OPERATOR &&
              op_precedence(op_stack[os_count - 1].op) >= op_precedence(t.op)) {
@@ -1137,6 +1306,15 @@ double aslan_table_eval_formula(const AslanTable *table, int col_idx,
       }
       if (os_count > 0)
         os_count--; // Pop '('
+      // If top of stack is a function, pop it into output
+      if (os_count > 0 && op_stack[os_count - 1].type == TOKEN_FUNCTION) {
+        Token func_tok = op_stack[--os_count];
+        if (func_depth > 0) {
+          func_depth--;
+          func_tok.arg_count = func_argc[func_depth];
+        }
+        output_queue[oq_count++] = func_tok;
+      }
     }
   }
   while (os_count > 0)
@@ -1173,7 +1351,75 @@ double aslan_table_eval_formula(const AslanTable *table, int col_idx,
       case '/':
         eval_stack[es_count++] = b != 0 ? a / b : 0;
         break;
+      case '>':
+        eval_stack[es_count++] = a > b ? 1.0 : 0.0;
+        break;
+      case '<':
+        eval_stack[es_count++] = a < b ? 1.0 : 0.0;
+        break;
       }
+    } else if (t.type == TOKEN_FUNCTION) {
+      int argc = t.arg_count;
+      switch (t.func_id) {
+      case FUNC_ABS:
+        if (es_count >= 1)
+          eval_stack[es_count - 1] = fabs(eval_stack[es_count - 1]);
+        break;
+      case FUNC_ROUND:
+        if (es_count >= 1)
+          eval_stack[es_count - 1] = round(eval_stack[es_count - 1]);
+        break;
+      case FUNC_IF:
+        if (es_count >= 3) {
+          double vfalse = eval_stack[--es_count];
+          double vtrue = eval_stack[--es_count];
+          double cond = eval_stack[--es_count];
+          eval_stack[es_count++] = cond != 0.0 ? vtrue : vfalse;
+        }
+        break;
+      case FUNC_SUM:
+      case FUNC_AVG:
+      case FUNC_MIN:
+      case FUNC_MAX:
+      case FUNC_COUNT:
+        // Aggregate args already resolved to numbers during tokenization
+        // If multiple args, sum/avg/etc. over them
+        if (argc <= 1) {
+          // Single arg — already on stack, nothing to do
+        } else if (es_count >= argc) {
+          double result = eval_stack[es_count - argc];
+          for (int a = 1; a < argc; a++) {
+            double v = eval_stack[es_count - argc + a];
+            switch (t.func_id) {
+            case FUNC_SUM:
+            case FUNC_COUNT:
+              result += v;
+              break;
+            case FUNC_AVG:
+              result += v;
+              break;
+            case FUNC_MIN:
+              if (v < result)
+                result = v;
+              break;
+            case FUNC_MAX:
+              if (v > result)
+                result = v;
+              break;
+            default:
+              break;
+            }
+          }
+          if (t.func_id == FUNC_AVG && argc > 0)
+            result /= argc;
+          es_count -= argc;
+          eval_stack[es_count++] = result;
+        }
+        break;
+      default:
+        break;
+      }
+      (void)argc;
     }
   }
 
@@ -1389,7 +1635,73 @@ uint64_t aslan_table_view_row_id(const AslanTable *table, int view_idx) {
 }
 
 size_t aslan_table_view_count(const AslanTable *table) {
-  return table ? table->active_count : 0;
+  if (!table)
+    return 0;
+  if (table->filter_text[0] != '\0')
+    return table->filtered_count;
+  return table->active_count;
+}
+
+// Case-insensitive substring search (portable C99)
+static bool ci_contains(const char *haystack, const char *needle) {
+  if (!haystack || !needle || !needle[0])
+    return true;
+  size_t nlen = strlen(needle);
+  size_t hlen = strlen(haystack);
+  if (nlen > hlen)
+    return false;
+  for (size_t i = 0; i <= hlen - nlen; i++) {
+    bool match = true;
+    for (size_t j = 0; j < nlen && match; j++) {
+      char a = haystack[i + j];
+      char b = needle[j];
+      if (a >= 'A' && a <= 'Z')
+        a += 32;
+      if (b >= 'A' && b <= 'Z')
+        b += 32;
+      if (a != b)
+        match = false;
+    }
+    if (match)
+      return true;
+  }
+  return false;
+}
+
+void aslan_table_filter_rebuild(AslanTable *table) {
+  if (!table)
+    return;
+
+  bool has_filter = (table->filter_text[0] != '\0');
+  size_t view_count = 0;
+
+  for (size_t i = 0; i < table->row_count; i++) {
+    if (!bitmask_get(table->active_mask, i))
+      continue;
+
+    if (has_filter) {
+      uint64_t rid = table->row_ids[i];
+      bool match = false;
+      char buf[256];
+      for (size_t c = 0; c < table->column_count && !match; c++) {
+        aslan_table_get_cell_display(table, (int)c, rid, buf, sizeof(buf));
+        if (buf[0] && ci_contains(buf, table->filter_text))
+          match = true;
+      }
+      if (!match)
+        continue;
+    }
+
+    table->view_index[view_count++] = i;
+  }
+
+  table->filtered_count = view_count;
+
+  // Re-apply sort if active
+  if (table->sort_column >= 0 && view_count > 1) {
+    table->view_dirty = true;
+    aslan_table_sort(table, table->sort_column, table->sort_ascending);
+  }
 }
 
 // -----------------------------------------------------------------------------

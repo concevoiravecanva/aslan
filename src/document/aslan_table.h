@@ -141,6 +141,10 @@ struct AslanTable {
   int sort_column;     // Column index for sorting (-1=none)
   bool sort_ascending; // Sort direction
 
+  // Filter state
+  char filter_text[128];   // Text filter (empty = no filter)
+  size_t filtered_count;   // Rows passing filter (= active_count if no filter)
+
   // AOF logging callback (set externally)
   void (*log_callback)(const char *cmd, void *userdata);
   void *log_userdata;
@@ -306,6 +310,8 @@ void aslan_table_sort(AslanTable *table, int col_idx, bool ascending);
 
 // Clear sort (view shows insertion order)
 void aslan_table_sort_clear(AslanTable *table);
+void aslan_table_filter_rebuild(AslanTable *table);
+uint64_t aslan_table_duplicate_row(AslanTable *table, uint64_t source_row_id);
 
 // Get row_id at display position (respects sort and filters)
 uint64_t aslan_table_view_row_id(const AslanTable *table, int view_idx);
