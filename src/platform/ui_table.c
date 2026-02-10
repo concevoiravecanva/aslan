@@ -26,6 +26,8 @@ const char *table_col_type_icon(AslanColumnType type) {
     return ICON_COL_RELATION;
   case ASLAN_COL_FORMULA:
     return ICON_COL_FORMULA;
+  case ASLAN_COL_FORMULA_LUA:
+    return ICON_CODE;
   default:
     return ICON_COL_TEXT;
   }
@@ -48,6 +50,8 @@ const char *table_col_type_name(AslanColumnType type) {
     return "Relation";
   case ASLAN_COL_FORMULA:
     return "Formula";
+  case ASLAN_COL_FORMULA_LUA:
+    return "Lua Formula";
   default:
     return "Text";
   }
@@ -71,6 +75,7 @@ static struct nk_rect table_smart_popup_rect(UIHost *ui, float x, float y,
 void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                            Block *block, float width) {
   (void)engine;
+  (void)width;
   if (!block || block->type != BLOCK_TABLE)
     return;
 
@@ -223,8 +228,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     if (nk_group_begin(ctx, "table_scroll_group", NK_WINDOW_SCROLL_AUTO_HIDE)) {
       nk_style_push_vec2(ctx, &ctx->style.text.padding, nk_vec2(4, 2));
 
-      // Re-calculate total width for static rows (consistent with group width)
-      float static_total_w = total_w;
+      (void)total_w; // Used for group width calculation by linter
 
       // Column resize drag handling
       if (ui->table_state.resizing_col >= 0 &&
@@ -383,6 +387,12 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           ui->table_state.menu_pos_y = hdr_bounds.y;
           strncpy(ui->table_state.rename_buffer, tbl->columns[c].name, 63);
           ui->table_state.rename_buffer[63] = '\0';
+          // Init formula buffer for FORMULA / FORMULA_LUA columns
+          const char *f = aslan_table_get_formula(tbl, (int)c);
+          strncpy(ui->table_state.formula_buffer, f ? f : "",
+                  sizeof(ui->table_state.formula_buffer) - 1);
+          ui->table_state.formula_buffer[sizeof(ui->table_state.formula_buffer) -
+                                         1] = '\0';
         }
 
         // --- Drawing ---
@@ -846,6 +856,15 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             }
             break;
           }
+          case ASLAN_COL_FORMULA_LUA: {
+            // Evaluate on-demand (cached via generation counter)
+            const char *result =
+                aslan_table_eval_lua_formula(tbl, (int)c, row_id, ui->L);
+            struct nk_color lua_txt =
+                ui->dark_mode ? nk_rgb(180, 210, 240) : nk_rgb(40, 90, 160);
+            nk_label_colored(ctx, result ? result : "", NK_TEXT_LEFT, lua_txt);
+            break;
+          }
           default: {
             char buf[256];
             aslan_table_get_cell_display(tbl, (int)c, row_id, buf, sizeof(buf));
@@ -1031,17 +1050,18 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                nk_style_item_color(menu_bg));
       struct nk_rect popup_rect =
           table_smart_popup_rect(ui, ui->table_state.menu_pos_x - 100,
-                                 ui->table_state.menu_pos_y + 4, 160, 200);
+                                 ui->table_state.menu_pos_y + 4, 160, 230);
       if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Add Column",
                          NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER,
                          popup_rect)) {
         nk_layout_row_dynamic(ctx, 28, 1);
-        const char *types[] = {"Text",   "Number", "Checkbox",
-                               "Select", "Date",   "Formula"};
-        AslanColumnType type_vals[] = {ASLAN_COL_TEXT,     ASLAN_COL_NUMBER,
-                                       ASLAN_COL_CHECKBOX, ASLAN_COL_SELECT,
-                                       ASLAN_COL_DATE,     ASLAN_COL_FORMULA};
-        for (int i = 0; i < 6; i++) {
+        const char *types[] = {"Text",     "Number",  "Checkbox", "Select",
+                               "Date",     "Formula", "Lua Formula"};
+        AslanColumnType type_vals[] = {
+            ASLAN_COL_TEXT,     ASLAN_COL_NUMBER,      ASLAN_COL_CHECKBOX,
+            ASLAN_COL_SELECT,   ASLAN_COL_DATE,        ASLAN_COL_FORMULA,
+            ASLAN_COL_FORMULA_LUA};
+        for (int i = 0; i < 7; i++) {
           struct nk_rect item_rect = nk_widget_bounds(ctx);
           if (nk_button_label_styled(ctx, &menu_btn, "")) {
             if (tbl) {
@@ -1203,12 +1223,13 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
 
         nk_label(ctx, "Change Type:", NK_TEXT_LEFT);
-        const char *types[] = {"Text",   "Number", "Checkbox",
-                               "Select", "Date",   "Formula"};
-        AslanColumnType type_vals[] = {ASLAN_COL_TEXT,     ASLAN_COL_NUMBER,
-                                       ASLAN_COL_CHECKBOX, ASLAN_COL_SELECT,
-                                       ASLAN_COL_DATE,     ASLAN_COL_FORMULA};
-        for (int i = 0; i < 6; i++) {
+        const char *types[] = {"Text",     "Number",  "Checkbox", "Select",
+                               "Date",     "Formula", "Lua Formula"};
+        AslanColumnType type_vals[] = {
+            ASLAN_COL_TEXT,     ASLAN_COL_NUMBER,      ASLAN_COL_CHECKBOX,
+            ASLAN_COL_SELECT,   ASLAN_COL_DATE,        ASLAN_COL_FORMULA,
+            ASLAN_COL_FORMULA_LUA};
+        for (int i = 0; i < 7; i++) {
           struct nk_rect item_rect = nk_widget_bounds(ctx);
           if (nk_button_label(ctx, "")) {
             tbl->columns[c].type = type_vals[i];
@@ -1297,6 +1318,43 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                      next_color);
               ui->table_state.option_buffer[0] = '\0'; // Clear buffer
             }
+          }
+        }
+
+        // Formula editor for FORMULA and FORMULA_LUA columns
+        if (col->type == ASLAN_COL_FORMULA ||
+            col->type == ASLAN_COL_FORMULA_LUA) {
+          nk_spacing(ctx, 1);
+          nk_label(ctx, col->type == ASLAN_COL_FORMULA_LUA
+                            ? "Lua Expression:"
+                            : "Formula:",
+                   NK_TEXT_LEFT);
+
+          // Hint text
+          if (col->type == ASLAN_COL_FORMULA_LUA) {
+            struct nk_color hint_col = nk_rgb(120, 120, 130);
+            nk_label_colored(ctx, "row.ColName (Lua syntax)", NK_TEXT_LEFT,
+                             hint_col);
+          } else {
+            struct nk_color hint_col = nk_rgb(120, 120, 130);
+            nk_label_colored(ctx, "[Col] * [Col] (Excel syntax)", NK_TEXT_LEFT,
+                             hint_col);
+          }
+
+          nk_layout_row_dynamic(ctx, 60, 1);
+          nk_edit_string_zero_terminated(
+              ctx, NK_EDIT_BOX | NK_EDIT_MULTILINE,
+              ui->table_state.formula_buffer,
+              sizeof(ui->table_state.formula_buffer) - 1, nk_filter_default);
+          nk_layout_row_dynamic(ctx, 24, 1);
+
+          if (nk_button_label(ctx, "Apply Formula")) {
+            aslan_table_set_formula(tbl, c, ui->table_state.formula_buffer);
+            // Force re-evaluation
+            tbl->data_generation++;
+            tbl->lua_eval_generation = 0;
+            ui->table_state.show_col_settings = 0;
+            nk_popup_close(ctx);
           }
         }
 

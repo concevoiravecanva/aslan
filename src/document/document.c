@@ -1785,6 +1785,23 @@ void doc_save_aof(const Document *doc, FILE *fp) {
                   td->view_mode == TABLE_VIEW_LIST    ? "list"
                   : td->view_mode == TABLE_VIEW_BOARD ? "board"
                                                       : "table");
+          // Save column info (type + name) for non-default columns
+          for (size_t ci = 0; ci < cols; ci++) {
+            AslanColumn *acol = &td->columnar->columns[ci];
+            fprintf(fp, "block_table_col_info %u %u %zu %d ", page->id, b->id,
+                    ci, (int)acol->type);
+            escape_string(fp, acol->name);
+            fprintf(fp, "\n");
+            // Save formula expression
+            if ((acol->type == ASLAN_COL_FORMULA ||
+                 acol->type == ASLAN_COL_FORMULA_LUA) &&
+                acol->formula && acol->formula[0]) {
+              fprintf(fp, "block_table_col_formula %u %u %zu ", page->id,
+                      b->id, ci);
+              escape_string(fp, acol->formula);
+              fprintf(fp, "\n");
+            }
+          }
           // Save column widths (non-default only)
           for (size_t cw = 0; cw < cols; cw++) {
             float w = (float)td->columnar->columns[cw].width_px;

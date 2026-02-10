@@ -334,7 +334,8 @@ typedef struct UIHost {
     int resizing_col;        // Column being resized (-1 = none)
     float resize_start_x;    // Mouse X at resize start
     float resize_start_w;    // Column width at resize start
-    char filter_buffer[128]; // Search/filter text input
+    char filter_buffer[128];  // Search/filter text input
+    char formula_buffer[512]; // Formula expression editor (for FORMULA / FORMULA_LUA)
   } table_state;
 
   // Sidebar state: 0=Properties/Layers, 1=Shape Selection

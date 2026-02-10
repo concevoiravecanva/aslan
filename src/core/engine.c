@@ -745,6 +745,52 @@ static bool handle_block_table_col_width(Engine *engine, const AofCommand *cmd,
   return false;
 }
 
+// block_table_col_info <page_id> <block_id> <col_idx> <type_int> <name>
+static bool handle_block_table_col_info(Engine *engine, const AofCommand *cmd,
+                                        const char *command_line) {
+  if (cmd->argc < 6)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  int col_idx = atoi(cmd->argv[3]);
+  int type_int = atoi(cmd->argv[4]);
+  const char *name = cmd->argv[5];
+  Block *block = find_block(engine, page_id, block_id);
+  if (block && block->type == BLOCK_TABLE && block->data.table.columnar) {
+    AslanTable *tbl = block->data.table.columnar;
+    if (col_idx >= 0 && col_idx < (int)tbl->column_count) {
+      tbl->columns[col_idx].type = (AslanColumnType)type_int;
+      strncpy(tbl->columns[col_idx].name, name,
+              sizeof(tbl->columns[col_idx].name) - 1);
+    }
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+// block_table_col_formula <page_id> <block_id> <col_idx> <formula_escaped>
+static bool handle_block_table_col_formula(Engine *engine,
+                                           const AofCommand *cmd,
+                                           const char *command_line) {
+  if (cmd->argc < 5)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  int col_idx = atoi(cmd->argv[3]);
+  const char *formula = cmd->argv[4];
+  Block *block = find_block(engine, page_id, block_id);
+  if (block && block->type == BLOCK_TABLE && block->data.table.columnar) {
+    AslanTable *tbl = block->data.table.columnar;
+    char unescaped[1024];
+    unescape_string(formula, unescaped, sizeof(unescaped));
+    aslan_table_set_formula(tbl, col_idx, unescaped);
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
 // CANVAS BLOCK COMMANDS
 static bool handle_block_canvas_view(Engine *engine, const AofCommand *cmd,
                                      const char *command_line) {
@@ -1004,6 +1050,8 @@ static const CommandEntry k_dispatch_table[] = {
     {"block_table_delete_row", handle_block_table_delete_row},
     {"block_table_delete_col", handle_block_table_delete_col},
     {"block_table_col_width", handle_block_table_col_width},
+    {"block_table_col_info", handle_block_table_col_info},
+    {"block_table_col_formula", handle_block_table_col_formula},
     {"block_canvas_view", handle_block_canvas_view},
     {"block_canvas_node", handle_block_canvas_node},
     {"block_design_init", handle_block_design_init},

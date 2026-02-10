@@ -37,7 +37,8 @@ typedef enum {
   ASLAN_COL_SELECT,   // int32_t - Index into options array (categories)
   ASLAN_COL_DATE,     // int64_t - Unix timestamp (for timeline linking)
   ASLAN_COL_RELATION, // uint64_t - Row ID reference (same or other table)
-  ASLAN_COL_FORMULA,  // char* - Lua expression for calculated columns
+  ASLAN_COL_FORMULA,      // double - C shunting-yard parser (simple math)
+  ASLAN_COL_FORMULA_LUA,  // char** - Lua expression (advanced logic, cached)
   ASLAN_COL_TYPE_COUNT
 } AslanColumnType;
 
@@ -96,17 +97,21 @@ typedef struct {
   uint32_t relation_table_id; // Target table ID (0 = same table)
   int relation_display_col;   // Column to display from target (-1 = row ID)
 
-  // For FORMULA columns: Lua expression
-  char *formula; // e.g., "col.Price * 1.20"
+  // For FORMULA / FORMULA_LUA columns: expression
+  char *formula; // C formula: "[Price] * 1.20"  |  Lua: "if row.Status == ..."
+
+  // For FORMULA_LUA: cached string results (parallel to data, one per row)
+  char **lua_cache; // Array of cached result strings (NULL = not computed)
 
   // Storage info:
-  // TEXT:     char** (array of string pointers)
-  // NUMBER:   double* (aligned array)
-  // CHECKBOX: uint8_t* (0 or 1)
-  // SELECT:   int32_t* (index into options, -1 = none)
-  // DATE:     int64_t* (Unix timestamp ms)
-  // RELATION: uint64_t* (row IDs)
-  // FORMULA:  computed on access, no storage
+  // TEXT:        char** (array of string pointers)
+  // NUMBER:      double* (aligned array)
+  // CHECKBOX:    uint8_t* (0 or 1)
+  // SELECT:      int32_t* (index into options, -1 = none)
+  // DATE:        int64_t* (Unix timestamp ms)
+  // RELATION:    uint64_t* (row IDs)
+  // FORMULA:     double* (cached C-evaluated values)
+  // FORMULA_LUA: char** (cached Lua result strings)
 } AslanColumn;
 
 // -----------------------------------------------------------------------------
@@ -144,6 +149,10 @@ struct AslanTable {
   // Filter state
   char filter_text[128]; // Text filter (empty = no filter)
   size_t filtered_count; // Rows passing filter (= active_count if no filter)
+
+  // Lua formula dirty tracking (generation counter)
+  uint64_t data_generation;     // Incremented on any data change
+  uint64_t lua_eval_generation; // Last generation when Lua formulas were evaluated
 
   // AOF logging callback (set externally)
   void (*log_callback)(const char *cmd, void *userdata);
@@ -301,9 +310,19 @@ bool aslan_table_set_formula(AslanTable *table, int col_idx,
 // Get formula expression
 const char *aslan_table_get_formula(const AslanTable *table, int col_idx);
 
-// Evaluate formula for a row
+// Evaluate formula for a row (C parser — simple math)
 double aslan_table_eval_formula(const AslanTable *table, int col_idx,
                                 uint64_t row_id);
+
+// Evaluate Lua formula for a row (returns cached string, caller must NOT free)
+const char *aslan_table_eval_lua_formula(AslanTable *table, int col_idx,
+                                         uint64_t row_id, void *lua_state);
+
+// Evaluate all dirty Lua formula columns if data_generation changed
+void aslan_table_eval_lua_formulas(AslanTable *table, void *lua_state);
+
+// Mark data as changed (call after any set_* operation)
+void aslan_table_mark_dirty(AslanTable *table);
 
 // -----------------------------------------------------------------------------
 // Sorting & View
