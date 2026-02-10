@@ -862,6 +862,7 @@ void block_table_init(Block *block) {
   td->active_row = 0;
   td->active_col = 0;
   td->view_mode = TABLE_VIEW_TABLE;
+  td->show_search = false;
 }
 
 void block_table_destroy(Block *block) {

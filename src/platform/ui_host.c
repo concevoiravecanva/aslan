@@ -685,12 +685,22 @@ void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx, Block *block) {
 
   // Right-aligned button for both states
   nk_layout_row_template_begin(ctx, 28.0f);
-  nk_layout_row_template_push_dynamic(ctx);       // Spacer
-  nk_layout_row_template_push_static(ctx, 30.0f); // Button
+  nk_layout_row_template_push_dynamic(ctx); // Spacer
+  if (block->type == BLOCK_TABLE) {
+    nk_layout_row_template_push_static(ctx, 30.0f); // Search toggle
+  }
+  nk_layout_row_template_push_static(ctx, 30.0f); // Fullscreen Button
   nk_layout_row_template_end(ctx);
 
   // First slot is empty (spacer)
   nk_spacing(ctx, 1);
+
+  if (block->type == BLOCK_TABLE) {
+    if (ui_icon_button(ui, ICON_SEARCH)) {
+      block->data.table.show_search = !block->data.table.show_search;
+      ui->table_state.active_block_id = block->id;
+    }
+  }
 
   if (is_expanded) {
     if (ui_icon_button(ui, ICON_FULLSCREEN_EXIT)) {
@@ -900,6 +910,9 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
   struct nk_context *ctx = ui->ctx;
 
+  // Initialize cursor for this frame (will be committed at the end)
+  ui->cursor_type = UI_CURSOR_ARROW;
+
   // Apply current theme
   ui_apply_theme(ui);
 
@@ -981,8 +994,9 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
         if (page && page->block_count > 0) {
           for (Block *b = page->first_block; b; b = b->next) {
-            // Center the content by adding margins inside the render
-            ui_render_block(ui, engine, ctx, page, b, content_w);
+            // Actual available width inside the margin-padded group
+            float target_width = content_w - (margin * 2.0f);
+            ui_render_block(ui, engine, ctx, page, b, target_width);
             // printf("[DEBUG] Render loop: Block %u processed\n", b->id);
 
             // Small spacing between blocks
@@ -1011,6 +1025,15 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   ui->canvas_state.mouse_just_released = 0;
   ui->design_state.mouse_just_pressed = 0;
   ui->design_state.mouse_just_released = 0;
+
+  // Safety net: Reset table resizing state if mouse is released globally
+  if (ui->table_state.resizing_col >= 0 &&
+      !nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+    ui->table_state.resizing_col = -1;
+  }
+
+  // Finalize cursor for this frame
+  ui_commit_cursor(ui);
 
   // Render Nuklear
   nk_sdl_render(NK_ANTI_ALIASING_ON);

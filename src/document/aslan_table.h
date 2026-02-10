@@ -142,8 +142,8 @@ struct AslanTable {
   bool sort_ascending; // Sort direction
 
   // Filter state
-  char filter_text[128];   // Text filter (empty = no filter)
-  size_t filtered_count;   // Rows passing filter (= active_count if no filter)
+  char filter_text[128]; // Text filter (empty = no filter)
+  size_t filtered_count; // Rows passing filter (= active_count if no filter)
 
   // AOF logging callback (set externally)
   void (*log_callback)(const char *cmd, void *userdata);
@@ -271,6 +271,10 @@ const char *aslan_table_get_option_label(const AslanTable *table, int col_idx,
 // Get option color by index
 uint32_t aslan_table_get_option_color(const AslanTable *table, int col_idx,
                                       int option_idx);
+
+// Set option color by index
+bool aslan_table_set_option_color(AslanTable *table, int col_idx,
+                                  int option_idx, uint32_t color);
 
 // -----------------------------------------------------------------------------
 // Relation Column Helpers

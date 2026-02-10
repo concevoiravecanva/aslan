@@ -156,6 +156,7 @@ typedef struct {
   TableViewMode view_mode;
   int visible_rows; // Number of rows to display (0 = auto)
   bool full_width;  // If true, expand to page width
+  bool show_search; // If true, show search/filter bar
 
   // Columnar engine (high-performance column-store)
   struct AslanTable *columnar;

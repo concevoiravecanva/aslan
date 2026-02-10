@@ -226,7 +226,7 @@ int aslan_table_add_column(AslanTable *table, const char *name,
   col->count = 0;
   col->capacity = 0;
   col->data = NULL;
-  col->width_px = 120.0;
+  col->width_px = 100.0;
   col->is_primary_key = false;
   col->is_nullable = true;
   col->footer_agg = ASLAN_AGG_NONE;
@@ -959,6 +959,18 @@ const char *aslan_table_get_option_label(const AslanTable *table, int col_idx,
     return NULL;
 
   return col->options[option_idx].label;
+}
+
+bool aslan_table_set_option_color(AslanTable *table, int col_idx,
+                                  int option_idx, uint32_t color) {
+  if (!table || col_idx < 0 || col_idx >= (int)table->column_count)
+    return false;
+  AslanColumn *col = &table->columns[col_idx];
+  if (col->type != ASLAN_COL_SELECT || option_idx < 0 ||
+      option_idx >= col->option_count)
+    return false;
+  col->options[option_idx].color = color;
+  return true;
 }
 
 uint32_t aslan_table_get_option_color(const AslanTable *table, int col_idx,

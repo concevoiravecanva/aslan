@@ -67,8 +67,8 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
   float btn_x = toolbar_x + 12.0f;
   float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
 
-  const char *tool_icons[] = {ICON_HOME,  ICON_TEXT,   ICON_H1,
-                              ICON_TABLE, ICON_CANVAS, ICON_DESIGN, ICON_CHART};
+  const char *tool_icons[] = {ICON_HOME,   ICON_TEXT,   ICON_H1,   ICON_TABLE,
+                              ICON_CANVAS, ICON_DESIGN, ICON_CHART};
   int tool_count = 7;
 
   Page *page = doc_page_get_active(engine->doc);
@@ -571,5 +571,76 @@ void ui_apply_theme(UIHost *ui) {
     s->edit.cursor_text_normal = bg;
     s->edit.cursor_text_hover = bg;
     s->edit.border = 0.0f;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// UI Cursors implementation
+// -----------------------------------------------------------------------------
+
+static SDL_Cursor *sdl_cursors[UI_CURSOR_COUNT] = {NULL};
+static UICursorType last_committed_cursor = UI_CURSOR_COUNT;
+
+void ui_set_cursor(UIHost *ui, UICursorType type) {
+  if (ui && type >= 0 && type < UI_CURSOR_COUNT) {
+    ui->cursor_type = type;
+  }
+}
+
+void ui_commit_cursor(UIHost *ui) {
+  if (!ui)
+    return;
+  UICursorType type = ui->cursor_type;
+  if (type == last_committed_cursor)
+    return;
+
+  if (!sdl_cursors[type]) {
+    SDL_SystemCursor sdl_id = SDL_SYSTEM_CURSOR_ARROW;
+    switch (type) {
+    case UI_CURSOR_ARROW:
+      sdl_id = SDL_SYSTEM_CURSOR_ARROW;
+      break;
+    case UI_CURSOR_IBEAM:
+      sdl_id = SDL_SYSTEM_CURSOR_IBEAM;
+      break;
+    case UI_CURSOR_WAIT:
+      sdl_id = SDL_SYSTEM_CURSOR_WAIT;
+      break;
+    case UI_CURSOR_CROSSHAIR:
+      sdl_id = SDL_SYSTEM_CURSOR_CROSSHAIR;
+      break;
+    case UI_CURSOR_WAITARROW:
+      sdl_id = SDL_SYSTEM_CURSOR_WAITARROW;
+      break;
+    case UI_CURSOR_SIZENWSE:
+      sdl_id = SDL_SYSTEM_CURSOR_SIZENWSE;
+      break;
+    case UI_CURSOR_SIZENESW:
+      sdl_id = SDL_SYSTEM_CURSOR_SIZENESW;
+      break;
+    case UI_CURSOR_SIZEWE:
+      sdl_id = SDL_SYSTEM_CURSOR_SIZEWE;
+      break;
+    case UI_CURSOR_SIZENS:
+      sdl_id = SDL_SYSTEM_CURSOR_SIZENS;
+      break;
+    case UI_CURSOR_SIZEALL:
+      sdl_id = SDL_SYSTEM_CURSOR_SIZEALL;
+      break;
+    case UI_CURSOR_NO:
+      sdl_id = SDL_SYSTEM_CURSOR_NO;
+      break;
+    case UI_CURSOR_HAND:
+      sdl_id = SDL_SYSTEM_CURSOR_HAND;
+      break;
+    default:
+      break;
+    }
+    sdl_cursors[type] = SDL_CreateSystemCursor(sdl_id);
+  }
+
+  if (sdl_cursors[type]) {
+    SDL_SetCursor(sdl_cursors[type]);
+    last_committed_cursor = type;
   }
 }

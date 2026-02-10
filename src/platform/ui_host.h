@@ -201,6 +201,29 @@ typedef struct {
 } DesignInteraction;
 
 // -----------------------------------------------------------------------------
+// UI Cursors
+// -----------------------------------------------------------------------------
+
+typedef enum {
+  UI_CURSOR_ARROW = 0,
+  UI_CURSOR_IBEAM,
+  UI_CURSOR_WAIT,
+  UI_CURSOR_CROSSHAIR,
+  UI_CURSOR_WAITARROW,
+  UI_CURSOR_SIZENWSE,
+  UI_CURSOR_SIZENESW,
+  UI_CURSOR_SIZEWE,
+  UI_CURSOR_SIZENS,
+  UI_CURSOR_SIZEALL,
+  UI_CURSOR_NO,
+  UI_CURSOR_HAND,
+  UI_CURSOR_COUNT
+} UICursorType;
+
+void ui_set_cursor(struct UIHost *ui, UICursorType type);
+void ui_commit_cursor(struct UIHost *ui);
+
+// -----------------------------------------------------------------------------
 // UI Host Structure
 // -----------------------------------------------------------------------------
 
@@ -244,6 +267,9 @@ typedef struct UIHost {
   // Current Window Dimensions (updated in ui_render)
   int win_width;
   int win_height;
+
+  // Cursor handling
+  UICursorType cursor_type;
 
   // Modal states
   int show_new_page_modal;
@@ -291,6 +317,7 @@ typedef struct UIHost {
   // Table interaction state
   struct {
     uint32_t active_block_id;
+    int show_search_bar;
     int show_col_menu;
     int show_col_settings;
     int show_footer_menu;

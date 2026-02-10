@@ -249,7 +249,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     }
 
     // SEARCH / FILTER BAR
-    {
+    if (td->show_search) {
       nk_layout_row_dynamic(ctx, 30, 1);
       struct nk_rect fb = nk_widget_bounds(ctx);
       struct nk_command_buffer *fcanvas = nk_window_get_canvas(ctx);
@@ -318,93 +318,112 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       nk_fill_rect(nk_window_get_canvas(ctx), hdr_bounds, 0, header_bg);
       nk_stroke_rect(nk_window_get_canvas(ctx), hdr_bounds, 0, 1, border_color);
 
-      // Hidden button for settings/sorting - styled transparent
-      struct nk_style_button hdr_btn_style = ctx->style.button;
-      hdr_btn_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-      hdr_btn_style.hover = nk_style_item_color(nk_rgba(255, 255, 255, 20));
-      hdr_btn_style.active = nk_style_item_color(nk_rgba(255, 255, 255, 30));
-      hdr_btn_style.border = 0;
-      hdr_btn_style.text_normal = header_text_col;
-      hdr_btn_style.text_hover = header_text_col;
-      hdr_btn_style.text_active = header_text_col;
+      // --- Interaction Detection ---
+      int is_hovering_cell =
+          nk_input_is_mouse_hovering_rect(&ctx->input, hdr_bounds);
+      struct nk_rect resize_zone = nk_rect(hdr_bounds.x + hdr_bounds.w - 5,
+                                           hdr_bounds.y, 10, hdr_bounds.h);
+      int is_hovering_resize =
+          nk_input_is_mouse_hovering_rect(&ctx->input, resize_zone);
 
-      if (nk_button_label_styled(ctx, &hdr_btn_style, "")) {
-        // Left-click: cycle sort (none → asc → desc → none)
-        if (tbl->sort_column == (int)c) {
-          if (tbl->sort_ascending) {
-            aslan_table_sort(tbl, (int)c, false); // asc → desc
+      // A. Column Resize Initiation
+      if (is_hovering_resize &&
+          nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
+          ui->table_state.resizing_col < 0) {
+        ui->table_state.active_block_id = block->id;
+        ui->table_state.resizing_col = (int)c;
+        ui->table_state.resize_start_x = ctx->input.mouse.pos.x;
+        ui->table_state.resize_start_w = col_widths[c];
+        ui_request_redraw(ui);
+      }
+
+      // B. Sort Button (ONLY if not hovering resize)
+      if (!is_hovering_resize && ui->table_state.resizing_col < 0) {
+        struct nk_style_button hdr_btn_style = ctx->style.button;
+        hdr_btn_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+        hdr_btn_style.hover = nk_style_item_color(nk_rgba(255, 255, 255, 20));
+        hdr_btn_style.active = nk_style_item_color(nk_rgba(255, 255, 255, 30));
+        hdr_btn_style.border = 0;
+        hdr_btn_style.text_normal = header_text_col;
+        hdr_btn_style.text_hover = header_text_col;
+        hdr_btn_style.text_active = header_text_col;
+
+        if (nk_button_label_styled(ctx, &hdr_btn_style, "")) {
+          if (tbl->sort_column == (int)c) {
+            if (tbl->sort_ascending)
+              aslan_table_sort(tbl, (int)c, false);
+            else
+              aslan_table_sort_clear(tbl);
           } else {
-            aslan_table_sort_clear(tbl); // desc → none
+            aslan_table_sort(tbl, (int)c, true);
           }
-        } else {
-          aslan_table_sort(tbl, (int)c, true); // new column, ascending
         }
       }
 
-      // Right-click: open column settings
+      // C. Settings Popup (Right-click)
       if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_RIGHT,
                                           hdr_bounds)) {
         ui->table_state.active_block_id = block->id;
         ui->table_state.active_col_idx = (int)c;
         ui->table_state.show_col_settings = !ui->table_state.show_col_settings;
-        ui->table_state.show_col_menu = 0;
-        ui->table_state.show_footer_menu = 0;
         ui->table_state.menu_pos_x = hdr_bounds.x;
         ui->table_state.menu_pos_y = hdr_bounds.y;
         strncpy(ui->table_state.rename_buffer, tbl->columns[c].name, 63);
         ui->table_state.rename_buffer[63] = '\0';
       }
 
-      // Header text - use fixed light colors for dark background
+      // --- Drawing ---
       struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
       const char *icon = table_col_type_icon(tbl->columns[c].type);
 
-      // Draw Icon and Text manually with font switching
+      // Highlight cell if hovering (manual highlight for resize zone)
+      if (is_hovering_cell && ui->table_state.resizing_col < 0) {
+        nk_fill_rect(canvas, hdr_bounds, 0, nk_rgba(255, 255, 255, 20));
+      }
+
+      // Icon & Text
       if (ui->font_icons) {
         nk_style_set_font(ctx, &ui->font_icons->handle);
         nk_draw_text(canvas,
                      nk_rect(hdr_bounds.x + 6, hdr_bounds.y + 6, 20, 20), icon,
-                     strlen(icon), &ui->font_icons->handle, nk_rgba(0, 0, 0, 0),
-                     header_icon_col);
+                     (int)strlen(icon), &ui->font_icons->handle,
+                     nk_rgba(0, 0, 0, 0), header_icon_col);
         nk_style_set_font(ctx, &ui->font_inter->handle);
       }
-
       nk_draw_text(
           canvas,
           nk_rect(hdr_bounds.x + 32, hdr_bounds.y + 6, hdr_bounds.w - 36, 20),
-          tbl->columns[c].name, strlen(tbl->columns[c].name),
+          tbl->columns[c].name, (int)strlen(tbl->columns[c].name),
           &ui->font_inter->handle, nk_rgba(0, 0, 0, 0), header_text_col);
 
       // Sort indicator
       if (tbl->sort_column == (int)c) {
-        const char *sort_icon =
+        const char *s_icon =
             tbl->sort_ascending ? ICON_SORT_ASC : ICON_SORT_DESC;
         if (ui->font_icons) {
           nk_style_set_font(ctx, &ui->font_icons->handle);
           nk_draw_text(canvas,
                        nk_rect(hdr_bounds.x + hdr_bounds.w - 20,
                                hdr_bounds.y + 6, 16, 20),
-                       sort_icon, strlen(sort_icon), &ui->font_icons->handle,
+                       s_icon, (int)strlen(s_icon), &ui->font_icons->handle,
                        nk_rgba(0, 0, 0, 0), COLOR_ACCENT);
           nk_style_set_font(ctx, &ui->font_inter->handle);
         }
       }
 
-      // Resize handle — detect hover/click on right edge of header
-      struct nk_rect resize_zone = nk_rect(hdr_bounds.x + hdr_bounds.w - 3,
-                                           hdr_bounds.y, 6, hdr_bounds.h);
-      if (nk_input_is_mouse_hovering_rect(&ctx->input, resize_zone)) {
-        nk_stroke_line(canvas, hdr_bounds.x + hdr_bounds.w - 1,
-                       hdr_bounds.y + 4, hdr_bounds.x + hdr_bounds.w - 1,
-                       hdr_bounds.y + hdr_bounds.h - 4, 2.0f, COLOR_ACCENT);
-      }
-      if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
-                                          resize_zone) &&
-          ui->table_state.resizing_col < 0) {
-        ui->table_state.active_block_id = block->id;
-        ui->table_state.resizing_col = (int)c;
-        ui->table_state.resize_start_x = ctx->input.mouse.pos.x;
-        ui->table_state.resize_start_w = col_widths[c];
+      // Divider & Resize Handle highlight
+      nk_stroke_line(
+          canvas, hdr_bounds.x + hdr_bounds.w - 1, hdr_bounds.y + 8,
+          hdr_bounds.x + hdr_bounds.w - 1, hdr_bounds.y + hdr_bounds.h - 8,
+          1.0f, nk_rgba(border_color.r, border_color.g, border_color.b, 100));
+
+      if (is_hovering_resize ||
+          (ui->table_state.resizing_col == (int)c &&
+           ui->table_state.active_block_id == block->id)) {
+        nk_stroke_line(canvas, hdr_bounds.x + hdr_bounds.w - 1, hdr_bounds.y,
+                       hdr_bounds.x + hdr_bounds.w - 1,
+                       hdr_bounds.y + hdr_bounds.h, 2.0f, COLOR_ACCENT);
+        ui_set_cursor(ui, UI_CURSOR_SIZEWE);
       }
     }
 
@@ -436,8 +455,6 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     struct nk_color notion_border = ui->dark_mode
                                         ? nk_rgba(60, 62, 66, 60)
                                         : nk_rgb(237, 236, 233); // #EDECE9
-    struct nk_color notion_text =
-        ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(55, 53, 47); // #37352F
     struct nk_color vert_sep =
         ui->dark_mode ? nk_rgba(60, 62, 66, 40)
                       : nk_rgba(237, 236, 233, 180); // Subtle guide
@@ -1199,11 +1216,38 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           nk_label(ctx, "--- Select Options ---", NK_TEXT_CENTERED);
 
           // Show existing options
-          for (int i = 0; i < col->option_count && i < 10; i++) {
-            char opt_label[80];
-            snprintf(opt_label, sizeof(opt_label), "%d: %s", i + 1,
-                     col->options[i].label);
-            nk_label(ctx, opt_label, NK_TEXT_LEFT);
+          for (int i = 0; i < col->option_count && i < ASLAN_MAX_SELECT_OPTIONS;
+               i++) {
+            nk_layout_row_template_begin(ctx, 24.0f);
+            nk_layout_row_template_push_static(ctx, 20.0f); // Color
+            nk_layout_row_template_push_dynamic(ctx);       // Name
+            nk_layout_row_template_push_static(ctx, 20.0f); // Delete
+            nk_layout_row_template_end(ctx);
+
+            // Color box (cycle colors on click)
+            uint32_t c_rgba = col->options[i].color;
+            struct nk_color c_color =
+                nk_rgba((c_rgba >> 24) & 0xFF, (c_rgba >> 16) & 0xFF,
+                        (c_rgba >> 8) & 0xFF, 255);
+            uint32_t presets[] = {0x2383E2FF, 0xE22353FF, 0x23E253FF,
+                                  0xE2B823FF, 0x8E23E2FF, 0xE26A23FF};
+
+            if (nk_button_color(ctx, c_color)) {
+              int preset_idx = 0;
+              for (int p = 0; p < 6; p++) {
+                if (presets[p] == c_rgba) {
+                  preset_idx = (p + 1) % 6;
+                  break;
+                }
+              }
+              aslan_table_set_option_color(tbl, c, i, presets[preset_idx]);
+            }
+
+            nk_label(ctx, col->options[i].label, NK_TEXT_LEFT);
+
+            if (nk_button_label(ctx, "x")) {
+              aslan_table_remove_option(tbl, c, i);
+            }
           }
 
           if (col->option_count == 0) {
@@ -1216,10 +1260,21 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD,
                                          ui->table_state.option_buffer, 63,
                                          nk_filter_default);
+
+          uint32_t presets[] = {
+              0x2383E2FF, // Blue
+              0xE22353FF, // Red
+              0x23E253FF, // Green
+              0xE2B823FF, // Yellow
+              0x8E23E2FF, // Purple
+              0xE26A23FF  // Orange
+          };
+          uint32_t next_color = presets[col->option_count % 6];
+
           if (nk_button_label(ctx, "+ Add Option")) {
             if (ui->table_state.option_buffer[0] != '\0') {
               aslan_table_add_option(tbl, c, ui->table_state.option_buffer,
-                                     0x888888FF);
+                                     next_color);
               ui->table_state.option_buffer[0] = '\0'; // Clear buffer
             }
           }
