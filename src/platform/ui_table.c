@@ -220,8 +220,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     // Use a slightly larger height to avoid vertical scroll if possible,
     // or let it vertical scroll too if it exceeds a limit.
     nk_layout_row_dynamic(ctx, table_height + 20, 1);
-    if (nk_group_begin(ctx, "table_scroll_group",
-                       NK_WINDOW_BORDER | NK_WINDOW_SCROLL_AUTO_HIDE)) {
+    if (nk_group_begin(ctx, "table_scroll_group", NK_WINDOW_SCROLL_AUTO_HIDE)) {
       nk_style_push_vec2(ctx, &ctx->style.text.padding, nk_vec2(4, 2));
 
       // Re-calculate total width for static rows (consistent with group width)
