@@ -454,4 +454,10 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_SORT_ASC "\xEE\xA9\xB8"  // ri-arrow-up-s-line
 #define ICON_SORT_DESC "\xEE\xA9\x8B" // ri-arrow-down-s-line
 
+// Table extras
+#define ICON_SEARCH "\xEF\x83\x91"     // ri-search-line
+#define ICON_UNCHECK "\xEE\xAD\xA4"    // ri-checkbox-blank-line
+#define ICON_TABLE_LINE "\xEF\x83\xA4" // ri-table-line
+#define ICON_ADD_LINE "\xEE\xA8\x8E"   // ri-add-line
+
 #endif // UI_HOST_H

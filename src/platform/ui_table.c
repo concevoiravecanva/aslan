@@ -250,18 +250,30 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     // SEARCH / FILTER BAR
     {
-      nk_layout_row_dynamic(ctx, 26, 1);
+      nk_layout_row_dynamic(ctx, 30, 1);
       struct nk_rect fb = nk_widget_bounds(ctx);
       struct nk_command_buffer *fcanvas = nk_window_get_canvas(ctx);
       struct nk_color filter_bg =
           ui->dark_mode ? nk_rgb(35, 36, 40) : nk_rgb(248, 248, 248);
       nk_fill_rect(fcanvas, fb, 0, filter_bg);
+      // Bottom border
+      nk_stroke_line(fcanvas, fb.x, fb.y + fb.h - 1, fb.x + fb.w,
+                     fb.y + fb.h - 1, 1.0f, border_color);
 
+      // Draw search icon
+      if (ui->font_icons) {
+        nk_draw_text(fcanvas, nk_rect(fb.x + 8, fb.y + 6, 18, 18), ICON_SEARCH,
+                     strlen(ICON_SEARCH), &ui->font_icons->handle,
+                     nk_rgba(0, 0, 0, 0), muted_gray);
+      }
+
+      // Edit field with left offset for the icon
       struct nk_style_edit old_es = ctx->style.edit;
       ctx->style.edit.normal = nk_style_item_color(filter_bg);
       ctx->style.edit.hover = nk_style_item_color(filter_bg);
       ctx->style.edit.active = nk_style_item_color(filter_bg);
       ctx->style.edit.border = 0;
+      ctx->style.edit.padding = nk_vec2(28, 6);
       ctx->style.edit.text_normal =
           ui->dark_mode ? nk_rgb(200, 200, 205) : nk_rgb(80, 80, 85);
       ctx->style.edit.text_hover = ctx->style.edit.text_normal;
@@ -278,13 +290,13 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         strncpy(tbl->filter_text, ui->table_state.filter_buffer, 127);
         tbl->filter_text[127] = '\0';
         aslan_table_filter_rebuild(tbl);
-        // Refresh view_count after filter
         view_count = aslan_table_view_count(tbl);
       }
 
       // Placeholder text when empty
       if (ui->table_state.filter_buffer[0] == '\0') {
-        nk_draw_text(fcanvas, nk_rect(fb.x + 8, fb.y + 4, fb.w - 16, fb.h - 8),
+        nk_draw_text(fcanvas,
+                     nk_rect(fb.x + 30, fb.y + 6, fb.w - 40, fb.h - 12),
                      "Search...", 9, &ui->font_inter->handle,
                      nk_rgba(0, 0, 0, 0), muted_gray);
       }
@@ -435,7 +447,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     struct nk_color active_cell_outline = nk_rgb(35, 131, 226); // Notion blue
 
     // Visible rows logic
-    int max_rows = td->visible_rows > 0 ? td->visible_rows : 10;
+    int max_rows = td->visible_rows > 0 ? td->visible_rows : (int)view_count;
     if (max_rows > (int)view_count)
       max_rows = (int)view_count;
 
@@ -458,13 +470,21 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           is_row_hovered ? row_hover_bg : base_row_bg;
       struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
 
-      // Row number cell — show delete "x" on hover
+      // Row number cell — show delete "x" on hover + accent stripe
       nk_layout_row_push(ctx, row_num_w);
       struct nk_rect cell_bounds = nk_widget_bounds(ctx);
       nk_fill_rect(canvas, cell_bounds, 0, current_row_bg);
       nk_stroke_line(canvas, cell_bounds.x, cell_bounds.y + cell_bounds.h - 1,
                      cell_bounds.x + cell_bounds.w,
                      cell_bounds.y + cell_bounds.h - 1, 1.0f, notion_border);
+
+      // Left accent stripe on hover (Notion-style)
+      if (is_row_hovered) {
+        nk_fill_rect(
+            canvas,
+            nk_rect(cell_bounds.x, cell_bounds.y + 2, 3, cell_bounds.h - 4),
+            1.5f, active_cell_outline);
+      }
 
       // Right-click on row number = duplicate row
       if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_RIGHT,
@@ -554,9 +574,15 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                        sizeof(val_str));
           strncpy(buf, val_str, sizeof(buf) - 1);
 
+          // Right-align number edit field
+          struct nk_vec2 old_edit_pad = ctx->style.edit.padding;
+          ctx->style.edit.padding = nk_vec2(6, 4);
+
           nk_flags res = nk_edit_string_zero_terminated(
               ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT | NK_EDIT_SIG_ENTER, buf,
               sizeof(buf) - 1, nk_filter_decimal);
+
+          ctx->style.edit.padding = old_edit_pad;
 
           if (res & NK_EDIT_ACTIVATED) {
             ui->table_state.active_row_idx = (int)v;
@@ -687,33 +713,18 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           AslanColumn *col = &tbl->columns[c];
           int sel = aslan_table_get_select(tbl, (int)c, row_id);
 
-          // Display current selection or placeholder
-          const char *display_text = "(click to select)";
-          if (sel >= 0 && sel < col->option_count) {
-            display_text = col->options[sel].label;
-          } else if (col->option_count == 0) {
-            display_text = "(+ add option)";
-          }
-
-          // Style for the select button
+          // Transparent button for click detection
           struct nk_style_button sel_btn_style = ctx->style.button;
           sel_btn_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-          sel_btn_style.hover = nk_style_item_color(nk_rgba(80, 80, 80, 40));
-          sel_btn_style.active = nk_style_item_color(nk_rgba(60, 60, 60, 60));
+          sel_btn_style.hover = nk_style_item_color(nk_rgba(80, 80, 80, 20));
+          sel_btn_style.active = nk_style_item_color(nk_rgba(60, 60, 60, 40));
           sel_btn_style.border = 0;
-          struct nk_color sel_txt =
-              ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
-          sel_btn_style.text_normal = (sel >= 0) ? sel_txt : muted_gray;
-          sel_btn_style.text_hover = sel_txt;
-          sel_btn_style.text_active = sel_txt;
-
-          // Create a unique ID for this cell's popup
-          char popup_id[64];
-          snprintf(popup_id, sizeof(popup_id), "select_popup_%zu_%lu", c,
-                   (unsigned long)row_id);
+          sel_btn_style.text_normal = nk_rgba(0, 0, 0, 0); // hidden text
+          sel_btn_style.text_hover = nk_rgba(0, 0, 0, 0);
+          sel_btn_style.text_active = nk_rgba(0, 0, 0, 0);
 
           struct nk_rect btn_bounds = nk_widget_bounds(ctx);
-          if (nk_button_label_styled(ctx, &sel_btn_style, display_text)) {
+          if (nk_button_label_styled(ctx, &sel_btn_style, "")) {
             ui->table_state.active_block_id = block->id;
             ui->table_state.active_col_idx = (int)c;
             ui->table_state.active_row_idx = (int)v;
@@ -721,10 +732,54 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             ui->table_state.select_popup_row = row_id;
             ui->table_state.menu_pos_x = btn_bounds.x;
             ui->table_state.menu_pos_y = btn_bounds.y + btn_bounds.h;
-            // Close other menus
             ui->table_state.show_col_menu = 0;
             ui->table_state.show_footer_menu = 0;
             ui->table_state.show_col_settings = 0;
+          }
+
+          // Draw color tag pill on top
+          struct nk_command_buffer *sel_canvas = nk_window_get_canvas(ctx);
+          if (sel >= 0 && sel < col->option_count) {
+            uint32_t tag_rgba = col->options[sel].color;
+            uint8_t tr = (tag_rgba >> 24) & 0xFF;
+            uint8_t tg = (tag_rgba >> 16) & 0xFF;
+            uint8_t tb = (tag_rgba >> 8) & 0xFF;
+
+            // Tinted pill background (semi-transparent)
+            struct nk_color pill_bg = ui->dark_mode ? nk_rgba(tr, tg, tb, 40)
+                                                    : nk_rgba(tr, tg, tb, 30);
+            struct nk_color pill_txt =
+                ui->dark_mode
+                    ? nk_rgb(tr > 80 ? tr + 60 : 200, tg > 80 ? tg + 60 : 200,
+                             tb > 80 ? tb + 60 : 200)
+                    : nk_rgb(tr > 128 ? tr - 60 : tr + 20,
+                             tg > 128 ? tg - 60 : tg + 20,
+                             tb > 128 ? tb - 60 : tb + 20);
+
+            float text_w = ui->font_inter->handle.width(
+                ui->font_inter->handle.userdata, ui->font_inter->handle.height,
+                col->options[sel].label, strlen(col->options[sel].label));
+            float pill_w = text_w + 16;
+            if (pill_w > btn_bounds.w - 8)
+              pill_w = btn_bounds.w - 8;
+
+            struct nk_rect pill_rect =
+                nk_rect(btn_bounds.x + 6,
+                        btn_bounds.y + (btn_bounds.h - 20) / 2, pill_w, 20);
+            nk_fill_rect(sel_canvas, pill_rect, 4.0f, pill_bg);
+            nk_draw_text(
+                sel_canvas,
+                nk_rect(pill_rect.x + 8, pill_rect.y + 2, pill_rect.w - 16, 16),
+                col->options[sel].label, strlen(col->options[sel].label),
+                &ui->font_inter->handle, nk_rgba(0, 0, 0, 0), pill_txt);
+          } else {
+            // Placeholder
+            const char *ph = col->option_count > 0 ? "Select..." : "+ option";
+            nk_draw_text(sel_canvas,
+                         nk_rect(btn_bounds.x + 6, btn_bounds.y + 5,
+                                 btn_bounds.w - 12, btn_bounds.h - 10),
+                         ph, strlen(ph), &ui->font_inter->handle,
+                         nk_rgba(0, 0, 0, 0), muted_gray);
           }
           break;
         }
@@ -833,7 +888,9 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           ui->table_state.menu_pos_y = ftr_bounds.y;
         }
       } else {
-        if (nk_button_label_styled(ctx, &ftr_btn_style, "...")) {
+        ftr_btn_style.text_normal = nk_rgba(
+            footer_text_col.r, footer_text_col.g, footer_text_col.b, 100);
+        if (nk_button_label_styled(ctx, &ftr_btn_style, "Calculate")) {
           ui->table_state.active_block_id = block->id;
           ui->table_state.active_col_idx = (int)c;
           ui->table_state.show_footer_menu = !ui->table_state.show_footer_menu;
@@ -871,9 +928,46 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     }
 
   } else {
-    // Empty/uninitialized table
-    nk_layout_row_dynamic(ctx, 30, 1);
-    nk_label(ctx, "Empty table - click '+ Row' to add data", NK_TEXT_CENTERED);
+    // Empty/uninitialized table — CTA
+    nk_layout_row_dynamic(ctx, 60, 1);
+    struct nk_rect empty_bounds = nk_widget_bounds(ctx);
+    struct nk_command_buffer *ec = nk_window_get_canvas(ctx);
+    struct nk_color empty_bg =
+        ui->dark_mode ? nk_rgb(30, 31, 35) : nk_rgb(250, 250, 248);
+    nk_fill_rect(ec, empty_bounds, 6.0f, empty_bg);
+    nk_stroke_rect(ec, empty_bounds, 6.0f, 1.0f, border_color);
+
+    // Draw table icon + message
+    if (ui->font_icons) {
+      nk_draw_text(ec,
+                   nk_rect(empty_bounds.x + empty_bounds.w / 2 - 60,
+                           empty_bounds.y + 10, 20, 20),
+                   ICON_TABLE_LINE, strlen(ICON_TABLE_LINE),
+                   &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), muted_gray);
+    }
+    if (ui->font_inter) {
+      nk_draw_text(ec,
+                   nk_rect(empty_bounds.x + empty_bounds.w / 2 - 36,
+                           empty_bounds.y + 10, 200, 20),
+                   "Add your first row", 18, &ui->font_inter->handle,
+                   nk_rgba(0, 0, 0, 0), muted_gray);
+    }
+
+    // Add row button
+    nk_layout_row_dynamic(ctx, 28, 1);
+    struct nk_style_button cta_style = ctx->style.button;
+    cta_style.normal = nk_style_item_color(nk_rgba(35, 131, 226, 30));
+    cta_style.hover = nk_style_item_color(nk_rgba(35, 131, 226, 60));
+    cta_style.active = nk_style_item_color(nk_rgba(35, 131, 226, 90));
+    cta_style.text_normal = nk_rgb(35, 131, 226);
+    cta_style.text_hover = nk_rgb(55, 151, 246);
+    cta_style.rounding = 4;
+    cta_style.border = 0;
+    if (nk_button_label_styled(ctx, &cta_style, "+ New Row")) {
+      if (tbl) {
+        aslan_table_add_row(tbl);
+      }
+    }
   }
 
   // =========================================================================
@@ -991,19 +1085,19 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           nk_popup_close(ctx);
         }
 
-        if (nk_button_label_styled(ctx, &menu_btn, "# Count")) {
+        if (nk_button_label_styled(ctx, &menu_btn, "Count")) {
           aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_COUNT);
           ui->table_state.show_footer_menu = 0;
           nk_popup_close(ctx);
         }
 
         if (type == ASLAN_COL_NUMBER || type == ASLAN_COL_FORMULA) {
-          if (nk_button_label_styled(ctx, &menu_btn, "Σ Sum")) {
+          if (nk_button_label_styled(ctx, &menu_btn, "Sum")) {
             aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_SUM);
             ui->table_state.show_footer_menu = 0;
             nk_popup_close(ctx);
           }
-          if (nk_button_label_styled(ctx, &menu_btn, "μ Average")) {
+          if (nk_button_label_styled(ctx, &menu_btn, "Average")) {
             aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_AVG);
             ui->table_state.show_footer_menu = 0;
             nk_popup_close(ctx);
@@ -1021,7 +1115,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
 
         if (type == ASLAN_COL_CHECKBOX) {
-          if (nk_button_label_styled(ctx, &menu_btn, "% Percent")) {
+          if (nk_button_label_styled(ctx, &menu_btn, "Percent")) {
             aslan_table_set_footer_agg(tbl, c, ASLAN_AGG_PERCENT);
             ui->table_state.show_footer_menu = 0;
             nk_popup_close(ctx);
