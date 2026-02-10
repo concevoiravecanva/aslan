@@ -1,0 +1,35 @@
+# Fix: Fullscreen rendering — wrong positions + blurry elements
+
+## Root Cause
+`SDL_RenderSetLogicalSize(r->sdl_renderer, 1024, 768)` is set once at creation and never updated.
+When the window resizes or goes fullscreen, the logical coordinate space stays at 1024x768 while
+Nuklear receives the actual window size → coordinate mismatch + interpolation blur.
+
+## Fix (1 file, ~3 lines)
+
+### renderer.c — `renderer_update_size()`
+Currently only reads `SDL_GetRendererOutputSize` for pixel dimensions.
+Add: also call `SDL_RenderSetLogicalSize(r->sdl_renderer, window_w, window_h)` with the current
+window size in points so that the logical coordinate space always matches the window coordinate space.
+
+```c
+void renderer_update_size(Renderer *r) {
+  if (!r) return;
+  int render_w, render_h;
+  SDL_GetRendererOutputSize(r->sdl_renderer, &render_w, &render_h);
+  r->width = render_w;
+  r->height = render_h;
+  // FIX: keep logical size in sync with window size
+  int window_w, window_h;
+  SDL_GetWindowSize(r->window, &window_w, &window_h);
+  SDL_RenderSetLogicalSize(r->sdl_renderer, window_w, window_h);
+}
+```
+
+This is called on every `SDL_WINDOWEVENT_RESIZED / SIZE_CHANGED / EXPOSED` (main.c:87-93).
+
+### Why this fixes both symptoms:
+- **Positioning**: Nuklear and SDL now agree on the coordinate space (window points).
+- **Blur**: SDL scales from window-point resolution to pixel resolution using HiDPI (2x on Retina),
+  so fonts/lines render at native pixel resolution instead of being upscaled from 1024x768.
+- **Mouse**: SDL reports mouse events in logical space = window space, matching Nuklear.

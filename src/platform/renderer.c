@@ -78,6 +78,11 @@ void renderer_update_size(Renderer *r) {
   SDL_GetRendererOutputSize(r->sdl_renderer, &render_w, &render_h);
   r->width = render_w;
   r->height = render_h;
+  // Keep logical size in sync with window size so coordinates match on
+  // fullscreen / resize (fixes mispositioned + blurry elements on HiDPI).
+  int window_w, window_h;
+  SDL_GetWindowSize(r->window, &window_w, &window_h);
+  SDL_RenderSetLogicalSize(r->sdl_renderer, window_w, window_h);
 }
 
 float renderer_get_dpi_scale(Renderer *r) {
