@@ -682,6 +682,7 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 
 void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx, Block *block) {
   int is_expanded = (ui->expanded_block_id == block->id);
+  int allow_fullscreen = (block->type != BLOCK_TEXT && block->type != BLOCK_HEADING_1);
 
   // Right-aligned button for both states
   nk_layout_row_template_begin(ctx, 28.0f);
@@ -690,7 +691,9 @@ void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx, Block *block) {
   if (block->type == BLOCK_TABLE) {
     nk_layout_row_template_push_static(ctx, 30.0f); // Search toggle
   }
-  nk_layout_row_template_push_static(ctx, 30.0f); // Fullscreen Button
+  if (allow_fullscreen) {
+    nk_layout_row_template_push_static(ctx, 30.0f); // Fullscreen Button
+  }
   nk_layout_row_template_end(ctx);
 
   // First slot is empty (spacer)
@@ -708,15 +711,17 @@ void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx, Block *block) {
     }
   }
 
-  if (is_expanded) {
-    if (ui_icon_button(ui, ICON_FULLSCREEN_EXIT)) {
-      ASLAN_DEBUG("Clicked Fullscreen EXIT for block %u", block->id);
-      ui->expanded_block_id = 0;
-    }
-  } else {
-    if (ui_icon_button(ui, ICON_FULLSCREEN)) {
-      ASLAN_DEBUG("Clicked Fullscreen ENTER for block %u", block->id);
-      ui->expanded_block_id = block->id;
+  if (allow_fullscreen) {
+    if (is_expanded) {
+      if (ui_icon_button(ui, ICON_FULLSCREEN_EXIT)) {
+        ASLAN_DEBUG("Clicked Fullscreen EXIT for block %u", block->id);
+        ui->expanded_block_id = 0;
+      }
+    } else {
+      if (ui_icon_button(ui, ICON_FULLSCREEN)) {
+        ASLAN_DEBUG("Clicked Fullscreen ENTER for block %u", block->id);
+        ui->expanded_block_id = block->id;
+      }
     }
   }
 }
