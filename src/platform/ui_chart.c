@@ -404,7 +404,6 @@ void ui_render_chart_impl(UIHost *ui, struct nk_context *ctx, ChartData *cd,
 static void chart_render_config_bar(UIHost *ui, Engine *engine,
                                     struct nk_context *ctx, Page *page,
                                     Block *block, float width) {
-  (void)ui;
   ChartData *cd = &block->data.chart;
   uint32_t page_id = page->id;
   (void)width;
@@ -420,6 +419,7 @@ static void chart_render_config_bar(UIHost *ui, Engine *engine,
   // --- Chart Type (cycle: Bar -> Line -> Pie) ---
   const char *type_labels[] = {"Bar", "Line", "Pie"};
   if (nk_button_label(ctx, type_labels[cd->type])) {
+    ui->active_block_id = block->id;
     int next = (cd->type + 1) % 3;
     const char *type_strs[] = {"bar", "line", "pie"};
     char cmd[256];
@@ -438,6 +438,7 @@ static void chart_render_config_bar(UIHost *ui, Engine *engine,
   }
 
   if (nk_button_label(ctx, src_label)) {
+    ui->active_block_id = block->id;
     Block *first_table = NULL;
     Block *next_table = NULL;
     bool found_current = false;
@@ -475,6 +476,7 @@ static void chart_render_config_bar(UIHost *ui, Engine *engine,
   }
 
   if (nk_button_label(ctx, col_label)) {
+    ui->active_block_id = block->id;
     if (tbl && tbl->column_count > 0) {
       int next_col = (cd->label_col_idx + 1) % (int)tbl->column_count;
       const char *type_strs[] = {"bar", "line", "pie"};
@@ -495,6 +497,7 @@ static void chart_render_config_bar(UIHost *ui, Engine *engine,
   }
 
   if (nk_button_label(ctx, val_label)) {
+    ui->active_block_id = block->id;
     if (tbl && tbl->column_count > 0) {
       int start = cd->value_col_idx;
       for (int attempt = 0; attempt < (int)tbl->column_count; attempt++) {
@@ -550,6 +553,11 @@ void ui_render_block_chart(UIHost *ui, Engine *engine, struct nk_context *ctx,
   nk_layout_row_dynamic(ctx, chart_h, 1);
   struct nk_rect chart_bounds;
   nk_widget(&chart_bounds, ctx);
+
+  if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
+                                      chart_bounds)) {
+    ui->active_block_id = block->id;
+  }
 
   // Render chart into the widget area
   ui_render_chart_impl(ui, ctx, cd, chart_bounds, page);

@@ -1934,6 +1934,11 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
     cs->mouse_in_canvas = 0;
   }
 
+  // Activate block on click
+  if (cs->mouse_just_pressed && cs->mouse_in_canvas) {
+    ui->active_block_id = block->id;
+  }
+
   int in_toolbar =
       canvas_point_in_toolbar(bounds, ui->mouse_x, ui->mouse_y, cs);
 

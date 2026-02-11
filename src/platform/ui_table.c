@@ -225,6 +225,14 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     // Use a slightly larger height to avoid vertical scroll if possible,
     // or let it vertical scroll too if it exceeds a limit.
     nk_layout_row_dynamic(ctx, table_height + 20, 1);
+
+    // General click detection for the table block
+    struct nk_rect table_bounds = nk_widget_bounds(ctx);
+    if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT, table_bounds)) {
+      ui->active_block_id = block->id;
+      ui->table_state.active_block_id = block->id;
+    }
+
     if (nk_group_begin(ctx, "table_scroll_group", NK_WINDOW_SCROLL_AUTO_HIDE)) {
       nk_style_push_vec2(ctx, &ctx->style.text.padding, nk_vec2(4, 2));
 
@@ -363,7 +371,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         if (is_hovering_resize &&
             nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
             ui->table_state.resizing_col < 0) {
-          ui->table_state.active_block_id = block->id;
+          ui->table_state.active_block_id = block->id; ui->active_block_id = block->id;
+          ui->active_block_id = block->id;
           ui->table_state.resizing_col = (int)c;
           ui->table_state.resize_start_x = ctx->input.mouse.pos.x;
           ui->table_state.resize_start_w = col_widths[c];
@@ -413,7 +422,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
           // Settings popup on icon click
           if (clicked_icon) {
-            ui->table_state.active_block_id = block->id;
+            ui->table_state.active_block_id = block->id; ui->active_block_id = block->id;
             ui->table_state.active_col_idx = (int)c;
             ui->table_state.show_col_settings =
                 !ui->table_state.show_col_settings;
@@ -497,7 +506,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       add_col_btn.hover = nk_style_item_color(nk_rgba(255, 255, 255, 20));
       add_col_btn.text_normal = header_text_col;
       if (nk_button_label_styled(ctx, &add_col_btn, "+")) {
-        ui->table_state.active_block_id = block->id;
+        ui->table_state.active_block_id = block->id; ui->active_block_id = block->id;
         ui->table_state.show_col_menu = !ui->table_state.show_col_menu;
         ui->table_state.show_footer_menu = 0;
         ui->table_state.menu_pos_x = hdr_bounds.x;
@@ -818,7 +827,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
             struct nk_rect btn_bounds = nk_widget_bounds(ctx);
             if (nk_button_label_styled(ctx, &sel_btn_style, "")) {
-              ui->table_state.active_block_id = block->id;
+              ui->table_state.active_block_id = block->id; ui->active_block_id = block->id;
               ui->table_state.active_col_idx = (int)c;
               ui->table_state.active_row_idx = (int)v;
               ui->table_state.show_select_popup = 1;
@@ -986,7 +995,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
         if (footer_text[0]) {
           if (nk_button_label_styled(ctx, &ftr_btn_style, footer_text)) {
-            ui->table_state.active_block_id = block->id;
+            ui->table_state.active_block_id = block->id; ui->active_block_id = block->id;
             ui->table_state.active_col_idx = (int)c;
             ui->table_state.show_footer_menu =
                 !ui->table_state.show_footer_menu;
@@ -998,7 +1007,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           ftr_btn_style.text_normal = nk_rgba(
               footer_text_col.r, footer_text_col.g, footer_text_col.b, 100);
           if (nk_button_label_styled(ctx, &ftr_btn_style, "Calculate")) {
-            ui->table_state.active_block_id = block->id;
+            ui->table_state.active_block_id = block->id; ui->active_block_id = block->id;
             ui->table_state.active_col_idx = (int)c;
             ui->table_state.show_footer_menu =
                 !ui->table_state.show_footer_menu;

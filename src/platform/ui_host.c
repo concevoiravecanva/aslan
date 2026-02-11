@@ -681,8 +681,13 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 // -----------------------------------------------------------------------------
 
 void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx, Block *block) {
+  if (block->id != ui->active_block_id) {
+    return;
+  }
+
   int is_expanded = (ui->expanded_block_id == block->id);
   int allow_fullscreen = (block->type != BLOCK_TEXT && block->type != BLOCK_HEADING_1);
+  int is_active = (ui->active_block_id == block->id);
 
   // Right-aligned button for both states
   nk_layout_row_template_begin(ctx, 28.0f);
@@ -700,28 +705,40 @@ void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx, Block *block) {
   nk_spacing(ctx, 1);
 
   // Hand icon
-  if (ui_icon_button(ui, ICON_HAND)) {
-    // TODO: Implement hand action (e.g. drag handle or pan)
+  if (is_active) {
+    if (ui_icon_button(ui, ICON_HAND)) {
+      // TODO: Implement hand action (e.g. drag handle or pan)
+    }
+  } else {
+    nk_spacing(ctx, 1);
   }
 
   if (block->type == BLOCK_TABLE) {
-    if (ui_icon_button(ui, ICON_SEARCH)) {
-      block->data.table.show_search = !block->data.table.show_search;
-      ui->table_state.active_block_id = block->id;
+    if (is_active) {
+      if (ui_icon_button(ui, ICON_SEARCH)) {
+        block->data.table.show_search = !block->data.table.show_search;
+        ui->table_state.active_block_id = block->id;
+      }
+    } else {
+      nk_spacing(ctx, 1);
     }
   }
 
   if (allow_fullscreen) {
-    if (is_expanded) {
-      if (ui_icon_button(ui, ICON_FULLSCREEN_EXIT)) {
-        ASLAN_DEBUG("Clicked Fullscreen EXIT for block %u", block->id);
-        ui->expanded_block_id = 0;
+    if (is_active) {
+      if (is_expanded) {
+        if (ui_icon_button(ui, ICON_FULLSCREEN_EXIT)) {
+          ASLAN_DEBUG("Clicked Fullscreen EXIT for block %u", block->id);
+          ui->expanded_block_id = 0;
+        }
+      } else {
+        if (ui_icon_button(ui, ICON_FULLSCREEN)) {
+          ASLAN_DEBUG("Clicked Fullscreen ENTER for block %u", block->id);
+          ui->expanded_block_id = block->id;
+        }
       }
     } else {
-      if (ui_icon_button(ui, ICON_FULLSCREEN)) {
-        ASLAN_DEBUG("Clicked Fullscreen ENTER for block %u", block->id);
-        ui->expanded_block_id = block->id;
-      }
+      nk_spacing(ctx, 1);
     }
   }
 }
@@ -781,6 +798,14 @@ void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
       NK_EDIT_BOX | NK_EDIT_MULTILINE | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD;
   nk_flags state = nk_edit_string_zero_terminated(
       ctx, flags, buf, (int)sizeof(buf) - 1, nk_filter_default);
+
+  // Activate block on click/edit
+  if (state & (NK_EDIT_ACTIVE | NK_EDIT_ACTIVATED)) {
+    ui->active_block_id = block->id;
+  } else if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
+                                             bounds)) {
+    ui->active_block_id = block->id;
+  }
 
   if (state & NK_EDIT_ACTIVE) {
     nk_stroke_rect(canvas, nk_rect(bounds.x, bounds.y, bounds.w, bounds.h), 0,
@@ -842,6 +867,14 @@ void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
   nk_flags flags = NK_EDIT_FIELD | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD;
   nk_flags state = nk_edit_string_zero_terminated(
       ctx, flags, buf, (int)sizeof(buf) - 1, nk_filter_default);
+
+  // Activate block on click/edit
+  if (state & (NK_EDIT_ACTIVE | NK_EDIT_ACTIVATED)) {
+    ui->active_block_id = block->id;
+  } else if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
+                                             nk_widget_bounds(ctx))) {
+    ui->active_block_id = block->id;
+  }
 
   // Restore placeholder logic using bounds of the widget we just drew
   struct nk_rect bounds = nk_layout_widget_bounds(ctx);

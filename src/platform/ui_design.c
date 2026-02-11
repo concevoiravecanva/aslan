@@ -90,6 +90,11 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
     DesignInteraction *ds = &ui->design_state;
 
+    if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
+                                        ws_bounds)) {
+      ui->active_block_id = block->id;
+    }
+
     // Pre-calculate toolbar flags for interaction logic
     float toolbar_w = 6 * 36.0f + 5 * 8.0f + 24.0f;
     float toolbar_x = ws_bounds.x + (ws_bounds.w - toolbar_w) / 2.0f;

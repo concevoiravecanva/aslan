@@ -279,6 +279,7 @@ typedef struct UIHost {
   char save_path[256];
 
   // Block editing state
+  uint32_t active_block_id;   // Block currently active/selected (showing icons)
   uint32_t editing_block_id;  // Block being edited (0=none)
   uint32_t expanded_block_id; // Block currently in full-screen mode (0=none)
   int editing_cursor_pos;
