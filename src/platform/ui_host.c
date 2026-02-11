@@ -686,6 +686,7 @@ void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx, Block *block) {
   // Right-aligned button for both states
   nk_layout_row_template_begin(ctx, 28.0f);
   nk_layout_row_template_push_dynamic(ctx); // Spacer
+  nk_layout_row_template_push_static(ctx, 30.0f); // Hand icon
   if (block->type == BLOCK_TABLE) {
     nk_layout_row_template_push_static(ctx, 30.0f); // Search toggle
   }
@@ -694,6 +695,11 @@ void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx, Block *block) {
 
   // First slot is empty (spacer)
   nk_spacing(ctx, 1);
+
+  // Hand icon
+  if (ui_icon_button(ui, ICON_HAND)) {
+    // TODO: Implement hand action (e.g. drag handle or pan)
+  }
 
   if (block->type == BLOCK_TABLE) {
     if (ui_icon_button(ui, ICON_SEARCH)) {
@@ -726,6 +732,9 @@ void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
   if (ui->font_inter) {
     nk_style_set_font(ctx, &ui->font_inter->handle);
   }
+
+  // Header with Hand/Expand icons
+  ui_render_expand_toggle(ui, ctx, block);
 
   const float line_h = 22.0f;
 
@@ -799,12 +808,24 @@ void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
   if (!block)
     return;
 
+  // Determine if this is the page title (first H1 block of the page)
+  int is_page_title = 0;
+  Page *active_page = doc_page_get_active(ui->engine->doc);
+  if (active_page && block == active_page->first_block && level == 1) {
+    is_page_title = 1;
+  }
+
   struct nk_font *font = ui->font_h1;
 
   float row_h = 40.0f;
 
   if (font) {
     nk_style_set_font(ctx, &font->handle);
+  }
+
+  // Header with Hand/Expand icons (skip for page title)
+  if (!is_page_title) {
+    ui_render_expand_toggle(ui, ctx, block);
   }
 
   nk_layout_row_dynamic(ctx, row_h, 1);
