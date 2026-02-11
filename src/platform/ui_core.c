@@ -52,10 +52,13 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
   struct nk_color toolbar_border =
       ui->dark_mode ? nk_rgb(70, 70, 80) : nk_rgb(220, 220, 220);
 
-  // Shadow
+  // Layered shadow for depth
   nk_fill_rect(canvas_buf,
-               nk_rect(toolbar_x + 2, toolbar_y + 4, toolbar_w, toolbar_h),
-               26.0f, nk_rgba(0, 0, 0, 20));
+               nk_rect(toolbar_x + 0, toolbar_y + 6, toolbar_w, toolbar_h),
+               26.0f, nk_rgba(0, 0, 0, 12));
+  nk_fill_rect(canvas_buf,
+               nk_rect(toolbar_x + 1, toolbar_y + 3, toolbar_w, toolbar_h),
+               26.0f, nk_rgba(0, 0, 0, 18));
 
   // Background
   nk_fill_rect(canvas_buf, nk_rect(toolbar_x, toolbar_y, toolbar_w, toolbar_h),
