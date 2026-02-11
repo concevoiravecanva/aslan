@@ -1267,14 +1267,14 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
                   ui->block_drag.drop_valid = 1;
                   ui->block_drag.drop_target_id = row_blocks[0]->id;
                   ui->block_drag.drop_position = 1;
-                } else if (in_block && dmx < left_zone) {
+                } else if (in_block && dmx < left_zone && row_count < 5) {
                   // LEFT: vertical line at left + highlight column
                   nk_fill_rect(canvas, nk_rect(bx - 1, block_start_y, 4, blk_h), 2.0f, drop_line);
                   nk_fill_rect(canvas, nk_rect(bx, block_start_y, total_width * 0.5f, blk_h), 0, drop_fill);
                   ui->block_drag.drop_valid = 1;
                   ui->block_drag.drop_target_id = row_blocks[0]->id;
                   ui->block_drag.drop_position = 2;
-                } else if (in_block && dmx > right_zone) {
+                } else if (in_block && dmx > right_zone && row_count < 5) {
                   // RIGHT: vertical line at right + highlight column
                   float rx = bx + total_width;
                   nk_fill_rect(canvas, nk_rect(rx - 3, block_start_y, 4, blk_h), 2.0f, drop_line);
@@ -1290,6 +1290,8 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
               float col_w = (total_width - (float)(row_count - 1) * gap) / (float)row_count;
               float row_h = 400.0f;
 
+              float mcol_start_y = nk_layout_widget_bounds(ctx).y;
+
               nk_layout_row_begin(ctx, NK_STATIC, row_h, row_count);
               for (int col = 0; col < row_count; col++) {
                 nk_layout_row_push(ctx, col < row_count - 1 ? col_w + gap : col_w);
@@ -1303,6 +1305,76 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
                 }
               }
               nk_layout_row_end(ctx);
+
+              // Drop zone indicators for multi-column rows during drag
+              if (ui->block_drag.is_active) {
+                struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+                struct nk_rect cr = nk_window_get_content_region(ctx);
+                float bx = cr.x;
+                float dmx = ui->block_drag.mouse_x;
+                float dmy = ui->block_drag.mouse_y;
+                float mcol_end_y = nk_layout_widget_bounds(ctx).y;
+                float mcol_h = mcol_end_y - mcol_start_y;
+                if (mcol_h < 30.0f) mcol_h = row_h;
+                struct nk_color drop_line = nk_rgba(55, 120, 250, 220);
+                struct nk_color drop_fill = nk_rgba(55, 120, 250, 40);
+
+                int in_x = (dmx >= bx && dmx <= bx + total_width);
+                int in_row = (in_x && dmy >= mcol_start_y && dmy < mcol_start_y + mcol_h);
+                float top_zone = mcol_start_y + mcol_h * 0.2f;
+                float bot_zone = mcol_start_y + mcol_h * 0.8f;
+
+                // Check dragged block is not in this row
+                int dragged_in_row = 0;
+                for (int c = 0; c < row_count; c++) {
+                  if (row_blocks[c] && row_blocks[c]->id == ui->block_drag.dragged_block_id)
+                    dragged_in_row = 1;
+                }
+
+                if (!dragged_in_row) {
+                  if (in_x && dmy >= mcol_start_y - 8 && dmy < top_zone) {
+                    // ABOVE the multi-col row
+                    nk_fill_rect(canvas, nk_rect(bx, mcol_start_y - 2, total_width, 4), 2.0f, drop_line);
+                    nk_fill_rect(canvas, nk_rect(bx, mcol_start_y, total_width, mcol_h * 0.15f), 0, drop_fill);
+                    ui->block_drag.drop_valid = 1;
+                    ui->block_drag.drop_target_id = row_blocks[0]->id;
+                    ui->block_drag.drop_position = 0;
+                  } else if (in_x && dmy >= bot_zone && dmy < mcol_start_y + mcol_h + 8) {
+                    // BELOW the multi-col row
+                    float bot_y = mcol_start_y + mcol_h;
+                    nk_fill_rect(canvas, nk_rect(bx, bot_y - 2, total_width, 4), 2.0f, drop_line);
+                    nk_fill_rect(canvas, nk_rect(bx, bot_y - mcol_h * 0.15f, total_width, mcol_h * 0.15f), 0, drop_fill);
+                    ui->block_drag.drop_valid = 1;
+                    ui->block_drag.drop_target_id = row_blocks[row_count - 1]->id;
+                    ui->block_drag.drop_position = 1;
+                  } else if (in_row && row_count < 5) {
+                    // LEFT/RIGHT of individual columns — find which column cursor is over
+                    for (int c = 0; c < row_count; c++) {
+                      float cx = bx + (float)c * (col_w + gap);
+                      float cx_mid = cx + col_w * 0.5f;
+                      if (dmx >= cx && dmx < cx + col_w + (c < row_count - 1 ? gap : 0)) {
+                        if (dmx < cx_mid) {
+                          // LEFT of this column
+                          nk_fill_rect(canvas, nk_rect(cx - 1, mcol_start_y, 4, mcol_h), 2.0f, drop_line);
+                          nk_fill_rect(canvas, nk_rect(cx, mcol_start_y, col_w * 0.4f, mcol_h), 0, drop_fill);
+                          ui->block_drag.drop_valid = 1;
+                          ui->block_drag.drop_target_id = row_blocks[c]->id;
+                          ui->block_drag.drop_position = 2;
+                        } else {
+                          // RIGHT of this column
+                          float rx = cx + col_w;
+                          nk_fill_rect(canvas, nk_rect(rx - 2, mcol_start_y, 4, mcol_h), 2.0f, drop_line);
+                          nk_fill_rect(canvas, nk_rect(cx + col_w * 0.6f, mcol_start_y, col_w * 0.4f, mcol_h), 0, drop_fill);
+                          ui->block_drag.drop_valid = 1;
+                          ui->block_drag.drop_target_id = row_blocks[c]->id;
+                          ui->block_drag.drop_position = 3;
+                        }
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
             }
 
             // Inter-row spacing
