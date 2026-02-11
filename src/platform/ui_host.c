@@ -422,6 +422,14 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     ui->mouse_x = (float)evt->motion.x;
     ui->mouse_y = (float)evt->motion.y;
 
+    // Block drag tracking
+    if (ui->block_drag.is_active) {
+      ui->block_drag.mouse_x = ui->mouse_x;
+      ui->block_drag.mouse_y = ui->mouse_y;
+      ui->block_drag.drop_valid = 0; // Reset, recalc in render
+      ui_request_redraw(ui);
+    }
+
     // Check if mouse is in canvas
     CanvasInteraction *cs = &ui->canvas_state;
     cs->mouse_in_canvas = (ui->mouse_x >= cs->bounds_x &&
@@ -510,6 +518,65 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       ui->mouse_buttons &= ~1;
       cs->mouse_just_released = 1;
       ui->design_state.mouse_just_released = 1; // Also track for design
+
+      // Block drag-and-drop: execute drop on mouse release
+      if (ui->block_drag.is_active) {
+        if (ui->block_drag.drop_valid && ui->engine) {
+          Page *page = doc_page_get_active(ui->engine->doc);
+          if (page) {
+            Block *dragged = page_find_block_by_id(page, ui->block_drag.dragged_block_id);
+            Block *target = page_find_block_by_id(page, ui->block_drag.drop_target_id);
+            if (dragged && target && dragged != target) {
+              int pos = ui->block_drag.drop_position;
+              page_remove_block(page, dragged);
+
+              if (pos == 0) {
+                // Above: insert before target, own row
+                page_insert_block_before(page, target, dragged);
+                dragged->layout_row = target->layout_row;
+                // Renumber: shift target and subsequent blocks' rows up
+                for (Block *r = target; r; r = r->next) {
+                  r->layout_row++;
+                }
+              } else if (pos == 1) {
+                // Below: insert after target, own row
+                // Find last block in target's row
+                Block *last_in_row = target;
+                while (last_in_row->next && last_in_row->next->layout_row == target->layout_row)
+                  last_in_row = last_in_row->next;
+                page_insert_block_after(page, last_in_row, dragged);
+                dragged->layout_row = target->layout_row + 1;
+                // Shift subsequent rows
+                for (Block *r = dragged->next; r; r = r->next) {
+                  r->layout_row++;
+                }
+              } else if (pos == 2) {
+                // Left: place in same row, before target
+                page_insert_block_before(page, target, dragged);
+                dragged->layout_row = target->layout_row;
+                // Reassign layout_col for all blocks in this row
+                uint16_t row = target->layout_row;
+                uint8_t col = 0;
+                for (Block *r = page->first_block; r; r = r->next) {
+                  if (r->layout_row == row) r->layout_col = col++;
+                }
+              } else if (pos == 3) {
+                // Right: place in same row, after target
+                page_insert_block_after(page, target, dragged);
+                dragged->layout_row = target->layout_row;
+                uint16_t row = target->layout_row;
+                uint8_t col = 0;
+                for (Block *r = page->first_block; r; r = r->next) {
+                  if (r->layout_row == row) r->layout_col = col++;
+                }
+              }
+            }
+          }
+        }
+        ui->block_drag.is_active = 0;
+        ui->block_drag.drop_valid = 0;
+        ui_request_redraw(ui);
+      }
 
       // Stop panning
       cs->is_panning = 0;
@@ -680,67 +747,117 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 // Block Renderers
 // -----------------------------------------------------------------------------
 
-void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx, Block *block) {
-  if (block->id != ui->active_block_id) {
-    return;
-  }
+// Overlay toolbar: draws icons at (x_right, y_top) without consuming layout space.
+// Returns the number of pixels consumed from the right so callers know the overlay width.
+static void ui_render_block_overlay_icons(UIHost *ui, struct nk_context *ctx,
+                                           Block *block, float x_right,
+                                           float y_top) {
+  struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+  const struct nk_user_font *icon_font =
+      ui->font_icons ? &ui->font_icons->handle : &ui->font_inter->handle;
+
+  float btn_w = 26.0f, btn_h = 26.0f, gap = 3.0f;
+  float mx = ctx->input.mouse.pos.x;
+  float my = ctx->input.mouse.pos.y;
+  int pressed = nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT);
+  int mouse_down = nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT);
 
   int is_expanded = (ui->expanded_block_id == block->id);
-  int allow_fullscreen = (block->type != BLOCK_TEXT && block->type != BLOCK_HEADING_1);
-  int is_active = (ui->active_block_id == block->id);
+  int allow_fullscreen =
+      (block->type != BLOCK_TEXT && block->type != BLOCK_HEADING_1);
 
-  // Right-aligned button for both states
-  nk_layout_row_template_begin(ctx, 28.0f);
-  nk_layout_row_template_push_dynamic(ctx); // Spacer
-  nk_layout_row_template_push_static(ctx, 30.0f); // Hand icon
+  // Count buttons: hand + (search if table) + (fullscreen if allowed)
+  int n = 1; // hand always
+  if (block->type == BLOCK_TABLE) n++;
+  if (allow_fullscreen) n++;
+
+  float total_w = (float)n * btn_w + (float)(n - 1) * gap + 8.0f;
+  float bx = x_right - total_w;
+  float by = y_top + 4.0f;
+
+  // Semi-transparent background pill
+  struct nk_color pill_bg = ui->dark_mode ? nk_rgba(40, 40, 50, 200)
+                                          : nk_rgba(240, 240, 245, 220);
+  nk_fill_rect(canvas, nk_rect(bx, by, total_w, btn_h + 4.0f), 6.0f, pill_bg);
+
+  float ix = bx + 4.0f;
+  float iy = by + 2.0f;
+
+  struct nk_color icon_col = ui->dark_mode ? nk_rgb(200, 200, 210)
+                                           : nk_rgb(80, 80, 90);
+  struct nk_color hover_bg = ui->dark_mode ? nk_rgba(80, 80, 100, 150)
+                                           : nk_rgba(200, 200, 220, 180);
+
+  // Helper macro: draw one icon button, return 1 if clicked
+  #define OVERLAY_ICON_BTN(icon_str, icon_len)                                 \
+    do {                                                                        \
+      struct nk_rect r = nk_rect(ix, iy, btn_w, btn_h);                        \
+      int hovered = (mx >= r.x && mx < r.x + r.w && my >= r.y &&              \
+                     my < r.y + r.h);                                           \
+      if (hovered)                                                              \
+        nk_fill_rect(canvas, r, 4.0f, hover_bg);                               \
+      float tw = icon_font->width(icon_font->userdata, icon_font->height,      \
+                                  icon_str, icon_len);                          \
+      nk_draw_text(canvas,                                                      \
+                   nk_rect(ix + (btn_w - tw) / 2, iy + 2, btn_w, btn_h),       \
+                   icon_str, icon_len, icon_font, nk_rgba(0, 0, 0, 0),         \
+                   icon_col);                                                   \
+      _btn_hovered = hovered;                                                   \
+      _btn_clicked = (hovered && pressed);                                      \
+      ix += btn_w + gap;                                                        \
+    } while (0)
+
+  int _btn_hovered, _btn_clicked;
+
+  // 1. Hand icon (drag)
+  OVERLAY_ICON_BTN(ICON_HAND, strlen(ICON_HAND));
+  if (_btn_clicked && !ui->block_drag.is_active) {
+    ui->block_drag.is_active = 1;
+    ui->block_drag.dragged_block_id = block->id;
+    ui->block_drag.start_x = mx;
+    ui->block_drag.start_y = my;
+    ui->block_drag.mouse_x = mx;
+    ui->block_drag.mouse_y = my;
+    ui->block_drag.drop_valid = 0;
+  }
+  // Also start drag if mouse held on hand icon
+  if (_btn_hovered && mouse_down && !ui->block_drag.is_active) {
+    ui->block_drag.is_active = 1;
+    ui->block_drag.dragged_block_id = block->id;
+    ui->block_drag.start_x = mx;
+    ui->block_drag.start_y = my;
+    ui->block_drag.mouse_x = mx;
+    ui->block_drag.mouse_y = my;
+    ui->block_drag.drop_valid = 0;
+  }
+
+  // 2. Search icon (TABLE only)
   if (block->type == BLOCK_TABLE) {
-    nk_layout_row_template_push_static(ctx, 30.0f); // Search toggle
+    OVERLAY_ICON_BTN(ICON_SEARCH, strlen(ICON_SEARCH));
+    if (_btn_clicked) {
+      block->data.table.show_search = !block->data.table.show_search;
+      ui->table_state.active_block_id = block->id;
+    }
   }
+
+  // 3. Fullscreen icon
   if (allow_fullscreen) {
-    nk_layout_row_template_push_static(ctx, 30.0f); // Fullscreen Button
-  }
-  nk_layout_row_template_end(ctx);
-
-  // First slot is empty (spacer)
-  nk_spacing(ctx, 1);
-
-  // Hand icon
-  if (is_active) {
-    if (ui_icon_button(ui, ICON_HAND)) {
-      // TODO: Implement hand action (e.g. drag handle or pan)
-    }
-  } else {
-    nk_spacing(ctx, 1);
-  }
-
-  if (block->type == BLOCK_TABLE) {
-    if (is_active) {
-      if (ui_icon_button(ui, ICON_SEARCH)) {
-        block->data.table.show_search = !block->data.table.show_search;
-        ui->table_state.active_block_id = block->id;
-      }
+    if (is_expanded) {
+      OVERLAY_ICON_BTN(ICON_FULLSCREEN_EXIT, strlen(ICON_FULLSCREEN_EXIT));
+      if (_btn_clicked) ui->expanded_block_id = 0;
     } else {
-      nk_spacing(ctx, 1);
+      OVERLAY_ICON_BTN(ICON_FULLSCREEN, strlen(ICON_FULLSCREEN));
+      if (_btn_clicked) ui->expanded_block_id = block->id;
     }
   }
 
-  if (allow_fullscreen) {
-    if (is_active) {
-      if (is_expanded) {
-        if (ui_icon_button(ui, ICON_FULLSCREEN_EXIT)) {
-          ASLAN_DEBUG("Clicked Fullscreen EXIT for block %u", block->id);
-          ui->expanded_block_id = 0;
-        }
-      } else {
-        if (ui_icon_button(ui, ICON_FULLSCREEN)) {
-          ASLAN_DEBUG("Clicked Fullscreen ENTER for block %u", block->id);
-          ui->expanded_block_id = block->id;
-        }
-      }
-    } else {
-      nk_spacing(ctx, 1);
-    }
-  }
+  #undef OVERLAY_ICON_BTN
+}
+
+// Legacy wrapper (kept for header compatibility, but now a no-op for layout)
+void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx, Block *block) {
+  (void)ui; (void)ctx; (void)block;
+  // Icons are now drawn as overlays in ui_render_block — no layout consumed here
 }
 
 void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
@@ -801,10 +918,10 @@ void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   // Activate block on click/edit
   if (state & (NK_EDIT_ACTIVE | NK_EDIT_ACTIVATED)) {
-    ui->active_block_id = block->id;
-  } else if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
-                                             bounds)) {
-    ui->active_block_id = block->id;
+    if (ui->active_block_id != block->id) {
+      ui->active_block_id = block->id;
+      ui_request_redraw(ui);
+    }
   }
 
   if (state & NK_EDIT_ACTIVE) {
@@ -847,15 +964,16 @@ void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
 
   struct nk_font *font = ui->font_h1;
 
-  float row_h = 40.0f;
+  float row_h = 44.0f; // Generous height for H1 (28px font + padding)
+
+  // Header with Hand/Expand icons (skip for page title)
+  // Render BEFORE setting H1 font so icons use normal font
+  if (!is_page_title) {
+    ui_render_expand_toggle(ui, ctx, block);
+  }
 
   if (font) {
     nk_style_set_font(ctx, &font->handle);
-  }
-
-  // Header with Hand/Expand icons (skip for page title)
-  if (!is_page_title) {
-    ui_render_expand_toggle(ui, ctx, block);
   }
 
   nk_layout_row_dynamic(ctx, row_h, 1);
@@ -870,10 +988,10 @@ void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
 
   // Activate block on click/edit
   if (state & (NK_EDIT_ACTIVE | NK_EDIT_ACTIVATED)) {
-    ui->active_block_id = block->id;
-  } else if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
-                                             nk_widget_bounds(ctx))) {
-    ui->active_block_id = block->id;
+    if (ui->active_block_id != block->id) {
+      ui->active_block_id = block->id;
+      ui_request_redraw(ui);
+    }
   }
 
   // Restore placeholder logic using bounds of the widget we just drew
@@ -919,6 +1037,9 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
   if (!block)
     return;
 
+  // Record Y before block renders (for click detection)
+  float y_before = nk_layout_widget_bounds(ctx).y;
+
   ASLAN_DEBUG("Rendering block %u (Type: %d)", block->id, block->type);
   switch (block->type) {
   case BLOCK_TEXT:
@@ -948,6 +1069,32 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
     break;
   default:
     break;
+  }
+
+  // Post-render: compute actual block bounds
+  float y_after = nk_layout_widget_bounds(ctx).y;
+  float block_h = y_after - y_before;
+  if (block_h < 20.0f) block_h = 100.0f;
+
+  struct nk_rect content = nk_window_get_content_region(ctx);
+  float block_x = content.x;
+
+  // Detect click inside this block to set active_block_id
+  if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+    float mx = ctx->input.mouse.pos.x;
+    float my = ctx->input.mouse.pos.y;
+    if (mx >= block_x && mx <= block_x + width &&
+        my >= y_before && my < y_before + block_h) {
+      if (ui->active_block_id != block->id) {
+        ui->active_block_id = block->id;
+        ui_request_redraw(ui);
+      }
+    }
+  }
+
+  // Draw overlay icons if this block is active
+  if (ui->active_block_id == block->id) {
+    ui_render_block_overlay_icons(ui, ctx, block, block_x + width, y_before);
   }
 }
 
@@ -1051,14 +1198,114 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
         Page *page = doc_page_get_active(engine->doc);
 
-        if (page && page->block_count > 0) {
-          for (Block *b = page->first_block; b; b = b->next) {
-            // Actual available width inside the margin-padded group
-            float target_width = content_w - (margin * 2.0f);
-            ui_render_block(ui, engine, ctx, page, b, target_width);
-            // printf("[DEBUG] Render loop: Block %u processed\n", b->id);
+        // Reset active_block_id on click outside blocks (will be re-set by block click detection)
+        if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
+            !ui->block_drag.is_active) {
+          uint32_t prev_active = ui->active_block_id;
+          ui->active_block_id = 0;
+          if (prev_active != 0)
+            ui_request_redraw(ui);
+        }
 
-            // Small spacing between blocks
+        if (page && page->block_count > 0) {
+          float total_width = content_w - (margin * 2.0f);
+          Block *b = page->first_block;
+          while (b) {
+            // Collect blocks in the same layout_row
+            Block *row_blocks[5] = {NULL};
+            int row_count = 0;
+            uint16_t current_row = b->layout_row;
+
+            while (b && b->layout_row == current_row && row_count < 5) {
+              row_blocks[row_count++] = b;
+              b = b->next;
+            }
+
+            if (row_count == 1) {
+              // Single block row: full width
+              // Record block start Y for drop zone calculation
+              float block_start_y = nk_layout_widget_bounds(ctx).y;
+              ui_render_block(ui, engine, ctx, page, row_blocks[0], total_width);
+              float block_end_y = nk_layout_widget_bounds(ctx).y;
+              float blk_h = block_end_y - block_start_y;
+              if (blk_h < 30.0f) blk_h = 100.0f;
+
+              // Drop zone indicators during drag (clear, non-overlapping zones)
+              if (ui->block_drag.is_active &&
+                  ui->block_drag.dragged_block_id != row_blocks[0]->id) {
+                struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+                struct nk_rect cr = nk_window_get_content_region(ctx);
+                float bx = cr.x;
+                float dmx = ui->block_drag.mouse_x;
+                float dmy = ui->block_drag.mouse_y;
+
+                // Define zones (non-overlapping):
+                // Top 20% → ABOVE, Bottom 20% → BELOW
+                // Left 15% (middle 60%) → LEFT, Right 15% (middle 60%) → RIGHT
+                float top_zone = block_start_y + blk_h * 0.2f;
+                float bot_zone = block_start_y + blk_h * 0.8f;
+                float left_zone = bx + total_width * 0.15f;
+                float right_zone = bx + total_width * 0.85f;
+                struct nk_color drop_line = nk_rgba(55, 120, 250, 220);
+                struct nk_color drop_fill = nk_rgba(55, 120, 250, 40);
+
+                int in_x = (dmx >= bx && dmx <= bx + total_width);
+                int in_block = (in_x && dmy >= block_start_y && dmy < block_start_y + blk_h);
+
+                if (in_x && dmy >= block_start_y - 8 && dmy < top_zone) {
+                  // ABOVE: horizontal line at top + highlight strip
+                  nk_fill_rect(canvas, nk_rect(bx, block_start_y - 2, total_width, 4), 2.0f, drop_line);
+                  nk_fill_rect(canvas, nk_rect(bx, block_start_y, total_width, blk_h * 0.15f), 0, drop_fill);
+                  ui->block_drag.drop_valid = 1;
+                  ui->block_drag.drop_target_id = row_blocks[0]->id;
+                  ui->block_drag.drop_position = 0;
+                } else if (in_x && dmy >= bot_zone && dmy < block_start_y + blk_h + 8) {
+                  // BELOW: horizontal line at bottom + highlight strip
+                  float bot_y = block_start_y + blk_h;
+                  nk_fill_rect(canvas, nk_rect(bx, bot_y - 2, total_width, 4), 2.0f, drop_line);
+                  nk_fill_rect(canvas, nk_rect(bx, bot_y - blk_h * 0.15f, total_width, blk_h * 0.15f), 0, drop_fill);
+                  ui->block_drag.drop_valid = 1;
+                  ui->block_drag.drop_target_id = row_blocks[0]->id;
+                  ui->block_drag.drop_position = 1;
+                } else if (in_block && dmx < left_zone) {
+                  // LEFT: vertical line at left + highlight column
+                  nk_fill_rect(canvas, nk_rect(bx - 1, block_start_y, 4, blk_h), 2.0f, drop_line);
+                  nk_fill_rect(canvas, nk_rect(bx, block_start_y, total_width * 0.5f, blk_h), 0, drop_fill);
+                  ui->block_drag.drop_valid = 1;
+                  ui->block_drag.drop_target_id = row_blocks[0]->id;
+                  ui->block_drag.drop_position = 2;
+                } else if (in_block && dmx > right_zone) {
+                  // RIGHT: vertical line at right + highlight column
+                  float rx = bx + total_width;
+                  nk_fill_rect(canvas, nk_rect(rx - 3, block_start_y, 4, blk_h), 2.0f, drop_line);
+                  nk_fill_rect(canvas, nk_rect(bx + total_width * 0.5f, block_start_y, total_width * 0.5f, blk_h), 0, drop_fill);
+                  ui->block_drag.drop_valid = 1;
+                  ui->block_drag.drop_target_id = row_blocks[0]->id;
+                  ui->block_drag.drop_position = 3;
+                }
+              }
+            } else {
+              // Multi-column row: render blocks side-by-side
+              float gap = 8.0f;
+              float col_w = (total_width - (float)(row_count - 1) * gap) / (float)row_count;
+              float row_h = 400.0f;
+
+              nk_layout_row_begin(ctx, NK_STATIC, row_h, row_count);
+              for (int col = 0; col < row_count; col++) {
+                nk_layout_row_push(ctx, col < row_count - 1 ? col_w + gap : col_w);
+                char grp_name[32];
+                snprintf(grp_name, sizeof(grp_name), "mcol_%u_%d", current_row, col);
+                if (nk_group_begin(ctx, grp_name, NK_WINDOW_NO_SCROLLBAR)) {
+                  if (row_blocks[col]) {
+                    ui_render_block(ui, engine, ctx, page, row_blocks[col], col_w);
+                  }
+                  nk_group_end(ctx);
+                }
+              }
+              nk_layout_row_end(ctx);
+            }
+
+            // Inter-row spacing
             nk_layout_row_dynamic(ctx, 8.0f, 1);
             nk_spacing(ctx, 1);
           }
@@ -1089,6 +1336,11 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   if (ui->table_state.resizing_col >= 0 &&
       !nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
     ui->table_state.resizing_col = -1;
+  }
+
+  // Override cursor during block drag
+  if (ui->block_drag.is_active) {
+    ui->cursor_type = UI_CURSOR_HAND;
   }
 
   // Finalize cursor for this frame

@@ -180,6 +180,9 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
 
     // Only render if needed (event occurred or timeout for animations)
     if (ui->needs_redraw) {
+      // Clear BEFORE render so mid-render ui_request_redraw() survives
+      ui->needs_redraw = 0;
+
       // 2. Render background
       renderer_begin(renderer, ui->dark_mode);
 
@@ -198,9 +201,6 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
 
       // 6. Present frame
       renderer_end(renderer);
-
-      // Clear dirty flag
-      ui->needs_redraw = 0;
     }
 
     // No SDL_Delay needed - WaitEventTimeout handles timing

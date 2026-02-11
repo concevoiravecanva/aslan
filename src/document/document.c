@@ -473,6 +473,8 @@ Block *block_create(Page *page, BlockType type) {
   block->cursor_pos = 0;
   block->selection_start = -1;
   block->selection_end = -1;
+  block->layout_row = (uint16_t)page->block_count;
+  block->layout_col = 0;
 
   // Initialize text buffer
   block->text_cap = 64;
@@ -494,6 +496,8 @@ Block *block_create_with_id(Page *page, uint32_t id, BlockType type) {
   block->type = type;
   block->is_collapsed = false;
   block->is_focused = false;
+  block->layout_row = (uint16_t)page->block_count;
+  block->layout_col = 0;
 
   // Initialize text buffer
   block->text_cap = 64;
@@ -1770,6 +1774,12 @@ void doc_save_aof(const Document *doc, FILE *fp) {
       if (b->highlight_color > 0) {
         fprintf(fp, "block_highlight %u %u %d\n", page->id, b->id,
                 b->highlight_color);
+      }
+
+      // Layout (multi-column)
+      if (b->layout_row != 0 || b->layout_col != 0) {
+        fprintf(fp, "block_layout %u %u %u %u\n", page->id, b->id,
+                (unsigned)b->layout_row, (unsigned)b->layout_col);
       }
 
       // Type-specific data

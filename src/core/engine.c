@@ -1045,6 +1045,22 @@ static bool handle_block_chart_show_values(Engine *engine,
   return true;
 }
 
+// block_layout <page_id> <block_id> <row> <col>
+static bool handle_block_layout(Engine *engine, const AofCommand *cmd,
+                                const char *command_line) {
+  if (cmd->argc < 5)
+    return false;
+  uint32_t page_id = (uint32_t)strtoul(cmd->argv[1], NULL, 10);
+  uint32_t block_id = (uint32_t)strtoul(cmd->argv[2], NULL, 10);
+  Block *block = find_block(engine, page_id, block_id);
+  if (!block)
+    return false;
+  block->layout_row = (uint16_t)atoi(cmd->argv[3]);
+  block->layout_col = (uint8_t)atoi(cmd->argv[4]);
+  engine_emit_command(engine, command_line);
+  return true;
+}
+
 static const CommandEntry k_dispatch_table[] = {
     {"exit", handle_exit},
     {"clear", handle_clear},
@@ -1083,6 +1099,7 @@ static const CommandEntry k_dispatch_table[] = {
     {"block_chart_init", handle_block_chart_init},
     {"block_chart_color", handle_block_chart_color},
     {"block_chart_show_values", handle_block_chart_show_values},
+    {"block_layout", handle_block_layout},
     {NULL, NULL}};
 
 bool engine_execute_command(Engine *engine, const char *command_line) {

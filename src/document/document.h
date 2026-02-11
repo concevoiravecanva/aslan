@@ -265,6 +265,10 @@ typedef struct Block {
   int selection_start;
   int selection_end;
 
+  // Multi-column layout (drag-and-drop)
+  uint16_t layout_row; // Row group index (same value = same visual row)
+  uint8_t  layout_col; // Column position within row (0..4)
+
   // Doubly-linked list
   struct Block *prev;
   struct Block *next;

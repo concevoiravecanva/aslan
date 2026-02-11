@@ -233,8 +233,9 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ui->table_state.active_block_id = block->id;
     }
 
+    nk_style_push_vec2(ctx, &ctx->style.text.padding, nk_vec2(4, 2));
+
     if (nk_group_begin(ctx, "table_scroll_group", NK_WINDOW_SCROLL_AUTO_HIDE)) {
-      nk_style_push_vec2(ctx, &ctx->style.text.padding, nk_vec2(4, 2));
 
       (void)total_w; // Used for group width calculation by linter
 

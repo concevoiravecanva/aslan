@@ -285,6 +285,17 @@ typedef struct UIHost {
   int editing_cursor_pos;
   int text_input_active;
 
+  // Block drag-and-drop
+  struct {
+    int is_active;            // 1 = dragging a block
+    uint32_t dragged_block_id;
+    float start_x, start_y;  // Where drag started
+    float mouse_x, mouse_y;  // Current mouse during drag
+    int drop_valid;
+    uint32_t drop_target_id;
+    int drop_position;        // 0=above, 1=below, 2=left, 3=right
+  } block_drag;
+
   // Canvas node text editing
   Node *editing_node;       // Node being text-edited (NULL=none)
   char edit_buffer[512];    // Text buffer for editing
