@@ -935,30 +935,37 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
             struct nk_style_button chk_style = ctx->style.button;
             chk_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-            chk_style.hover = nk_style_item_color(nk_rgba(80, 80, 80, 20));
-            chk_style.active = nk_style_item_color(nk_rgba(60, 60, 60, 40));
+            chk_style.hover = nk_style_item_color(
+                nk_rgba(0, 0, 0, 0)); // No fill on button, we draw custom
+            chk_style.active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
             chk_style.padding = nk_vec2(0, 0);
             chk_style.border = 0;
 
-            // Align the checkbox in the center
             if (nk_button_label_styled(ctx, &chk_style, "")) {
               aslan_table_set_checkbox(tbl, (int)c, row_id, !checked);
             }
 
-            // Draw icon manually for better control
-            const char *chk_icon =
-                checked ? ICON_CHECK_FILL : ICON_COL_CHECKBOX;
-            struct nk_color chk_col =
-                checked ? active_cell_outline
-                        : (ui->dark_mode ? muted_gray : nk_rgb(180, 180, 185));
+            struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+            float chk_v = 17.0f;
+            struct nk_rect chk_rect = nk_rect(
+                cell_bounds.x + (cell_bounds.w - chk_v) / 2,
+                cell_bounds.y + (cell_bounds.h - chk_v) / 2, chk_v, chk_v);
 
-            if (ui->font_icons) {
-              nk_draw_text(nk_window_get_canvas(ctx),
-                           nk_rect(cell_bounds.x + (cell_bounds.w - 18) / 2,
-                                   cell_bounds.y + (cell_bounds.h - 18) / 2, 18,
-                                   18),
-                           chk_icon, strlen(chk_icon), &ui->font_icons->handle,
-                           nk_rgba(0, 0, 0, 0), chk_col);
+            if (checked) {
+              // Airtable style: Filled blue (solid color only, no icon)
+              nk_fill_rect(canvas, chk_rect, 3.0f, active_cell_outline);
+            } else {
+              // Unchecked: Bordered square
+              struct nk_color b_col =
+                  ui->dark_mode ? nk_rgb(80, 82, 88) : nk_rgb(205, 205, 202);
+              if (nk_input_is_mouse_hovering_rect(&ctx->input, cell_bounds)) {
+                b_col = active_cell_outline;
+                nk_fill_rect(canvas, chk_rect, 3.0f,
+                             nk_rgba(active_cell_outline.r,
+                                     active_cell_outline.g,
+                                     active_cell_outline.b, 25));
+              }
+              nk_stroke_rect(canvas, chk_rect, 3.0f, 1.2f, b_col);
             }
             break;
           }
