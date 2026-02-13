@@ -5,7 +5,7 @@
 // Nuklear implementation (must be before nuklear.h include)
 #define NK_IMPLEMENTATION
 #include "ui_host.h"
-// aslan_table.h removed
+#include "../document/aslan_table.h"
 
 #include "../scripting/lua_host.h"
 // mac_image.h removed
@@ -90,6 +90,43 @@ __attribute__((unused)) static int open_video_file_dialog(char *out_path,
 
 // Copy file to assets directory, returns path relative to document
 // Creates assets/ directory if needed
+// Opens a native file save dialog for CSV
+// Returns 1 on success, 0 on cancel/error. Path is written to out_path.
+int save_csv_file_dialog(char *out_path, size_t path_size,
+                         const char *default_name) {
+  char script[1024];
+  snprintf(
+      script, sizeof(script),
+      "osascript -e 'set theName to \"%s\"' "
+      "-e 'set theFile to choose file name default name theName default "
+      "location (path to desktop folder) with prompt \"Export Table as CSV\"' "
+      "-e 'POSIX path of theFile' 2>/dev/null",
+      default_name ? default_name : "Export.csv");
+
+  FILE *fp = popen(script, "r");
+  if (!fp)
+    return 0;
+
+  char result[512] = {0};
+  if (fgets(result, sizeof(result), fp) != NULL) {
+    // Remove trailing newline
+    size_t len = strlen(result);
+    if (len > 0 && result[len - 1] == '\n') {
+      result[len - 1] = '\0';
+      len--;
+    }
+    if (len > 0) {
+      strncpy(out_path, result, path_size - 1);
+      out_path[path_size - 1] = '\0';
+      pclose(fp);
+      return 1;
+    }
+  }
+
+  pclose(fp);
+  return 0;
+}
+
 int copy_image_to_assets(const char *src_path, const char *doc_dir,
                          char *out_rel_path, size_t rel_path_size) {
   // Create assets directory
@@ -881,8 +918,45 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
   if (allow_export) {
     OVERLAY_ICON_BTN(ICON_EXPORT, strlen(ICON_EXPORT));
     if (_btn_clicked) {
-      ASLAN_DEBUG("Export requested for block %u (Type: %d)", block->id,
-                  block->type);
+      if (block->type == BLOCK_TABLE) {
+        char filename[1024];
+        time_t now = time(NULL);
+        struct tm *t = localtime(&now);
+
+        // Clean up table name for default filename
+        char clean_name[64];
+        if (block->data.table.columnar &&
+            block->data.table.columnar->name[0] != '\0') {
+          strncpy(clean_name, block->data.table.columnar->name,
+                  sizeof(clean_name) - 1);
+          clean_name[sizeof(clean_name) - 1] = '\0';
+        } else {
+          strcpy(clean_name, "Table");
+        }
+
+        for (char *p = clean_name; *p; p++) {
+          if (*p == ' ' || *p == '/' || *p == '\\')
+            *p = '_';
+        }
+
+        char default_name[256];
+        snprintf(default_name, sizeof(default_name), "%s_%04d%02d%02d.csv",
+                 clean_name, t->tm_year + 1900, t->tm_mon + 1, t->tm_mday);
+
+        // Open Save Dialog
+        if (save_csv_file_dialog(filename, sizeof(filename), default_name)) {
+          if (aslan_table_export_csv(block->data.table.columnar, filename)) {
+            ASLAN_DEBUG("Successfully exported table to %s", filename);
+          } else {
+            ASLAN_DEBUG("Failed to export table to %s", filename);
+          }
+        } else {
+          ASLAN_DEBUG("Export cancelled by user");
+        }
+      } else {
+        ASLAN_DEBUG("Export requested for block %u (Type: %d)", block->id,
+                    block->type);
+      }
     }
   }
 
