@@ -1681,6 +1681,12 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       !nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
     ui->table_state.resizing_col = -1;
   }
+  // Safety net: Reset column drag state if mouse is released globally
+  if (ui->table_state.dragging_col >= 0 &&
+      !nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+    ui->table_state.dragging_col = -1;
+    ui->table_state.drop_target_col = -1;
+  }
 
   // Deselect column header when clicking outside a table header area
   // (The specific deselection on click happens in ui_table.c, but we also

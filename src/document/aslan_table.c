@@ -319,11 +319,30 @@ bool aslan_table_remove_column(AslanTable *table, int col_idx) {
   return true;
 }
 
+bool aslan_table_swap_columns(AslanTable *table, int col_a, int col_b) {
+  if (!table || col_a < 0 || col_b < 0 || col_a >= (int)table->column_count ||
+      col_b >= (int)table->column_count || col_a == col_b)
+    return false;
+
+  AslanColumn tmp = table->columns[col_a];
+  table->columns[col_a] = table->columns[col_b];
+  table->columns[col_b] = tmp;
+
+  if (table->sort_column == col_a) {
+    table->sort_column = col_b;
+  } else if (table->sort_column == col_b) {
+    table->sort_column = col_a;
+  }
+
+  table->data_generation++;
+  return true;
+}
+
 int aslan_table_find_column(const AslanTable *table, const char *name) {
   if (!table || !name)
     return -1;
   for (size_t i = 0; i < table->column_count; i++) {
-    if (strcmp(table->columns[i].name, name) == 0) {
+    if (strcasecmp(table->columns[i].name, name) == 0) {
       return (int)i;
     }
   }
@@ -791,11 +810,27 @@ double aslan_table_get_number(const AslanTable *table, int col_idx,
     return 0.0;
 
   const AslanColumn *col = &table->columns[col_idx];
-  if (col->type != ASLAN_COL_NUMBER && col->type != ASLAN_COL_FORMULA)
+  switch (col->type) {
+  case ASLAN_COL_NUMBER:
+  case ASLAN_COL_FORMULA: {
+    const double *data = (const double *)col->data;
+    return data[row_idx];
+  }
+  case ASLAN_COL_CHECKBOX: {
+    const uint8_t *data = (const uint8_t *)col->data;
+    return (double)data[row_idx];
+  }
+  case ASLAN_COL_SELECT: {
+    const int32_t *data = (const int32_t *)col->data;
+    return (double)data[row_idx];
+  }
+  case ASLAN_COL_DATE: {
+    const int64_t *data = (const int64_t *)col->data;
+    return (double)data[row_idx];
+  }
+  default:
     return 0.0;
-
-  const double *data = (const double *)col->data;
-  return data[row_idx];
+  }
 }
 
 bool aslan_table_get_checkbox(const AslanTable *table, int col_idx,
@@ -1109,12 +1144,14 @@ const char *aslan_table_get_relation_display(const AslanTable *table,
 
 bool aslan_table_set_formula(AslanTable *table, int col_idx,
                              const char *lua_expr) {
-  if (!table || col_idx < 0 || col_idx >= (int)table->column_count)
+  if (!table || col_idx < 0 || col_idx >= (int)table->column_count) {
     return false;
+  }
 
   AslanColumn *col = &table->columns[col_idx];
-  if (col->type != ASLAN_COL_FORMULA && col->type != ASLAN_COL_FORMULA_LUA)
+  if (col->type != ASLAN_COL_FORMULA && col->type != ASLAN_COL_FORMULA_LUA) {
     return false;
+  }
 
   free(col->formula);
   col->formula = lua_expr ? strdup(lua_expr) : NULL;
@@ -1153,8 +1190,9 @@ double aslan_table_eval_formula(const AslanTable *table, int col_idx,
   if (!table || col_idx < 0 || col_idx >= (int)table->column_count)
     return 0.0;
   const AslanColumn *col = &table->columns[col_idx];
-  if (col->type != ASLAN_COL_FORMULA || !col->formula)
+  if (col->type != ASLAN_COL_FORMULA || !col->formula) {
     return 0.0;
+  }
 
   const char *expr = col->formula;
   // Skip leading '=' if present (Excel style, optional)
@@ -1166,9 +1204,9 @@ double aslan_table_eval_formula(const AslanTable *table, int col_idx,
   if (*expr == '\0')
     return 0.0;
 
-  // 1. Preprocess formula (Replace [ColName] with _cINDEX variables)
+  // 1. Preprocess formula (Replace [ColName] with colINDEX variables)
   // tinyexpr needs valid C identifiers (no spaces/brackets).
-  // We map [Name] -> _cINDEX (e.g., _c1, _c2) in the string.
+  // We map [Name] -> colINDEX (e.g., col1, col2) in the string.
   char parse_buf[4096];
   size_t pb_idx = 0;
 
@@ -1195,12 +1233,22 @@ double aslan_table_eval_formula(const AslanTable *table, int col_idx,
         memcpy(name_buf, start, name_len);
         name_buf[name_len] = '\0';
 
-        // Find column by name
-        int ref_idx = aslan_table_find_column(table, name_buf);
+        // Trim leading/trailing spaces
+        char *trimmed = name_buf;
+        while (*trimmed == ' ')
+          trimmed++;
+        char *end = trimmed + strlen(trimmed) - 1;
+        while (end >= trimmed && *end == ' ') {
+          *end = '\0';
+          end--;
+        }
+
+        // Find column by name (case-insensitive)
+        int ref_idx = aslan_table_find_column(table, trimmed);
         if (ref_idx >= 0) {
-          // Found: replace with unique variable name _c%d
+          // Found: replace with unique variable name col%d
           char vname[16];
-          snprintf(vname, sizeof(vname), "_c%d", ref_idx);
+          snprintf(vname, sizeof(vname), "col%d", ref_idx);
           size_t vn_len = strlen(vname);
 
           if (pb_idx + vn_len < sizeof(parse_buf)) {
@@ -1233,8 +1281,8 @@ double aslan_table_eval_formula(const AslanTable *table, int col_idx,
   // Only bind columns that were actually referenced in the formula
   for (int c = 0; c < (int)table->column_count; c++) {
     if (col_used[c]) {
-      // Generate the same variable name: _c%d
-      snprintf(var_names[var_count], 16, "_c%d", c);
+      // Generate the same variable name: col%d
+      snprintf(var_names[var_count], 16, "col%d", c);
 
       // Fetch value for the current row (handles recursion via recursive eval
       // calls if needed) Note: This recursively calls eval_formula if the
@@ -1262,8 +1310,7 @@ double aslan_table_eval_formula(const AslanTable *table, int col_idx,
     result = te_eval(n);
     te_free(n);
   } else {
-    // Evaluation/Syntax error
-    result = 0.0; // Could return NAN or error indicator?
+    result = 0.0;
   }
 
   // 4. Update Cached Result

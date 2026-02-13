@@ -189,6 +189,7 @@ int aslan_table_add_column(AslanTable *table, const char *name,
 
 // Remove a column by index
 bool aslan_table_remove_column(AslanTable *table, int col_idx);
+bool aslan_table_swap_columns(AslanTable *table, int col_a, int col_b);
 
 // Find column index by name (returns -1 if not found)
 int aslan_table_find_column(const AslanTable *table, const char *name);

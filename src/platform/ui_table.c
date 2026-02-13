@@ -83,25 +83,52 @@ static void ui_render_formula_bar(UIHost *ui, struct nk_context *ctx,
     return;
 
   int c_idx = ui->table_state.active_col_idx;
-  if (c_idx < 0 || c_idx >= (int)tbl->column_count)
+  if (c_idx < 0 || c_idx >= (int)tbl->column_count) {
     return;
+  }
 
   // Only show for formula columns
-  if (tbl->columns[c_idx].type != ASLAN_COL_FORMULA)
+  if (tbl->columns[c_idx].type != ASLAN_COL_FORMULA) {
     return;
+  }
 
-  // Bar layout: fx icon + input field
+  // Draw formula bar background with accent
+  nk_layout_row_dynamic(ctx, 34, 1);
+  struct nk_rect bar_bounds = nk_widget_bounds(ctx);
+  struct nk_command_buffer *bar_canvas = nk_window_get_canvas(ctx);
+
+  // Accent background for formula bar
+  struct nk_color bar_bg =
+      ui->dark_mode ? nk_rgb(28, 35, 50) : nk_rgb(235, 242, 255);
+  nk_fill_rect(bar_canvas, bar_bounds, 4.0f, bar_bg);
+
+  // Left accent stripe
+  struct nk_color accent = nk_rgb(45, 127, 249);
+  nk_fill_rect(bar_canvas,
+               nk_rect(bar_bounds.x, bar_bounds.y + 4, 3, bar_bounds.h - 8),
+               1.5f, accent);
+
+  // Draw "fx" label in accent color
+  if (ui->font_inter) {
+    struct nk_color fx_col = accent;
+    nk_draw_text(bar_canvas,
+                 nk_rect(bar_bounds.x + 10, bar_bounds.y + 8, 20, 18), "fx", 2,
+                 &ui->font_inter->handle, nk_rgba(0, 0, 0, 0), fx_col);
+  }
+
+  // Consume the dynamic row widget
+  nk_label(ctx, "", NK_TEXT_LEFT);
+
+  // Bar layout: spacer for fx + input field
   nk_layout_row_begin(ctx, NK_STATIC, 30, 2);
+  nk_layout_row_push(ctx, 34); // space for fx icon
+  nk_label(ctx, "", NK_TEXT_LEFT);
 
-  // Icon "fx"
-  nk_layout_row_push(ctx, 30);
-  nk_label(ctx, "fx", NK_TEXT_ALIGN_CENTERED | NK_TEXT_ALIGN_MIDDLE);
-
-  // Input
-  float width = nk_window_get_content_region(ctx).w - 40;
+  // Input field
+  float width = nk_window_get_content_region(ctx).w - 44;
   nk_layout_row_push(ctx, width > 10 ? width : 300);
 
-  // Initial population logic handled on selection change or here?
+  // Initial population: load formula or show "="
   if (ui->table_state.formula_buffer[0] == '\0' &&
       tbl->columns[c_idx].formula) {
     snprintf(ui->table_state.formula_buffer,
@@ -113,15 +140,41 @@ static void ui_render_formula_bar(UIHost *ui, struct nk_context *ctx,
              sizeof(ui->table_state.formula_buffer), "=");
   }
 
+  // Style the edit field
+  struct nk_style_edit old_edit = ctx->style.edit;
+  ctx->style.edit.normal = nk_style_item_color(bar_bg);
+  ctx->style.edit.hover = nk_style_item_color(bar_bg);
+  ctx->style.edit.active = nk_style_item_color(bar_bg);
+  ctx->style.edit.border = 0;
+  ctx->style.edit.text_normal =
+      ui->dark_mode ? nk_rgb(220, 225, 235) : nk_rgb(30, 30, 40);
+  ctx->style.edit.text_hover = ctx->style.edit.text_normal;
+  ctx->style.edit.text_active = ctx->style.edit.text_normal;
+
   nk_flags res = nk_edit_string_zero_terminated(
       ctx, NK_EDIT_FIELD | NK_EDIT_SIG_ENTER | NK_EDIT_SELECTABLE,
       ui->table_state.formula_buffer,
       sizeof(ui->table_state.formula_buffer) - 1, nk_filter_default);
 
+  ctx->style.edit = old_edit;
+
   // Track if formula bar is being edited (for click-to-reference)
-  ui->table_state.is_editing_formula = (res & NK_EDIT_ACTIVE) ? 1 : 0;
+  // Keep is_editing_formula active even when bar loses focus briefly
+  if (res & NK_EDIT_ACTIVE) {
+    ui->table_state.is_editing_formula = 1;
+  }
 
   nk_layout_row_end(ctx);
+
+  // Hint text below formula bar when editing
+  if (ui->table_state.is_editing_formula) {
+    nk_layout_row_dynamic(ctx, 16, 1);
+    struct nk_color hint_col = ui->dark_mode ? nk_rgba(130, 150, 200, 180)
+                                             : nk_rgba(80, 100, 160, 180);
+    nk_label_colored(ctx,
+                     "  Click column headers to insert [ColName] references",
+                     NK_TEXT_LEFT, hint_col);
+  }
 
   if (res & NK_EDIT_COMMITED) {
     // Parse leading '='
@@ -132,12 +185,21 @@ static void ui_render_formula_bar(UIHost *ui, struct nk_context *ctx,
       expr++;
 
     aslan_table_set_formula(tbl, c_idx, expr);
+
+    // Re-evaluate all formulas immediately
+    aslan_table_eval_formulas(tbl);
     tbl->data_generation++;
+    ui->table_state.is_editing_formula = 0;
+    ui_request_redraw(ui);
   }
 
-  // Separator
-  nk_layout_row_dynamic(ctx, 4, 1); // spacer
-  nk_label(ctx, "", NK_TEXT_ALIGN_LEFT);
+  // Separator line
+  nk_layout_row_dynamic(ctx, 2, 1);
+  struct nk_rect sep = nk_widget_bounds(ctx);
+  nk_fill_rect(bar_canvas, sep, 0,
+               ui->dark_mode ? nk_rgba(255, 255, 255, 15)
+                             : nk_rgba(0, 0, 0, 8));
+  nk_label(ctx, "", NK_TEXT_LEFT);
 }
 
 // Helper: Formula Help Popup
@@ -572,11 +634,20 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             ui->table_state.resizing_col < 0) {
           ui->table_state.active_block_id = block->id;
           ui->active_block_id = block->id;
-          ui->active_block_id = block->id;
           ui->table_state.resizing_col = (int)c;
           ui->table_state.resize_start_x = ctx->input.mouse.pos.x;
           ui->table_state.resize_start_w = col_widths[c];
           ui_request_redraw(ui);
+        }
+
+        // B. Column Drag-and-Drop Initiation
+        if (!is_hovering_resize && ui->table_state.resizing_col < 0 &&
+            ui->table_state.dragging_col < 0 &&
+            nk_input_is_mouse_hovering_rect(&ctx->input, hdr_bounds) &&
+            nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+          ui->table_state.dragging_col = (int)c;
+          ui->table_state.drag_col_start_x = ctx->input.mouse.pos.x;
+          ui->table_state.drop_target_col = -1;
         }
 
         // Zones for click handling
@@ -618,6 +689,10 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                 sizeof(ui->table_state.formula_buffer) - 1) {
               strcat(ui->table_state.formula_buffer, ref);
             }
+            // Keep formula mode active and request redraw for immediate
+            // feedback
+            ui->table_state.is_editing_formula = 1;
+            ui_request_redraw(ui);
           } else {
             // --- New interaction model ---
 
@@ -766,6 +841,55 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       nk_layout_row_end(ctx);
 
+      // --- Column Drag-and-Drop tracking & visual indicator ---
+      if (ui->table_state.dragging_col >= 0 &&
+          ui->table_state.active_block_id == block->id) {
+        float mx = ctx->input.mouse.pos.x;
+        float dx = mx - ui->table_state.drag_col_start_x;
+        int is_dragging_active = (dx > 5.0f || dx < -5.0f);
+
+        if (!nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+          // Mouse released — perform drop
+          if (is_dragging_active && ui->table_state.drop_target_col >= 0 &&
+              ui->table_state.drop_target_col != ui->table_state.dragging_col) {
+            aslan_table_swap_columns(tbl, ui->table_state.dragging_col,
+                                     ui->table_state.drop_target_col);
+            ui->table_state.active_col_idx = ui->table_state.drop_target_col;
+          }
+          ui->table_state.dragging_col = -1;
+          ui->table_state.drop_target_col = -1;
+          ui_request_redraw(ui);
+        } else if (is_dragging_active) {
+          // Track which column mouse is over
+          ui->table_state.drop_target_col = -1;
+          float col_x = hdr_bounds.x; // approximate start from last bounds
+          // Recalculate column positions for drop target
+          float acc_x = 0;
+          for (int dc = 0; dc < (int)tbl->column_count; dc++) {
+            float cw = col_widths[dc];
+            float cx = acc_x;
+            if (mx >= cx && mx < cx + cw) {
+              ui->table_state.drop_target_col = dc;
+              break;
+            }
+            acc_x += cw;
+          }
+
+          // Draw drop indicator line
+          if (ui->table_state.drop_target_col >= 0 &&
+              ui->table_state.drop_target_col != ui->table_state.dragging_col) {
+            float ind_x = 0;
+            for (int dc = 0; dc < ui->table_state.drop_target_col; dc++) {
+              ind_x += col_widths[dc];
+            }
+            struct nk_command_buffer *dd_canvas = nk_window_get_canvas(ctx);
+            nk_stroke_line(dd_canvas, ind_x, hdr_bounds.y, ind_x,
+                           hdr_bounds.y + hdr_bounds.h, 3.0f, COLOR_ACCENT);
+          }
+          ui_request_redraw(ui);
+        }
+      }
+
       // -----------------------------------------------------------------------
       // DATA ROWS
       // -----------------------------------------------------------------------
@@ -910,6 +1034,9 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
           switch (type) {
           case ASLAN_COL_FORMULA: {
+            // Evaluate formula freshly for this row
+            aslan_table_eval_formula(tbl, (int)c, row_id);
+
             // Read-only computed value display
             char val_str[64];
             aslan_table_get_cell_display(tbl, (int)c, row_id, val_str,
@@ -920,17 +1047,36 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                                 cell_bounds)) {
               ui->table_state.active_row_idx = (int)v;
               ui->table_state.active_col_idx = (int)c;
-              ui->table_state.is_editing_cell = 0; // Not inline editing
+              ui->table_state.active_block_id = block->id;
+              ui->active_block_id = block->id;
+              ui->table_state.is_editing_cell = 0;    // Not inline editing
+              ui->table_state.is_editing_formula = 1; // Activate formula mode
 
               // Populate formula buffer for the bar
               const char *current = tbl->columns[c].formula;
               snprintf(ui->table_state.formula_buffer,
                        sizeof(ui->table_state.formula_buffer), "=%s",
                        current ? current : "");
+              ui_request_redraw(ui);
             }
 
-            // Render value right-aligned
-            nk_label(ctx, val_str, NK_TEXT_ALIGN_RIGHT | NK_TEXT_ALIGN_MIDDLE);
+            // Show formula result or placeholder
+            if (tbl->columns[c].formula && tbl->columns[c].formula[0]) {
+              // Display computed value
+              struct nk_color val_col =
+                  ui->dark_mode ? nk_rgb(180, 200, 240) : nk_rgb(40, 70, 140);
+              nk_label_colored(ctx, val_str,
+                               NK_TEXT_ALIGN_RIGHT | NK_TEXT_ALIGN_MIDDLE,
+                               val_col);
+            } else {
+              // No formula set yet - show hint
+              struct nk_color hint = ui->dark_mode
+                                         ? nk_rgba(100, 100, 120, 150)
+                                         : nk_rgba(150, 150, 170, 150);
+              nk_label_colored(ctx, "Click to add formula",
+                               NK_TEXT_ALIGN_CENTERED | NK_TEXT_ALIGN_MIDDLE,
+                               hint);
+            }
             break;
           }
           case ASLAN_COL_TEXT: {

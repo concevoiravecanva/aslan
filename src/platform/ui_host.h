@@ -359,6 +359,9 @@ typedef struct UIHost {
     int is_editing_formula;   // 1 if formula bar is active (for
                               // click-to-reference)
     int show_formula_help;    // Show formula help popup
+    int dragging_col;         // Column being dragged (-1 = none)
+    int drop_target_col;      // Column drop target (-1 = none)
+    float drag_col_start_x;   // Mouse X at drag start
   } table_state;
 
   // Sidebar state: 0=Properties/Layers, 1=Shape Selection
