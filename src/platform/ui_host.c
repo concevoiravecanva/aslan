@@ -1537,7 +1537,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
                 // struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
                 // nk_fill_rect(...)
 
-                if (nk_group_begin(ctx, grp_name, 0)) {
+                if (nk_group_begin(ctx, grp_name, NK_WINDOW_NO_SCROLLBAR)) {
                   if (row_blocks[col]) {
                     // Reduce width to account for group padding (8px * 2 =
                     // 16px)

@@ -80,3 +80,6 @@ block_delete 1 23
 block_create 1 24 chart
 block_create 1 25 design
 block_create 1 26 design
+block_create 1 27 table
+block_create 1 28 canvas
+-- Session started --

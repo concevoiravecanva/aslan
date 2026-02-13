@@ -1585,7 +1585,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
   // --- Column 2: Sidebar (only in fullscreen mode) ---
   if (is_fullscreen) {
     if (nk_group_begin(ctx, "design_sidebar",
-                       NK_WINDOW_BORDER | NK_WINDOW_SCROLL_AUTO_HIDE)) {
+                       NK_WINDOW_BORDER | NK_WINDOW_NO_SCROLLBAR)) {
       if (ui->sidebar_mode == 1) {
         ui_render_sidebar_shape_selection(ui, ctx);
       } else {

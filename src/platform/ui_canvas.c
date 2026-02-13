@@ -1351,7 +1351,7 @@ SDL_Texture *get_image_texture(UIHost *ui, const char *path) {
 static struct {
   char path[256];
   int shape_type;
-  int corner_key; // corner_ratio * 100
+  int corner_key;     // corner_ratio * 100
   uint32_t path_hash; // hash of path points for PATH nodes
   SDL_Texture *tex;
   int width, height;
@@ -1377,8 +1377,10 @@ static int tessellate_path_normalized(Node *node, float *out_pts, int max_pts) {
   if (!node || !node->path_points || node->path_point_count < 2)
     return 0;
   float w = node->width, h = node->height;
-  if (w < 1.0f) w = 1.0f;
-  if (h < 1.0f) h = 1.0f;
+  if (w < 1.0f)
+    w = 1.0f;
+  if (h < 1.0f)
+    h = 1.0f;
 
   int total = 0;
   for (int i = 0; i < node->path_point_count; i++) {
@@ -1386,19 +1388,19 @@ static int tessellate_path_normalized(Node *node, float *out_pts, int max_pts) {
     NodePathPoint p1 = node->path_points[i];
     NodePathPoint p2 = node->path_points[next];
 
-    if (p1.type == 1) { // Cubic Bezier - tessellate in node-local coords then normalize
+    if (p1.type ==
+        1) { // Cubic Bezier - tessellate in node-local coords then normalize
       float seg_pts[128];
-      int c = tessellate_bezier(p1.x, p1.y, p1.cp2x, p1.cp2y,
-                                p2.cp1x, p2.cp1y, p2.x, p2.y,
-                                seg_pts, 64, 0);
+      int c = tessellate_bezier(p1.x, p1.y, p1.cp2x, p1.cp2y, p2.cp1x, p2.cp1y,
+                                p2.x, p2.y, seg_pts, 64, 0);
       for (int j = 0; j < c && total < max_pts; j++) {
-        out_pts[total * 2]     = seg_pts[j * 2] / w;
+        out_pts[total * 2] = seg_pts[j * 2] / w;
         out_pts[total * 2 + 1] = seg_pts[j * 2 + 1] / h;
         total++;
       }
     } else {
       if (total < max_pts) {
-        out_pts[total * 2]     = p1.x / w;
+        out_pts[total * 2] = p1.x / w;
         out_pts[total * 2 + 1] = p1.y / h;
         total++;
       }
@@ -1408,12 +1410,13 @@ static int tessellate_path_normalized(Node *node, float *out_pts, int max_pts) {
 }
 
 // Winding number point-in-polygon test
-static float path_winding_alpha(float px, float py, const float *poly, int count) {
+static float path_winding_alpha(float px, float py, const float *poly,
+                                int count) {
   int winding = 0;
   for (int i = 0; i < count; i++) {
     int j = (i + 1) % count;
     float y0 = poly[i * 2 + 1], y1 = poly[j * 2 + 1];
-    float x0 = poly[i * 2],     x1 = poly[j * 2];
+    float x0 = poly[i * 2], x1 = poly[j * 2];
     if (y0 <= py) {
       if (y1 > py) {
         float vt = (py - y0) / (y1 - y0);
@@ -1471,8 +1474,7 @@ static float shape_alpha(NodeType shape, float nx, float ny, float cr,
     // Left edge: (0.5,0)->(0,1), normal = (1, 0.5)/|n|
     float d_left = (nx - 0.0f) * (0.0f - 1.0f) - (ny - 1.0f) * (0.5f - 0.0f);
     // Right edge: (1,1)->(0.5,0), normal = (-1, 0.5)/|n|
-    float d_right =
-        (nx - 0.5f) * (1.0f - 0.0f) - (ny - 0.0f) * (1.0f - 0.5f);
+    float d_right = (nx - 0.5f) * (1.0f - 0.0f) - (ny - 0.0f) * (1.0f - 0.5f);
     // Bottom edge: (0,1)->(1,1), normal = (0, -1)
     float d_bottom = 1.0f - ny;
 
@@ -1573,7 +1575,8 @@ SDL_Texture *get_masked_image_texture(UIHost *ui, const char *path,
   masked_tex_counter++;
   int cr_key = (int)(corner_ratio * 100);
   uint32_t ph = 0;
-  if (shape == NODE_TYPE_PATH && node->path_points && node->path_point_count > 0)
+  if (shape == NODE_TYPE_PATH && node->path_points &&
+      node->path_point_count > 0)
     ph = hash_path_points(node->path_points, node->path_point_count);
 
   // Check cache
@@ -2400,8 +2403,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       int drawn_image = 0;
       if (node->is_container && node->image_path[0]) {
-        SDL_Texture *tex =
-            get_masked_image_texture(ui, node->image_path, node);
+        SDL_Texture *tex = get_masked_image_texture(ui, node->image_path, node);
         if (tex) {
           struct nk_image img = nk_image_ptr(tex);
           nk_draw_image(canvas_buf, nr, &img, nk_rgb(255, 255, 255));
@@ -2961,7 +2963,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
   // Right sidebar (only in fullscreen mode)
   if (is_expanded) {
     if (nk_group_begin(ctx, "canvas_sidebar",
-                       NK_WINDOW_BORDER | NK_WINDOW_SCROLL_AUTO_HIDE)) {
+                       NK_WINDOW_BORDER | NK_WINDOW_NO_SCROLLBAR)) {
       if (ui->sidebar_mode == 1) {
         ui_render_sidebar_shape_selection(ui, ctx);
       } else {
