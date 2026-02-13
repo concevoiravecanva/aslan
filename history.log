@@ -41,3 +41,8 @@ block_create 1 11 h1
 -- Session started --
 -- Session started --
 block_create 1 12 text
+-- Session started --
+-- Session started --
+block_delete 1 11
+block_delete 1 4
+block_delete 1 12

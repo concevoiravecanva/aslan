@@ -241,7 +241,9 @@ void ui_apply_theme(UIHost *ui) {
     s->edit.cursor_hover = text;
     s->edit.cursor_text_normal = bg;
     s->edit.cursor_text_hover = bg;
+    s->edit.cursor_text_hover = bg;
     s->edit.border = 0.0f;
+    s->edit.padding = nk_vec2(0, 2); // Flush alignment with margin
   } else {
     // Light theme colors (Coda-style: pure white, clean)
     struct nk_color bg = nk_rgb(255, 255, 255);
@@ -280,7 +282,9 @@ void ui_apply_theme(UIHost *ui) {
     s->edit.cursor_hover = text;
     s->edit.cursor_text_normal = bg;
     s->edit.cursor_text_hover = bg;
+    s->edit.cursor_text_hover = bg;
     s->edit.border = 0.0f;
+    s->edit.padding = nk_vec2(0, 2); // Flush alignment with margin
   }
 }
 

@@ -983,7 +983,7 @@ void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
     struct nk_color placeholder_color =
         ui->dark_mode ? nk_rgb(100, 100, 110) : nk_rgb(180, 180, 185);
     const char *placeholder = "Write something...";
-    float text_x = bounds.x + 8;
+    float text_x = bounds.x; // Flush with margin (was +8)
     float text_y = bounds.y + (bounds.h - line_h) / 2 + 4;
     const struct nk_user_font *ph_font =
         ui->font_inter ? &ui->font_inter->handle : &ui->font_mono->handle;
