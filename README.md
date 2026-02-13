@@ -1,101 +1,65 @@
-# Aslan
+# Aslan 🦁
 
-Aslan is a small C/SDL2 + Lua-based canvas prototype with an append-only command log.
+Aslan is a lightweight, high-performance C/SDL2 document engine inspired by Notion, Airtable, and Canva. It features a block-based architecture, an append-only persistence model, and a powerful formula engine.
 
-## Pages / Spaces (document structure)
+## ✨ Features
 
-Aslan documents can contain multiple **surfaces** (internally still called “pages”). Each surface has a **type**:
+- **Block-Based Architecture**: Mix text, headings, tables, infinite canvases, and charts in a single document.
+- **Modern Aesthetics**: Notion-style layout with Airtable-inspired table aesthetics, rounded checkboxes, and polished block cards ("Fiches").
+- **Powerful Formula Engine**: Integrated **TinyExpr** C library for Excel-like formula calculations (`=ColumnA + ColumnB`).
+- **Interactive Canvases**: Both infinite (Miro-style) and finite (Canva-style) drawing surfaces with vector nodes.
+- **Append-Only History**: Robust persistence using an AOF (Append-Only File) for infinite undo/redo and crash recovery.
+- **No-Silos Experience**: The app starts directly in the editor—no home screen, no friction.
 
-- **Space**: infinite canvas (Miro-like). This is the default.
-- **Page**: fixed-size sheet (A4/A3/Letter/custom). Think “print layout”.
-- **Table** *(placeholder)*: reserved for a structured tabletop / grid / spreadsheet-like surface.
-- **Note** *(placeholder)*: reserved for a lightweight note surface.
-- **Clip** *(placeholder)*: reserved for a clipped/embedded surface.
+## 🧱 Block Types
 
-Only **Space** and **Page** have dedicated behavior today. **Table/Note/Clip** are persisted and visible in the UI, but currently behave like a generic surface (behavior TBD).
+| Type | Description |
+| :--- | :--- |
+| **Text** | Clean, monospace-capable text editing. |
+| **Heading 1** | Large section headers that automatically sync with page titles. |
+| **Table** | Powerful column-store grid with multiple views (Grid, List, Board) and formulas. |
+| **Canvas** | Infinite whiteboarding space for diagrams and strokes. |
+| **Design** | Finite artboard for layouts and presentations. |
+| **Chart** | Data visualizations linked directly to Table blocks. |
 
-## Pan / Zoom
+## 🛠 Tech Stack
 
-- Pan/zoom applies to both **Space** and **Page** surfaces.
-- Zoom can be changed via mouse wheel and via UI buttons.
-- The camera state is **persisted** (saved/reloaded), but it is **not undoable**.
+- **Core**: C99 (Cross-platform)
+- **GUI**: Nuklear (Immediate-mode)
+- **Graphics**: SDL2 (Hardware accelerated)
+- **Scripting**: Lua 5.4 (Plugins & Formulas)
+- **Formula Engine**: TinyExpr (High-performance C parser)
 
-## Persistence model
+## 🚀 Getting Started
 
-Aslan uses a simple AOF-style log (append-only file). On rewrite/export, it may emit a canonical, stable ordering.
+### Prerequisites
 
-### Surface type tokens
+- GCC / Clang
+- SDL2 development libraries
+- Lua 5.4 development libraries
 
-Surface types are persisted with:
+### Building
 
-- `page_type <page_id> space|page|table|note|clip`
+```bash
+make clean && make
+```
 
-Backward compatibility:
+### Running
 
-- `page_type <page_id> board` is accepted as **space** (legacy)
-- `page_type <page_id> print` is accepted as **page** (legacy)
+```bash
+./aslan
+```
 
-### Surface metadata
+## ⌨️ Controls
 
-Surface metadata is stored with:
+- **Pan/Zoom**: Use Space + Drag or Mouse Wheel.
+- **Selection**: Click blocks to activate; use handles to drag/reorder.
+- **Formulas**: Start a cell with `=` in a formula column to use TinyExpr.
+- **Shortcuts**: `Cmd+Z` (Undo), `Cmd+Shift+Z` (Redo).
 
-- `page_meta <page_id> <key> <value>`
+## 📄 Persistence Model
 
-Currently used keys:
+Aslan uses a simple AOF-style log (`history.log`). Every interaction is logged as a replayable command, ensuring your data is safe and every action is reversible.
 
-- For **Page** (fixed): `width`, `height` (millimeters)
-- For **Space** (infinite) and camera: `viewport.x`, `viewport.y`, `viewport.zoom`
-
-Note: camera keys are intentionally excluded from undo/redo.
-
-## Fonts (Inter)
-
-The UI (Nuklear) is configured to use **Inter** as the default font *if the font file is present on disk*.
-
-### Install Inter locally
-
-1) Download **Inter** from Google Fonts (or the official Inter repo).
-
-2) Put the TTF file here:
-
-- `assets/fonts/Inter-Regular.ttf`
-
-If you downloaded the full Inter package, you can copy it from something like:
-
-- `assets/fonts/Inter copy/static/Inter_18pt-Regular.ttf` ee> `assets/fonts/Inter-Regular.ttf`
-
-Aslan intentionally does **not** commit font binaries to git.
-
-### Current limitations
-
-- UI text will use Inter when installed as above.
-- Canvas text nodes currently don’t render glyphs yet (they draw a placeholder box). The next step is to reuse the Nuklear atlas to render TEXT nodes with Inter as the default.
-
-## Save `.aslan` (snapshot)
-
-Aslan currently follows a **Photoshop-like** model:
-
-- A document saved as a `.aslan` file on disk contains a **single snapshot** (no built-in version history yet).
-- Undo/Redo are session-based.
-
-In the Inspector panel:
-
-- Use **“Save As .aslan…”** to write the current document snapshot to a chosen folder.
-
-### `.aslan` file format (v1)
-
-The file is UTF-8 text and starts with:
-
-- `-- aslan:1 --`
-
-Then it contains replayable commands (one per line), in canonical order:
-
-1. `doc_type ...`
-2. `doc_meta width ...`
-3. `doc_meta height ...`
-4. `set_global ...` (optional)
-5. `create_rect ...` / `create_text ...`
-6. `set_visible ...` (only when hidden)
-7. `bring_to_front ...` (z-order)
-
-Future versions may add extra optional sections which older parsers can ignore.
+---
+*Aslan is a prototype in active development.*
