@@ -188,6 +188,8 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
 
   // Font paths
   const char *inter_path = "assets/fonts/Inter-Regular.ttf";
+  const char *inter_bold_path = "assets/fonts/Inter_28pt-Bold.ttf";
+  const char *inter_extrabold_path = "assets/fonts/Inter_28pt-ExtraBold.ttf";
   const char *mono_path =
       "assets/fonts/JetBrains_Mono/JetBrainsMono-VariableFont_wght.ttf";
   const char *icons_path = "assets/remixicon.ttf";
@@ -206,8 +208,14 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
     ui->font_mono = nk_font_atlas_add_default(ui->atlas, 15.0f, NULL);
   }
 
-  // Load heading fonts (Inter at different sizes)
-  ui->font_h1 = nk_font_atlas_add_from_file(ui->atlas, inter_path, 28.0f, NULL);
+  // Load heading fonts (Inter Bold and Extra Bold)
+  ui->font_title =
+      nk_font_atlas_add_from_file(ui->atlas, inter_extrabold_path, 34.0f, NULL);
+  if (!ui->font_title)
+    ui->font_title = nk_font_atlas_add_default(ui->atlas, 34.0f, NULL);
+
+  ui->font_h1 =
+      nk_font_atlas_add_from_file(ui->atlas, inter_bold_path, 28.0f, NULL);
   if (!ui->font_h1)
     ui->font_h1 = nk_font_atlas_add_default(ui->atlas, 28.0f, NULL);
 
@@ -1003,9 +1011,10 @@ void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
     is_page_title = 1;
   }
 
-  struct nk_font *font = ui->font_h1;
+  struct nk_font *font = is_page_title ? ui->font_title : ui->font_h1;
 
-  float row_h = 44.0f; // Generous height for H1 (28px font + padding)
+  float row_h =
+      is_page_title ? 54.0f : 44.0f; // Taller row for larger title font
 
   // Header with Hand/Expand icons (skip for page title)
   // Render BEFORE setting H1 font so icons use normal font
@@ -1017,7 +1026,15 @@ void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
     nk_style_set_font(ctx, &font->handle);
   }
 
-  nk_layout_row_dynamic(ctx, row_h, 1);
+  if (is_page_title) {
+    // Template for title + extreme right settings icon
+    nk_layout_row_template_begin(ctx, row_h);
+    nk_layout_row_template_push_variable(ctx, 100); // Title
+    nk_layout_row_template_push_static(ctx, 40);    // Settings button
+    nk_layout_row_template_end(ctx);
+  } else {
+    nk_layout_row_dynamic(ctx, row_h, 1);
+  }
 
   char buf[1024];
   strncpy(buf, block->text ? block->text : "", sizeof(buf) - 1);
@@ -1026,6 +1043,34 @@ void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
   nk_flags flags = NK_EDIT_FIELD | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD;
   nk_flags state = nk_edit_string_zero_terminated(
       ctx, flags, buf, (int)sizeof(buf) - 1, nk_filter_default);
+
+  // Settings icon on the extreme right
+  if (is_page_title) {
+    struct nk_rect bounds = nk_layout_widget_bounds(ctx);
+    // Use icons font for settings icon
+    if (ui->font_icons) {
+      nk_style_set_font(ctx, &ui->font_icons->handle);
+    }
+
+    struct nk_style_button b_style = ctx->style.button;
+    b_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    b_style.hover = nk_style_item_color(nk_rgba(0, 0, 0, 10));
+    b_style.active = nk_style_item_color(nk_rgba(0, 0, 0, 20));
+    b_style.text_normal =
+        ui->dark_mode ? nk_rgb(180, 180, 180) : nk_rgb(100, 100, 100);
+    b_style.border = 0;
+    b_style.rounding = 4.0f;
+
+    if (nk_button_label_styled(ctx, &b_style, ICON_MORE)) {
+      ui->show_doc_menu = !ui->show_doc_menu;
+      ui->doc_menu_rect = bounds;
+    }
+
+    // Restore heading font
+    if (font) {
+      nk_style_set_font(ctx, &font->handle);
+    }
+  }
 
   // Activate block on click/edit
   if (state & (NK_EDIT_ACTIVE | NK_EDIT_ACTIVATED)) {
@@ -1224,10 +1269,9 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         Block *block = page_find_block_by_id(page, ui->expanded_block_id);
         if (block) {
           ui_render_block(ui, engine, ctx, page, block, (float)win_w);
-        } else {
-          ui->expanded_block_id = 0; // Block not found/deleted
         }
       }
+      ui_render_document_menu(ui, ctx);
     }
     nk_end(ctx);
   } else {
@@ -1307,13 +1351,8 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
             if (row_count == 1) {
               // Single block row: wrap in elegant card
-              // --- Clean Coda-style block rendering (no card wrapping) ---
-              // Transparent background: blocks live directly on the page
-
-              struct nk_color card_bg =
-                  ui->dark_mode ? nk_rgb(25, 25, 28) : nk_rgb(255, 255, 255);
-
-              // Push transparent card styles
+              // --- Clean Coda-style block rendering (no card wrapping, truly
+              // transparent) ---
               struct nk_vec2 saved_grp_pad = ctx->style.window.group_padding;
               float saved_grp_border = ctx->style.window.group_border;
               struct nk_color saved_grp_border_col =
@@ -1322,11 +1361,13 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
                   ctx->style.window.fixed_background;
               float saved_rounding = ctx->style.window.rounding;
 
-              ctx->style.window.group_padding = nk_vec2(8, 8);
+              ctx->style.window.group_padding =
+                  nk_vec2(0, 4); // Minimal vertical padding
               ctx->style.window.group_border = 0.0f;
               ctx->style.window.group_border_color = nk_rgba(0, 0, 0, 0);
-              ctx->style.window.fixed_background = nk_style_item_color(card_bg);
-              ctx->style.window.rounding = 8.0f;
+              ctx->style.window.fixed_background =
+                  nk_style_item_hide(); // Truly transparent
+              ctx->style.window.rounding = 0.0f;
 
               // Content-adaptive height
               float card_h = 80.0f; // Default minimum
@@ -1458,7 +1499,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
               float mcol_start_y = nk_layout_widget_bounds(ctx).y;
 
-              // --- Unified Card Style for Blocks ---
+              // --- Unified Transparent Multi-block Row Style ---
               struct nk_vec2 saved_grp_pad = ctx->style.window.group_padding;
               float saved_grp_border = ctx->style.window.group_border;
               struct nk_color saved_grp_border_col =
@@ -1467,16 +1508,12 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
                   ctx->style.window.fixed_background;
               float saved_rounding = ctx->style.window.rounding;
 
-              struct nk_color card_bg =
-                  ui->dark_mode ? nk_rgb(34, 35, 40) : nk_rgb(245, 245, 247);
-              struct nk_color card_brd =
-                  ui->dark_mode ? nk_rgb(55, 57, 62) : nk_rgb(230, 231, 235);
-
-              ctx->style.window.group_padding = nk_vec2(18, 14);
-              ctx->style.window.group_border = 1.0f;
-              ctx->style.window.group_border_color = card_brd;
-              ctx->style.window.fixed_background = nk_style_item_color(card_bg);
-              ctx->style.window.rounding = 12.0f;
+              ctx->style.window.group_padding =
+                  nk_vec2(8, 8); // Enough to separate content
+              ctx->style.window.group_border = 0.0f;
+              ctx->style.window.group_border_color = nk_rgba(0, 0, 0, 0);
+              ctx->style.window.fixed_background = nk_style_item_hide();
+              ctx->style.window.rounding = 0.0f;
 
               // Build layout: card columns separated by explicit gap spacers
               float col_sizes[9]; // max 5 cards + 4 gaps
@@ -1495,13 +1532,10 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
                 snprintf(grp_name, sizeof(grp_name), "card_grp_%u_%d",
                          current_row, col);
 
-                // Subtle shadow behind the card
-                struct nk_rect card_bounds = nk_layout_widget_bounds(ctx);
-                struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-                nk_fill_rect(canvas,
-                             nk_rect(card_bounds.x + 1, card_bounds.y + 2,
-                                     card_bounds.w - 1, card_bounds.h),
-                             12.0f, nk_rgba(0, 0, 0, 15));
+                // No shadow/fill needed anymore
+                // struct nk_rect card_bounds = nk_layout_widget_bounds(ctx);
+                // struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+                // nk_fill_rect(...)
 
                 if (nk_group_begin(ctx, grp_name, NK_WINDOW_NO_SCROLLBAR)) {
                   if (row_blocks[col]) {
@@ -1627,6 +1661,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       if (ui->expanded_block_id == 0) {
         ui_render_document_toolbar(ui, engine, ctx, win_w, win_h);
       }
+      ui_render_document_menu(ui, ctx);
     }
     nk_end(ctx);
   }
@@ -1663,3 +1698,66 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 // home_create_new_document moved to ui_core.c
 
 // ui_render_home moved to ui_core.c
+void ui_render_document_menu(UIHost *ui, struct nk_context *ctx) {
+  if (!ui->show_doc_menu)
+    return;
+
+  // Use floating popup near the settings icon
+  struct nk_rect bounds = ui->doc_menu_rect;
+  struct nk_vec2 pos = nk_vec2(bounds.x + bounds.w, bounds.y + bounds.h);
+  struct nk_rect popup_rect = nk_rect(pos.x - 200, pos.y + 4, 200, 140);
+
+  // Close if clicking outside the popup AND the button that opens it
+  if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+    if (!nk_input_is_mouse_hovering_rect(&ctx->input, popup_rect) &&
+        !nk_input_is_mouse_hovering_rect(&ctx->input, bounds)) {
+      ui->show_doc_menu = 0;
+      return;
+    }
+  }
+
+  // Style the popup
+  struct nk_style_item old_bg = ctx->style.window.fixed_background;
+  ctx->style.window.fixed_background = nk_style_item_color(
+      ui->dark_mode ? nk_rgb(45, 46, 50) : nk_rgb(255, 255, 255));
+
+  if (nk_popup_begin(ctx, NK_POPUP_STATIC, "DocSettings",
+                     NK_WINDOW_NO_SCROLLBAR,
+                     nk_rect(pos.x - 200, pos.y + 4, 200, 140))) {
+    nk_layout_row_dynamic(ctx, 32, 1);
+
+    if (nk_button_label(ctx, "Save (.aslan)")) {
+      char path[1024];
+      if (ui->engine->doc_path[0] != '\0') {
+        snprintf(path, sizeof(path), "%s/snapshot.aslan", ui->engine->doc_path);
+        engine_save_snapshot_as_aslan(ui->engine, path);
+        ASLAN_INFO("Application saved to %s", path);
+      } else {
+        ui->show_save_modal = 1;
+      }
+      ui->show_doc_menu = 0;
+      nk_popup_close(ctx);
+    }
+
+    if (nk_button_label(ctx, "Save As... (.aslan)")) {
+      ui->show_save_modal = 1;
+      ui->show_doc_menu = 0;
+      nk_popup_close(ctx);
+    }
+
+    char theme_label[64];
+    snprintf(theme_label, sizeof(theme_label), "Mode: %s",
+             ui->dark_mode ? "Light" : "Dark");
+    if (nk_button_label(ctx, theme_label)) {
+      ui->dark_mode = !ui->dark_mode;
+      ui_apply_theme(ui);
+      ui->show_doc_menu = 0;
+      nk_popup_close(ctx);
+    }
+
+    nk_popup_end(ctx);
+  } else {
+    ui->show_doc_menu = 0;
+  }
+  ctx->style.window.fixed_background = old_bg;
+}

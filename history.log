@@ -24,3 +24,17 @@ block_create 1 8 text
 block_create 1 9 table
 block_create 1 10 canvas
 -- Session started --
+-- Session started --
+-- Session started --
+-- Session started --
+-- Session started --
+-- Session started --
+-- Session started --
+-- Session started --
+-- Session started --
+-- Session started --
+-- Session started --
+block_delete 1 9
+block_delete 1 10
+block_delete 1 8
+block_create 1 11 h1

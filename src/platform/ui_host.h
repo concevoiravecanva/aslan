@@ -239,7 +239,8 @@ typedef struct UIHost {
   // Fonts
   struct nk_font *font_inter; // Default UI font
   struct nk_font *font_mono;  // Monospace for text blocks
-  struct nk_font *font_h1;    // Heading 1 (28pt)
+  struct nk_font *font_title; // Page Title (Extra Bold)
+  struct nk_font *font_h1;    // Heading 1 (28pt Bold)
   struct nk_font *font_icons; // Remix Icons
   float font_size_px;
 
@@ -277,6 +278,10 @@ typedef struct UIHost {
 
   int show_save_modal;
   char save_path[256];
+
+  // Document settings popup
+  int show_doc_menu;
+  struct nk_rect doc_menu_rect;
 
   // Block editing state
   uint32_t active_block_id;   // Block currently active/selected (showing icons)
@@ -398,6 +403,8 @@ void ui_host_handle_file_drop(UIHost *ui, const char *file_path, int mx,
                               int my);
 void ui_update(UIHost *ui, Engine *engine);
 void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h);
+void ui_apply_theme(UIHost *ui);
+void ui_render_document_menu(UIHost *ui, struct nk_context *ctx);
 
 // -----------------------------------------------------------------------------
 // Block Rendering Functions
@@ -471,6 +478,8 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_FULLSCREEN_EXIT "\xEE\xB6\x9A" // ri-fullscreen-exit-line
 #define ICON_EYE "\xEE\xB5\x9F"             // ri-eye-line
 #define ICON_EYE_OFF "\xEE\xB5\xA3"         // ri-eye-off-line
+#define ICON_MORE "\xEE\xBE\x93"            // ri-more-line
+#define ICON_SETTINGS "\xEE\xBD\x92"        // ri-settings-3-line
 
 // Canvas tools icons
 #define ICON_CURSOR "\xEE\xAA\x8A"    // ri-cursor-line (select tool)
