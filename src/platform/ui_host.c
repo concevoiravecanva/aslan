@@ -754,7 +754,8 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 
 // Overlay toolbar: draws compact icons at (x_right, y_top) without consuming
 // layout space. Elegant floating pill with subtle border.
-static void ui_render_block_overlay_icons(UIHost *ui, struct nk_context *ctx,
+static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
+                                          struct nk_context *ctx, Page *page,
                                           Block *block, float x_right,
                                           float y_top) {
   struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
@@ -771,11 +772,16 @@ static void ui_render_block_overlay_icons(UIHost *ui, struct nk_context *ctx,
   int allow_fullscreen =
       (block->type != BLOCK_TEXT && block->type != BLOCK_HEADING_1);
 
-  // Count buttons: hand + (search if table) + (fullscreen if allowed)
+  int show_trash = (block->type != BLOCK_HEADING_1);
+
+  // Count buttons: hand + (search if table) + (fullscreen if allowed) + (trash
+  // if not H1)
   int n = 1; // hand always
   if (block->type == BLOCK_TABLE)
     n++;
   if (allow_fullscreen)
+    n++;
+  if (show_trash)
     n++;
 
   float pad = 5.0f;
@@ -868,6 +874,16 @@ static void ui_render_block_overlay_icons(UIHost *ui, struct nk_context *ctx,
       OVERLAY_ICON_BTN(ICON_FULLSCREEN, strlen(ICON_FULLSCREEN));
       if (_btn_clicked)
         ui->expanded_block_id = block->id;
+    }
+  }
+
+  // 4. Trash icon (All except H1)
+  if (show_trash) {
+    OVERLAY_ICON_BTN(ICON_DELETE, strlen(ICON_DELETE));
+    if (_btn_clicked) {
+      char cmd[128];
+      snprintf(cmd, sizeof(cmd), "block_delete %u %u", page->id, block->id);
+      engine_execute_command(engine, cmd);
     }
   }
 
@@ -1165,9 +1181,10 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
     }
   }
 
-  // Draw overlay icons if this block is active (fullscreen, search)
+  // Draw overlay icons if this block is active (fullscreen, search, trash)
   if (is_active && !is_page_title) {
-    ui_render_block_overlay_icons(ui, ctx, block, block_x + width, y_before);
+    ui_render_block_overlay_icons(ui, engine, ctx, page, block, block_x + width,
+                                  y_before);
   }
 }
 
