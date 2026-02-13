@@ -1,5 +1,6 @@
 #include "aslan_table.h"
 #include "../platform/ui_shared.h"
+#include "../vendor/tinyexpr.h"
 #include <lauxlib.h>
 #include <lua.h>
 #include <lualib.h>
@@ -397,8 +398,8 @@ static bool ensure_row_capacity(AslanTable *table, size_t needed) {
 
     // Grow lua_cache for FORMULA_LUA columns
     if (col->type == ASLAN_COL_FORMULA_LUA) {
-      char **new_cache = (char **)realloc(
-          col->lua_cache, new_capacity * sizeof(char *));
+      char **new_cache =
+          (char **)realloc(col->lua_cache, new_capacity * sizeof(char *));
       if (new_cache) {
         for (size_t i = col->capacity; i < new_capacity; i++)
           new_cache[i] = NULL;
@@ -1129,157 +1130,13 @@ const char *aslan_table_get_formula(const AslanTable *table, int col_idx) {
 
   return col->formula;
 }
-
-// Formula evaluation is handled externally via Lua
 // -----------------------------------------------------------------------------
-// Lightweight C Math Parser (Shunting-yard algorithm)
+// Formula Evaluation via TinyExpr (Excel-like syntax)
 // -----------------------------------------------------------------------------
-
-typedef enum {
-  TOKEN_NUMBER,
-  TOKEN_OPERATOR,
-  TOKEN_LPAREN,
-  TOKEN_RPAREN,
-  TOKEN_COLUMN,   // [ColumnName]
-  TOKEN_FUNCTION, // SUM, AVG, etc.
-  TOKEN_COMMA,
-  TOKEN_EOF,
-  TOKEN_ERROR
-} TokenType;
-
-typedef enum {
-  FUNC_NONE = 0,
-  FUNC_SUM,
-  FUNC_AVG,
-  FUNC_MIN,
-  FUNC_MAX,
-  FUNC_COUNT,
-  FUNC_IF,
-  FUNC_ROUND,
-  FUNC_ABS
-} FormulaFunc;
-
-typedef struct {
-  TokenType type;
-  double value;
-  char name[64];
-  char op;
-  FormulaFunc func_id;
-  int arg_count; // for functions: number of comma-separated args
-} Token;
-
-static int strcasecmp_n(const char *a, const char *b, size_t n) {
-  for (size_t i = 0; i < n; i++) {
-    char ca = a[i], cb = b[i];
-    if (ca >= 'A' && ca <= 'Z')
-      ca += 32;
-    if (cb >= 'A' && cb <= 'Z')
-      cb += 32;
-    if (ca != cb)
-      return ca - cb;
-    if (ca == '\0')
-      return 0;
-  }
-  return 0;
-}
-
-static Token get_token(const char **input) {
-  while (**input && (**input == ' ' || **input == '\t'))
-    (*input)++;
-
-  if (**input == '\0')
-    return (Token){TOKEN_EOF, 0, "", 0, FUNC_NONE, 0};
-
-  char c = **input;
-  if ((c >= '0' && c <= '9') || c == '.') {
-    char *end;
-    double val = strtod(*input, &end);
-    *input = end;
-    return (Token){TOKEN_NUMBER, val, "", 0, FUNC_NONE, 0};
-  }
-
-  if (c == '+' || c == '-' || c == '*' || c == '/' || c == '>' || c == '<') {
-    (*input)++;
-    return (Token){TOKEN_OPERATOR, 0, "", c, FUNC_NONE, 0};
-  }
-
-  if (c == ',') {
-    (*input)++;
-    return (Token){TOKEN_COMMA, 0, "", 0, FUNC_NONE, 0};
-  }
-
-  if (c == '(') {
-    (*input)++;
-    return (Token){TOKEN_LPAREN, 0, "", 0, FUNC_NONE, 0};
-  }
-
-  if (c == ')') {
-    (*input)++;
-    return (Token){TOKEN_RPAREN, 0, "", 0, FUNC_NONE, 0};
-  }
-
-  if (c == '[') {
-    (*input)++;
-    const char *start = *input;
-    while (**input && **input != ']')
-      (*input)++;
-    size_t len = *input - start;
-    Token t = {TOKEN_COLUMN, 0, "", 0, FUNC_NONE, 0};
-    if (len < 64) {
-      strncpy(t.name, start, len);
-      t.name[len] = '\0';
-    }
-    if (**input == ']')
-      (*input)++;
-    return t;
-  }
-
-  // Function names (alphabetic identifiers)
-  if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) {
-    const char *start = *input;
-    while (**input && ((**input >= 'A' && **input <= 'Z') ||
-                       (**input >= 'a' && **input <= 'z')))
-      (*input)++;
-    size_t len = *input - start;
-    Token t = {TOKEN_FUNCTION, 0, "", 0, FUNC_NONE, 1};
-    if (len < 64)
-      strncpy(t.name, start, len);
-    t.name[len < 64 ? len : 63] = '\0';
-
-    if (len == 3 && strcasecmp_n(t.name, "SUM", 3) == 0)
-      t.func_id = FUNC_SUM;
-    else if (len == 3 && strcasecmp_n(t.name, "AVG", 3) == 0)
-      t.func_id = FUNC_AVG;
-    else if (len == 3 && strcasecmp_n(t.name, "MIN", 3) == 0)
-      t.func_id = FUNC_MIN;
-    else if (len == 3 && strcasecmp_n(t.name, "MAX", 3) == 0)
-      t.func_id = FUNC_MAX;
-    else if (len == 5 && strcasecmp_n(t.name, "COUNT", 5) == 0)
-      t.func_id = FUNC_COUNT;
-    else if (len == 2 && strcasecmp_n(t.name, "IF", 2) == 0)
-      t.func_id = FUNC_IF;
-    else if (len == 5 && strcasecmp_n(t.name, "ROUND", 5) == 0)
-      t.func_id = FUNC_ROUND;
-    else if (len == 3 && strcasecmp_n(t.name, "ABS", 3) == 0)
-      t.func_id = FUNC_ABS;
-    else
-      return (Token){TOKEN_ERROR, 0, "", 0, FUNC_NONE, 0};
-
-    return t;
-  }
-
-  return (Token){TOKEN_ERROR, 0, "", 0, FUNC_NONE, 0};
-}
-
-static int op_precedence(char op) {
-  if (op == '>' || op == '<')
-    return 0;
-  if (op == '+' || op == '-')
-    return 1;
-  if (op == '*' || op == '/')
-    return 2;
-  return 0;
-}
+// Replaces the old Shunting-yard parser with a robust 3rd party evaluator.
+// Supports: +, -, *, /, %, ^, sqrt, sin, cos, tan, etc.
+// Syntax: =[Price] * [Quantity] * 1.2
+// Variables are automatically bound to column values for the current row.
 
 double aslan_table_eval_formula(const AslanTable *table, int col_idx,
                                 uint64_t row_id) {
@@ -1290,214 +1147,116 @@ double aslan_table_eval_formula(const AslanTable *table, int col_idx,
     return 0.0;
 
   const char *expr = col->formula;
-  Token output_queue[64];
-  int oq_count = 0;
-  Token op_stack[64];
-  int os_count = 0;
+  // Skip leading '=' if present (Excel style, optional)
+  while (*expr == ' ' || *expr == '\t')
+    expr++;
+  if (*expr == '=')
+    expr++;
 
-  // Track if a COLUMN token is directly inside an aggregate function
-  // so we can resolve it as column-level instead of row-level
-  int func_depth = 0;       // nesting level of function calls
-  FormulaFunc func_ctx[16]; // function context at each depth
-  int func_argc[16];        // argument count at each depth
-  memset(func_ctx, 0, sizeof(func_ctx));
-  memset(func_argc, 0, sizeof(func_argc));
+  if (*expr == '\0')
+    return 0.0;
 
-  const char *ptr = expr;
-  Token t;
-  while ((t = get_token(&ptr)).type != TOKEN_EOF) {
-    if (t.type == TOKEN_ERROR)
-      return 0.0;
-    if (oq_count >= 63 || os_count >= 63)
-      return 0.0;
+  // 1. Preprocess formula (Replace [ColName] with _cINDEX variables)
+  // tinyexpr needs valid C identifiers (no spaces/brackets).
+  // We map [Name] -> _cINDEX (e.g., _c1, _c2) in the string.
+  char parse_buf[4096];
+  size_t pb_idx = 0;
 
-    if (t.type == TOKEN_NUMBER) {
-      output_queue[oq_count++] = t;
-    } else if (t.type == TOKEN_COLUMN) {
-      // Check if inside an aggregate function
-      if (func_depth > 0) {
-        FormulaFunc fc = func_ctx[func_depth - 1];
-        if (fc == FUNC_SUM || fc == FUNC_AVG || fc == FUNC_MIN ||
-            fc == FUNC_MAX || fc == FUNC_COUNT) {
-          // Resolve as aggregate over entire column
-          int c_idx = aslan_table_find_column(table, t.name);
-          double agg_val = 0.0;
-          if (c_idx >= 0) {
-            switch (fc) {
-            case FUNC_SUM:
-              agg_val = aslan_table_col_sum(table, c_idx);
-              break;
-            case FUNC_AVG:
-              agg_val = aslan_table_col_avg(table, c_idx);
-              break;
-            case FUNC_MIN:
-              agg_val = aslan_table_col_min(table, c_idx);
-              break;
-            case FUNC_MAX:
-              agg_val = aslan_table_col_max(table, c_idx);
-              break;
-            case FUNC_COUNT:
-              agg_val = (double)aslan_table_col_count(table, c_idx);
-              break;
-            default:
-              break;
-            }
+  te_variable vars[ASLAN_TABLE_MAX_COLUMNS];
+  double var_values[ASLAN_TABLE_MAX_COLUMNS];
+  char var_names[ASLAN_TABLE_MAX_COLUMNS][16];
+  bool col_used[ASLAN_TABLE_MAX_COLUMNS];
+  memset(col_used, 0, sizeof(col_used));
+  int var_count = 0;
+
+  const char *p = expr;
+  while (*p && pb_idx < sizeof(parse_buf) - 1) {
+    if (*p == '[') {
+      // Start of column name reference
+      p++;
+      const char *start = p;
+      while (*p && *p != ']')
+        p++;
+      size_t name_len = p - start;
+
+      bool found = false;
+      if (name_len > 0 && name_len < 64) {
+        char name_buf[64];
+        memcpy(name_buf, start, name_len);
+        name_buf[name_len] = '\0';
+
+        // Find column by name
+        int ref_idx = aslan_table_find_column(table, name_buf);
+        if (ref_idx >= 0) {
+          // Found: replace with unique variable name _c%d
+          char vname[16];
+          snprintf(vname, sizeof(vname), "_c%d", ref_idx);
+          size_t vn_len = strlen(vname);
+
+          if (pb_idx + vn_len < sizeof(parse_buf)) {
+            memcpy(parse_buf + pb_idx, vname, vn_len);
+            pb_idx += vn_len;
           }
-          t.type = TOKEN_NUMBER;
-          t.value = agg_val;
-          output_queue[oq_count++] = t;
-          continue;
+
+          // Mark column as used so we can bind it later
+          col_used[ref_idx] = true;
+          found = true;
         }
       }
-      output_queue[oq_count++] = t;
-    } else if (t.type == TOKEN_FUNCTION) {
-      op_stack[os_count++] = t;
-      if (func_depth < 16) {
-        func_ctx[func_depth] = t.func_id;
-        func_argc[func_depth] = 1;
-        func_depth++;
+
+      if (!found) {
+        // Unknown column or empty brackets; treat as 0 to avoid syntax error
+        if (pb_idx < sizeof(parse_buf) - 1)
+          parse_buf[pb_idx++] = '0';
       }
-    } else if (t.type == TOKEN_COMMA) {
-      // Pop until '(' for the current function
-      while (os_count > 0 && op_stack[os_count - 1].type != TOKEN_LPAREN) {
-        output_queue[oq_count++] = op_stack[--os_count];
-      }
-      if (func_depth > 0)
-        func_argc[func_depth - 1]++;
-    } else if (t.type == TOKEN_OPERATOR) {
-      while (os_count > 0 && op_stack[os_count - 1].type == TOKEN_OPERATOR &&
-             op_precedence(op_stack[os_count - 1].op) >= op_precedence(t.op)) {
-        output_queue[oq_count++] = op_stack[--os_count];
-      }
-      op_stack[os_count++] = t;
-    } else if (t.type == TOKEN_LPAREN) {
-      op_stack[os_count++] = t;
-    } else if (t.type == TOKEN_RPAREN) {
-      while (os_count > 0 && op_stack[os_count - 1].type != TOKEN_LPAREN) {
-        output_queue[oq_count++] = op_stack[--os_count];
-      }
-      if (os_count > 0)
-        os_count--; // Pop '('
-      // If top of stack is a function, pop it into output
-      if (os_count > 0 && op_stack[os_count - 1].type == TOKEN_FUNCTION) {
-        Token func_tok = op_stack[--os_count];
-        if (func_depth > 0) {
-          func_depth--;
-          func_tok.arg_count = func_argc[func_depth];
-        }
-        output_queue[oq_count++] = func_tok;
-      }
+
+      if (*p == ']')
+        p++; // consume closing bracket
+    } else {
+      // Copy other characters as-is
+      parse_buf[pb_idx++] = *p++;
     }
   }
-  while (os_count > 0)
-    output_queue[oq_count++] = op_stack[--os_count];
+  parse_buf[pb_idx] = '\0';
 
-  // Evaluate RPN
-  double eval_stack[64];
-  int es_count = 0;
-  for (int i = 0; i < oq_count; i++) {
-    t = output_queue[i];
-    if (t.type == TOKEN_NUMBER) {
-      eval_stack[es_count++] = t.value;
-    } else if (t.type == TOKEN_COLUMN) {
-      int c_idx = aslan_table_find_column(table, t.name);
-      if (c_idx < 0)
-        eval_stack[es_count++] = 0.0;
-      else
-        eval_stack[es_count++] = aslan_table_get_number(table, c_idx, row_id);
-    } else if (t.type == TOKEN_OPERATOR) {
-      if (es_count < 2)
-        return 0.0;
-      double b = eval_stack[--es_count];
-      double a = eval_stack[--es_count];
-      switch (t.op) {
-      case '+':
-        eval_stack[es_count++] = a + b;
-        break;
-      case '-':
-        eval_stack[es_count++] = a - b;
-        break;
-      case '*':
-        eval_stack[es_count++] = a * b;
-        break;
-      case '/':
-        eval_stack[es_count++] = b != 0 ? a / b : 0;
-        break;
-      case '>':
-        eval_stack[es_count++] = a > b ? 1.0 : 0.0;
-        break;
-      case '<':
-        eval_stack[es_count++] = a < b ? 1.0 : 0.0;
-        break;
-      }
-    } else if (t.type == TOKEN_FUNCTION) {
-      int argc = t.arg_count;
-      switch (t.func_id) {
-      case FUNC_ABS:
-        if (es_count >= 1)
-          eval_stack[es_count - 1] = fabs(eval_stack[es_count - 1]);
-        break;
-      case FUNC_ROUND:
-        if (es_count >= 1)
-          eval_stack[es_count - 1] = round(eval_stack[es_count - 1]);
-        break;
-      case FUNC_IF:
-        if (es_count >= 3) {
-          double vfalse = eval_stack[--es_count];
-          double vtrue = eval_stack[--es_count];
-          double cond = eval_stack[--es_count];
-          eval_stack[es_count++] = cond != 0.0 ? vtrue : vfalse;
-        }
-        break;
-      case FUNC_SUM:
-      case FUNC_AVG:
-      case FUNC_MIN:
-      case FUNC_MAX:
-      case FUNC_COUNT:
-        // Aggregate args already resolved to numbers during tokenization
-        // If multiple args, sum/avg/etc. over them
-        if (argc <= 1) {
-          // Single arg — already on stack, nothing to do
-        } else if (es_count >= argc) {
-          double result = eval_stack[es_count - argc];
-          for (int a = 1; a < argc; a++) {
-            double v = eval_stack[es_count - argc + a];
-            switch (t.func_id) {
-            case FUNC_SUM:
-            case FUNC_COUNT:
-              result += v;
-              break;
-            case FUNC_AVG:
-              result += v;
-              break;
-            case FUNC_MIN:
-              if (v < result)
-                result = v;
-              break;
-            case FUNC_MAX:
-              if (v > result)
-                result = v;
-              break;
-            default:
-              break;
-            }
-          }
-          if (t.func_id == FUNC_AVG && argc > 0)
-            result /= argc;
-          es_count -= argc;
-          eval_stack[es_count++] = result;
-        }
-        break;
-      default:
-        break;
-      }
-      (void)argc;
+  // 2. Build tinyexpr variable list
+  // Only bind columns that were actually referenced in the formula
+  for (int c = 0; c < (int)table->column_count; c++) {
+    if (col_used[c]) {
+      // Generate the same variable name: _c%d
+      snprintf(var_names[var_count], 16, "_c%d", c);
+
+      // Fetch value for the current row (handles recursion via recursive eval
+      // calls if needed) Note: This recursively calls eval_formula if the
+      // referenced column is a formula
+      var_values[var_count] = aslan_table_get_number(table, c, row_id);
+
+      vars[var_count].name = var_names[var_count];
+      vars[var_count].address = &var_values[var_count];
+      vars[var_count].type = TE_VARIABLE;
+      vars[var_count].context = NULL;
+
+      var_count++;
     }
   }
 
-  double result = es_count > 0 ? eval_stack[0] : 0.0;
+  // 3. Compile and Evaluate
+  // We compile and eval in one pass per row for simplicity.
+  // Performance optimization (caching compiled expression) can be added later
+  // if needed.
+  int err = 0;
+  te_expr *n = te_compile(parse_buf, vars, var_count, &err);
+  double result = 0.0;
 
-  // Update cached value if possible
+  if (n) {
+    result = te_eval(n);
+    te_free(n);
+  } else {
+    // Evaluation/Syntax error
+    result = 0.0; // Could return NAN or error indicator?
+  }
+
+  // 4. Update Cached Result
   int row_idx = aslan_table_row_index(table, row_id);
   if (row_idx >= 0) {
     ((double *)col->data)[row_idx] = result;
@@ -1505,7 +1264,6 @@ double aslan_table_eval_formula(const AslanTable *table, int col_idx,
 
   return result;
 }
-
 void aslan_table_eval_formulas(AslanTable *table) {
   if (!table)
     return;

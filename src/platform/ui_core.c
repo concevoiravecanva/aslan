@@ -207,6 +207,10 @@ static void home_create_new_document(UIHost *ui, Engine *engine) {
   // Clear current document state and history
   engine_execute_command(engine, "clear");
 
+  // Reset table UI state to prevent stale pointers/assertions (Fixes crash)
+  memset(&ui->table_state, 0, sizeof(ui->table_state));
+  ui->table_state.resizing_col = -1; // Initialize to -1
+
   char name[64] = "New Note";
   char cmd[256];
 

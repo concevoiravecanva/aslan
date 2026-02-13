@@ -10,7 +10,8 @@ SDL_INC = -I/opt/homebrew/include/SDL2
 SDL_LIB = -L/opt/homebrew/lib -lSDL2
 FRAMEWORKS = -framework Cocoa -framework CoreGraphics -framework ImageIO
 
-CORE_SRC = src/document/document.c \
+CORE_SRC = src/vendor/tinyexpr.c \
+           src/document/document.c \
            src/document/spatial_index.c \
            src/document/aslan_table.c \
            src/scripting/lua_host.c \

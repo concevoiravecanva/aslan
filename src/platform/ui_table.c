@@ -58,8 +58,8 @@ const char *table_col_type_name(AslanColumnType type) {
 }
 
 // Helper: Ensure popup stays inside viewport
-static struct nk_rect table_smart_popup_rect(UIHost *ui, float x, float y,
-                                             float w, float h) {
+struct nk_rect table_smart_popup_rect(UIHost *ui, float x, float y, float w,
+                                      float h) {
   struct nk_rect r = nk_rect(x, y, w, h);
   if (r.x + r.w > ui->win_width - 20)
     r.x = ui->win_width - r.w - 20;
@@ -70,6 +70,137 @@ static struct nk_rect table_smart_popup_rect(UIHost *ui, float x, float y,
   if (r.y < 10)
     r.y = 10;
   return r;
+}
+
+// Helper: Formula Bar UI
+static void ui_render_formula_bar(UIHost *ui, struct nk_context *ctx,
+                                  Block *block) {
+  if (!block || block->type != BLOCK_TABLE)
+    return;
+  TableData *td = &block->data.table;
+  AslanTable *tbl = td->columnar;
+  if (!tbl)
+    return;
+
+  int c_idx = ui->table_state.active_col_idx;
+  if (c_idx < 0 || c_idx >= (int)tbl->column_count)
+    return;
+
+  // Only show for formula columns
+  if (tbl->columns[c_idx].type != ASLAN_COL_FORMULA)
+    return;
+
+  // Bar layout: fx icon + input field
+  nk_layout_row_begin(ctx, NK_STATIC, 30, 2);
+
+  // Icon "fx"
+  nk_layout_row_push(ctx, 30);
+  nk_label(ctx, "fx", NK_TEXT_ALIGN_CENTERED | NK_TEXT_ALIGN_MIDDLE);
+
+  // Input
+  float width = nk_window_get_content_region(ctx).w - 40;
+  nk_layout_row_push(ctx, width > 10 ? width : 300);
+
+  // Initial population logic handled on selection change or here?
+  if (ui->table_state.formula_buffer[0] == '\0' &&
+      tbl->columns[c_idx].formula) {
+    snprintf(ui->table_state.formula_buffer,
+             sizeof(ui->table_state.formula_buffer), "=%s",
+             tbl->columns[c_idx].formula);
+  } else if (ui->table_state.formula_buffer[0] == '\0' &&
+             !tbl->columns[c_idx].formula) {
+    snprintf(ui->table_state.formula_buffer,
+             sizeof(ui->table_state.formula_buffer), "=");
+  }
+
+  nk_flags res = nk_edit_string_zero_terminated(
+      ctx, NK_EDIT_FIELD | NK_EDIT_SIG_ENTER | NK_EDIT_SELECTABLE,
+      ui->table_state.formula_buffer,
+      sizeof(ui->table_state.formula_buffer) - 1, nk_filter_default);
+
+  // Track if formula bar is being edited (for click-to-reference)
+  ui->table_state.is_editing_formula = (res & NK_EDIT_ACTIVE) ? 1 : 0;
+
+  nk_layout_row_end(ctx);
+
+  if (res & NK_EDIT_COMMITED) {
+    // Parse leading '='
+    char *expr = ui->table_state.formula_buffer;
+    while (*expr == ' ' || *expr == '\t')
+      expr++;
+    if (*expr == '=')
+      expr++;
+
+    aslan_table_set_formula(tbl, c_idx, expr);
+    tbl->data_generation++;
+  }
+
+  // Separator
+  nk_layout_row_dynamic(ctx, 4, 1); // spacer
+  nk_label(ctx, "", NK_TEXT_ALIGN_LEFT);
+}
+
+// Helper: Formula Help Popup
+static void ui_render_formula_help_popup(UIHost *ui, struct nk_context *ctx) {
+  if (!ui->table_state.show_formula_help)
+    return;
+
+  struct nk_rect s = {0, 0, (float)ui->win_width, (float)ui->win_height};
+  if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Formula Help",
+                     NK_WINDOW_CLOSABLE | NK_WINDOW_TITLE | NK_WINDOW_BORDER,
+                     nk_rect(s.w / 2 - 250, s.h / 2 - 225, 500, 450))) {
+
+    nk_layout_row_dynamic(ctx, 20, 1);
+    nk_label(ctx, "Formula Syntax", NK_TEXT_LEFT);
+
+    nk_layout_row_dynamic(ctx, 15, 1);
+    nk_label(ctx, "• Start with = sign", NK_TEXT_LEFT);
+    nk_label(ctx, "• Reference columns with [ColumnName]", NK_TEXT_LEFT);
+    nk_label(ctx, "• Click column headers while editing to insert reference",
+             NK_TEXT_LEFT);
+
+    nk_layout_row_dynamic(ctx, 10, 1); // spacer
+    nk_label(ctx, "", NK_TEXT_LEFT);
+
+    nk_layout_row_dynamic(ctx, 20, 1);
+    nk_label(ctx, "Operators", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 15, 1);
+    nk_label(ctx, "+ - * / ^  (add, subtract, multiply, divide, power)",
+             NK_TEXT_LEFT);
+
+    nk_layout_row_dynamic(ctx, 10, 1); // spacer
+    nk_label(ctx, "", NK_TEXT_LEFT);
+
+    nk_layout_row_dynamic(ctx, 20, 1);
+    nk_label(ctx, "Functions", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 15, 1);
+    nk_label(ctx, "abs(x)      - Absolute value", NK_TEXT_LEFT);
+    nk_label(ctx, "sqrt(x)     - Square root", NK_TEXT_LEFT);
+    nk_label(ctx, "pow(x,y)    - x to the power of y", NK_TEXT_LEFT);
+    nk_label(ctx, "sin(x)      - Sine", NK_TEXT_LEFT);
+    nk_label(ctx, "cos(x)      - Cosine", NK_TEXT_LEFT);
+    nk_label(ctx, "tan(x)      - Tangent", NK_TEXT_LEFT);
+    nk_label(ctx, "ln(x)       - Natural logarithm", NK_TEXT_LEFT);
+    nk_label(ctx, "log10(x)    - Base-10 logarithm", NK_TEXT_LEFT);
+    nk_label(ctx, "exp(x)      - e to the power of x", NK_TEXT_LEFT);
+    nk_label(ctx, "floor(x)    - Round down", NK_TEXT_LEFT);
+    nk_label(ctx, "ceil(x)     - Round up", NK_TEXT_LEFT);
+
+    nk_layout_row_dynamic(ctx, 10, 1); // spacer
+    nk_label(ctx, "", NK_TEXT_LEFT);
+
+    nk_layout_row_dynamic(ctx, 20, 1);
+    nk_label(ctx, "Examples", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 15, 1);
+    nk_label(ctx, "=[Price] * 1.2", NK_TEXT_LEFT);
+    nk_label(ctx, "=[Quantity] * [Price]", NK_TEXT_LEFT);
+    nk_label(ctx, "=sqrt([Value])", NK_TEXT_LEFT);
+    nk_label(ctx, "=([A] + [B]) / 2", NK_TEXT_LEFT);
+
+    nk_popup_end(ctx);
+  } else {
+    ui->table_state.show_formula_help = 0;
+  }
 }
 
 void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
@@ -230,6 +361,13 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     // Use a slightly larger height to avoid vertical scroll if possible,
     // or let it vertical scroll too if it exceeds a limit.
+
+    // FORMULA BAR (renders above the table grid inside the card)
+    ui_render_formula_bar(ui, ctx, block);
+
+    // FORMULA HELP POPUP
+    ui_render_formula_help_popup(ui, ctx);
+
     nk_layout_row_dynamic(ctx, table_height + 20, 1);
 
     // General click detection for the table block
@@ -442,36 +580,53 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           hdr_btn_style.text_active = header_text_col;
           nk_button_label_styled(ctx, &hdr_btn_style, "");
 
-          // Sort on text zone click
-          if (clicked_sort) {
-            if (tbl->sort_column == (int)c) {
-              if (tbl->sort_ascending)
-                aslan_table_sort(tbl, (int)c, false);
-              else
-                aslan_table_sort_clear(tbl);
-            } else {
-              aslan_table_sort(tbl, (int)c, true);
+          // CLICK-TO-REFERENCE: If formula bar is active, insert column name
+          if (ui->table_state.is_editing_formula &&
+              (clicked_sort || clicked_icon)) {
+            // Insert [ColumnName] into formula buffer
+            char ref[128];
+            snprintf(ref, sizeof(ref), "[%s]", tbl->columns[c].name);
+            size_t buf_len = strlen(ui->table_state.formula_buffer);
+            size_t ref_len = strlen(ref);
+            if (buf_len + ref_len <
+                sizeof(ui->table_state.formula_buffer) - 1) {
+              strcat(ui->table_state.formula_buffer, ref);
             }
-          }
+            // Skip normal click behavior
+          } else {
+            // Normal click behavior (sort or settings)
 
-          // Settings popup on icon click
-          if (clicked_icon) {
-            ui->table_state.active_block_id = block->id;
-            ui->active_block_id = block->id;
-            ui->table_state.active_col_idx = (int)c;
-            ui->table_state.show_col_settings =
-                !ui->table_state.show_col_settings;
-            ui->table_state.menu_pos_x = hdr_bounds.x;
-            ui->table_state.menu_pos_y = hdr_bounds.y;
-            strncpy(ui->table_state.rename_buffer, tbl->columns[c].name, 63);
-            ui->table_state.rename_buffer[63] = '\0';
-            // Init formula buffer for FORMULA / FORMULA_LUA columns
-            const char *f = aslan_table_get_formula(tbl, (int)c);
-            strncpy(ui->table_state.formula_buffer, f ? f : "",
-                    sizeof(ui->table_state.formula_buffer) - 1);
-            ui->table_state
-                .formula_buffer[sizeof(ui->table_state.formula_buffer) - 1] =
-                '\0';
+            // Sort on text zone click
+            if (clicked_sort) {
+              if (tbl->sort_column == (int)c) {
+                if (tbl->sort_ascending)
+                  aslan_table_sort(tbl, (int)c, false);
+                else
+                  aslan_table_sort_clear(tbl);
+              } else {
+                aslan_table_sort(tbl, (int)c, true);
+              }
+            }
+
+            // Settings popup on icon click
+            if (clicked_icon) {
+              ui->table_state.active_block_id = block->id;
+              ui->active_block_id = block->id;
+              ui->table_state.active_col_idx = (int)c;
+              ui->table_state.show_col_settings =
+                  !ui->table_state.show_col_settings;
+              ui->table_state.menu_pos_x = hdr_bounds.x;
+              ui->table_state.menu_pos_y = hdr_bounds.y;
+              strncpy(ui->table_state.rename_buffer, tbl->columns[c].name, 63);
+              ui->table_state.rename_buffer[63] = '\0';
+              // Init formula buffer for FORMULA / FORMULA_LUA columns
+              const char *f = aslan_table_get_formula(tbl, (int)c);
+              strncpy(ui->table_state.formula_buffer, f ? f : "",
+                      sizeof(ui->table_state.formula_buffer) - 1);
+              ui->table_state
+                  .formula_buffer[sizeof(ui->table_state.formula_buffer) - 1] =
+                  '\0';
+            }
           }
         }
 
@@ -685,8 +840,31 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           }
 
           switch (type) {
-          case ASLAN_COL_TEXT:
           case ASLAN_COL_FORMULA: {
+            // Read-only computed value display
+            char val_str[64];
+            aslan_table_get_cell_display(tbl, (int)c, row_id, val_str,
+                                         sizeof(val_str));
+
+            // Allow selecting the cell to view/edit formula in the bar
+            if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
+                                                cell_bounds)) {
+              ui->table_state.active_row_idx = (int)v;
+              ui->table_state.active_col_idx = (int)c;
+              ui->table_state.is_editing_cell = 0; // Not inline editing
+
+              // Populate formula buffer for the bar
+              const char *current = tbl->columns[c].formula;
+              snprintf(ui->table_state.formula_buffer,
+                       sizeof(ui->table_state.formula_buffer), "=%s",
+                       current ? current : "");
+            }
+
+            // Render value right-aligned
+            nk_label(ctx, val_str, NK_TEXT_ALIGN_RIGHT | NK_TEXT_ALIGN_MIDDLE);
+            break;
+          }
+          case ASLAN_COL_TEXT: {
             char buf[1024];
             const char *val = aslan_table_get_text(tbl, (int)c, row_id);
             strncpy(buf, val ? val : "", sizeof(buf) - 1);
@@ -1103,7 +1281,6 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     // Restore font
     nk_style_set_font(ctx, old_table_font);
-
   } else {
     // Empty/uninitialized table — CTA
     nk_layout_row_dynamic(ctx, 60, 1);
@@ -1318,7 +1495,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       if (col->type == ASLAN_COL_SELECT)
         popup_h += 80.0f + (col->option_count * 24);
       if (col->type == ASLAN_COL_FORMULA || col->type == ASLAN_COL_FORMULA_LUA)
-        popup_h += 140.0f;
+        popup_h += 170.0f;
       if (popup_h > 600)
         popup_h = 600;
 
@@ -1463,6 +1640,26 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             struct nk_color hint_col = nk_rgb(120, 120, 130);
             nk_label_colored(ctx, "[Col] * [Col] (Excel syntax)", NK_TEXT_LEFT,
                              hint_col);
+
+            // Add Column Reference Buttons
+            nk_label(ctx, "Add Reference:", NK_TEXT_LEFT);
+            nk_layout_row_dynamic(ctx, 24, 3);
+            for (size_t ref_c = 0; ref_c < tbl->column_count; ref_c++) {
+              if ((int)ref_c == c)
+                continue; // Skip self
+              const char *ref_name = tbl->columns[ref_c].name;
+              char btn_label[80];
+              snprintf(btn_label, sizeof(btn_label), "[%s]", ref_name);
+              if (nk_button_label(ctx, btn_label)) {
+                size_t len = strlen(ui->table_state.formula_buffer);
+                size_t btn_len = strlen(btn_label);
+                if (len + btn_len <
+                    sizeof(ui->table_state.formula_buffer) - 1) {
+                  // Append to buffer
+                  strcat(ui->table_state.formula_buffer, btn_label);
+                }
+              }
+            }
           }
 
           nk_layout_row_dynamic(ctx, 60, 1);
@@ -1478,6 +1675,10 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             tbl->lua_eval_generation = 0;
             ui->table_state.show_col_settings = 0;
             nk_popup_close(ctx);
+          }
+
+          if (nk_button_label(ctx, "? Formula Help")) {
+            ui->table_state.show_formula_help = 1;
           }
         }
 
