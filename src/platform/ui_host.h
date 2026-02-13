@@ -488,7 +488,7 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_MARKER "\xEE\xBD\x9D"    // ri-pen-nib-fill
 #define ICON_TEXT_TOOL "\xEE\x87\x98" // ri-text (text tool)
 #define ICON_STICKY "\xEF\x83\xBC"    // ri-sticky-note-line (sticky note)
-#define ICON_HAND "\xEF\x91\x84"      // \uf444
+#define ICON_HAND "\xEE\xB1\xA0"      // \uec60
 #define ICON_IMAGE "\xEE\xB9\x85"     // ri-image-2-line
 #define ICON_MAGIC "\xEE\xBF\x9E"     // ri-pen-nib-line
 

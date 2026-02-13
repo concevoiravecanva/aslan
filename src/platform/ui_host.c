@@ -1492,7 +1492,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
               }
             } else {
               // Multi-column row: render blocks as elegant cards side-by-side
-              float gap = 20.0f;
+              float gap = 8.0f;
               float col_w = (total_width - (float)(row_count - 1) * gap) /
                             (float)row_count;
               float row_h = 420.0f;
@@ -1508,8 +1508,8 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
                   ctx->style.window.fixed_background;
               float saved_rounding = ctx->style.window.rounding;
 
-              ctx->style.window.group_padding =
-                  nk_vec2(8, 8); // Enough to separate content
+              // Force 0 padding for inner card groups to prevent tight margins
+              ctx->style.window.group_padding = nk_vec2(0, 0);
               ctx->style.window.group_border = 0.0f;
               ctx->style.window.group_border_color = nk_rgba(0, 0, 0, 0);
               ctx->style.window.fixed_background = nk_style_item_hide();
@@ -1542,7 +1542,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
                     // Reduce width to account for group padding (8px * 2 =
                     // 16px)
                     ui_render_block(ui, engine, ctx, page, row_blocks[col],
-                                    col_w - 16);
+                                    col_w);
                   }
                   nk_group_end(ctx);
                 }

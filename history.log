@@ -83,3 +83,15 @@ block_create 1 26 design
 block_create 1 27 table
 block_create 1 28 canvas
 -- Session started --
+block_create 1 29 table
+-- Session started --
+block_delete 1 24
+block_delete 1 27
+block_delete 1 25
+block_delete 1 26
+block_delete 1 28
+block_delete 1 29
+block_create 1 30 design
+block_create 1 31 table
+-- Session started --
+block_create 1 32 canvas
