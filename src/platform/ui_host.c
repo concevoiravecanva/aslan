@@ -780,7 +780,7 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
   int allow_fullscreen =
       (block->type != BLOCK_TEXT && block->type != BLOCK_HEADING_1);
 
-  int show_trash = (block->type != BLOCK_HEADING_1);
+  int show_trash = 1; // Allow deleting any block, including H1
 
   // Count buttons: hand + (search if table) + (fullscreen if allowed) + (trash
   // if not H1)
@@ -1014,7 +1014,7 @@ void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
   struct nk_font *font = is_page_title ? ui->font_title : ui->font_h1;
 
   float row_h =
-      is_page_title ? 54.0f : 44.0f; // Taller row for larger title font
+      is_page_title ? 60.0f : 50.0f; // Taller row to accommodate large fonts
 
   // Header with Hand/Expand icons (skip for page title)
   // Render BEFORE setting H1 font so icons use normal font
@@ -1040,7 +1040,7 @@ void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
   strncpy(buf, block->text ? block->text : "", sizeof(buf) - 1);
   buf[sizeof(buf) - 1] = '\0';
 
-  nk_flags flags = NK_EDIT_FIELD | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD;
+  nk_flags flags = NK_EDIT_BOX | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD;
   nk_flags state = nk_edit_string_zero_terminated(
       ctx, flags, buf, (int)sizeof(buf) - 1, nk_filter_default);
 
@@ -1189,8 +1189,7 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
       (block->type == BLOCK_HEADING_1 && page && block == page->first_block);
 
   // --- 6-dot drag handle (Notion-style grip) on hover ---
-  if ((is_hovered || is_active) && !is_page_title &&
-      !ui->block_drag.is_active) {
+  if ((is_hovered || is_active) && !ui->block_drag.is_active) {
     struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
     float hx = block_x - 20.0f;
     float hy = y_before + (block_h > 50 ? block_h * 0.5f - 9.0f : 8.0f);
