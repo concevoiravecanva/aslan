@@ -459,7 +459,7 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 
 #define ICON_TEXT "\xEF\x88\x81"   // \uf201
 #define ICON_H1 "\xEE\xB7\xA6"     // \uede6
-#define ICON_CODE "\xEE\xBA\xA9"   // ri-code-line
+#define ICON_CODE "\xEE\xAE\xA9"   // \ueba9
 #define ICON_TABLE "\xEF\x87\x9A"  // ri-table-2
 #define ICON_CANVAS "\xEE\xA9\xBA" // ri-artboard-2-line
 #define ICON_DESIGN "\xEE\xBA\x83" // ri-layout-4-line
@@ -488,7 +488,7 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_MARKER "\xEE\xBD\x9D"    // ri-pen-nib-fill
 #define ICON_TEXT_TOOL "\xEE\x87\x98" // ri-text (text tool)
 #define ICON_STICKY "\xEF\x83\xBC"    // ri-sticky-note-line (sticky note)
-#define ICON_HAND "\xEF\x9A\x87"      // \uf687
+#define ICON_HAND "\xEF\x91\x84"      // \uf444
 #define ICON_IMAGE "\xEE\xB9\x85"     // ri-image-2-line
 #define ICON_MAGIC "\xEE\xBF\x9E"     // ri-pen-nib-line
 

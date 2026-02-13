@@ -70,3 +70,13 @@ block_create 1 21 table
 -- Session started --
 -- Session started --
 -- Session started --
+block_create 1 22 canvas
+block_create 1 23 design
+-- Session started --
+-- Session started --
+block_delete 1 21
+block_delete 1 22
+block_delete 1 23
+block_create 1 24 chart
+block_create 1 25 design
+block_create 1 26 design

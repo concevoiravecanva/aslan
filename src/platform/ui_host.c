@@ -885,50 +885,6 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
     }
   }
 
-  // 3b. Expand fullscreen icon for Table and Design
-  if (block->type == BLOCK_TABLE || block->type == BLOCK_DESIGN) {
-    OVERLAY_ICON_BTN(ICON_EXPAND_FULLSCREEN, strlen(ICON_EXPAND_FULLSCREEN));
-    if (_btn_clicked) {
-      if (ui->expanded_block_id == block->id)
-        ui->expanded_block_id = 0;
-      else
-        ui->expanded_block_id = block->id;
-    }
-  }
-
-  // 3b. Expand fullscreen icon for Table and Design
-  if (block->type == BLOCK_TABLE || block->type == BLOCK_DESIGN) {
-    OVERLAY_ICON_BTN(ICON_EXPAND_FULLSCREEN, strlen(ICON_EXPAND_FULLSCREEN));
-    if (_btn_clicked) {
-      if (ui->expanded_block_id == block->id)
-        ui->expanded_block_id = 0;
-      else
-        ui->expanded_block_id = block->id;
-    }
-  }
-
-  // 3b. Expand fullscreen icon for Table and Design
-  if (block->type == BLOCK_TABLE || block->type == BLOCK_DESIGN) {
-    OVERLAY_ICON_BTN(ICON_EXPAND_FULLSCREEN, strlen(ICON_EXPAND_FULLSCREEN));
-    if (_btn_clicked) {
-      if (ui->expanded_block_id == block->id)
-        ui->expanded_block_id = 0;
-      else
-        ui->expanded_block_id = block->id;
-    }
-  }
-
-  // 3b. Expand fullscreen icon for Table and Design
-  if (block->type == BLOCK_TABLE || block->type == BLOCK_DESIGN) {
-    OVERLAY_ICON_BTN(ICON_EXPAND_FULLSCREEN, strlen(ICON_EXPAND_FULLSCREEN));
-    if (_btn_clicked) {
-      if (ui->expanded_block_id == block->id)
-        ui->expanded_block_id = 0;
-      else
-        ui->expanded_block_id = block->id;
-    }
-  }
-
   // 4. Trash icon (All except H1)
   if (show_trash) {
     OVERLAY_ICON_BTN(ICON_DELETE, strlen(ICON_DELETE));
@@ -1343,7 +1299,8 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       nk_layout_row_dynamic(ctx, content_h - 100, 1);
 
       // Main Content Area (as a group, not a window)
-      if (nk_group_begin(ctx, "ContentGroup", NK_WINDOW_SCROLL_AUTO_HIDE)) {
+      // Completely disable scrollbars (horizontal & vertical)
+      if (nk_group_begin(ctx, "ContentGroup", NK_WINDOW_NO_SCROLLBAR)) {
         // --- Synchronize Scrollbar Interactivity ---
         nk_uint nx, ny;
         nk_group_get_scroll(ctx, "ContentGroup", &nx, &ny);
