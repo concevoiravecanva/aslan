@@ -103,3 +103,11 @@ block_delete 1 32
 block_create 1 33 table
 block_table_col_width 1 33 1 195
 block_table_col_width 1 33 1 179
+-- Session started --
+-- Session started --
+-- Session started --
+block_table_col_width 1 33 1 372
+block_table_col_width 1 33 2 80
+block_table_col_width 1 33 1 211
+-- Session started --
+block_table_col_width 1 33 1 278

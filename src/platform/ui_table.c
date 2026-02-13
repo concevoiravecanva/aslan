@@ -681,7 +681,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           // Use nk_draw_text to show the rename buffer content in an edit-like
           // way We draw a simple text + underline to indicate editing
           nk_draw_text(canvas,
-                       nk_rect(hdr_bounds.x + 32, hdr_bounds.y + 6,
+                       nk_rect(hdr_bounds.x + 32, hdr_bounds.y + 8,
                                hdr_bounds.w - 40, 20),
                        ui->table_state.rename_buffer,
                        (int)strlen(ui->table_state.rename_buffer),
@@ -689,14 +689,14 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                        header_text_col);
           // Underline to show editing state
           nk_stroke_line(
-              canvas, hdr_bounds.x + 32, hdr_bounds.y + 26,
+              canvas, hdr_bounds.x + 32, hdr_bounds.y + 28,
               hdr_bounds.x + 32 +
                   ((hdr_bounds.w - 44) < 100 ? (hdr_bounds.w - 44) : 100),
-              hdr_bounds.y + 26, 1.0f, COLOR_ACCENT);
+              hdr_bounds.y + 28, 1.0f, COLOR_ACCENT);
         } else {
           // --- DISPLAY MODE ---
           nk_draw_text(canvas,
-                       nk_rect(hdr_bounds.x + 32, hdr_bounds.y + 6,
+                       nk_rect(hdr_bounds.x + 32, hdr_bounds.y + 8,
                                hdr_bounds.w - 36, 20),
                        tbl->columns[c].name, (int)strlen(tbl->columns[c].name),
                        &ui->font_inter->handle, nk_rgba(0, 0, 0, 0),
@@ -754,6 +754,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       add_col_btn.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
       add_col_btn.hover = nk_style_item_color(nk_rgba(255, 255, 255, 20));
       add_col_btn.text_normal = header_text_col;
+      add_col_btn.rounding = 0.0f;
       if (nk_button_label_styled(ctx, &add_col_btn, "+")) {
         ui->table_state.active_block_id = block->id;
         ui->active_block_id = block->id;
@@ -1262,6 +1263,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ftr_add_style.hover = nk_style_item_color(nk_rgba(45, 127, 249, 30));
       ftr_add_style.text_normal = muted_gray;
       ftr_add_style.text_hover = nk_rgb(45, 127, 249);
+      ftr_add_style.rounding = 0.0f;
 
       if (nk_button_label_styled(ctx, &ftr_add_style, "+")) {
         aslan_table_add_row(tbl);
@@ -1293,6 +1295,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         ftr_btn_style.text_hover =
             ui->dark_mode ? nk_rgb(200, 202, 208) : nk_rgb(68, 68, 68);
         ftr_btn_style.text_active = ftr_btn_style.text_hover;
+        ftr_btn_style.rounding = 4.0f;
 
         if (footer_text[0]) {
           if (nk_button_label_styled(ctx, &ftr_btn_style, footer_text)) {
@@ -1421,7 +1424,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                nk_style_item_color(menu_bg));
       struct nk_rect popup_rect =
           table_smart_popup_rect(ui, ui->table_state.menu_pos_x - 100,
-                                 ui->table_state.menu_pos_y + 4, 160, 230);
+                                 ui->table_state.menu_pos_y + 4, 160, 250);
       if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Add Column",
                          NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER,
                          popup_rect)) {
@@ -1589,7 +1592,12 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD,
                                        ui->table_state.rename_buffer, 63,
                                        nk_filter_default);
-        if (nk_button_label(ctx, "Apply Name")) {
+
+        struct nk_style_button popup_btn = ctx->style.button;
+        popup_btn.rounding = 4.0f;
+        popup_btn.padding = nk_vec2(4, 4);
+
+        if (nk_button_label_styled(ctx, &popup_btn, "Apply Name")) {
           strncpy(tbl->columns[c].name, ui->table_state.rename_buffer, 63);
           tbl->columns[c].name[63] = '\0';
           ui->table_state.show_col_settings = 0;
@@ -1668,7 +1676,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
             nk_label(ctx, col->options[i].label, NK_TEXT_LEFT);
 
-            if (nk_button_label(ctx, "x")) {
+            if (nk_button_label_styled(ctx, &popup_btn, "x")) {
               aslan_table_remove_option(tbl, c, i);
             }
           }
@@ -1687,7 +1695,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                 0xE2B823FF, 0x8E23E2FF, 0xE26A23FF};
           uint32_t next_color = presets[col->option_count % 6];
 
-          if (nk_button_label(ctx, "+ Add Option")) {
+          if (nk_button_label_styled(ctx, &popup_btn, "+ Add Option")) {
             if (ui->table_state.option_buffer[0] != '\0') {
               aslan_table_add_option(tbl, c, ui->table_state.option_buffer,
                                      next_color);
@@ -1742,7 +1750,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               sizeof(ui->table_state.formula_buffer) - 1, nk_filter_default);
           nk_layout_row_dynamic(ctx, 24, 1);
 
-          if (nk_button_label(ctx, "Apply Formula")) {
+          if (nk_button_label_styled(ctx, &popup_btn, "Apply Formula")) {
             aslan_table_set_formula(tbl, c, ui->table_state.formula_buffer);
             tbl->data_generation++;
             tbl->lua_eval_generation = 0;
@@ -1750,13 +1758,20 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             nk_popup_close(ctx);
           }
 
-          if (nk_button_label(ctx, "? Formula Help")) {
+          if (nk_button_label_styled(ctx, &popup_btn, "? Formula Help")) {
             ui->table_state.show_formula_help = 1;
           }
         }
 
         nk_spacing(ctx, 1);
-        if (nk_button_label(ctx, "Delete Column")) {
+        struct nk_style_button del_btn = popup_btn;
+        del_btn.normal = nk_style_item_color(nk_rgba(200, 50, 50, 20));
+        del_btn.hover = nk_style_item_color(nk_rgba(200, 50, 50, 40));
+        del_btn.active = nk_style_item_color(nk_rgba(200, 50, 50, 60));
+        del_btn.text_normal = nk_rgb(200, 50, 50);
+        del_btn.text_hover = nk_rgb(255, 100, 100);
+
+        if (nk_button_label_styled(ctx, &del_btn, "Delete Column")) {
           aslan_table_remove_column(tbl, c);
           ui->table_state.show_col_settings = 0;
           nk_popup_close(ctx);
@@ -1815,6 +1830,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             opt_btn_style.text_hover = txt;
             opt_btn_style.text_active = txt;
           }
+          opt_btn_style.rounding = 4.0f;
 
           if (is_selected) {
             // Highlight selected option
