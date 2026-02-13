@@ -212,6 +212,16 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   TableData *td = &block->data.table;
   AslanTable *tbl = td->columnar;
+
+  // --- Style Save State (for Global Restoration) ---
+  const struct nk_user_font *old_table_font = ctx->style.font;
+  struct nk_style_item old_edit_normal = ctx->style.edit.normal;
+  struct nk_style_item old_edit_hover = ctx->style.edit.hover;
+  struct nk_style_item old_edit_active = ctx->style.edit.active;
+  struct nk_vec2 old_window_padding = ctx->style.window.padding;
+  struct nk_vec2 old_group_padding = ctx->style.window.group_padding;
+  struct nk_vec2 old_window_spacing = ctx->style.window.spacing;
+  struct nk_vec2 old_button_padding = ctx->style.button.padding;
   // printf("[DEBUG] Render Table %u. Tbl: %p, Rows: %zu\n", block->id,
   // (void*)tbl, tbl ? tbl->row_count : 0);
 
@@ -308,7 +318,6 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     // Set Inter font for the entire table block - Manual save/restore to avoid
     // stack issues
-    const struct nk_user_font *old_table_font = ctx->style.font;
     if (ui->font_inter) {
       nk_style_set_font(ctx, &ui->font_inter->handle);
     }
@@ -329,19 +338,12 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     // Save and Push Global Table Styles (Zero Padding/Spacing for "Simple
     // Grid")
-    struct nk_style_item old_edit_normal = ctx->style.edit.normal;
-    struct nk_style_item old_edit_hover = ctx->style.edit.hover;
-    struct nk_style_item old_edit_active = ctx->style.edit.active;
     ctx->style.edit.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
     ctx->style.edit.hover = nk_style_item_color(nk_rgba(0, 0, 0, 0));
     ctx->style.edit.active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
     ctx->style.edit.border = 0.0f;
     ctx->style.edit.padding = nk_vec2(6, 4); // Padding for interactivity
 
-    struct nk_vec2 old_window_padding = ctx->style.window.padding;
-    struct nk_vec2 old_group_padding = ctx->style.window.group_padding;
-    struct nk_vec2 old_window_spacing = ctx->style.window.spacing;
-    struct nk_vec2 old_button_padding = ctx->style.button.padding;
     ctx->style.window.padding = nk_vec2(0, 0);
     ctx->style.window.group_padding = nk_vec2(0, 0);
     ctx->style.window.spacing = nk_vec2(0, 0);
@@ -1262,12 +1264,14 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                      border_color);
 
       nk_layout_row_end(ctx);
+      nk_group_end(ctx);
     }
 
-    nk_group_end(ctx);
+    // =========================================================================
+    // GLOBAL RESTORATION (Outside of group and conditional blocks)
+    // =========================================================================
 
     // Restore Global Table Styles (MUST match push/save at lines 311-344)
-    // They are in scope because we are STILL inside the overall if(tbl) block
     nk_style_pop_vec2(ctx);
 
     ctx->style.edit.normal = old_edit_normal;
@@ -1281,6 +1285,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
     ctx->style.window.spacing = old_window_spacing;
     ctx->style.button.padding = old_button_padding;
 
+    // Restore font
     // Restore font
     nk_style_set_font(ctx, old_table_font);
   } else {
