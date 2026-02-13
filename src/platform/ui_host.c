@@ -781,11 +781,16 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
       (block->type != BLOCK_TEXT && block->type != BLOCK_HEADING_1);
 
   int show_trash = 1; // Allow deleting any block, including H1
+  int allow_export =
+      (block->type == BLOCK_TABLE || block->type == BLOCK_CANVAS ||
+       block->type == BLOCK_DESIGN);
 
-  // Count buttons: hand + (search if table) + (fullscreen if allowed) + (trash
-  // if not H1)
+  // Count buttons: hand + (search if table) + (export if allowed) + (fullscreen
+  // if allowed) + (trash if not H1)
   int n = 1; // hand always
   if (block->type == BLOCK_TABLE)
+    n++;
+  if (allow_export)
     n++;
   if (allow_fullscreen)
     n++;
@@ -872,7 +877,16 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
     }
   }
 
-  // 3. Fullscreen icon
+  // 3. Export icon
+  if (allow_export) {
+    OVERLAY_ICON_BTN(ICON_EXPORT, strlen(ICON_EXPORT));
+    if (_btn_clicked) {
+      ASLAN_DEBUG("Export requested for block %u (Type: %d)", block->id,
+                  block->type);
+    }
+  }
+
+  // 4. Fullscreen icon
   if (allow_fullscreen) {
     if (is_expanded) {
       OVERLAY_ICON_BTN(ICON_FULLSCREEN_EXIT, strlen(ICON_FULLSCREEN_EXIT));

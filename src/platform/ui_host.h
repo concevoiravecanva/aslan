@@ -513,6 +513,7 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 
 // Table extras
 #define ICON_SEARCH "\xEF\x83\x91"            // ri-search-line
+#define ICON_EXPORT "\xEF\x90\xB6"            // \uf436
 #define ICON_EXPAND_FULLSCREEN "\xEF\x90\xB6" // \uf436
 #define ICON_UNCHECK "\xEE\xAD\xA4"           // ri-checkbox-blank-line
 #define ICON_TABLE_LINE "\xEF\x83\xA4"        // ri-table-line
