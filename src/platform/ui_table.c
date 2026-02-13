@@ -330,39 +330,52 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
   if (ui->table_state.active_block_id == block->id &&
       !ui->table_state.is_editing_cell) {
     if (nk_input_is_key_pressed(&ctx->input, NK_KEY_UP)) {
-      ui->table_state.active_row_idx = (ui->table_state.active_row_idx > 0)
-                                           ? ui->table_state.active_row_idx - 1
-                                           : 0;
+      if (ui->table_state.active_row_idx > 0) {
+        ui->table_state.active_row_idx--;
+        ui_request_redraw(ui);
+      }
     }
     if (nk_input_is_key_pressed(&ctx->input, NK_KEY_DOWN)) {
       if (ui->table_state.active_row_idx < view_count_nav - 1) {
         ui->table_state.active_row_idx++;
+        ui_request_redraw(ui);
       }
     }
     if (nk_input_is_key_pressed(&ctx->input, NK_KEY_LEFT)) {
-      ui->table_state.active_col_idx = (ui->table_state.active_col_idx > 0)
-                                           ? ui->table_state.active_col_idx - 1
-                                           : 0;
+      if (ui->table_state.active_col_idx > 0) {
+        ui->table_state.active_col_idx--;
+      } else if (ui->table_state.active_row_idx > 0) {
+        ui->table_state.active_row_idx--;
+        ui->table_state.active_col_idx = (int)tbl->column_count - 1;
+      }
+      ui_request_redraw(ui);
     }
     if (nk_input_is_key_pressed(&ctx->input, NK_KEY_RIGHT)) {
-      ui->table_state.active_col_idx =
-          (ui->table_state.active_col_idx < (int)tbl->column_count - 1)
-              ? ui->table_state.active_col_idx + 1
-              : (int)tbl->column_count - 1;
+      if (ui->table_state.active_col_idx < (int)tbl->column_count - 1) {
+        ui->table_state.active_col_idx++;
+      } else if (ui->table_state.active_row_idx < view_count_nav - 1) {
+        ui->table_state.active_row_idx++;
+        ui->table_state.active_col_idx = 0;
+      }
+      ui_request_redraw(ui);
     }
     // Tab: advance to next cell (wrap to next row)
     if (nk_input_is_key_pressed(&ctx->input, NK_KEY_TAB)) {
-      ui->table_state.active_col_idx++;
-      if (ui->table_state.active_col_idx >= (int)tbl->column_count) {
+      if (ui->table_state.active_col_idx < (int)tbl->column_count - 1) {
+        ui->table_state.active_col_idx++;
+      } else if (ui->table_state.active_row_idx < view_count_nav - 1) {
+        ui->table_state.active_row_idx++;
         ui->table_state.active_col_idx = 0;
-        if (ui->table_state.active_row_idx < view_count_nav - 1) {
-          ui->table_state.active_row_idx++;
-        }
+      } else {
+        ui->table_state.active_col_idx = 0;
+        ui->table_state.active_row_idx = 0;
       }
+      ui_request_redraw(ui);
     }
     // Enter: start editing
     if (nk_input_is_key_pressed(&ctx->input, NK_KEY_ENTER)) {
       ui->table_state.is_editing_cell = 1;
+      ui_request_redraw(ui);
     }
   }
   // Escape: cancel edit mode (works globally while editing)
@@ -986,6 +999,18 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           nk_layout_row_push(ctx, col_widths[c]);
           cell_bounds = nk_widget_bounds(ctx);
 
+          // --- Selection Logic ---
+          if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
+                                              cell_bounds)) {
+            ui->table_state.active_block_id = block->id;
+            ui->active_block_id = block->id;
+            ui->table_state.active_row_idx = (int)v;
+            ui->table_state.active_col_idx = (int)c;
+            ui->table_state.is_editing_cell =
+                0; // Select but don't edit by default
+            ui_request_redraw(ui);
+          }
+
           // Background (with optional column tint)
           {
             struct nk_color cell_bg = current_row_bg;
@@ -1377,8 +1402,15 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             nk_label(ctx, buf, NK_TEXT_LEFT);
             break;
           }
+          } // end switch
+
+          // --- Focus Highlight (Drawn LAST to be on top) ---
+          if (ui->table_state.active_block_id == block->id &&
+              ui->table_state.active_row_idx == (int)v &&
+              ui->table_state.active_col_idx == (int)c) {
+            nk_stroke_rect(canvas, cell_bounds, 0, 2.0f, active_cell_outline);
           }
-        }
+        } // end col loop
 
         // Fill a small empty space for the + column in data rows
         nk_layout_row_push(ctx, add_col_w);
