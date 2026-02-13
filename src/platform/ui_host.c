@@ -1210,7 +1210,9 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
     }
 
     // Click on handle area to initiate drag
-    struct nk_rect handle_area = nk_rect(hx - 4, hy - 4, 20, 26);
+    // Increased hit area for easier grabbing (34x34) and slightly overlapping
+    // block
+    struct nk_rect handle_area = nk_rect(hx - 8, hy - 8, 34, 34);
     if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
         mx >= handle_area.x && mx < handle_area.x + handle_area.w &&
         my >= handle_area.y && my < handle_area.y + handle_area.h &&
@@ -1456,8 +1458,8 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
                            dmy < block_start_y + blk_h + 8) {
                   // BELOW: horizontal line at bottom + highlight strip
                   float bot_y = block_start_y + blk_h;
-                  nk_fill_rect(canvas, nk_rect(bx, bot_y - 2, total_width, 4),
-                               2.0f, drop_line);
+                  nk_fill_rect(canvas, nk_rect(bx, bot_y - 3, total_width, 6),
+                               3.0f, drop_line);
                   nk_fill_rect(canvas,
                                nk_rect(bx, bot_y - blk_h * 0.15f, total_width,
                                        blk_h * 0.15f),
@@ -1586,8 +1588,8 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
                 if (!dragged_in_row) {
                   if (in_x && dmy >= mcol_start_y - 8 && dmy < top_zone) {
                     nk_fill_rect(canvas,
-                                 nk_rect(bx, mcol_start_y - 2, total_width, 4),
-                                 2.0f, drop_line);
+                                 nk_rect(bx, mcol_start_y - 3, total_width, 6),
+                                 3.0f, drop_line);
                     nk_fill_rect(
                         canvas,
                         nk_rect(bx, mcol_start_y, total_width, mcol_h * 0.15f),
@@ -1598,8 +1600,8 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
                   } else if (in_x && dmy >= bot_zone &&
                              dmy < mcol_start_y + mcol_h + 8) {
                     float bot_y = mcol_start_y + mcol_h;
-                    nk_fill_rect(canvas, nk_rect(bx, bot_y - 2, total_width, 4),
-                                 2.0f, drop_line);
+                    nk_fill_rect(canvas, nk_rect(bx, bot_y - 3, total_width, 6),
+                                 3.0f, drop_line);
                     nk_fill_rect(canvas,
                                  nk_rect(bx, bot_y - mcol_h * 0.15f,
                                          total_width, mcol_h * 0.15f),

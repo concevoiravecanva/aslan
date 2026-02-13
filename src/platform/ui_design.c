@@ -110,8 +110,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     // Hardened Input Check: Sync Nuklear input state (only if inside workspace)
     if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
-        ui->mouse_x >= ws_bounds.x && ui->mouse_x < ws_bounds.x + ws_bounds.w &&
-        ui->mouse_y >= ws_bounds.y && ui->mouse_y < ws_bounds.y + ws_bounds.h) {
+        !ui->block_drag.is_active && ui->mouse_x >= ws_bounds.x &&
+        ui->mouse_x < ws_bounds.x + ws_bounds.w && ui->mouse_y >= ws_bounds.y &&
+        ui->mouse_y < ws_bounds.y + ws_bounds.h) {
       ds->mouse_just_pressed = 1;
     }
 
@@ -171,7 +172,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       is_active_design = (ds->active_design_id == block->id);
 
       // Auto-activate if clicked inside WORKSPACE (including toolbar)
-      if (!is_active_design &&
+      if (!is_active_design && !ui->block_drag.is_active &&
           nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
           ui->mouse_x >= ws_bounds.x &&
           ui->mouse_x < ws_bounds.x + ws_bounds.w &&

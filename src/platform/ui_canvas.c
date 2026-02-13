@@ -2212,7 +2212,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           SDL_StopTextInput();
         }
         // Start pan mode automatically if not in pen tool
-        if (cs->tool != CANVAS_TOOL_PEN) {
+        if (cs->tool != CANVAS_TOOL_PEN && !ui->block_drag.is_active) {
           cs->is_panning = 1;
           cs->pan_start_x = ui->mouse_x;
           cs->pan_start_y = ui->mouse_y;
