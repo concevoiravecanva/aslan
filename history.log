@@ -62,3 +62,11 @@ block_delete 1 16
 block_create 1 19 h1
 block_create 1 20 canvas
 -- Session started --
+-- Session started --
+block_delete 1 18
+block_delete 1 20
+block_delete 1 19
+block_create 1 21 table
+-- Session started --
+-- Session started --
+-- Session started --

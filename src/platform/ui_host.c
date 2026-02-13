@@ -885,6 +885,50 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
     }
   }
 
+  // 3b. Expand fullscreen icon for Table and Design
+  if (block->type == BLOCK_TABLE || block->type == BLOCK_DESIGN) {
+    OVERLAY_ICON_BTN(ICON_EXPAND_FULLSCREEN, strlen(ICON_EXPAND_FULLSCREEN));
+    if (_btn_clicked) {
+      if (ui->expanded_block_id == block->id)
+        ui->expanded_block_id = 0;
+      else
+        ui->expanded_block_id = block->id;
+    }
+  }
+
+  // 3b. Expand fullscreen icon for Table and Design
+  if (block->type == BLOCK_TABLE || block->type == BLOCK_DESIGN) {
+    OVERLAY_ICON_BTN(ICON_EXPAND_FULLSCREEN, strlen(ICON_EXPAND_FULLSCREEN));
+    if (_btn_clicked) {
+      if (ui->expanded_block_id == block->id)
+        ui->expanded_block_id = 0;
+      else
+        ui->expanded_block_id = block->id;
+    }
+  }
+
+  // 3b. Expand fullscreen icon for Table and Design
+  if (block->type == BLOCK_TABLE || block->type == BLOCK_DESIGN) {
+    OVERLAY_ICON_BTN(ICON_EXPAND_FULLSCREEN, strlen(ICON_EXPAND_FULLSCREEN));
+    if (_btn_clicked) {
+      if (ui->expanded_block_id == block->id)
+        ui->expanded_block_id = 0;
+      else
+        ui->expanded_block_id = block->id;
+    }
+  }
+
+  // 3b. Expand fullscreen icon for Table and Design
+  if (block->type == BLOCK_TABLE || block->type == BLOCK_DESIGN) {
+    OVERLAY_ICON_BTN(ICON_EXPAND_FULLSCREEN, strlen(ICON_EXPAND_FULLSCREEN));
+    if (_btn_clicked) {
+      if (ui->expanded_block_id == block->id)
+        ui->expanded_block_id = 0;
+      else
+        ui->expanded_block_id = block->id;
+    }
+  }
+
   // 4. Trash icon (All except H1)
   if (show_trash) {
     OVERLAY_ICON_BTN(ICON_DELETE, strlen(ICON_DELETE));
@@ -1536,10 +1580,12 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
                 // struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
                 // nk_fill_rect(...)
 
-                if (nk_group_begin(ctx, grp_name, NK_WINDOW_NO_SCROLLBAR)) {
+                if (nk_group_begin(ctx, grp_name, 0)) {
                   if (row_blocks[col]) {
+                    // Reduce width to account for group padding (8px * 2 =
+                    // 16px)
                     ui_render_block(ui, engine, ctx, page, row_blocks[col],
-                                    col_w - 36);
+                                    col_w - 16);
                   }
                   nk_group_end(ctx);
                 }

@@ -457,8 +457,8 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 // Remix Icon Codepoints (subset)
 // -----------------------------------------------------------------------------
 
-#define ICON_TEXT "\xEE\xB4\x8F"   // ri-file-text-line
-#define ICON_H1 "\xEE\xB7\xA6"     // ri-h-1
+#define ICON_TEXT "\xEF\x88\x81"   // \uf201
+#define ICON_H1 "\xEE\xB7\xA6"     // \uede6
 #define ICON_CODE "\xEE\xBA\xA9"   // ri-code-line
 #define ICON_TABLE "\xEF\x87\x9A"  // ri-table-2
 #define ICON_CANVAS "\xEE\xA9\xBA" // ri-artboard-2-line
@@ -472,7 +472,7 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_EXPAND "\xEE\xA9\x8B"          // ri-arrow-down-s-line
 #define ICON_COLLAPSE "\xEE\xA9\xB8"        // ri-arrow-up-s-line
 #define ICON_HOME "\xEE\xB8\x9D"            // ri-home-4-line
-#define ICON_LUA "\xEE\xAD\xA4"             // ri-checkbox-blank-line
+#define ICON_LUA "\xEE\xAE\xA9"             // \ueba9
 #define ICON_CHART "\xEE\xBF\xBA"           // ri-pie-chart-2-line
 #define ICON_FULLSCREEN "\xEE\xB6\x9C"      // ri-fullscreen-line
 #define ICON_FULLSCREEN_EXIT "\xEE\xB6\x9A" // ri-fullscreen-exit-line
@@ -488,29 +488,29 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_MARKER "\xEE\xBD\x9D"    // ri-pen-nib-fill
 #define ICON_TEXT_TOOL "\xEE\x87\x98" // ri-text (text tool)
 #define ICON_STICKY "\xEF\x83\xBC"    // ri-sticky-note-line (sticky note)
-#define ICON_HAND "\xEE\xB7\xBB"      // ri-hand (pan tool)
+#define ICON_HAND "\xEF\x9A\x87"      // \uf687
 #define ICON_IMAGE "\xEE\xB9\x85"     // ri-image-2-line
 #define ICON_MAGIC "\xEE\xBF\x9E"     // ri-pen-nib-line
 
 // Table column type icons
-#define ICON_COL_TEXT                                                          \
-  "\xEE\xB4\x8F" // ri-file-text-line (matching working ICON_TEXT)
-#define ICON_COL_NUMBER "\xEE\xB7\xA4"   // ri-hashtag
-#define ICON_COL_CHECKBOX "\xEE\xAD\xB6" // ri-checkbox-line
+#define ICON_COL_TEXT "\xEF\x88\x81"     // \uf201
+#define ICON_COL_NUMBER "\xEE\xBE\xAA"   // \uefaa
+#define ICON_COL_CHECKBOX "\xEE\xAE\x85" // \ueb85
 #define ICON_CHECK_FILL "\xEE\xAD\xB5"   // ri-checkbox-fill
-#define ICON_COL_SELECT "\xEE\xA9\x8B"   // ri-arrow-down-s-line
-#define ICON_COL_DATE "\xEE\xAA\xB2"     // ri-calendar-line
+#define ICON_COL_SELECT "\xEF\x91\x8B"   // \uf44b
+#define ICON_COL_DATE "\xEE\xAC\xA7"     // \ueb27
 #define ICON_COL_RELATION "\xEE\xB0\xB5" // ri-links-line
-#define ICON_COL_FORMULA "\xEE\xB6\xBA"  // ri-functions
+#define ICON_COL_FORMULA "\xEF\x93\x9C"  // \uf4dc
 
 // Sort icons
 #define ICON_SORT_ASC "\xEE\xA9\xB8"  // ri-arrow-up-s-line
 #define ICON_SORT_DESC "\xEE\xA9\x8B" // ri-arrow-down-s-line
 
 // Table extras
-#define ICON_SEARCH "\xEF\x83\x91"     // ri-search-line
-#define ICON_UNCHECK "\xEE\xAD\xA4"    // ri-checkbox-blank-line
-#define ICON_TABLE_LINE "\xEF\x83\xA4" // ri-table-line
-#define ICON_ADD_LINE "\xEE\xA8\x8E"   // ri-add-line
+#define ICON_SEARCH "\xEF\x83\x91"            // ri-search-line
+#define ICON_EXPAND_FULLSCREEN "\xEF\x90\xB6" // \uf436
+#define ICON_UNCHECK "\xEE\xAD\xA4"           // ri-checkbox-blank-line
+#define ICON_TABLE_LINE "\xEF\x83\xA4"        // ri-table-line
+#define ICON_ADD_LINE "\xEE\xA8\x8E"          // ri-add-line
 
 #endif // UI_HOST_H
