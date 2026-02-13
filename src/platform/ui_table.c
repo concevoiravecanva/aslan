@@ -488,6 +488,47 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                      hdr_bounds.y + hdr_bounds.h - 1, 1.0f, border_color);
       nk_label_colored(ctx, "#", NK_TEXT_CENTERED, header_icon_col);
 
+      // --- Keyboard handling for inline rename ---
+      if (ui->table_state.renaming_col_idx >= 0 &&
+          ui->table_state.active_block_id == block->id) {
+        int ren_col = ui->table_state.renaming_col_idx;
+        struct nk_input *in = &ctx->input;
+        // Enter → commit rename
+        if (nk_input_is_key_pressed(in, NK_KEY_ENTER)) {
+          if (ren_col >= 0 && ren_col < (int)tbl->column_count) {
+            aslan_table_rename_column(tbl, ren_col,
+                                      ui->table_state.rename_buffer);
+          }
+          ui->table_state.renaming_col_idx = -1;
+          ui->table_state.selected_col_idx = -1;
+          ui->table_state.rename_buffer[0] = '\0';
+          ui_request_redraw(ui);
+        }
+        // Escape → cancel rename
+        else if (nk_input_is_key_pressed(in, NK_KEY_TEXT_UNDO)) {
+          ui->table_state.renaming_col_idx = -1;
+          ui->table_state.selected_col_idx = -1;
+          ui->table_state.rename_buffer[0] = '\0';
+          ui_request_redraw(ui);
+        }
+        // Backspace → delete last char
+        else if (nk_input_is_key_pressed(in, NK_KEY_BACKSPACE)) {
+          size_t len = strlen(ui->table_state.rename_buffer);
+          if (len > 0)
+            ui->table_state.rename_buffer[len - 1] = '\0';
+          ui_request_redraw(ui);
+        }
+        // Typed characters → append to buffer
+        else if (in->keyboard.text_len > 0) {
+          size_t cur_len = strlen(ui->table_state.rename_buffer);
+          for (int k = 0; k < in->keyboard.text_len && cur_len < 62; k++) {
+            ui->table_state.rename_buffer[cur_len++] = in->keyboard.text[k];
+          }
+          ui->table_state.rename_buffer[cur_len] = '\0';
+          ui_request_redraw(ui);
+        }
+      }
+
       // Column headers
       for (size_t c = 0; c < col_count; c++) {
         nk_layout_row_push(ctx, col_widths[c]);
@@ -543,16 +584,15 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         struct nk_rect icon_zone =
             nk_rect(hdr_bounds.x, hdr_bounds.y, 28, hdr_bounds.h);
 
-        // Sort: Rest of the cell MINUS resize area
-        // Reduce width by 10px to be safe from right edge
-        struct nk_rect sort_zone = nk_rect(
+        // Text: Rest of the cell MINUS resize area
+        struct nk_rect text_zone = nk_rect(
             hdr_bounds.x + 28, hdr_bounds.y,
             (hdr_bounds.w > 38) ? (hdr_bounds.w - 38) : 0, hdr_bounds.h);
 
         int clicked_icon = nk_input_is_mouse_click_in_rect(
             &ctx->input, NK_BUTTON_LEFT, icon_zone);
-        int clicked_sort = nk_input_is_mouse_click_in_rect(
-            &ctx->input, NK_BUTTON_LEFT, sort_zone);
+        int clicked_text = nk_input_is_mouse_click_in_rect(
+            &ctx->input, NK_BUTTON_LEFT, text_zone);
 
         if (!is_hovering_resize && ui->table_state.resizing_col < 0) {
           // Consume the widget slot (invisible button for layout)
@@ -569,8 +609,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
           // CLICK-TO-REFERENCE: If formula bar is active, insert column name
           if (ui->table_state.is_editing_formula &&
-              (clicked_sort || clicked_icon)) {
-            // Insert [ColumnName] into formula buffer
+              (clicked_text || clicked_icon)) {
             char ref[128];
             snprintf(ref, sizeof(ref), "[%s]", tbl->columns[c].name);
             size_t buf_len = strlen(ui->table_state.formula_buffer);
@@ -579,12 +618,12 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                 sizeof(ui->table_state.formula_buffer) - 1) {
               strcat(ui->table_state.formula_buffer, ref);
             }
-            // Skip normal click behavior
           } else {
-            // Normal click behavior (sort or settings)
+            // --- New interaction model ---
 
-            // Sort on text zone click
-            if (clicked_sort) {
+            // A) Click on ICON → Sort + Select column (show X)
+            if (clicked_icon) {
+              // Toggle sort: ASC → DESC → OFF
               if (tbl->sort_column == (int)c) {
                 if (tbl->sort_ascending)
                   aslan_table_sort(tbl, (int)c, false);
@@ -593,26 +632,23 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               } else {
                 aslan_table_sort(tbl, (int)c, true);
               }
+              ui->table_state.selected_col_idx = (int)c;
+              ui->table_state.renaming_col_idx = -1; // not renaming
+              ui->table_state.active_block_id = block->id;
+              ui_request_redraw(ui);
             }
 
-            // Settings popup on icon click
-            if (clicked_icon) {
-              ui->table_state.active_block_id = block->id;
-              ui->active_block_id = block->id;
-              ui->table_state.active_col_idx = (int)c;
-              ui->table_state.show_col_settings =
-                  !ui->table_state.show_col_settings;
-              ui->table_state.menu_pos_x = hdr_bounds.x;
-              ui->table_state.menu_pos_y = hdr_bounds.y;
-              strncpy(ui->table_state.rename_buffer, tbl->columns[c].name, 63);
-              ui->table_state.rename_buffer[63] = '\0';
-              // Init formula buffer for FORMULA / FORMULA_LUA columns
-              const char *f = aslan_table_get_formula(tbl, (int)c);
-              strncpy(ui->table_state.formula_buffer, f ? f : "",
-                      sizeof(ui->table_state.formula_buffer) - 1);
+            // B) Click on NAME → Inline rename + Select column (show X)
+            if (clicked_text) {
+              ui->table_state.selected_col_idx = (int)c;
+              ui->table_state.renaming_col_idx = (int)c;
+              strncpy(ui->table_state.rename_buffer, tbl->columns[c].name,
+                      sizeof(ui->table_state.rename_buffer) - 1);
               ui->table_state
-                  .formula_buffer[sizeof(ui->table_state.formula_buffer) - 1] =
+                  .rename_buffer[sizeof(ui->table_state.rename_buffer) - 1] =
                   '\0';
+              ui->table_state.active_block_id = block->id;
+              ui_request_redraw(ui);
             }
           }
         }
@@ -621,14 +657,14 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
         const char *icon = table_col_type_icon(tbl->columns[c].type);
 
-        // Highlight cell if hovering (manual highlight for resize zone)
+        // Highlight cell if hovering
         if (is_hovering_cell && ui->table_state.resizing_col < 0) {
           struct nk_color hdr_hover =
               ui->dark_mode ? nk_rgba(255, 255, 255, 15) : nk_rgba(0, 0, 0, 8);
           nk_fill_rect(canvas, hdr_bounds, 0, hdr_hover);
         }
 
-        // Icon & Text
+        // Draw Icon
         if (ui->font_icons) {
           nk_style_set_font(ctx, &ui->font_icons->handle);
           nk_draw_text(canvas,
@@ -637,25 +673,56 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                        nk_rgba(0, 0, 0, 0), header_icon_col);
           nk_style_set_font(ctx, &ui->font_inter->handle);
         }
-        nk_draw_text(
-            canvas,
-            nk_rect(hdr_bounds.x + 32, hdr_bounds.y + 6, hdr_bounds.w - 36, 20),
-            tbl->columns[c].name, (int)strlen(tbl->columns[c].name),
-            &ui->font_inter->handle, nk_rgba(0, 0, 0, 0), header_text_col);
 
-        // Sort indicator
-        if (tbl->sort_column == (int)c) {
-          const char *s_icon =
-              tbl->sort_ascending ? ICON_SORT_ASC : ICON_SORT_DESC;
-          if (ui->font_icons) {
-            nk_style_set_font(ctx, &ui->font_icons->handle);
-            nk_draw_text(canvas,
-                         nk_rect(hdr_bounds.x + hdr_bounds.w - 20,
-                                 hdr_bounds.y + 6, 16, 20),
-                         s_icon, (int)strlen(s_icon), &ui->font_icons->handle,
-                         nk_rgba(0, 0, 0, 0), COLOR_ACCENT);
-            nk_style_set_font(ctx, &ui->font_inter->handle);
+        // Draw column name OR inline edit field
+        if (ui->table_state.renaming_col_idx == (int)c &&
+            ui->table_state.active_block_id == block->id) {
+          // --- INLINE RENAME MODE ---
+          // Use nk_draw_text to show the rename buffer content in an edit-like
+          // way We draw a simple text + underline to indicate editing
+          nk_draw_text(canvas,
+                       nk_rect(hdr_bounds.x + 32, hdr_bounds.y + 6,
+                               hdr_bounds.w - 40, 20),
+                       ui->table_state.rename_buffer,
+                       (int)strlen(ui->table_state.rename_buffer),
+                       &ui->font_inter->handle, nk_rgba(0, 0, 0, 0),
+                       header_text_col);
+          // Underline to show editing state
+          nk_stroke_line(
+              canvas, hdr_bounds.x + 32, hdr_bounds.y + 26,
+              hdr_bounds.x + 32 +
+                  ((hdr_bounds.w - 44) < 100 ? (hdr_bounds.w - 44) : 100),
+              hdr_bounds.y + 26, 1.0f, COLOR_ACCENT);
+        } else {
+          // --- DISPLAY MODE ---
+          nk_draw_text(canvas,
+                       nk_rect(hdr_bounds.x + 32, hdr_bounds.y + 6,
+                               hdr_bounds.w - 36, 20),
+                       tbl->columns[c].name, (int)strlen(tbl->columns[c].name),
+                       &ui->font_inter->handle, nk_rgba(0, 0, 0, 0),
+                       header_text_col);
+        }
+
+        // Delete "X" icon — shown when this column is selected
+        if (ui->table_state.selected_col_idx == (int)c &&
+            ui->table_state.active_block_id == block->id) {
+          struct nk_rect del_rect = nk_rect(hdr_bounds.x + hdr_bounds.w - 18,
+                                            hdr_bounds.y + 2, 16, 16);
+
+          // Check click on X → delete column
+          if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
+                                              del_rect)) {
+            block_table_delete_col(block, (int)c);
+            ui->table_state.selected_col_idx = -1;
+            ui->table_state.renaming_col_idx = -1;
+            ui_request_redraw(ui);
+            nk_group_end(ctx);
+            return; // exit to avoid crash on shifted indices
           }
+
+          // Draw the X
+          nk_draw_text(canvas, del_rect, "x", 1, &ui->font_inter->handle,
+                       nk_rgba(0, 0, 0, 0), nk_rgb(180, 80, 80));
         }
 
         // Divider & Resize Handle highlight
@@ -715,6 +782,20 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           nk_rgb(45, 127, 249); // Airtable blue
 
       for (size_t v = 0; v < (size_t)max_rows; v++) {
+        // Deselect column header when user interacts with data cells
+        if (v == 0 && nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
+            ui->table_state.selected_col_idx >= 0 &&
+            ui->table_state.active_block_id == block->id) {
+          // Commit any pending rename
+          int ren = ui->table_state.renaming_col_idx;
+          if (ren >= 0 && ren < (int)tbl->column_count &&
+              ui->table_state.rename_buffer[0] != '\0') {
+            aslan_table_rename_column(tbl, ren, ui->table_state.rename_buffer);
+          }
+          ui->table_state.selected_col_idx = -1;
+          ui->table_state.renaming_col_idx = -1;
+          ui->table_state.rename_buffer[0] = '\0';
+        }
         uint64_t row_id = aslan_table_view_row_id(tbl, (int)v);
         if (row_id == 0)
           continue;

@@ -31,14 +31,14 @@
 // -----------------------------------------------------------------------------
 
 typedef enum {
-  ASLAN_COL_TEXT = 0, // char* - Free text (names, descriptions)
-  ASLAN_COL_NUMBER,   // double - Decimal/integer (prices, quantities)
-  ASLAN_COL_CHECKBOX, // uint8_t - Done/Not done, Paid/Unpaid
-  ASLAN_COL_SELECT,   // int32_t - Index into options array (categories)
-  ASLAN_COL_DATE,     // int64_t - Unix timestamp (for timeline linking)
-  ASLAN_COL_RELATION, // uint64_t - Row ID reference (same or other table)
-  ASLAN_COL_FORMULA,      // double - C shunting-yard parser (simple math)
-  ASLAN_COL_FORMULA_LUA,  // char** - Lua expression (advanced logic, cached)
+  ASLAN_COL_TEXT = 0,    // char* - Free text (names, descriptions)
+  ASLAN_COL_NUMBER,      // double - Decimal/integer (prices, quantities)
+  ASLAN_COL_CHECKBOX,    // uint8_t - Done/Not done, Paid/Unpaid
+  ASLAN_COL_SELECT,      // int32_t - Index into options array (categories)
+  ASLAN_COL_DATE,        // int64_t - Unix timestamp (for timeline linking)
+  ASLAN_COL_RELATION,    // uint64_t - Row ID reference (same or other table)
+  ASLAN_COL_FORMULA,     // double - C shunting-yard parser (simple math)
+  ASLAN_COL_FORMULA_LUA, // char** - Lua expression (advanced logic, cached)
   ASLAN_COL_TYPE_COUNT
 } AslanColumnType;
 
@@ -152,8 +152,9 @@ struct AslanTable {
   size_t filtered_count; // Rows passing filter (= active_count if no filter)
 
   // Lua formula dirty tracking (generation counter)
-  uint64_t data_generation;     // Incremented on any data change
-  uint64_t lua_eval_generation; // Last generation when Lua formulas were evaluated
+  uint64_t data_generation; // Incremented on any data change
+  uint64_t
+      lua_eval_generation; // Last generation when Lua formulas were evaluated
 
   // AOF logging callback (set externally)
   void (*log_callback)(const char *cmd, void *userdata);
@@ -194,6 +195,10 @@ int aslan_table_find_column(const AslanTable *table, const char *name);
 
 // Get column type
 AslanColumnType aslan_table_column_type(const AslanTable *table, int col_idx);
+
+// Rename a column
+bool aslan_table_rename_column(AslanTable *table, int col_idx,
+                               const char *new_name);
 
 // -----------------------------------------------------------------------------
 // Row Management

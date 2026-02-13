@@ -348,6 +348,8 @@ typedef struct UIHost {
     char option_buffer[64];   // Buffer for adding new Select options
     char date_buffer[32];     // Persistent buffer for date editing
     int date_field_active;    // Trigger focus on first frame
+    int selected_col_idx;     // Column header selected (for delete X)
+    int renaming_col_idx;     // Column header being renamed inline
     int resizing_col;         // Column being resized (-1 = none)
     float resize_start_x;     // Mouse X at resize start
     float resize_start_w;     // Column width at resize start

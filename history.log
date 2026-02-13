@@ -96,3 +96,10 @@ block_create 1 31 table
 -- Session started --
 block_create 1 32 canvas
 -- Session started --
+-- Session started --
+block_delete 1 30
+block_delete 1 31
+block_delete 1 32
+block_create 1 33 table
+block_table_col_width 1 33 1 195
+block_table_col_width 1 33 1 179

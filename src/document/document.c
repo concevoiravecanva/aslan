@@ -834,7 +834,6 @@ void block_table_init(Block *block) {
     return;
 
   int rows = DEFAULT_TABLE_ROWS;
-  int cols = DEFAULT_TABLE_COLS;
 
   TableData *td = &block->data.table;
 
@@ -848,14 +847,9 @@ void block_table_init(Block *block) {
   td->columnar = aslan_table_create(block->id, "Table");
 
   if (td->columnar) {
-    // Add default columns
-    for (int c = 0; c < cols; c++) {
-      char col_name[32];
-      snprintf(col_name, sizeof(col_name), "Column %d", c + 1);
-      // First column is Text, second is Number, rest are Text
-      AslanColumnType type = (c == 1) ? ASLAN_COL_NUMBER : ASLAN_COL_TEXT;
-      aslan_table_add_column(td->columnar, col_name, type);
-    }
+    // Default 2 columns: Name (Text) and Count (Number)
+    aslan_table_add_column(td->columnar, "Name", ASLAN_COL_TEXT);
+    aslan_table_add_column(td->columnar, "Count", ASLAN_COL_NUMBER);
 
     // Add initial rows
     for (int r = 0; r < rows; r++) {
@@ -1806,8 +1800,8 @@ void doc_save_aof(const Document *doc, FILE *fp) {
             if ((acol->type == ASLAN_COL_FORMULA ||
                  acol->type == ASLAN_COL_FORMULA_LUA) &&
                 acol->formula && acol->formula[0]) {
-              fprintf(fp, "block_table_col_formula %u %u %zu ", page->id,
-                      b->id, ci);
+              fprintf(fp, "block_table_col_formula %u %u %zu ", page->id, b->id,
+                      ci);
               escape_string(fp, acol->formula);
               fprintf(fp, "\n");
             }

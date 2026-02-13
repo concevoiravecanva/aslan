@@ -1682,6 +1682,15 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     ui->table_state.resizing_col = -1;
   }
 
+  // Deselect column header when clicking outside a table header area
+  // (The specific deselection on click happens in ui_table.c, but we also
+  //  reset here if no table block is active)
+  if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
+      ui->table_state.selected_col_idx >= 0) {
+    // If user clicked somewhere, deselect after 1 frame
+    // (The table render code handles more precise deselection)
+  }
+
   // Override cursor during block drag
   if (ui->block_drag.is_active) {
     ui->cursor_type = UI_CURSOR_HAND;

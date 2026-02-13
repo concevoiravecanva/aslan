@@ -337,6 +337,16 @@ AslanColumnType aslan_table_column_type(const AslanTable *table, int col_idx) {
   return table->columns[col_idx].type;
 }
 
+bool aslan_table_rename_column(AslanTable *table, int col_idx,
+                               const char *new_name) {
+  if (!table || col_idx < 0 || col_idx >= (int)table->column_count || !new_name)
+    return false;
+  strncpy(table->columns[col_idx].name, new_name,
+          sizeof(table->columns[col_idx].name) - 1);
+  table->columns[col_idx].name[sizeof(table->columns[col_idx].name) - 1] = '\0';
+  return true;
+}
+
 // -----------------------------------------------------------------------------
 // Row Management
 // -----------------------------------------------------------------------------
