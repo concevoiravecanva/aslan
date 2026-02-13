@@ -1266,13 +1266,15 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     nk_group_end(ctx);
 
-    // Restore Global Styles
-    nk_style_pop_vec2(ctx); // Pops ctx->style.text.padding
+    // Restore Global Table Styles (MUST match push/save at lines 311-344)
+    // They are in scope because we are STILL inside the overall if(tbl) block
+    nk_style_pop_vec2(ctx);
+
     ctx->style.edit.normal = old_edit_normal;
     ctx->style.edit.hover = old_edit_hover;
     ctx->style.edit.active = old_edit_active;
-    ctx->style.edit.border = 0.0f; // Ensure border is reset if it was changed
-    ctx->style.edit.padding = nk_vec2(6, 4); // Default edit padding
+    ctx->style.edit.border = 0.0f;
+    ctx->style.edit.padding = nk_vec2(6, 4);
 
     ctx->style.window.padding = old_window_padding;
     ctx->style.window.group_padding = old_group_padding;

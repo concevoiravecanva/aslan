@@ -1309,7 +1309,6 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
               // Single block row: wrap in elegant card
               // --- Clean Coda-style block rendering (no card wrapping) ---
               // Transparent background: blocks live directly on the page
-              float block_start_y = nk_layout_widget_bounds(ctx).y;
 
               struct nk_color card_bg =
                   ui->dark_mode ? nk_rgb(25, 25, 28) : nk_rgb(255, 255, 255);
@@ -1349,6 +1348,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
               }
 
               nk_layout_row_dynamic(ctx, card_h, 1);
+              float block_start_y = nk_layout_widget_bounds(ctx).y;
               char grp_name[64];
               snprintf(grp_name, sizeof(grp_name), "single_card_%u",
                        row_blocks[0]->id);
