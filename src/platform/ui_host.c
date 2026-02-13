@@ -215,9 +215,9 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
     ui->font_title = nk_font_atlas_add_default(ui->atlas, 34.0f, NULL);
 
   ui->font_h1 =
-      nk_font_atlas_add_from_file(ui->atlas, inter_bold_path, 28.0f, NULL);
+      nk_font_atlas_add_from_file(ui->atlas, inter_bold_path, 24.0f, NULL);
   if (!ui->font_h1)
-    ui->font_h1 = nk_font_atlas_add_default(ui->atlas, 28.0f, NULL);
+    ui->font_h1 = nk_font_atlas_add_default(ui->atlas, 24.0f, NULL);
 
   // Load variable sizes for Text tool
   float sizes[] = {12.0f, 14.0f, 16.0f, 20.0f, 24.0f,

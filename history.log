@@ -46,3 +46,19 @@ block_create 1 12 text
 block_delete 1 11
 block_delete 1 4
 block_delete 1 12
+block_create 1 13 h1
+block_create 1 14 text
+block_create 1 15 table
+-- Session started --
+block_delete 1 15
+block_delete 1 14
+block_delete 1 13
+block_create 1 16 text
+block_create 1 17 h1
+block_create 1 18 table
+-- Session started --
+block_delete 1 17
+block_delete 1 16
+block_create 1 19 h1
+block_create 1 20 canvas
+-- Session started --

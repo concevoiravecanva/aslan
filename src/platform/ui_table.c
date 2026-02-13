@@ -380,22 +380,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ui->table_state.active_block_id = block->id;
     }
 
-    // Draw rounded container background & outer border (Airtable card style)
-    {
-      struct nk_command_buffer *bg_canvas = nk_window_get_canvas(ctx);
-      struct nk_color container_bg =
-          ui->dark_mode ? nk_rgb(28, 29, 33) : nk_rgb(255, 255, 255);
-      // Subtle shadow
-      nk_fill_rect(bg_canvas,
-                   nk_rect(table_bounds.x + 1, table_bounds.y + 2,
-                           table_bounds.w - 2, table_bounds.h),
-                   table_rounding, nk_rgba(0, 0, 0, ui->dark_mode ? 25 : 10));
-      // Background fill
-      nk_fill_rect(bg_canvas, table_bounds, table_rounding, container_bg);
-      // Outer border
-      nk_stroke_rect(bg_canvas, table_bounds, table_rounding, 1.0f,
-                     table_outer_border);
-    }
+    // Background rendering removed for clean Coda-style appearance
 
     nk_style_push_vec2(ctx, &ctx->style.text.padding, nk_vec2(4, 2));
 

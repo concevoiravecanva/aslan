@@ -473,12 +473,12 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_COLLAPSE "\xEE\xA9\xB8"        // ri-arrow-up-s-line
 #define ICON_HOME "\xEE\xB8\x9D"            // ri-home-4-line
 #define ICON_LUA "\xEE\xAD\xA4"             // ri-checkbox-blank-line
-#define ICON_CHART "\xEE\xA9\xB1"           // ri-bar-chart-fill (placeholder)
+#define ICON_CHART "\xEE\xBF\xBA"           // ri-pie-chart-2-line
 #define ICON_FULLSCREEN "\xEE\xB6\x9C"      // ri-fullscreen-line
 #define ICON_FULLSCREEN_EXIT "\xEE\xB6\x9A" // ri-fullscreen-exit-line
 #define ICON_EYE "\xEE\xB5\x9F"             // ri-eye-line
 #define ICON_EYE_OFF "\xEE\xB5\xA3"         // ri-eye-off-line
-#define ICON_MORE "\xEE\xBE\x93"            // ri-more-line
+#define ICON_MORE "\xEE\xAB\xA3"            // ri-settings-4-line
 #define ICON_SETTINGS "\xEE\xBD\x92"        // ri-settings-3-line
 
 // Canvas tools icons
