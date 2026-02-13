@@ -442,8 +442,8 @@ void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
                        int win_w);
 void ui_render_bottom_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
                           int win_w, int win_h);
-void ui_render_home(UIHost *ui, Engine *engine, struct nk_context *ctx,
-                    int win_w, int win_h);
+void ui_render_bottom_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
+                          int win_w, int win_h);
 void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 
 // -----------------------------------------------------------------------------

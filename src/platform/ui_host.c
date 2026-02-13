@@ -166,7 +166,7 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
     return NULL;
 
   ui->L = L;
-  ui->screen = 0; // Start in Dashboard
+  ui->screen = 1; // Start in Editor (Skip Dashboard)
   ui->font_size_px = 16.0f;
   ui->sidebar_mode = 0; // Standard sidebar (Properties/Layers)
 
@@ -1197,13 +1197,8 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
   // Top bar removed (now floating at bottom)
 
-  // Home or Content area
-  if (ui->screen == 0) {
-    // Hide editor windows when on home screen
-    nk_window_show(ctx, "EditorMain", NK_HIDDEN);
-    nk_window_show(ctx, "ContentGroup", NK_HIDDEN);
-    ui_render_home(ui, engine, ctx, win_w, win_h);
-  } else if (ui->expanded_block_id != 0) {
+  // Main content area - always Editor
+  if (ui->expanded_block_id != 0) {
     // Expanded block view
     if (nk_begin(ctx, "ContentFull", nk_rect(0, 0, (float)win_w, (float)win_h),
                  NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
@@ -1219,9 +1214,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     }
     nk_end(ctx);
   } else {
-    // Normal editor view - needs a window context for layout calls
-    // Show editor windows (re-enable after hiding on home)
-    nk_window_show(ctx, "EditorMain", NK_SHOWN);
+    // Normal editor view
     if (nk_begin(ctx, "EditorMain", nk_rect(0, 0, (float)win_w, (float)win_h),
                  NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
       const float padding = 10.0f;

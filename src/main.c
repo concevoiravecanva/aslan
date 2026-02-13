@@ -266,12 +266,18 @@ int main(int argc, char **argv) {
     fclose(hf);
   }
 
-  if (!history_has_content && engine->doc->page_count == 0) {
-    engine_execute_command(engine, "page_create 1 \"Welcome Note\"");
+  if (engine->doc->page_count == 0) {
+    engine_execute_command(engine, "page_create 1 \"New Note\"");
     engine_execute_command(engine, "block_create 1 1 h1");
-    engine_execute_command(engine, "block_text 1 1 \"Welcome to Aslan\"");
+    engine_execute_command(engine, "block_text 1 1 \"New Note\"");
     engine_execute_command(engine, "block_create 1 2 text");
     engine_execute_command(engine, "block_text 1 2 \"\"");
+    engine_execute_command(engine, "page_activate 1");
+  } else {
+    // Ensure a page is active if history was loaded
+    if (!doc_page_get_active(engine->doc)) {
+      engine_execute_command(engine, "page_activate 1");
+    }
   }
 
   // 7. Load plugins
