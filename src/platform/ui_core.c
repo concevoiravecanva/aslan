@@ -204,18 +204,21 @@ void ui_apply_theme(UIHost *ui) {
   struct nk_style *s = &ctx->style;
 
   if (ui->dark_mode) {
-    // Dark theme colors
-    struct nk_color bg = nk_rgb(30, 30, 35);
+    // Dark theme colors (Coda-style)
+    struct nk_color bg = nk_rgb(25, 25, 28);
     struct nk_color text = nk_rgb(230, 230, 235);
-    struct nk_color border = nk_rgb(55, 55, 65);
-    struct nk_color button = nk_rgb(50, 50, 58);
-    struct nk_color button_hover = nk_rgb(60, 60, 70);
+    struct nk_color border = nk_rgb(48, 48, 55);
+    struct nk_color button = nk_rgb(42, 42, 48);
+    struct nk_color button_hover = nk_rgb(55, 55, 62);
     struct nk_color accent = nk_rgb(55, 120, 250);
 
     s->window.background = bg;
     s->window.fixed_background = nk_style_item_color(bg);
-    s->window.border_color = bg; // Match background to hide borders
+    s->window.border_color = bg;
     s->window.border = 0;
+    s->window.spacing = nk_vec2(0, 6);
+    s->window.group_border_color = nk_rgba(60, 60, 68, 80);
+    s->window.group_border = 0.0f;
 
     s->button.normal = nk_style_item_color(button);
     s->button.hover = nk_style_item_color(button_hover);
@@ -233,25 +236,28 @@ void ui_apply_theme(UIHost *ui) {
     s->edit.text_normal = text;
     s->edit.text_hover = text;
     s->edit.text_active = text;
-    s->edit.border_color = border;
+    s->edit.border_color = nk_rgba(0, 0, 0, 0);
     s->edit.cursor_normal = text;
     s->edit.cursor_hover = text;
     s->edit.cursor_text_normal = bg;
     s->edit.cursor_text_hover = bg;
     s->edit.border = 0.0f;
   } else {
-    // Light theme colors
-    struct nk_color bg = nk_rgb(252, 252, 253);
-    struct nk_color text = nk_rgb(40, 40, 45);
-    struct nk_color border = nk_rgb(220, 220, 225);
-    struct nk_color button = nk_rgb(245, 245, 248);
-    struct nk_color button_hover = nk_rgb(235, 235, 240);
+    // Light theme colors (Coda-style: pure white, clean)
+    struct nk_color bg = nk_rgb(255, 255, 255);
+    struct nk_color text = nk_rgb(36, 36, 39);
+    struct nk_color border = nk_rgb(228, 228, 231);
+    struct nk_color button = nk_rgb(246, 246, 249);
+    struct nk_color button_hover = nk_rgb(238, 238, 242);
     struct nk_color accent = nk_rgb(55, 120, 250);
 
     s->window.background = bg;
     s->window.fixed_background = nk_style_item_color(bg);
-    s->window.border_color = bg; // Match background to hide borders
+    s->window.border_color = bg;
     s->window.border = 0;
+    s->window.spacing = nk_vec2(0, 6);
+    s->window.group_border_color = nk_rgba(230, 230, 233, 100);
+    s->window.group_border = 0.0f;
 
     s->button.normal = nk_style_item_color(button);
     s->button.hover = nk_style_item_color(button_hover);
@@ -269,7 +275,7 @@ void ui_apply_theme(UIHost *ui) {
     s->edit.text_normal = text;
     s->edit.text_hover = text;
     s->edit.text_active = text;
-    s->edit.border_color = border;
+    s->edit.border_color = nk_rgba(0, 0, 0, 0);
     s->edit.cursor_normal = text;
     s->edit.cursor_hover = text;
     s->edit.cursor_text_normal = bg;

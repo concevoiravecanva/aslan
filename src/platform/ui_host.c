@@ -145,16 +145,16 @@ int copy_image_to_assets(const char *src_path, const char *doc_dir,
 // Colors (exported for use by other UI modules)
 // -----------------------------------------------------------------------------
 
-struct nk_color COLOR_BG = {251, 251, 250, 255}; // #FBFBFA
-struct nk_color COLOR_PANEL = {251, 251, 250, 255};
-struct nk_color COLOR_BORDER = {237, 236, 233, 255}; // #EDECE9
+struct nk_color COLOR_BG = {255, 255, 255, 255}; // Pure white
+struct nk_color COLOR_PANEL = {255, 255, 255, 255};
+struct nk_color COLOR_BORDER = {228, 228, 231, 255}; // Subtle border
 struct nk_color COLOR_TEXT = {220, 220, 220, 255};
-struct nk_color COLOR_TEXT_DARK = {55, 53, 47, 255}; // #37352F
-struct nk_color COLOR_TEXT_DIM = {140, 140, 140, 255};
-struct nk_color COLOR_ACCENT = {80, 140, 200, 255};
-static struct nk_color COLOR_HIGHLIGHT_YELLOW = {255, 240, 100, 80};
-static struct nk_color COLOR_HIGHLIGHT_BLUE = {100, 180, 255, 80};
-static struct nk_color COLOR_HIGHLIGHT_GREEN = {100, 220, 140, 80};
+struct nk_color COLOR_TEXT_DARK = {36, 36, 39, 255}; // Near-black
+struct nk_color COLOR_TEXT_DIM = {140, 140, 145, 255};
+struct nk_color COLOR_ACCENT = {55, 120, 250, 255};
+static struct nk_color COLOR_HIGHLIGHT_YELLOW = {255, 240, 100, 60};
+static struct nk_color COLOR_HIGHLIGHT_BLUE = {100, 180, 255, 60};
+static struct nk_color COLOR_HIGHLIGHT_GREEN = {100, 220, 140, 60};
 
 // -----------------------------------------------------------------------------
 // UI Initialization
@@ -1246,11 +1246,11 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         ui->scroll_y = ui->scroll_target_y;
       }
 
-      // Responsive margin (~2cm each side ≈ 75px)
-      float margin = 75.0f;
+      // Responsive margin (~Coda-style generous whitespace)
+      float margin = 96.0f;
 
       struct nk_vec2 old_group_padding = ctx->style.window.group_padding;
-      ctx->style.window.group_padding = nk_vec2(margin, 20.0f);
+      ctx->style.window.group_padding = nk_vec2(margin, 12.0f);
 
       // Single column layout
       nk_layout_row_dynamic(ctx, content_h - 100, 1);
@@ -1307,14 +1307,14 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
             if (row_count == 1) {
               // Single block row: wrap in elegant card
+              // --- Clean Coda-style block rendering (no card wrapping) ---
+              // Transparent background: blocks live directly on the page
               float block_start_y = nk_layout_widget_bounds(ctx).y;
 
               struct nk_color card_bg =
-                  ui->dark_mode ? nk_rgb(34, 35, 40) : nk_rgb(245, 245, 247);
-              struct nk_color card_brd =
-                  ui->dark_mode ? nk_rgb(55, 57, 62) : nk_rgb(230, 231, 235);
+                  ui->dark_mode ? nk_rgb(25, 25, 28) : nk_rgb(255, 255, 255);
 
-              // Push card styles
+              // Push transparent card styles
               struct nk_vec2 saved_grp_pad = ctx->style.window.group_padding;
               float saved_grp_border = ctx->style.window.group_border;
               struct nk_color saved_grp_border_col =
@@ -1323,23 +1323,24 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
                   ctx->style.window.fixed_background;
               float saved_rounding = ctx->style.window.rounding;
 
-              ctx->style.window.group_padding = nk_vec2(20, 16);
-              ctx->style.window.group_border = 1.0f;
-              ctx->style.window.group_border_color = card_brd;
+              ctx->style.window.group_padding = nk_vec2(8, 8);
+              ctx->style.window.group_border = 0.0f;
+              ctx->style.window.group_border_color = nk_rgba(0, 0, 0, 0);
               ctx->style.window.fixed_background = nk_style_item_color(card_bg);
-              ctx->style.window.rounding = 12.0f;
+              ctx->style.window.rounding = 8.0f;
 
-              // Estimate block height (minimal for card)
-              float card_h = 100.0f; // Default
+              // Content-adaptive height
+              float card_h = 80.0f; // Default minimum
               if (row_blocks[0]->type == BLOCK_TEXT) {
-                // Calculate height based on lines
                 int lines = 1;
                 if (row_blocks[0]->text) {
                   for (const char *p = row_blocks[0]->text; *p; p++)
                     if (*p == '\n')
                       lines++;
                 }
-                card_h = lines * 22.0f + 50.0f;
+                card_h = (float)(lines + 1) * 22.0f + 32.0f;
+              } else if (row_blocks[0]->type == BLOCK_HEADING_1) {
+                card_h = 60.0f;
               } else if (row_blocks[0]->type == BLOCK_TABLE) {
                 card_h = 420.0f;
               } else if (row_blocks[0]->type == BLOCK_CANVAS ||
@@ -1352,16 +1353,11 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
               snprintf(grp_name, sizeof(grp_name), "single_card_%u",
                        row_blocks[0]->id);
 
-              // Shadow
-              struct nk_rect card_bounds = nk_layout_widget_bounds(ctx);
-              nk_fill_rect(nk_window_get_canvas(ctx),
-                           nk_rect(card_bounds.x + 1, card_bounds.y + 2,
-                                   card_bounds.w - 1, card_bounds.h),
-                           12.0f, nk_rgba(0, 0, 0, 15));
+              // No shadow — clean Coda look
 
               if (nk_group_begin(ctx, grp_name, NK_WINDOW_NO_SCROLLBAR)) {
                 ui_render_block(ui, engine, ctx, page, row_blocks[0],
-                                total_width - 40);
+                                total_width - 16);
                 nk_group_end(ctx);
               }
 
@@ -1373,8 +1369,8 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
               ctx->style.window.rounding = saved_rounding;
 
               float block_end_y = nk_layout_widget_bounds(ctx).y;
-              // Add vertical spacing between cards
-              nk_layout_row_dynamic(ctx, 16.0f, 1);
+              // Tighter spacing between blocks
+              nk_layout_row_dynamic(ctx, 4.0f, 1);
               nk_spacing(ctx, 1);
               float blk_h = block_end_y - block_start_y;
               if (blk_h < 30.0f)
