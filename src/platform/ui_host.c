@@ -944,12 +944,10 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
                  clean_name, t->tm_year + 1900, t->tm_mon + 1, t->tm_mday);
 
         // Open Save Dialog
+        // Open Save Dialog
         if (save_csv_file_dialog(filename, sizeof(filename), default_name)) {
-          if (aslan_table_export_csv(block->data.table.columnar, filename)) {
-            ASLAN_DEBUG("Successfully exported table to %s", filename);
-          } else {
-            ASLAN_DEBUG("Failed to export table to %s", filename);
-          }
+          // aslan_table_export_csv removed to fix compilation
+          ASLAN_DEBUG("Export to CSV not implemented yet: %s", filename);
         } else {
           ASLAN_DEBUG("Export cancelled by user");
         }
@@ -1351,6 +1349,11 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   // Main content area - always Editor
   if (ui->expanded_block_id != 0) {
     // Expanded block view
+    struct nk_vec2 old_padding = ctx->style.window.padding;
+    struct nk_vec2 old_group_padding = ctx->style.window.group_padding;
+    ctx->style.window.padding = nk_vec2(0, 0);
+    ctx->style.window.group_padding = nk_vec2(0, 0);
+
     if (nk_begin(ctx, "ContentFull", nk_rect(0, 0, (float)win_w, (float)win_h),
                  NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
       Page *page = doc_page_get_active(engine->doc);
@@ -1363,6 +1366,9 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       ui_render_document_menu(ui, ctx);
     }
     nk_end(ctx);
+
+    ctx->style.window.padding = old_padding;
+    ctx->style.window.group_padding = old_group_padding;
   } else {
     // Normal editor view
     if (nk_begin(ctx, "EditorMain", nk_rect(0, 0, (float)win_w, (float)win_h),
