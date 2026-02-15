@@ -1326,6 +1326,83 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
 // ui_apply_theme moved to ui_core.c
 
+// -----------------------------------------------------------------------------
+// Block Height Measurement (Adaptive Layout)
+// -----------------------------------------------------------------------------
+
+float ui_measure_block_height(UIHost *ui, Block *block, float width) {
+  if (!block)
+    return 100.0f;
+
+  switch (block->type) {
+  case BLOCK_TEXT: {
+    int lines = 1;
+    if (block->text) {
+      for (const char *p = block->text; *p; p++)
+        if (*p == '\n')
+          lines++;
+    }
+    // Line height 22 + padding (tightened from +32 to +4 for group padding)
+    // ui_render_block_text adds 1 extra line for edit buffer
+    return (float)(lines + 1) * 22.0f + 8.0f;
+  }
+  case BLOCK_HEADING_1:
+    // H1 renders at 42px + group padding
+    return 50.0f;
+
+  case BLOCK_TABLE: {
+    // Header 34 + Footer 30 + Padding 10 = 74
+    float h = 74.0f;
+
+    // Add row heights
+    if (block->data.table.columnar) {
+      // Use visible_rows if set, otherwise active rows in table
+      int rows = block->data.table.visible_rows;
+      if (rows <= 0) {
+        rows = (int)aslan_table_view_count(block->data.table.columnar);
+      }
+      // Cap max auto-height to avoid massive tables
+      if (rows > 15)
+        rows = 15;
+      if (rows < 3)
+        rows = 3; // Min 3 rows visual
+
+      h += (float)rows * 30.0f; // 30px per row
+    } else {
+      h += 3 * 30.0f; // Default
+    }
+
+    if (block->data.table.show_search) {
+      h += 30.0f;
+    }
+
+    return h + 4.0f; // Minimal extra padding (tightened from +20)
+  }
+
+  case BLOCK_CANVAS:
+    // Canvas renders at fixed 400.0f height in non-expanded mode
+    return 400.0f;
+
+  case BLOCK_DESIGN: {
+    // Design renders at aspect ratio, max 400.0f + 52.0f toolbar
+    float aspect_h = 400.0f;
+    if (block->data.design.width > 0 && width > 0) {
+      float scale = width / (float)block->data.design.width;
+      aspect_h = (float)block->data.design.height * scale;
+      if (aspect_h > 400.0f)
+        aspect_h = 400.0f;
+    }
+    return aspect_h + 52.0f;
+  }
+
+  case BLOCK_CHART:
+    return 420.0f; // Height + toolbar
+
+  default:
+    return 100.0f;
+  }
+}
+
 void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   // Update window dims for smart placement
   ui->win_width = win_w;
@@ -1401,10 +1478,11 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         nk_uint nx, ny;
         nk_group_get_scroll(ctx, "ContentGroup", &nx, &ny);
 
-        // Detect manual scrollbar drag or other internal Nuklear scroll changes
-        // If the Nuklear scroll position (ny) differs from our current position
-        // (ui->scroll_y) and we are NOT currently in the middle of a smooth
-        // scroll interpolation, it means the user likely dragged the scrollbar.
+        // Detect manual scrollbar drag or other internal Nuklear scroll
+        // changes If the Nuklear scroll position (ny) differs from our
+        // current position (ui->scroll_y) and we are NOT currently in the
+        // middle of a smooth scroll interpolation, it means the user likely
+        // dragged the scrollbar.
         float scroll_diff = fabsf((float)ny - ui->scroll_y);
         float interpolation_dist = fabsf(ui->scroll_target_y - ui->scroll_y);
 
@@ -1468,23 +1546,8 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
               ctx->style.window.rounding = 0.0f;
 
               // Content-adaptive height
-              float card_h = 80.0f; // Default minimum
-              if (row_blocks[0]->type == BLOCK_TEXT) {
-                int lines = 1;
-                if (row_blocks[0]->text) {
-                  for (const char *p = row_blocks[0]->text; *p; p++)
-                    if (*p == '\n')
-                      lines++;
-                }
-                card_h = (float)(lines + 1) * 22.0f + 32.0f;
-              } else if (row_blocks[0]->type == BLOCK_HEADING_1) {
-                card_h = 60.0f;
-              } else if (row_blocks[0]->type == BLOCK_TABLE) {
-                card_h = 420.0f;
-              } else if (row_blocks[0]->type == BLOCK_CANVAS ||
-                         row_blocks[0]->type == BLOCK_DESIGN) {
-                card_h = 500.0f;
-              }
+              float card_h =
+                  ui_measure_block_height(ui, row_blocks[0], total_width - 16);
 
               nk_layout_row_dynamic(ctx, card_h, 1);
               float block_start_y = nk_layout_widget_bounds(ctx).y;
@@ -1508,14 +1571,13 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
               ctx->style.window.rounding = saved_rounding;
 
               float block_end_y = nk_layout_widget_bounds(ctx).y;
-              // Tighter spacing between blocks
-              nk_layout_row_dynamic(ctx, 4.0f, 1);
-              nk_spacing(ctx, 1);
+              // Tighter spacing between blocks (removed extra spacing calls)
               float blk_h = block_end_y - block_start_y;
               if (blk_h < 30.0f)
                 blk_h = 100.0f;
 
-              // Drop zone indicators during drag (clear, non-overlapping zones)
+              // Drop zone indicators during drag (clear, non-overlapping
+              // zones)
               if (ui->block_drag.is_active &&
                   ui->block_drag.dragged_block_id != row_blocks[0]->id) {
                 struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
@@ -1526,7 +1588,8 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
                 // Define zones (non-overlapping):
                 // Top 20% → ABOVE, Bottom 20% → BELOW
-                // Left 15% (middle 60%) → LEFT, Right 15% (middle 60%) → RIGHT
+                // Left 15% (middle 60%) → LEFT, Right 15% (middle 60%) →
+                // RIGHT
                 float top_zone = block_start_y + blk_h * 0.2f;
                 float bot_zone = block_start_y + blk_h * 0.8f;
                 float left_zone = bx + total_width * 0.15f;
@@ -1593,7 +1656,16 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
               float gap = 8.0f;
               float col_w = (total_width - (float)(row_count - 1) * gap) /
                             (float)row_count;
-              float row_h = 420.0f;
+
+              // Calculate max height for the row
+              float row_h = 0.0f;
+              for (int k = 0; k < row_count; k++) {
+                float h = ui_measure_block_height(ui, row_blocks[k], col_w);
+                if (h > row_h)
+                  row_h = h;
+              }
+              if (row_h < 100.0f)
+                row_h = 100.0f;
 
               float mcol_start_y = nk_layout_widget_bounds(ctx).y;
 
@@ -1606,7 +1678,8 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
                   ctx->style.window.fixed_background;
               float saved_rounding = ctx->style.window.rounding;
 
-              // Force 0 padding for inner card groups to prevent tight margins
+              // Force 0 padding for inner card groups to prevent tight
+              // margins
               ctx->style.window.group_padding = nk_vec2(0, 0);
               ctx->style.window.group_border = 0.0f;
               ctx->style.window.group_border_color = nk_rgba(0, 0, 0, 0);
@@ -1632,8 +1705,8 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
                 // No shadow/fill needed anymore
                 // struct nk_rect card_bounds = nk_layout_widget_bounds(ctx);
-                // struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-                // nk_fill_rect(...)
+                // struct nk_command_buffer *canvas =
+                // nk_window_get_canvas(ctx); nk_fill_rect(...)
 
                 if (nk_group_begin(ctx, grp_name, NK_WINDOW_NO_SCROLLBAR)) {
                   if (row_blocks[col]) {

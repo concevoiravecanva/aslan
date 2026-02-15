@@ -143,3 +143,42 @@ block_create 1 39 text
 block_create 1 40 h1
 block_create 1 41 design
 -- Session started --
+-- Session started --
+block_delete 1 39
+block_delete 1 40
+block_delete 1 41
+block_create 1 42 table
+block_create 1 43 canvas
+block_create 1 44 design
+block_create 1 45 h1
+block_create 1 46 table
+-- Session started --
+block_delete 1 42
+block_delete 1 43
+block_delete 1 44
+block_delete 1 45
+block_delete 1 46
+block_create 1 47 table
+block_create 1 48 canvas
+block_create 1 49 h1
+-- Session started --
+block_delete 1 47
+block_delete 1 48
+block_delete 1 49
+block_create 1 50 table
+block_create 1 51 canvas
+block_create 1 52 h1
+block_create 1 53 design
+block_create 1 54 h1
+block_delete 1 51
+block_delete 1 50
+block_delete 1 53
+block_delete 1 54
+block_delete 1 52
+-- Session started --
+block_create 1 55 table
+block_create 1 56 h1
+block_create 1 57 canvas
+block_create 1 58 h1
+block_create 1 59 text
+block_create 1 60 table
