@@ -5,6 +5,7 @@
 #include "ui_table.h"
 #include "../document/aslan_table.h"
 #include "ui_shared.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
@@ -1298,6 +1299,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               ui->table_state.show_col_menu = 0;
               ui->table_state.show_footer_menu = 0;
               ui->table_state.show_col_settings = 0;
+              ui->table_state.option_buffer[0] = '\0'; // Clear buffer on open
             }
 
             // Draw color tag pill on top
@@ -1987,73 +1989,161 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Select Option",
                          NK_WINDOW_BORDER, popup_rect)) {
-        nk_layout_row_dynamic(ctx, 24, 1);
+        int close_popup = 0; // Flag to defer closing
 
-        // Show existing options as clickable buttons
-        for (int i = 0; i < col->option_count && i < 20; i++) {
-          int is_selected = (aslan_table_get_select(tbl, c, row_id) == i);
+        // Show existing options in a scrollable group
+        nk_layout_row_dynamic(ctx, popup_h - 90, 1);
+        if (nk_group_begin(ctx, "select_options_list",
+                           NK_WINDOW_NO_SCROLLBAR)) { // Scrollbar if needed
+          nk_layout_row_dynamic(ctx, 24, 1);
+          for (int i = 0; i < col->option_count; i++) {
+            int is_selected = (aslan_table_get_select(tbl, c, row_id) == i);
 
-          struct nk_style_button opt_btn_style = ctx->style.button;
-          if (is_selected) {
-            opt_btn_style.normal =
-                nk_style_item_color(nk_rgb(60, 120, 240)); // Lucid Blue
-            opt_btn_style.text_normal = nk_rgb(255, 255, 255);
-            opt_btn_style.hover = nk_style_item_color(nk_rgb(80, 140, 255));
-            opt_btn_style.text_hover = nk_rgb(255, 255, 255);
-          } else {
-            opt_btn_style.normal = nk_style_item_color(
-                ui->dark_mode ? nk_rgb(40, 42, 48) : nk_rgb(240, 240, 245));
-            struct nk_color txt = ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
-            opt_btn_style.text_normal = txt;
-            opt_btn_style.text_hover = txt;
-            opt_btn_style.text_active = txt;
-          }
-          opt_btn_style.rounding = 4.0f;
+            struct nk_style_button opt_btn_style = ctx->style.button;
+            // Use option color for background if selected, or a subtle tint if
+            // not
+            uint32_t opt_col = col->options[i].color;
+            struct nk_color c_bg =
+                nk_rgba((opt_col >> 24) & 0xFF, (opt_col >> 16) & 0xFF,
+                        (opt_col >> 8) & 0xFF, 200);
 
-          if (is_selected) {
-            // Highlight selected option
+            if (is_selected) {
+              opt_btn_style.normal = nk_style_item_color(c_bg);
+              opt_btn_style.text_normal = nk_rgb(255, 255, 255);
+              opt_btn_style.hover = nk_style_item_color(c_bg);
+              opt_btn_style.text_hover = nk_rgb(255, 255, 255);
+            } else {
+              opt_btn_style.normal =
+                  nk_style_item_color(nk_rgba(0, 0, 0, 0)); // Transparent
+              struct nk_color txt =
+                  ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
+              opt_btn_style.text_normal = txt;
+              opt_btn_style.text_hover = txt;
+              // On hover, show color hint
+              opt_btn_style.hover =
+                  nk_style_item_color(nk_rgba(c_bg.r, c_bg.g, c_bg.b, 40));
+            }
+            opt_btn_style.rounding = 4.0f;
+            opt_btn_style.border = 0.0f;
+            opt_btn_style.text_alignment = NK_TEXT_LEFT;
+
             char label[80];
-            snprintf(label, sizeof(label), "✓ %s", col->options[i].label);
-            if (nk_button_label_styled(ctx, &opt_btn_style, label)) {
-              // Deselect
-              aslan_table_set_select(tbl, c, row_id, -1);
-              ui->table_state.show_select_popup = 0;
-              nk_popup_close(ctx);
+            if (is_selected) {
+              snprintf(label, sizeof(label), "  %s  (Selected)",
+                       col->options[i].label);
+            } else {
+              snprintf(label, sizeof(label), "  %s", col->options[i].label);
             }
-          } else {
-            if (nk_button_label_styled(ctx, &opt_btn_style,
-                                       col->options[i].label)) {
-              aslan_table_set_select(tbl, c, row_id, i);
-              ui->table_state.show_select_popup = 0;
-              nk_popup_close(ctx);
+
+            if (nk_button_label_styled(ctx, &opt_btn_style, label)) {
+              if (is_selected) {
+                aslan_table_set_select(tbl, c, row_id, -1);
+              } else {
+                aslan_table_set_select(tbl, c, row_id, i);
+              }
+              close_popup = 1;
             }
           }
-        }
-
-        if (col->option_count == 0) {
-          nk_label(ctx, "(No options yet)", NK_TEXT_CENTERED);
+          if (col->option_count == 0) {
+            nk_label(ctx, "No options yet", NK_TEXT_CENTERED);
+          }
+          nk_group_end(ctx);
         }
 
         // Separator
-        nk_spacing(ctx, 1);
-        nk_label(ctx, "── Add New ──", NK_TEXT_CENTERED);
+        nk_layout_row_dynamic(ctx, 1, 1);
+        struct nk_rect sep_rect = nk_widget_bounds(ctx);
+        nk_fill_rect(nk_window_get_canvas(ctx), sep_rect, 0,
+                     nk_rgb(100, 100, 100));
 
         // Add new option field
+        nk_layout_row_template_begin(ctx, 30);
+        nk_layout_row_template_push_dynamic(ctx);
+        nk_layout_row_template_push_static(ctx, 60);
+        nk_layout_row_template_end(ctx);
+
+        // Edit box styling
+        struct nk_style_edit old_es = ctx->style.edit;
+        ctx->style.edit.normal = nk_style_item_color(
+            ui->dark_mode ? nk_rgb(40, 42, 48) : nk_rgb(240, 240, 245));
+        ctx->style.edit.active = ctx->style.edit.normal;
+        ctx->style.edit.hover = ctx->style.edit.normal;
+        ctx->style.edit.border = 1.0f;
+        ctx->style.edit.border_color = nk_rgb(100, 100, 100);
+        ctx->style.edit.rounding = 4.0f;
+
         nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD,
                                        ui->table_state.option_buffer, 63,
                                        nk_filter_default);
-        if (nk_button_label(ctx, "+ Create Option")) {
-          if (ui->table_state.option_buffer[0] != '\0') {
-            int new_idx = aslan_table_add_option(
-                tbl, c, ui->table_state.option_buffer, 0x888888FF);
-            if (new_idx >= 0) {
-              aslan_table_set_select(tbl, c, row_id,
-                                     new_idx); // Auto-select new option
-            }
-            ui->table_state.option_buffer[0] = '\0'; // Clear buffer
-            ui->table_state.show_select_popup = 0;
-            nk_popup_close(ctx);
+
+        ctx->style.edit = old_es; // Restore
+
+        // Check for Enter key in text field
+        int enter_pressed = nk_input_is_key_pressed(&ctx->input, NK_KEY_ENTER);
+        int click_add = nk_button_label(ctx, "Add");
+
+        if ((click_add || enter_pressed) &&
+            ui->table_state.option_buffer[0] != '\0') {
+          // Generate pseudo-random color based on name hash
+          uint32_t hash = 5381;
+          const char *str = ui->table_state.option_buffer;
+          int c_char;
+          while ((c_char = *str++))
+            hash = ((hash << 5) + hash) + c_char;
+
+          // HSV to RGB conversion for nice pastel colors
+          float h = (hash % 360);
+          float s = 0.6f;
+          float v = 0.85f;
+
+          float c_hsv = v * s;
+          float x_hsv = c_hsv * (1 - fabsf(fmodf(h / 60.0f, 2) - 1));
+          float m_hsv = v - c_hsv;
+          float r = 0, g = 0, b = 0;
+          if (h < 60) {
+            r = c_hsv;
+            g = x_hsv;
+            b = 0;
+          } else if (h < 120) {
+            r = x_hsv;
+            g = c_hsv;
+            b = 0;
+          } else if (h < 180) {
+            r = 0;
+            g = c_hsv;
+            b = x_hsv;
+          } else if (h < 240) {
+            r = 0;
+            g = x_hsv;
+            b = c_hsv;
+          } else if (h < 300) {
+            r = x_hsv;
+            g = 0;
+            b = c_hsv;
+          } else {
+            r = c_hsv;
+            g = 0;
+            b = x_hsv;
           }
+
+          uint32_t final_color = ((uint8_t)((r + m_hsv) * 255) << 24) |
+                                 ((uint8_t)((g + m_hsv) * 255) << 16) |
+                                 ((uint8_t)((b + m_hsv) * 255) << 8) | 255;
+
+          int new_idx = aslan_table_add_option(
+              tbl, c, ui->table_state.option_buffer, final_color);
+
+          if (new_idx >= 0) {
+            aslan_table_set_select(tbl, c, row_id,
+                                   new_idx); // Auto-select new option
+          }
+          ui->table_state.option_buffer[0] = '\0'; // Clear buffer
+          close_popup = 1;
+        }
+
+        if (close_popup) {
+          ui->table_state.show_select_popup = 0;
+          nk_popup_close(ctx);
         }
 
         nk_popup_end(ctx);
