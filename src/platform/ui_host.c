@@ -1423,6 +1423,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
         // Reset active_block_id on click outside blocks (will be re-set by
         // block click detection)
+        /*
         if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
             !ui->block_drag.is_active) {
           uint32_t prev_active = ui->active_block_id;
@@ -1430,6 +1431,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
           if (prev_active != 0)
             ui_request_redraw(ui);
         }
+        */
 
         if (page && page->block_count > 0) {
           float total_width = content_w - (margin * 2.0f);

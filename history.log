@@ -139,3 +139,7 @@ block_create 1 38 table
 -- Session started --
 -- Session started --
 block_delete 1 38
+block_create 1 39 text
+block_create 1 40 h1
+block_create 1 41 design
+-- Session started --
