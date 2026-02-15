@@ -273,9 +273,13 @@ const char *aslan_table_get_cell_display(const AslanTable *table, int col_idx,
 // Select Column Options
 // -----------------------------------------------------------------------------
 
-// Add option to a SELECT column (returns option index, or -1 on error)
+// Add a new option to a SELECT column (returns index, or -1 on failure)
 int aslan_table_add_option(AslanTable *table, int col_idx, const char *label,
                            uint32_t color);
+
+// Update an existing option's color
+bool aslan_table_update_option_color(AslanTable *table, int col_idx,
+                                     int option_idx, uint32_t color);
 
 // Remove option from SELECT column
 bool aslan_table_remove_option(AslanTable *table, int col_idx, int option_idx);

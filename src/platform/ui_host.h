@@ -345,23 +345,24 @@ typedef struct UIHost {
     int is_editing_cell; // Prevent nav while typing
     float menu_pos_x, menu_pos_y;
     char rename_buffer[64];
-    char option_buffer[64];   // Buffer for adding new Select options
-    char date_buffer[32];     // Persistent buffer for date editing
-    int date_field_active;    // Trigger focus on first frame
-    int selected_col_idx;     // Column header selected (for delete X)
-    int renaming_col_idx;     // Column header being renamed inline
-    int resizing_col;         // Column being resized (-1 = none)
-    float resize_start_x;     // Mouse X at resize start
-    float resize_start_w;     // Column width at resize start
-    char filter_buffer[128];  // Search/filter text input
-    char formula_buffer[512]; // Formula expression editor (for FORMULA /
-                              // FORMULA_LUA)
-    int is_editing_formula;   // 1 if formula bar is active (for
-                              // click-to-reference)
-    int show_formula_help;    // Show formula help popup
-    int dragging_col;         // Column being dragged (-1 = none)
-    int drop_target_col;      // Column drop target (-1 = none)
-    float drag_col_start_x;   // Mouse X at drag start
+    char option_buffer[64];         // Buffer for adding new Select options
+    char date_buffer[32];           // Persistent buffer for date editing
+    int date_field_active;          // Trigger focus on first frame
+    int selected_col_idx;           // Column header selected (for delete X)
+    int renaming_col_idx;           // Column header being renamed inline
+    int resizing_col;               // Column being resized (-1 = none)
+    float resize_start_x;           // Mouse X at resize start
+    float resize_start_w;           // Column width at resize start
+    char filter_buffer[128];        // Search/filter text input
+    char formula_buffer[512];       // Formula expression editor (for FORMULA /
+                                    // FORMULA_LUA)
+    int is_editing_formula;         // 1 if formula bar is active (for
+                                    // click-to-reference)
+    int show_formula_help;          // Show formula help popup
+    int dragging_col;               // Column being dragged (-1 = none)
+    int drop_target_col;            // Column drop target (-1 = none)
+    float drag_col_start_x;         // Mouse X at drag start
+    int active_color_picker_option; // Option index for color picker (-1 = none)
   } table_state;
 
   // Sidebar state: 0=Properties/Layers, 1=Shape Selection

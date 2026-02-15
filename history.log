@@ -137,3 +137,5 @@ block_create 1 38 table
 -- Session started --
 -- Session started --
 -- Session started --
+-- Session started --
+block_delete 1 38

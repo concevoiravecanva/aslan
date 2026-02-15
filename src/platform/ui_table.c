@@ -1300,6 +1300,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               ui->table_state.show_footer_menu = 0;
               ui->table_state.show_col_settings = 0;
               ui->table_state.option_buffer[0] = '\0'; // Clear buffer on open
+              ui->table_state.active_color_picker_option =
+                  -1; // Reset color picker
             }
 
             // Draw color tag pill on top
@@ -1995,41 +1997,63 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         nk_layout_row_dynamic(ctx, popup_h - 90, 1);
         if (nk_group_begin(ctx, "select_options_list",
                            NK_WINDOW_NO_SCROLLBAR)) { // Scrollbar if needed
-          nk_layout_row_dynamic(ctx, 24, 1);
           for (int i = 0; i < col->option_count; i++) {
-            int is_selected = (aslan_table_get_select(tbl, c, row_id) == i);
+            nk_layout_row_template_begin(ctx, 24);
+            nk_layout_row_template_push_static(ctx, 24); // Color button
+            nk_layout_row_template_push_dynamic(ctx);    // Option label
+            nk_layout_row_template_end(ctx);
 
-            struct nk_style_button opt_btn_style = ctx->style.button;
-            // Use option color for background if selected, or a subtle tint if
-            // not
+            // 1. Color Button
             uint32_t opt_col = col->options[i].color;
             struct nk_color c_bg =
                 nk_rgba((opt_col >> 24) & 0xFF, (opt_col >> 16) & 0xFF,
-                        (opt_col >> 8) & 0xFF, 200);
+                        (opt_col >> 8) & 0xFF, 255);
+
+            struct nk_style_button color_btn_style = ctx->style.button;
+            color_btn_style.normal = nk_style_item_color(c_bg);
+            color_btn_style.hover = nk_style_item_color(c_bg);
+            color_btn_style.active = nk_style_item_color(c_bg);
+            color_btn_style.rounding = 12.0f; // Circle
+            color_btn_style.border = 1.0f;
+            color_btn_style.border_color = nk_rgba(0, 0, 0, 50);
+
+            if (nk_button_label_styled(ctx, &color_btn_style, "")) {
+              if (ui->table_state.active_color_picker_option == i) {
+                ui->table_state.active_color_picker_option = -1;
+              } else {
+                ui->table_state.active_color_picker_option = i;
+              }
+            }
+
+            // 2. Option Label (Select/Deselect)
+            int is_selected = (aslan_table_get_select(tbl, c, row_id) == i);
+            struct nk_style_button opt_btn_style = ctx->style.button;
+
+            // Background for label part
+            struct nk_color label_bg = nk_rgba(c_bg.r, c_bg.g, c_bg.b, 40);
+            if (is_selected) {
+              label_bg = nk_rgba(c_bg.r, c_bg.g, c_bg.b, 200);
+            }
 
             if (is_selected) {
-              opt_btn_style.normal = nk_style_item_color(c_bg);
+              opt_btn_style.normal = nk_style_item_color(label_bg);
               opt_btn_style.text_normal = nk_rgb(255, 255, 255);
-              opt_btn_style.hover = nk_style_item_color(c_bg);
+              opt_btn_style.hover = nk_style_item_color(label_bg);
               opt_btn_style.text_hover = nk_rgb(255, 255, 255);
             } else {
-              opt_btn_style.normal =
-                  nk_style_item_color(nk_rgba(0, 0, 0, 0)); // Transparent
+              opt_btn_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
               struct nk_color txt =
                   ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
               opt_btn_style.text_normal = txt;
               opt_btn_style.text_hover = txt;
-              // On hover, show color hint
-              opt_btn_style.hover =
-                  nk_style_item_color(nk_rgba(c_bg.r, c_bg.g, c_bg.b, 40));
+              opt_btn_style.hover = nk_style_item_color(label_bg);
             }
             opt_btn_style.rounding = 4.0f;
-            opt_btn_style.border = 0.0f;
             opt_btn_style.text_alignment = NK_TEXT_LEFT;
 
             char label[80];
             if (is_selected) {
-              snprintf(label, sizeof(label), "  %s  (Selected)",
+              snprintf(label, sizeof(label), "  %s  (✓)",
                        col->options[i].label);
             } else {
               snprintf(label, sizeof(label), "  %s", col->options[i].label);
@@ -2042,6 +2066,42 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                 aslan_table_set_select(tbl, c, row_id, i);
               }
               close_popup = 1;
+            }
+
+            // 3. Color Picker Palette (if active)
+            if (ui->table_state.active_color_picker_option == i) {
+              nk_layout_row_dynamic(ctx, 24, 9);
+              uint32_t palette[] = {
+                  0x888888FF, // Gray
+                  0x8D6E63FF, // Brown
+                  0xFFA726FF, // Orange
+                  0xFFEE58FF, // Yellow
+                  0x66BB6AFF, // Green
+                  0x42A5F5FF, // Blue
+                  0xAB47BCFF, // Purple
+                  0xEC407AFF, // Pink
+                  0xEF5350FF  // Red
+              };
+
+              for (int p = 0; p < 9; p++) {
+                struct nk_color p_col = nk_rgba((palette[p] >> 24) & 0xFF,
+                                                (palette[p] >> 16) & 0xFF,
+                                                (palette[p] >> 8) & 0xFF, 255);
+
+                struct nk_style_button pal_style = ctx->style.button;
+                pal_style.normal = nk_style_item_color(p_col);
+                pal_style.hover = nk_style_item_color(p_col);
+                pal_style.active = nk_style_item_color(p_col);
+                pal_style.rounding = 12.0f;
+                pal_style.border =
+                    (col->options[i].color == palette[p]) ? 2.0f : 0.0f;
+                pal_style.border_color = nk_rgb(255, 255, 255);
+
+                if (nk_button_label_styled(ctx, &pal_style, "")) {
+                  aslan_table_update_option_color(tbl, c, i, palette[p]);
+                  ui->table_state.active_color_picker_option = -1;
+                }
+              }
             }
           }
           if (col->option_count == 0) {

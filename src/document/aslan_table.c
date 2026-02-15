@@ -1070,6 +1070,23 @@ bool aslan_table_set_option_color(AslanTable *table, int col_idx,
   return true;
 }
 
+bool aslan_table_update_option_color(AslanTable *table, int col_idx,
+                                     int option_idx, uint32_t color) {
+  if (!table || col_idx < 0 || col_idx >= (int)table->column_count)
+    return false;
+
+  AslanColumn *col = &table->columns[col_idx];
+  if (col->type != ASLAN_COL_SELECT)
+    return false;
+
+  if (option_idx < 0 || option_idx >= col->option_count)
+    return false;
+
+  col->options[option_idx].color = color;
+  table->data_generation++;
+  return true;
+}
+
 uint32_t aslan_table_get_option_color(const AslanTable *table, int col_idx,
                                       int option_idx) {
   if (!table || col_idx < 0 || col_idx >= (int)table->column_count)
