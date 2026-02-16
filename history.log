@@ -227,3 +227,16 @@ block_delete 1 74
 block_delete 1 75
 block_delete 1 76
 block_create 1 77 canvas
+-- Session started --
+block_create 1 78 text
+block_delete 1 78
+block_create 1 79 table
+block_create 1 80 text
+block_delete 1 77
+block_delete 1 79
+block_delete 1 80
+block_create 1 81 canvas
+block_create 1 82 text
+block_delete 1 82
+-- Session started --
+block_create 1 83 design

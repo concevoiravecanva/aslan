@@ -40,7 +40,7 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
 
   const float btn_size = 36.0f;
   const float btn_spacing = 8.0f;
-  const float toolbar_w = 6 * btn_size + 5 * btn_spacing + 24.0f;
+  const float toolbar_w = 4 * btn_size + 3 * btn_spacing + 24.0f;
   const float toolbar_h = 52.0f;
 
   float toolbar_x = ((float)win_w - toolbar_w) / 2.0f;
@@ -70,9 +70,8 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
   float btn_x = toolbar_x + 12.0f;
   float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
 
-  const char *tool_icons[] = {ICON_TEXT,   ICON_H1,     ICON_TABLE,
-                              ICON_CANVAS, ICON_DESIGN, ICON_CHART};
-  int tool_count = 6;
+  const char *tool_icons[] = {ICON_TABLE, ICON_CANVAS, ICON_DESIGN, ICON_CHART};
+  int tool_count = 4;
 
   Page *page = doc_page_get_active(engine->doc);
   uint32_t page_id = page ? page->id : 0;
@@ -93,25 +92,12 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
     struct nk_color icon_color =
         ui->dark_mode ? nk_rgb(200, 200, 205) : nk_rgb(60, 60, 60);
 
-    if (i == 1) { // H1 text (shifted from 2 to 1)
-      if (ui->font_inter) {
-        float tw = ui->font_inter->handle.width(ui->font_inter->handle.userdata,
-                                                ui->font_inter->handle.height,
-                                                "H1", 2);
-        nk_draw_text(canvas_buf,
-                     nk_rect(btn_rect.x + (btn_size - tw) / 2,
-                             btn_rect.y + (btn_size - 16) / 2, tw, 16),
-                     "H1", 2, &ui->font_inter->handle, nk_rgba(0, 0, 0, 0),
-                     icon_color);
-      }
-    } else {
-      if (ui->font_icons) {
-        nk_draw_text(canvas_buf,
-                     nk_rect(btn_rect.x + 8, btn_rect.y + 8, btn_size - 16,
-                             btn_size - 16),
-                     tool_icons[i], strlen(tool_icons[i]),
-                     &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), icon_color);
-      }
+    if (ui->font_icons) {
+      nk_draw_text(canvas_buf,
+                   nk_rect(btn_rect.x + 8, btn_rect.y + 8, btn_size - 16,
+                           btn_size - 16),
+                   tool_icons[i], strlen(tool_icons[i]),
+                   &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), icon_color);
     }
 
     // Check for click using Nuklear's standard way + our custom flag for safety
@@ -119,63 +105,14 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
         (hovered && (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) ||
                      ui->canvas_state.mouse_just_pressed));
 
-    if (clicked) {
+    if (clicked && page) {
       ASLAN_DEBUG("Toolbar click: button %d", i);
-      switch (i) {
-      case 0: { // Text (shifted from 1 to 0)
-        if (page) {
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u text", page_id,
-                   page->next_block_id);
-          engine_execute_command(engine, cmd);
-        }
-        break;
-      }
-      case 1: { // H1 (shifted from 2 to 1)
-        if (page) {
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u h1", page_id,
-                   page->next_block_id);
-          engine_execute_command(engine, cmd);
-        }
-        break;
-      }
-      case 2: { // Table (shifted from 3 to 2)
-        if (page) {
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u table", page_id,
-                   page->next_block_id);
-          engine_execute_command(engine, cmd);
-        }
-        break;
-      }
-      case 3: { // Canvas (shifted from 4 to 3)
-        if (page) {
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u canvas", page_id,
-                   page->next_block_id);
-          engine_execute_command(engine, cmd);
-        }
-        break;
-      }
-      case 4: { // Design (shifted from 5 to 4)
-        if (page) {
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u design", page_id,
-                   page->next_block_id);
-          engine_execute_command(engine, cmd);
-        }
-        break;
-      }
-      case 5: { // Chart (shifted from 6 to 5)
-        if (page) {
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_create %u %u chart", page_id,
-                   page->next_block_id);
-          engine_execute_command(engine, cmd);
-        }
-        break;
-      }
+      static const char *block_types[] = {"table", "canvas", "design", "chart"};
+      if (i >= 0 && i < 4) {
+        char cmd[128];
+        snprintf(cmd, sizeof(cmd), "block_create %u %u %s", page_id,
+                 page->next_block_id, block_types[i]);
+        engine_execute_command(engine, cmd);
       }
     }
   }

@@ -270,8 +270,6 @@ int main(int argc, char **argv) {
     engine_execute_command(engine, "page_create 1 \"New Note\"");
     engine_execute_command(engine, "block_create 1 1 h1");
     engine_execute_command(engine, "block_text 1 1 \"New Note\"");
-    engine_execute_command(engine, "block_create 1 2 text");
-    engine_execute_command(engine, "block_text 1 2 \"\"");
     engine_execute_command(engine, "page_activate 1");
   } else {
     // Ensure a page is active if history was loaded
