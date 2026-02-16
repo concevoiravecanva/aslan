@@ -712,8 +712,22 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       is_design = 1;
     }
 
-    // --- Escape: deselect, exit modes ---
+    // --- Escape: close table popups first ---
     if (key == SDLK_ESCAPE) {
+      if (ui->table_state.show_col_menu ||
+          ui->table_state.show_col_settings ||
+          ui->table_state.show_footer_menu ||
+          ui->table_state.show_select_popup ||
+          ui->table_state.show_date_picker ||
+          ui->table_state.show_formula_help) {
+        ui->table_state.show_col_menu = 0;
+        ui->table_state.show_col_settings = 0;
+        ui->table_state.show_footer_menu = 0;
+        ui->table_state.show_select_popup = 0;
+        ui->table_state.show_date_picker = 0;
+        ui->table_state.show_formula_help = 0;
+        return;
+      }
       if (ui->selected_node) {
         ui->selected_node = NULL;
       }

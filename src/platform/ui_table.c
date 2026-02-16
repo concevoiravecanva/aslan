@@ -54,6 +54,49 @@ const char *table_col_type_name(AslanColumnType type) {
   }
 }
 
+// Helper: Render popup header with title and close button. Returns 1 if close
+// was clicked.
+static int table_popup_header(UIHost *ui, struct nk_context *ctx,
+                              const char *title) {
+  struct nk_color title_col =
+      ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(40, 40, 45);
+  struct nk_color dim_col =
+      ui->dark_mode ? nk_rgb(130, 130, 140) : nk_rgb(140, 140, 148);
+
+  nk_layout_row_template_begin(ctx, 24);
+  nk_layout_row_template_push_variable(ctx, 60);
+  nk_layout_row_template_push_static(ctx, 24);
+  nk_layout_row_template_end(ctx);
+
+  nk_label_colored(ctx, title, NK_TEXT_LEFT, title_col);
+
+  struct nk_style_button close_style = ctx->style.button;
+  close_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+  close_style.hover = nk_style_item_color(
+      ui->dark_mode ? nk_rgba(255, 255, 255, 20) : nk_rgba(0, 0, 0, 10));
+  close_style.active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+  close_style.border = 0;
+  close_style.rounding = 4;
+  close_style.text_normal = dim_col;
+  close_style.text_hover =
+      ui->dark_mode ? nk_rgb(255, 255, 255) : nk_rgb(40, 40, 45);
+  close_style.text_active = dim_col;
+  close_style.padding = nk_vec2(0, 0);
+  int closed = nk_button_label_styled(ctx, &close_style, "x");
+
+  // Separator line
+  nk_layout_row_dynamic(ctx, 1, 1);
+  struct nk_rect sep = nk_widget_bounds(ctx);
+  nk_fill_rect(nk_window_get_canvas(ctx), sep, 0,
+               ui->dark_mode ? nk_rgb(60, 62, 68) : nk_rgb(230, 230, 235));
+  nk_spacing(ctx, 1);
+
+  nk_layout_row_dynamic(ctx, 4, 1);
+  nk_spacing(ctx, 1);
+
+  return closed;
+}
+
 // Helper: Ensure popup stays inside viewport
 struct nk_rect table_smart_popup_rect(UIHost *ui, float x, float y, float w,
                                       float h) {
@@ -1611,10 +1654,14 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                nk_style_item_color(menu_bg));
       struct nk_rect popup_rect =
           table_smart_popup_rect(ui, ui->table_state.menu_pos_x - 100,
-                                 ui->table_state.menu_pos_y + 4, 160, 250);
+                                 ui->table_state.menu_pos_y + 4, 180, 290);
       if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Add Column",
                          NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER,
                          popup_rect)) {
+        if (table_popup_header(ui, ctx, "Add Column")) {
+          ui->table_state.show_col_menu = 0;
+          nk_popup_close(ctx);
+        }
         nk_layout_row_dynamic(ctx, 28, 1);
         const char *types[] = {"Text", "Number", "Checkbox",
                                "Select", "Date", "Formula"};
@@ -1660,10 +1707,10 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         ui->table_state.active_col_idx < (int)tbl->column_count) {
 
       // Smart Placement
-      float menu_h = 250.0f;
+      float menu_h = 290.0f;
       struct nk_rect popup_rect =
           table_smart_popup_rect(ui, ui->table_state.menu_pos_x,
-                                 ui->table_state.menu_pos_y + 24, 180, menu_h);
+                                 ui->table_state.menu_pos_y + 24, 190, menu_h);
       // Flip up if at bottom
       if (ui->table_state.menu_pos_y > ui->win_height - 300) {
         popup_rect.y = ui->table_state.menu_pos_y - menu_h;
@@ -1677,6 +1724,10 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Aggregation",
                          NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER,
                          popup_rect)) {
+        if (table_popup_header(ui, ctx, "Aggregation")) {
+          ui->table_state.show_footer_menu = 0;
+          nk_popup_close(ctx);
+        }
 
         struct nk_color menu_text =
             ui->dark_mode ? COLOR_TEXT : nk_rgb(30, 30, 35);
@@ -1753,7 +1804,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       AslanColumn *col = &tbl->columns[c];
 
       // Calculate popup height based on column type
-      float popup_h = 260.0f;
+      float popup_h = 300.0f;
       if (col->type == ASLAN_COL_SELECT)
         popup_h += 80.0f + (col->option_count * 24);
       if (col->type == ASLAN_COL_FORMULA)
@@ -1764,7 +1815,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       // Smart placement
       struct nk_rect popup_rect =
           table_smart_popup_rect(ui, ui->table_state.menu_pos_x,
-                                 ui->table_state.menu_pos_y + 32, 230, popup_h);
+                                 ui->table_state.menu_pos_y + 32, 240, popup_h);
       if (ui->table_state.menu_pos_y > ui->win_height - popup_h - 40) {
         popup_rect.y = ui->table_state.menu_pos_y - popup_h;
       }
@@ -1772,6 +1823,12 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Column Settings",
                          NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER,
                          popup_rect)) {
+        char col_title[80];
+        snprintf(col_title, sizeof(col_title), "Column: %s", col->name);
+        if (table_popup_header(ui, ctx, col_title)) {
+          ui->table_state.show_col_settings = 0;
+          nk_popup_close(ctx);
+        }
         // --- Column Name ---
         nk_layout_row_dynamic(ctx, 24, 1);
         nk_label(ctx, "Column Name:", NK_TEXT_LEFT);
@@ -1983,15 +2040,15 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       // Calculate popup height based on options count
       float popup_h =
-          60.0f + (col->option_count * 28) + 80; // options + add section
-      if (popup_h > 400)
-        popup_h = 400;
-      if (popup_h < 150)
-        popup_h = 150;
+          100.0f + (col->option_count * 28) + 80; // header + options + add
+      if (popup_h > 420)
+        popup_h = 420;
+      if (popup_h < 180)
+        popup_h = 180;
 
       struct nk_rect popup_rect =
           table_smart_popup_rect(ui, ui->table_state.menu_pos_x,
-                                 ui->table_state.menu_pos_y, 200, popup_h);
+                                 ui->table_state.menu_pos_y, 220, popup_h);
       if (ui->table_state.menu_pos_y > ui->win_height - popup_h - 40) {
         popup_rect.y = ui->table_state.menu_pos_y - popup_h;
       }
@@ -2000,8 +2057,12 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                          NK_WINDOW_BORDER, popup_rect)) {
         int close_popup = 0; // Flag to defer closing
 
+        if (table_popup_header(ui, ctx, "Select")) {
+          close_popup = 1;
+        }
+
         // Show existing options in a scrollable group
-        nk_layout_row_dynamic(ctx, popup_h - 90, 1);
+        nk_layout_row_dynamic(ctx, popup_h - 130, 1);
         if (nk_group_begin(ctx, "select_options_list",
                            NK_WINDOW_NO_SCROLLBAR)) { // Scrollbar if needed
           for (int i = 0; i < col->option_count; i++) {
@@ -2232,13 +2293,17 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       nk_style_push_style_item(ctx, &ctx->style.window.fixed_background,
                                nk_style_item_color(dp_bg));
 
-      float dp_w = 260, dp_h = 290;
+      float dp_w = 270, dp_h = 330;
       struct nk_rect dp_rect = table_smart_popup_rect(
           ui, ui->table_state.date_picker_x,
           ui->table_state.date_picker_y + 2, dp_w, dp_h);
 
       if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Date Picker",
                          NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER, dp_rect)) {
+        if (table_popup_header(ui, ctx, "Date")) {
+          ui->table_state.show_date_picker = 0;
+          nk_popup_close(ctx);
+        }
 
         int dp_year = ui->table_state.date_picker_year;
         int dp_month = ui->table_state.date_picker_month; // 0-11

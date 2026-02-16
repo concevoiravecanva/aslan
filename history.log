@@ -244,3 +244,11 @@ block_create 1 83 design
 -- Session started --
 -- Session started --
 -- Session started --
+-- Session started --
+block_delete 1 81
+block_delete 1 83
+block_delete 1 71
+block_create 1 84 table
+block_create 1 85 chart
+-- Session started --
+block_delete 1 85
