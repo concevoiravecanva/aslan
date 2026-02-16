@@ -27,8 +27,6 @@ const char *table_col_type_icon(AslanColumnType type) {
     return ICON_COL_RELATION;
   case ASLAN_COL_FORMULA:
     return ICON_COL_FORMULA;
-  case ASLAN_COL_FORMULA_LUA:
-    return ICON_CODE;
   default:
     return ICON_COL_TEXT;
   }
@@ -51,8 +49,6 @@ const char *table_col_type_name(AslanColumnType type) {
     return "Relation";
   case ASLAN_COL_FORMULA:
     return "Formula";
-  case ASLAN_COL_FORMULA_LUA:
-    return "Lua Formula";
   default:
     return "Text";
   }
@@ -1383,10 +1379,9 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             break;
           }
           case ASLAN_COL_FORMULA_LUA: {
-            // Evaluate on-demand (cached via generation counter)
+            // Legacy: render cached result as read-only label
             const char *result =
                 aslan_table_eval_lua_formula(tbl, (int)c, row_id, ui->L);
-            // Use read-only edit to keep Nuklear edit seq counter stable
             char lua_buf[256];
             strncpy(lua_buf, result ? result : "", sizeof(lua_buf) - 1);
             lua_buf[sizeof(lua_buf) - 1] = '\0';
@@ -1396,25 +1391,17 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             struct nk_style_item sv_n = ctx->style.edit.normal;
             struct nk_style_item sv_h = ctx->style.edit.hover;
             struct nk_style_item sv_a = ctx->style.edit.active;
-            struct nk_color sv_tn = ctx->style.edit.text_normal;
             float sv_brd = ctx->style.edit.border;
-
-            struct nk_color lua_txt =
-                ui->dark_mode ? nk_rgb(180, 210, 240) : nk_rgb(40, 90, 160);
             ctx->style.edit.normal = transp;
             ctx->style.edit.hover = transp;
             ctx->style.edit.active = transp;
-            ctx->style.edit.text_normal = lua_txt;
             ctx->style.edit.border = 0;
-
             nk_edit_string_zero_terminated(
                 ctx, NK_EDIT_FIELD | NK_EDIT_READ_ONLY, lua_buf,
                 sizeof(lua_buf) - 1, nk_filter_default);
-
             ctx->style.edit.normal = sv_n;
             ctx->style.edit.hover = sv_h;
             ctx->style.edit.active = sv_a;
-            ctx->style.edit.text_normal = sv_tn;
             ctx->style.edit.border = sv_brd;
             break;
           }
@@ -1629,13 +1616,12 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                          NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER,
                          popup_rect)) {
         nk_layout_row_dynamic(ctx, 28, 1);
-        const char *types[] = {"Text", "Number",  "Checkbox",   "Select",
-                               "Date", "Formula", "Lua Formula"};
-        AslanColumnType type_vals[] = {ASLAN_COL_TEXT,       ASLAN_COL_NUMBER,
-                                       ASLAN_COL_CHECKBOX,   ASLAN_COL_SELECT,
-                                       ASLAN_COL_DATE,       ASLAN_COL_FORMULA,
-                                       ASLAN_COL_FORMULA_LUA};
-        for (int i = 0; i < 7; i++) {
+        const char *types[] = {"Text", "Number", "Checkbox",
+                               "Select", "Date", "Formula"};
+        AslanColumnType type_vals[] = {ASLAN_COL_TEXT,     ASLAN_COL_NUMBER,
+                                       ASLAN_COL_CHECKBOX, ASLAN_COL_SELECT,
+                                       ASLAN_COL_DATE,     ASLAN_COL_FORMULA};
+        for (int i = 0; i < 6; i++) {
           struct nk_rect item_rect = nk_widget_bounds(ctx);
           if (nk_button_label_styled(ctx, &menu_btn, "")) {
             if (tbl) {
@@ -1770,7 +1756,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       float popup_h = 260.0f;
       if (col->type == ASLAN_COL_SELECT)
         popup_h += 80.0f + (col->option_count * 24);
-      if (col->type == ASLAN_COL_FORMULA || col->type == ASLAN_COL_FORMULA_LUA)
+      if (col->type == ASLAN_COL_FORMULA)
         popup_h += 170.0f;
       if (popup_h > 600)
         popup_h = 600;
@@ -1905,19 +1891,11 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
 
         // --- Formula editor (for FORMULA / FORMULA_LUA columns) ---
-        if (col->type == ASLAN_COL_FORMULA ||
-            col->type == ASLAN_COL_FORMULA_LUA) {
+        if (col->type == ASLAN_COL_FORMULA) {
           nk_spacing(ctx, 1);
-          nk_label(ctx,
-                   col->type == ASLAN_COL_FORMULA_LUA ? "Lua Expression:"
-                                                      : "Formula:",
-                   NK_TEXT_LEFT);
+          nk_label(ctx, "Formula:", NK_TEXT_LEFT);
 
-          if (col->type == ASLAN_COL_FORMULA_LUA) {
-            struct nk_color hint_col = nk_rgb(120, 120, 130);
-            nk_label_colored(ctx, "row.ColName (Lua syntax)", NK_TEXT_LEFT,
-                             hint_col);
-          } else {
+          {
             struct nk_color hint_col = nk_rgb(120, 120, 130);
             nk_label_colored(ctx, "[Col] * [Col] (Excel syntax)", NK_TEXT_LEFT,
                              hint_col);
