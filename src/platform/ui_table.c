@@ -268,7 +268,6 @@ static void ui_render_formula_help_popup(UIHost *ui, struct nk_context *ctx) {
 
 void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                            Block *block, float width) {
-  (void)engine;
   (void)width;
   if (!block || block->type != BLOCK_TABLE)
     return;
@@ -1086,22 +1085,56 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               ui_request_redraw(ui);
             }
 
-            // Show formula result or placeholder
-            if (tbl->columns[c].formula && tbl->columns[c].formula[0]) {
-              // Display computed value
-              struct nk_color val_col =
-                  ui->dark_mode ? nk_rgb(180, 200, 240) : nk_rgb(40, 70, 140);
-              nk_label_colored(ctx, val_str,
-                               NK_TEXT_ALIGN_RIGHT | NK_TEXT_ALIGN_MIDDLE,
-                               val_col);
-            } else {
-              // No formula set yet - show hint
-              struct nk_color hint = ui->dark_mode
-                                         ? nk_rgba(100, 100, 120, 150)
-                                         : nk_rgba(150, 150, 170, 150);
-              nk_label_colored(ctx, "Click to add formula",
-                               NK_TEXT_ALIGN_CENTERED | NK_TEXT_ALIGN_MIDDLE,
-                               hint);
+            // Show formula result or placeholder via a read-only edit widget.
+            // IMPORTANT: Must use nk_edit_string_zero_terminated (not
+            // nk_label) to keep Nuklear's edit sequence counter stable.
+            // Using nk_label here would shift win->edit.seq for all
+            // subsequent edit widgets, corrupting their cursor state.
+            {
+              char display_buf[64];
+              struct nk_color txt_col;
+              if (tbl->columns[c].formula && tbl->columns[c].formula[0]) {
+                strncpy(display_buf, val_str, sizeof(display_buf) - 1);
+                display_buf[sizeof(display_buf) - 1] = '\0';
+                txt_col = ui->dark_mode ? nk_rgb(180, 200, 240)
+                                        : nk_rgb(40, 70, 140);
+              } else {
+                strncpy(display_buf, "= formula", sizeof(display_buf) - 1);
+                display_buf[sizeof(display_buf) - 1] = '\0';
+                txt_col = ui->dark_mode ? nk_rgba(100, 100, 120, 150)
+                                        : nk_rgba(150, 150, 170, 150);
+              }
+
+              // Style edit to look like a transparent label
+              struct nk_style_item transp =
+                  nk_style_item_color(nk_rgba(0, 0, 0, 0));
+              struct nk_style_item sv_n = ctx->style.edit.normal;
+              struct nk_style_item sv_h = ctx->style.edit.hover;
+              struct nk_style_item sv_a = ctx->style.edit.active;
+              struct nk_color sv_tn = ctx->style.edit.text_normal;
+              struct nk_color sv_th = ctx->style.edit.text_hover;
+              struct nk_color sv_ta = ctx->style.edit.text_active;
+              float sv_brd = ctx->style.edit.border;
+
+              ctx->style.edit.normal = transp;
+              ctx->style.edit.hover = transp;
+              ctx->style.edit.active = transp;
+              ctx->style.edit.text_normal = txt_col;
+              ctx->style.edit.text_hover = txt_col;
+              ctx->style.edit.text_active = txt_col;
+              ctx->style.edit.border = 0;
+
+              nk_edit_string_zero_terminated(
+                  ctx, NK_EDIT_FIELD | NK_EDIT_READ_ONLY, display_buf,
+                  sizeof(display_buf) - 1, nk_filter_default);
+
+              ctx->style.edit.normal = sv_n;
+              ctx->style.edit.hover = sv_h;
+              ctx->style.edit.active = sv_a;
+              ctx->style.edit.text_normal = sv_tn;
+              ctx->style.edit.text_hover = sv_th;
+              ctx->style.edit.text_active = sv_ta;
+              ctx->style.edit.border = sv_brd;
             }
             break;
           }
@@ -1160,115 +1193,72 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           case ASLAN_COL_DATE: {
             int64_t ts = aslan_table_get_date(tbl, (int)c, row_id);
 
-            // Check if this cell is being edited
-            int is_editing = (ui->table_state.active_row_idx == (int)v &&
-                              ui->table_state.active_col_idx == (int)c &&
-                              ui->table_state.is_editing_cell);
-
-            if (is_editing) {
-              // Editing mode: show editable field
-              if (ui->table_state.date_buffer[0] == '\0' && ts > 0) {
-                time_t t = (time_t)(ts / 1000);
-                struct tm *tm_ptr = localtime(&t);
-                strftime(ui->table_state.date_buffer,
-                         sizeof(ui->table_state.date_buffer), "%Y-%m-%d",
-                         tm_ptr);
-              }
-
-              // Style for active edit - make it look like an active field
-              struct nk_style_item old_edit_normal_date =
-                  ctx->style.edit.normal;
-              struct nk_color old_edit_text_date = ctx->style.edit.text_normal;
-
-              ctx->style.edit.normal = nk_style_item_color(
-                  ui->dark_mode ? nk_rgb(45, 47, 52) : nk_rgb(245, 245, 250));
-              ctx->style.edit.text_normal =
-                  ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
-              ctx->style.edit.text_hover =
-                  ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
-              ctx->style.edit.text_active =
-                  ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
-
-              // NEW: Auto-focus on first frame
-              if (ui->table_state.date_field_active) {
-                nk_edit_focus(ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT |
-                                       NK_EDIT_SIG_ENTER);
-                ui->table_state.date_field_active = 0;
-              }
-
-              nk_flags res = nk_edit_string_zero_terminated(
-                  ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT | NK_EDIT_SIG_ENTER,
-                  ui->table_state.date_buffer,
-                  sizeof(ui->table_state.date_buffer) - 1, nk_filter_ascii);
-
-              ctx->style.edit.normal = old_edit_normal_date;
-              ctx->style.edit.text_normal = old_edit_text_date;
-
-              if (res & NK_EDIT_COMMITED) {
-                ui->table_state.is_editing_cell = 0;
-                // Parse and save - try multiple formats for robustness
-                struct tm tm_val = {0};
-                int y = 0, m = 1, d = 1;
-                const char *db = ui->table_state.date_buffer;
-                if (sscanf(db, "%d-%d-%d", &y, &m, &d) == 3 ||
-                    sscanf(db, "%d/%d/%d", &y, &m, &d) == 3 ||
-                    sscanf(db, "%d.%d.%d", &y, &m, &d) == 3 ||
-                    sscanf(db, "%d %d %d", &y, &m, &d) == 3) {
-
-                  // Heuristic: If year is small (like 24), assume 2000s
-                  if (y < 100)
-                    y += 2000;
-
-                  tm_val.tm_year = y - 1900;
-                  tm_val.tm_mon = m - 1;
-                  tm_val.tm_mday = d;
-                  tm_val.tm_isdst = -1; // Let mktime determine DST
-
-                  time_t new_t = mktime(&tm_val);
-                  if (new_t != -1) {
-                    int64_t new_ts = (int64_t)new_t * 1000;
-                    aslan_table_set_date(tbl, (int)c, row_id, new_ts);
-                  }
-                }
-                ui->table_state.date_buffer[0] = '\0'; // Clear for next edit
-              }
-              if (res & NK_EDIT_DEACTIVATED) {
-                ui->table_state.is_editing_cell = 0;
-                // Don't clear immediately, let it persist or re-init on next
-                // click
-              }
+            // Date cells always use a read-only edit widget for display
+            // (keeps Nuklear edit seq stable) + open date picker on click.
+            char display[32];
+            if (ts > 0) {
+              time_t t = (time_t)(ts / 1000);
+              struct tm *tm_ptr = localtime(&t);
+              strftime(display, sizeof(display), "%Y-%m-%d", tm_ptr);
             } else {
-              // Display mode: show date or placeholder
-              char display[32];
+              strncpy(display, "YYYY-MM-DD", sizeof(display));
+            }
+
+            // Style edit to look like a clickable label
+            struct nk_style_item transp_d =
+                nk_style_item_color(nk_rgba(0, 0, 0, 0));
+            struct nk_style_item sv_n_d = ctx->style.edit.normal;
+            struct nk_style_item sv_h_d = ctx->style.edit.hover;
+            struct nk_style_item sv_a_d = ctx->style.edit.active;
+            struct nk_color sv_tn_d = ctx->style.edit.text_normal;
+            float sv_brd_d = ctx->style.edit.border;
+
+            struct nk_color cell_txt_d =
+                ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
+            ctx->style.edit.normal = transp_d;
+            ctx->style.edit.hover =
+                nk_style_item_color(nk_rgba(80, 80, 80, 40));
+            ctx->style.edit.active = transp_d;
+            ctx->style.edit.text_normal = ts > 0 ? cell_txt_d : muted_gray;
+            ctx->style.edit.border = 0;
+
+            nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD | NK_EDIT_READ_ONLY,
+                                           display, sizeof(display) - 1,
+                                           nk_filter_default);
+
+            ctx->style.edit.normal = sv_n_d;
+            ctx->style.edit.hover = sv_h_d;
+            ctx->style.edit.active = sv_a_d;
+            ctx->style.edit.text_normal = sv_tn_d;
+            ctx->style.edit.border = sv_brd_d;
+
+            // Open date picker popup on click
+            if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
+                                                cell_bounds)) {
+              ui->table_state.active_row_idx = (int)v;
+              ui->table_state.active_col_idx = (int)c;
+              ui->table_state.active_block_id = block->id;
+              ui->active_block_id = block->id;
+
+              // Initialize date picker to current date or today
               if (ts > 0) {
                 time_t t = (time_t)(ts / 1000);
                 struct tm *tm_ptr = localtime(&t);
-                strftime(display, sizeof(display), "%Y-%m-%d", tm_ptr);
+                ui->table_state.date_picker_year = tm_ptr->tm_year + 1900;
+                ui->table_state.date_picker_month = tm_ptr->tm_mon;
               } else {
-                strncpy(display, "YYYY-MM-DD", sizeof(display));
+                time_t now = time(NULL);
+                struct tm *tm_now = localtime(&now);
+                ui->table_state.date_picker_year = tm_now->tm_year + 1900;
+                ui->table_state.date_picker_month = tm_now->tm_mon;
               }
-
-              // Button that enters edit mode on click
-              struct nk_style_button date_btn_style = ctx->style.button;
-              date_btn_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-              date_btn_style.hover =
-                  nk_style_item_color(nk_rgba(80, 80, 80, 40));
-              date_btn_style.active =
-                  nk_style_item_color(nk_rgba(60, 60, 60, 60));
-              date_btn_style.border = 0;
-              struct nk_color cell_txt =
-                  ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
-              date_btn_style.text_normal = ts > 0 ? cell_txt : muted_gray;
-              date_btn_style.text_hover = cell_txt;
-              date_btn_style.text_active = cell_txt;
-
-              if (nk_button_label_styled(ctx, &date_btn_style, display)) {
-                ui->table_state.active_row_idx = (int)v;
-                ui->table_state.active_col_idx = (int)c;
-                ui->table_state.is_editing_cell = 1;
-                ui->table_state.date_field_active = 1; // Trigger focus
-                ui->table_state.date_buffer[0] = '\0'; // Trigger re-init
-              }
+              ui->table_state.date_picker_row = row_id;
+              ui->table_state.date_picker_col = (int)c;
+              ui->table_state.date_picker_x = cell_bounds.x;
+              ui->table_state.date_picker_y = cell_bounds.y + cell_bounds.h;
+              ui->table_state.show_date_picker =
+                  !ui->table_state.show_date_picker;
+              ui_request_redraw(ui);
             }
             break;
           }
@@ -1299,6 +1289,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               ui->table_state.show_col_menu = 0;
               ui->table_state.show_footer_menu = 0;
               ui->table_state.show_col_settings = 0;
+              ui->table_state.show_date_picker = 0;
               ui->table_state.option_buffer[0] = '\0'; // Clear buffer on open
               ui->table_state.active_color_picker_option =
                   -1; // Reset color picker
@@ -1395,9 +1386,36 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             // Evaluate on-demand (cached via generation counter)
             const char *result =
                 aslan_table_eval_lua_formula(tbl, (int)c, row_id, ui->L);
+            // Use read-only edit to keep Nuklear edit seq counter stable
+            char lua_buf[256];
+            strncpy(lua_buf, result ? result : "", sizeof(lua_buf) - 1);
+            lua_buf[sizeof(lua_buf) - 1] = '\0';
+
+            struct nk_style_item transp =
+                nk_style_item_color(nk_rgba(0, 0, 0, 0));
+            struct nk_style_item sv_n = ctx->style.edit.normal;
+            struct nk_style_item sv_h = ctx->style.edit.hover;
+            struct nk_style_item sv_a = ctx->style.edit.active;
+            struct nk_color sv_tn = ctx->style.edit.text_normal;
+            float sv_brd = ctx->style.edit.border;
+
             struct nk_color lua_txt =
                 ui->dark_mode ? nk_rgb(180, 210, 240) : nk_rgb(40, 90, 160);
-            nk_label_colored(ctx, result ? result : "", NK_TEXT_LEFT, lua_txt);
+            ctx->style.edit.normal = transp;
+            ctx->style.edit.hover = transp;
+            ctx->style.edit.active = transp;
+            ctx->style.edit.text_normal = lua_txt;
+            ctx->style.edit.border = 0;
+
+            nk_edit_string_zero_terminated(
+                ctx, NK_EDIT_FIELD | NK_EDIT_READ_ONLY, lua_buf,
+                sizeof(lua_buf) - 1, nk_filter_default);
+
+            ctx->style.edit.normal = sv_n;
+            ctx->style.edit.hover = sv_h;
+            ctx->style.edit.active = sv_a;
+            ctx->style.edit.text_normal = sv_tn;
+            ctx->style.edit.border = sv_brd;
             break;
           }
           default: {
@@ -1936,6 +1954,17 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             aslan_table_set_formula(tbl, c, ui->table_state.formula_buffer);
             tbl->data_generation++;
             tbl->lua_eval_generation = 0;
+
+            // Persist formula to AOF
+            Page *pg = doc_page_get_active(engine->doc);
+            if (pg) {
+              char cmd_buf[1200];
+              snprintf(cmd_buf, sizeof(cmd_buf),
+                       "block_table_col_formula %u %u %d \"%s\"", pg->id,
+                       block->id, c, ui->table_state.formula_buffer);
+              engine_execute_command(engine, cmd_buf);
+            }
+
             ui->table_state.show_col_settings = 0;
             nk_popup_close(ctx);
           }
@@ -2210,6 +2239,243 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       } else {
         ui->table_state.show_select_popup = 0;
       }
+    }
+
+    // -----------------------------------------------------------------
+    // DATE PICKER POPUP (Notion-style calendar grid)
+    // -----------------------------------------------------------------
+    if (ui->table_state.show_date_picker &&
+        ui->table_state.date_picker_col >= 0 &&
+        ui->table_state.date_picker_col < (int)tbl->column_count &&
+        tbl->columns[ui->table_state.date_picker_col].type == ASLAN_COL_DATE) {
+
+      struct nk_color dp_bg =
+          ui->dark_mode ? nk_rgb(38, 40, 46) : nk_rgb(255, 255, 255);
+      nk_style_push_style_item(ctx, &ctx->style.window.fixed_background,
+                               nk_style_item_color(dp_bg));
+
+      float dp_w = 260, dp_h = 290;
+      struct nk_rect dp_rect = table_smart_popup_rect(
+          ui, ui->table_state.date_picker_x,
+          ui->table_state.date_picker_y + 2, dp_w, dp_h);
+
+      if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Date Picker",
+                         NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER, dp_rect)) {
+
+        int dp_year = ui->table_state.date_picker_year;
+        int dp_month = ui->table_state.date_picker_month; // 0-11
+
+        struct nk_color dp_text =
+            ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
+        struct nk_color dp_muted =
+            ui->dark_mode ? nk_rgb(100, 102, 110) : nk_rgb(160, 162, 168);
+        struct nk_color dp_accent = nk_rgb(45, 127, 249);
+
+        // --- Month/Year navigation bar ---
+        struct nk_style_button nav_btn = ctx->style.button;
+        nav_btn.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+        nav_btn.hover = nk_style_item_color(
+            ui->dark_mode ? nk_rgba(255, 255, 255, 20)
+                          : nk_rgba(0, 0, 0, 10));
+        nav_btn.active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+        nav_btn.border = 0;
+        nav_btn.rounding = 4;
+        nav_btn.text_normal = dp_text;
+        nav_btn.text_hover = dp_accent;
+        nav_btn.text_active = dp_text;
+
+        nk_layout_row_begin(ctx, NK_STATIC, 28, 3);
+
+        // Previous month
+        nk_layout_row_push(ctx, 30);
+        if (nk_button_label_styled(ctx, &nav_btn, "<")) {
+          ui->table_state.date_picker_month--;
+          if (ui->table_state.date_picker_month < 0) {
+            ui->table_state.date_picker_month = 11;
+            ui->table_state.date_picker_year--;
+          }
+          ui_request_redraw(ui);
+        }
+
+        // Month/Year title
+        static const char *month_names[] = {
+            "January",   "February", "March",    "April",
+            "May",       "June",     "July",     "August",
+            "September", "October",  "November", "December"};
+        char title[64];
+        snprintf(title, sizeof(title), "%s %d",
+                 month_names[dp_month], dp_year);
+        nk_layout_row_push(ctx, dp_w - 80);
+        struct nk_style_button title_btn = nav_btn;
+        title_btn.text_normal = dp_text;
+        nk_button_label_styled(ctx, &title_btn, title);
+
+        // Next month
+        nk_layout_row_push(ctx, 30);
+        if (nk_button_label_styled(ctx, &nav_btn, ">")) {
+          ui->table_state.date_picker_month++;
+          if (ui->table_state.date_picker_month > 11) {
+            ui->table_state.date_picker_month = 0;
+            ui->table_state.date_picker_year++;
+          }
+          ui_request_redraw(ui);
+        }
+        nk_layout_row_end(ctx);
+
+        // --- Day-of-week headers ---
+        nk_layout_row_dynamic(ctx, 20, 7);
+        static const char *dow[] = {"Mo", "Tu", "We", "Th",
+                                    "Fr", "Sa", "Su"};
+        for (int i = 0; i < 7; i++) {
+          nk_label_colored(ctx, dow[i], NK_TEXT_CENTERED, dp_muted);
+        }
+
+        // --- Calendar grid ---
+        // Calculate first day of month (Monday=0 .. Sunday=6)
+        struct tm first_tm = {0};
+        first_tm.tm_year = dp_year - 1900;
+        first_tm.tm_mon = dp_month;
+        first_tm.tm_mday = 1;
+        first_tm.tm_isdst = -1;
+        mktime(&first_tm); // normalize
+        int first_wday = first_tm.tm_wday; // 0=Sunday
+        // Convert to Monday=0 system
+        int start_offset = (first_wday + 6) % 7;
+
+        // Days in this month
+        int days_in_month;
+        {
+          struct tm next_m = {0};
+          next_m.tm_year = dp_year - 1900;
+          next_m.tm_mon = dp_month + 1;
+          next_m.tm_mday = 0; // day 0 of next month = last day of this month
+          next_m.tm_isdst = -1;
+          mktime(&next_m);
+          days_in_month = next_m.tm_mday;
+        }
+
+        // Get current stored date for highlighting
+        int64_t stored_ts = aslan_table_get_date(
+            tbl, ui->table_state.date_picker_col,
+            ui->table_state.date_picker_row);
+        int sel_day = 0, sel_month = -1, sel_year = 0;
+        if (stored_ts > 0) {
+          time_t st = (time_t)(stored_ts / 1000);
+          struct tm *stm = localtime(&st);
+          sel_day = stm->tm_mday;
+          sel_month = stm->tm_mon;
+          sel_year = stm->tm_year + 1900;
+        }
+
+        // Today for highlighting
+        time_t now_t = time(NULL);
+        struct tm *now_tm = localtime(&now_t);
+        int today_day = now_tm->tm_mday;
+        int today_month = now_tm->tm_mon;
+        int today_year = now_tm->tm_year + 1900;
+
+        // Render 6 rows of 7 days
+        struct nk_style_button day_btn = nav_btn;
+        day_btn.padding = nk_vec2(0, 0);
+
+        for (int row = 0; row < 6; row++) {
+          nk_layout_row_dynamic(ctx, 28, 7);
+          for (int col = 0; col < 7; col++) {
+            int cell = row * 7 + col;
+            int day = cell - start_offset + 1;
+
+            if (day < 1 || day > days_in_month) {
+              // Empty cell
+              nk_label(ctx, "", NK_TEXT_CENTERED);
+            } else {
+              char day_str[4];
+              snprintf(day_str, sizeof(day_str), "%d", day);
+
+              int is_selected = (day == sel_day && dp_month == sel_month &&
+                                 dp_year == sel_year);
+              int is_today = (day == today_day && dp_month == today_month &&
+                              dp_year == today_year);
+
+              struct nk_style_button d = day_btn;
+              if (is_selected) {
+                d.normal = nk_style_item_color(dp_accent);
+                d.hover = nk_style_item_color(dp_accent);
+                d.text_normal = nk_rgb(255, 255, 255);
+                d.text_hover = nk_rgb(255, 255, 255);
+                d.rounding = 14;
+              } else if (is_today) {
+                d.normal = nk_style_item_color(nk_rgba(45, 127, 249, 30));
+                d.hover = nk_style_item_color(nk_rgba(45, 127, 249, 50));
+                d.text_normal = dp_accent;
+                d.text_hover = dp_accent;
+                d.rounding = 14;
+              } else {
+                d.text_normal = dp_text;
+                d.text_hover = dp_accent;
+              }
+
+              if (nk_button_label_styled(ctx, &d, day_str)) {
+                // Build timestamp and set date
+                struct tm new_tm = {0};
+                new_tm.tm_year = dp_year - 1900;
+                new_tm.tm_mon = dp_month;
+                new_tm.tm_mday = day;
+                new_tm.tm_hour = 12; // noon to avoid DST issues
+                new_tm.tm_isdst = -1;
+                time_t new_time = mktime(&new_tm);
+                if (new_time != -1) {
+                  int64_t new_ts = (int64_t)new_time * 1000;
+                  aslan_table_set_date(tbl,
+                                       ui->table_state.date_picker_col,
+                                       ui->table_state.date_picker_row,
+                                       new_ts);
+                }
+                ui->table_state.show_date_picker = 0;
+                nk_popup_close(ctx);
+                ui_request_redraw(ui);
+              }
+            }
+          }
+          // Stop rendering rows if we've passed all days
+          if ((row + 1) * 7 - start_offset > days_in_month)
+            break;
+        }
+
+        // --- "Today" shortcut + Clear button ---
+        nk_layout_row_dynamic(ctx, 4, 1);
+        nk_spacing(ctx, 1);
+        nk_layout_row_dynamic(ctx, 24, 2);
+
+        struct nk_style_button today_btn = nav_btn;
+        today_btn.text_normal = dp_accent;
+        today_btn.text_hover = dp_accent;
+        if (nk_button_label_styled(ctx, &today_btn, "Today")) {
+          time_t now = time(NULL);
+          int64_t now_ms = (int64_t)now * 1000;
+          aslan_table_set_date(tbl, ui->table_state.date_picker_col,
+                               ui->table_state.date_picker_row, now_ms);
+          ui->table_state.show_date_picker = 0;
+          nk_popup_close(ctx);
+          ui_request_redraw(ui);
+        }
+
+        struct nk_style_button clear_btn = nav_btn;
+        clear_btn.text_normal =
+            ui->dark_mode ? nk_rgb(200, 100, 100) : nk_rgb(180, 60, 60);
+        clear_btn.text_hover = nk_rgb(220, 80, 80);
+        if (nk_button_label_styled(ctx, &clear_btn, "Clear")) {
+          aslan_table_set_date(tbl, ui->table_state.date_picker_col,
+                               ui->table_state.date_picker_row, 0);
+          ui->table_state.show_date_picker = 0;
+          nk_popup_close(ctx);
+          ui_request_redraw(ui);
+        }
+
+        nk_popup_end(ctx);
+      } else {
+        ui->table_state.show_date_picker = 0;
+      }
+      nk_style_pop_style_item(ctx);
     }
   }
 }

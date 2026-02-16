@@ -206,3 +206,24 @@ block_create 1 67 h1
 block_create 1 68 table
 block_create 1 69 canvas
 block_create 1 70 design
+-- Session started --
+block_delete 1 66
+block_delete 1 67
+block_delete 1 68
+block_delete 1 69
+block_delete 1 70
+block_create 1 71 table
+block_table_col_width 1 71 2 368
+block_table_col_width 1 71 2 117
+block_create 1 72 h1
+block_delete 1 72
+block_create 1 73 canvas
+block_delete 1 73
+block_create 1 74 text
+block_create 1 75 text
+block_create 1 76 h1
+-- Session started --
+block_delete 1 74
+block_delete 1 75
+block_delete 1 76
+block_create 1 77 canvas

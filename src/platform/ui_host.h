@@ -363,6 +363,14 @@ typedef struct UIHost {
     int drop_target_col;            // Column drop target (-1 = none)
     float drag_col_start_x;         // Mouse X at drag start
     int active_color_picker_option; // Option index for color picker (-1 = none)
+    // Date picker popup state
+    int show_date_picker;           // 1 = date picker popup is open
+    int date_picker_year;           // Currently viewed year
+    int date_picker_month;          // Currently viewed month (0-11)
+    uint64_t date_picker_row;       // Row ID for the date being edited
+    int date_picker_col;            // Column index for the date being edited
+    float date_picker_x;            // Popup X position
+    float date_picker_y;            // Popup Y position
   } table_state;
 
   // Sidebar state: 0=Properties/Layers, 1=Shape Selection
