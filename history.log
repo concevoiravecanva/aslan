@@ -252,3 +252,78 @@ block_create 1 84 table
 block_create 1 85 chart
 -- Session started --
 block_delete 1 85
+block_create 1 86 chart
+block_chart_init 1 86 bar 84 0 1
+block_chart_init 1 86 bar 84 1 1
+block_chart_init 1 86 bar 84 1 4
+block_chart_init 1 86 bar 84 2 4
+block_chart_init 1 86 bar 84 2 1
+block_chart_init 1 86 bar 84 3 1
+block_chart_init 1 86 bar 84 3 4
+block_chart_init 1 86 line 84 3 4
+block_chart_init 1 86 pie 84 3 4
+block_chart_init 1 86 bar 84 3 4
+block_chart_init 1 86 line 84 3 4
+block_chart_init 1 86 pie 84 3 4
+block_chart_init 1 86 pie 84 3 4
+block_chart_init 1 86 pie 84 3 4
+block_chart_init 1 86 pie 84 4 4
+block_chart_init 1 86 pie 84 0 4
+block_chart_init 1 86 pie 84 0 1
+block_chart_init 1 86 pie 84 0 4
+block_chart_init 1 86 pie 84 0 1
+block_chart_init 1 86 pie 84 0 4
+block_chart_init 1 86 pie 84 0 1
+block_chart_init 1 86 pie 84 0 4
+block_delete 1 86
+block_create 1 87 chart
+block_create 1 88 canvas
+-- Session started --
+block_delete 1 84
+block_delete 1 87
+block_delete 1 88
+block_create 1 89 chart
+block_create 1 90 design
+block_delete 1 89
+block_create 1 91 table
+block_create 1 92 design
+block_create 1 93 chart
+block_create 1 94 table
+block_delete 1 93
+block_delete 1 92
+block_delete 1 91
+block_delete 1 90
+block_delete 1 94
+block_create 1 95 table
+block_table_col_width 1 95 0 151
+block_table_col_width 1 95 3 100
+block_table_col_width 1 95 4 166
+block_table_col_width 1 95 5 145
+block_create 1 96 chart
+block_chart_init 1 96 line 95 0 1
+block_chart_init 1 96 pie 95 0 1
+block_chart_init 1 96 pie 95 0 3
+block_chart_init 1 96 pie 95 0 1
+block_create 1 97 chart
+block_chart_init 1 97 bar 95 1 1
+block_chart_init 1 97 bar 95 1 3
+block_chart_init 1 97 bar 95 1 1
+block_chart_init 1 97 bar 95 1 3
+block_chart_init 1 97 bar 95 1 1
+block_chart_init 1 97 bar 95 2 1
+block_chart_init 1 97 bar 95 3 1
+block_chart_init 1 97 bar 95 3 3
+block_chart_init 1 97 bar 95 3 1
+block_chart_init 1 97 line 95 3 1
+block_chart_init 1 97 pie 95 3 1
+block_chart_init 1 97 pie 95 3 3
+block_chart_init 1 97 pie 95 3 3
+block_chart_init 1 97 pie 95 4 3
+block_chart_init 1 97 pie 95 5 3
+block_chart_init 1 97 pie 95 0 3
+block_chart_init 1 97 pie 95 1 3
+block_chart_init 1 97 pie 95 2 3
+block_chart_init 1 97 pie 95 3 3
+block_chart_init 1 97 pie 95 4 3
+block_chart_init 1 97 pie 95 5 3
+block_chart_init 1 97 pie 95 0 3

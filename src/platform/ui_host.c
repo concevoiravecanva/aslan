@@ -925,14 +925,18 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
   int allow_export =
       (block->type == BLOCK_TABLE || block->type == BLOCK_CANVAS ||
        block->type == BLOCK_DESIGN);
+  int allow_resize =
+      (block->type == BLOCK_TABLE || block->type == BLOCK_CANVAS ||
+       block->type == BLOCK_DESIGN || block->type == BLOCK_CHART);
 
-  // Count buttons: hand + (search if table) + (export if allowed) + (fullscreen
-  // if allowed) + (trash if not H1)
+  // Count buttons
   int n = 1; // hand always
   if (block->type == BLOCK_TABLE)
     n++;
   if (allow_export)
     n++;
+  if (allow_resize)
+    n += 2; // shrink + grow
   if (allow_fullscreen)
     n++;
   if (show_trash)
@@ -1062,7 +1066,63 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
     }
   }
 
-  // 4. Fullscreen icon
+  // 4. Resize buttons (shrink / grow)
+  if (allow_resize) {
+    const struct nk_user_font *text_font =
+        ui->font_inter ? &ui->font_inter->handle : icon_font;
+
+    // Shrink (-)
+    {
+      struct nk_rect r = nk_rect(ix, iy, btn_w, btn_h);
+      int hovered =
+          (mx >= r.x && mx < r.x + r.w && my >= r.y && my < r.y + r.h);
+      if (hovered)
+        nk_fill_rect(canvas, r, 4.0f, hover_bg);
+      struct nk_color ic = hovered ? hover_icon : icon_col;
+      float tw = text_font->width(text_font->userdata, text_font->height,
+                                  "-", 1);
+      nk_draw_text(canvas,
+                   nk_rect(ix + (btn_w - tw) / 2, iy + 1, btn_w, btn_h), "-",
+                   1, text_font, nk_rgba(0, 0, 0, 0), ic);
+      if (hovered && pressed) {
+        float vs = block->view_scale;
+        if (vs < 0.1f)
+          vs = 1.0f;
+        vs -= 0.15f;
+        if (vs < 0.3f)
+          vs = 0.3f;
+        block->view_scale = vs;
+      }
+      ix += btn_w + gap;
+    }
+
+    // Grow (+)
+    {
+      struct nk_rect r = nk_rect(ix, iy, btn_w, btn_h);
+      int hovered =
+          (mx >= r.x && mx < r.x + r.w && my >= r.y && my < r.y + r.h);
+      if (hovered)
+        nk_fill_rect(canvas, r, 4.0f, hover_bg);
+      struct nk_color ic = hovered ? hover_icon : icon_col;
+      float tw = text_font->width(text_font->userdata, text_font->height,
+                                  "+", 1);
+      nk_draw_text(canvas,
+                   nk_rect(ix + (btn_w - tw) / 2, iy + 1, btn_w, btn_h), "+",
+                   1, text_font, nk_rgba(0, 0, 0, 0), ic);
+      if (hovered && pressed) {
+        float vs = block->view_scale;
+        if (vs < 0.1f)
+          vs = 1.0f;
+        vs += 0.15f;
+        if (vs > 3.0f)
+          vs = 3.0f;
+        block->view_scale = vs;
+      }
+      ix += btn_w + gap;
+    }
+  }
+
+  // 5. Fullscreen icon
   if (allow_fullscreen) {
     if (is_expanded) {
       OVERLAY_ICON_BTN(ICON_FULLSCREEN_EXIT, strlen(ICON_FULLSCREEN_EXIT));
@@ -1075,7 +1135,7 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
     }
   }
 
-  // 4. Trash icon (All except H1)
+  // 6. Trash icon
   if (show_trash) {
     OVERLAY_ICON_BTN(ICON_DELETE, strlen(ICON_DELETE));
     if (_btn_clicked) {
@@ -1437,6 +1497,11 @@ float ui_measure_block_height(UIHost *ui, Block *block, float width) {
   if (!block)
     return 100.0f;
 
+  // Get block scale factor (default 1.0)
+  float vs = block->view_scale;
+  if (vs < 0.1f)
+    vs = 1.0f;
+
   switch (block->type) {
   case BLOCK_TEXT: {
     int lines = 1;
@@ -1478,12 +1543,11 @@ float ui_measure_block_height(UIHost *ui, Block *block, float width) {
       h += 30.0f;
     }
 
-    return h + 0.0f; // Minimal extra padding (tightened from +2)
+    return h * vs;
   }
 
   case BLOCK_CANVAS:
-    // Canvas renders at fixed 400.0f height in non-expanded mode
-    return 400.0f;
+    return 400.0f * vs;
 
   case BLOCK_DESIGN: {
     // Design renders at aspect ratio, max 400.0f + 52.0f toolbar
@@ -1494,11 +1558,11 @@ float ui_measure_block_height(UIHost *ui, Block *block, float width) {
       if (aspect_h > 400.0f)
         aspect_h = 400.0f;
     }
-    return aspect_h + 52.0f;
+    return (aspect_h + 52.0f) * vs;
   }
 
   case BLOCK_CHART:
-    return 420.0f; // Height + toolbar
+    return 420.0f * vs;
 
   default:
     return 100.0f;

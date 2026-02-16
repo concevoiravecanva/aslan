@@ -258,6 +258,7 @@ typedef struct Block {
   bool is_collapsed;
   bool is_focused;
   float height;        // Computed render height (pixels)
+  float view_scale;    // Block size scale factor (0 = use 1.0 default)
   int highlight_color; // 0=none, 1=yellow, 2=blue, 3=green
 
   // Cursor state (for text editing within block)
