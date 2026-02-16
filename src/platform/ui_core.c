@@ -216,7 +216,7 @@ void ui_apply_theme(UIHost *ui) {
     s->window.fixed_background = nk_style_item_color(bg);
     s->window.border_color = bg;
     s->window.border = 0;
-    s->window.spacing = nk_vec2(0, 6);
+    s->window.spacing = nk_vec2(0, 1);
     s->window.group_border_color = nk_rgba(60, 60, 68, 80);
     s->window.group_border = 0.0f;
 
@@ -257,7 +257,7 @@ void ui_apply_theme(UIHost *ui) {
     s->window.fixed_background = nk_style_item_color(bg);
     s->window.border_color = bg;
     s->window.border = 0;
-    s->window.spacing = nk_vec2(0, 6);
+    s->window.spacing = nk_vec2(0, 1);
     s->window.group_border_color = nk_rgba(230, 230, 233, 100);
     s->window.group_border = 0.0f;
 

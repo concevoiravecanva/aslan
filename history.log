@@ -182,3 +182,27 @@ block_create 1 57 canvas
 block_create 1 58 h1
 block_create 1 59 text
 block_create 1 60 table
+block_delete 1 55
+block_delete 1 56
+block_delete 1 57
+block_delete 1 59
+block_delete 1 58
+block_delete 1 60
+block_create 1 61 design
+block_delete 1 61
+block_create 1 62 text
+block_create 1 63 h1
+block_create 1 64 table
+-- Session started --
+-- Session started --
+block_create 1 65 h1
+-- Session started --
+block_delete 1 63
+block_delete 1 64
+block_delete 1 65
+block_delete 1 62
+block_create 1 66 text
+block_create 1 67 h1
+block_create 1 68 table
+block_create 1 69 canvas
+block_create 1 70 design

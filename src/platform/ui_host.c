@@ -1019,11 +1019,10 @@ void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
     }
   }
 
-  // Dynamic height: content lines + 1 extra line of padding
-  // The extra line prevents a jarring jump when pressing Enter
-  float edit_height = line_h * (line_count + 1);
-  if (edit_height < line_h * 2)
-    edit_height = line_h * 2;
+  // Dynamic height: exactly content lines (reduced from line_count+1)
+  float edit_height = line_h * line_count;
+  if (edit_height < line_h)
+    edit_height = line_h;
 
   nk_layout_row_dynamic(ctx, edit_height, 1);
 
@@ -1342,13 +1341,12 @@ float ui_measure_block_height(UIHost *ui, Block *block, float width) {
         if (*p == '\n')
           lines++;
     }
-    // Line height 22 + padding (tightened from +32 to +4 for group padding)
-    // ui_render_block_text adds 1 extra line for edit buffer
-    return (float)(lines + 1) * 22.0f + 8.0f;
+    // Line height 22 + padding (tightened from +4 to +2)
+    return (float)lines * 22.0f + 2.0f;
   }
   case BLOCK_HEADING_1:
-    // H1 renders at 42px + group padding
-    return 50.0f;
+    // H1 renders at 42px + group padding (reduced from 46)
+    return 44.0f;
 
   case BLOCK_TABLE: {
     // Header 34 + Footer 30 + Padding 10 = 74
@@ -1376,7 +1374,7 @@ float ui_measure_block_height(UIHost *ui, Block *block, float width) {
       h += 30.0f;
     }
 
-    return h + 4.0f; // Minimal extra padding (tightened from +20)
+    return h + 0.0f; // Minimal extra padding (tightened from +2)
   }
 
   case BLOCK_CANVAS:
@@ -1538,7 +1536,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
               float saved_rounding = ctx->style.window.rounding;
 
               ctx->style.window.group_padding =
-                  nk_vec2(0, 4); // Minimal vertical padding
+                  nk_vec2(0, 0); // Minimal vertical padding
               ctx->style.window.group_border = 0.0f;
               ctx->style.window.group_border_color = nk_rgba(0, 0, 0, 0);
               ctx->style.window.fixed_background =
