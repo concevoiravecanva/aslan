@@ -668,68 +668,158 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
   // Inline text editing keyboard handling (Freeform-style)
   if (ui->editing_node) {
     if (evt->type == SDL_KEYDOWN) {
-      ASLAN_DEBUG("Editing node, Keydown: %s",
-                  SDL_GetKeyName(evt->key.keysym.sym));
       if (evt->key.keysym.sym == SDLK_RETURN ||
           evt->key.keysym.sym == SDLK_KP_ENTER) {
-        // Confirm edit and exit editing mode
         strncpy(ui->editing_node->text, ui->edit_buffer,
                 sizeof(ui->editing_node->text) - 1);
         ui->editing_node->text[sizeof(ui->editing_node->text) - 1] = '\0';
         ui->editing_node = NULL;
-        ASLAN_DEBUG("Editing node confirmed");
+        SDL_StopTextInput();
       } else if (evt->key.keysym.sym == SDLK_ESCAPE) {
-        // Cancel edit (revert to original)
         ui->editing_node = NULL;
-        ASLAN_DEBUG("Editing node cancelled");
+        SDL_StopTextInput();
       } else if (evt->key.keysym.sym == SDLK_BACKSPACE) {
-        // Delete last character
         size_t len = strlen(ui->edit_buffer);
-        if (len > 0) {
+        if (len > 0)
           ui->edit_buffer[len - 1] = '\0';
-        }
-        ASLAN_DEBUG("Editing node backspace. Buffer: '%s'", ui->edit_buffer);
       }
     } else if (evt->type == SDL_TEXTINPUT) {
-      // Append typed text
       size_t len = strlen(ui->edit_buffer);
       size_t input_len = strlen(evt->text.text);
-      if (len + input_len < sizeof(ui->edit_buffer) - 1) {
+      if (len + input_len < sizeof(ui->edit_buffer) - 1)
         strcat(ui->edit_buffer, evt->text.text);
-      }
-      ASLAN_DEBUG("Editing node text input: '%s'. Buffer: '%s'", evt->text.text,
-                  ui->edit_buffer);
     }
-  }
-  // Only return if it's a typing event or return/esc/backspace for editing
-  if (evt->type == SDL_TEXTINPUT ||
-      (evt->type == SDL_KEYDOWN && (evt->key.keysym.sym == SDLK_RETURN ||
-                                    evt->key.keysym.sym == SDLK_ESCAPE ||
-                                    evt->key.keysym.sym == SDLK_BACKSPACE))) {
-    return;
+    return; // Consume all keyboard events while editing text
   }
 
-  // Delete selected node
-  if (evt->type == SDL_KEYDOWN && evt->key.keysym.sym == SDLK_BACKSPACE) {
-    ASLAN_DEBUG("Backspace pressed, selected_node=%p",
-                (void *)ui->selected_node);
-    if (ui->selected_node && ui->canvas_state.active_block) {
-      // Get the page and block IDs for the engine command
-      Page *page = doc_page_get_active(ui->engine->doc);
-      if (page && ui->canvas_state.active_block) {
-        uint32_t page_id = page->id;
-        uint32_t block_id = ui->canvas_state.active_block->id;
-        uint32_t node_id = ui->selected_node->id;
+  // --- Canvas/Design keyboard shortcuts (only when NOT editing text) ---
+  if (evt->type == SDL_KEYDOWN) {
+    SDL_Keymod mods = SDL_GetModState();
+    int cmd_held = (mods & KMOD_GUI) || (mods & KMOD_CTRL);
+    int shift_held = (mods & KMOD_SHIFT);
+    SDL_Keycode key = evt->key.keysym.sym;
 
-        // Properly delete the node via engine command (persists to AOF)
-        char cmd[256];
-        snprintf(cmd, sizeof(cmd), "block_canvas_node %u %u delete %u", page_id,
-                 block_id, node_id);
-        engine_execute_command(ui->engine, cmd);
+    // Determine active block (canvas or design)
+    Block *active_block = NULL;
+    int is_canvas = 0, is_design = 0;
+    if (ui->canvas_state.active_block &&
+        ui->canvas_state.active_canvas_id != 0) {
+      active_block = ui->canvas_state.active_block;
+      is_canvas = 1;
+    } else if (ui->design_state.active_block &&
+               ui->design_state.active_design_id != 0) {
+      active_block = ui->design_state.active_block;
+      is_design = 1;
+    }
 
+    // --- Escape: deselect, exit modes ---
+    if (key == SDLK_ESCAPE) {
+      if (ui->selected_node) {
         ui->selected_node = NULL;
-        ASLAN_DEBUG("Node deleted properly via engine command");
       }
+      if (is_canvas) {
+        ui->canvas_state.bezier_mode = 0;
+        ui->canvas_state.tool = CANVAS_TOOL_SELECT;
+        ui->canvas_state.active_cat = CANVAS_CAT_SELECT;
+        ui->canvas_state.show_sub_menu = 0;
+      }
+      if (is_design) {
+        ui->design_state.bezier_mode = 0;
+        ui->design_state.tool = CANVAS_TOOL_SELECT;
+        ui->design_state.active_cat = CANVAS_CAT_SELECT;
+        ui->design_state.show_sub_menu = 0;
+      }
+      return;
+    }
+
+    // --- Delete / Backspace: delete selected node ---
+    if ((key == SDLK_DELETE || key == SDLK_BACKSPACE) && ui->selected_node &&
+        active_block) {
+      uint32_t node_id = ui->selected_node->id;
+      if (is_canvas)
+        block_canvas_delete_node(active_block, node_id);
+      else if (is_design)
+        block_design_delete_node(active_block, node_id);
+      ui->selected_node = NULL;
+      return;
+    }
+
+    // --- Arrow keys: nudge selected node ---
+    if ((key == SDLK_UP || key == SDLK_DOWN || key == SDLK_LEFT ||
+         key == SDLK_RIGHT) &&
+        ui->selected_node) {
+      float step = shift_held ? 10.0f : 1.0f;
+      if (key == SDLK_UP)
+        ui->selected_node->y -= step;
+      else if (key == SDLK_DOWN)
+        ui->selected_node->y += step;
+      else if (key == SDLK_LEFT)
+        ui->selected_node->x -= step;
+      else if (key == SDLK_RIGHT)
+        ui->selected_node->x += step;
+
+      // Clamp for design (finite artboard)
+      if (is_design && active_block) {
+        DesignData *dd = &active_block->data.design;
+        if (ui->selected_node->x < 0)
+          ui->selected_node->x = 0;
+        if (ui->selected_node->y < 0)
+          ui->selected_node->y = 0;
+        if (ui->selected_node->x + ui->selected_node->width > dd->width)
+          ui->selected_node->x = dd->width - ui->selected_node->width;
+        if (ui->selected_node->y + ui->selected_node->height > dd->height)
+          ui->selected_node->y = dd->height - ui->selected_node->height;
+      }
+      return;
+    }
+
+    // --- Cmd+D: duplicate selected node ---
+    if (cmd_held && key == SDLK_d && ui->selected_node && active_block) {
+      Node *src = ui->selected_node;
+      Node *dup = NULL;
+
+      if (is_canvas) {
+        dup = node_create(active_block->data.canvas.next_node_id++, src->type,
+                          src->name);
+      } else if (is_design) {
+        dup = node_create(active_block->data.design.next_node_id++, src->type,
+                          src->name);
+      }
+
+      if (dup) {
+        // Copy visual properties
+        dup->x = src->x + 20.0f;
+        dup->y = src->y + 20.0f;
+        dup->width = src->width;
+        dup->height = src->height;
+        dup->rotation = src->rotation;
+        dup->fill_color = src->fill_color;
+        dup->stroke_color = src->stroke_color;
+        dup->stroke_width = src->stroke_width;
+        dup->corner_radius = src->corner_radius;
+        dup->font_size = src->font_size;
+        dup->font_type = src->font_type;
+        dup->line_start_style = src->line_start_style;
+        dup->line_end_style = src->line_end_style;
+        dup->visible = 1;
+        dup->is_container = src->is_container;
+        strncpy(dup->text, src->text, sizeof(dup->text) - 1);
+        strncpy(dup->image_path, src->image_path, sizeof(dup->image_path) - 1);
+
+        // Add to tree
+        Node *root = NULL;
+        if (is_canvas)
+          root = active_block->data.canvas.root;
+        else if (is_design)
+          root = active_block->data.design.root;
+
+        if (root) {
+          dup->parent = root;
+          node_add_child(root, dup);
+          ui->selected_node = dup;
+        }
+      }
+      return;
     }
   }
 

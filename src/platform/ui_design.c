@@ -15,10 +15,17 @@ int node_get_path_polygon(Node *node, float *out_pts, int max_pts, float sx,
 int open_image_file_dialog(char *out_path, size_t path_size);
 int copy_image_to_assets(const char *src_path, const char *doc_dir,
                          char *out_rel_path, size_t out_size);
+void draw_alignment_guides(struct nk_command_buffer *canvas_buf, Node *node,
+                           float area_cx, float area_cy, float area_x,
+                           float area_y, float area_w, float area_h,
+                           float node_sx, float node_sy, float node_sw,
+                           float node_sh);
+void render_node_context_menu(UIHost *ui, struct nk_context *ctx,
+                              struct nk_command_buffer *canvas_buf,
+                              Block *block);
 
 void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                             Block *block, float width) {
-  (void)engine;
   if (!block || block->type != BLOCK_DESIGN)
     return;
 
@@ -314,6 +321,19 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         } else {
           ds->dragging_point_idx = -1;
         }
+      }
+
+      // Empty state hint
+      if (dd->root && !dd->root->first_child) {
+        const char *hint = "Click a tool to start";
+        float hint_w = ctx->style.font->width(ctx->style.font->userdata,
+                                               ctx->style.font->height, hint,
+                                               strlen(hint));
+        nk_draw_text(canvas_buf,
+                     nk_rect(bounds.x + (bounds.w - hint_w) / 2.0f,
+                             bounds.y + bounds.h / 2.0f - 10.0f, hint_w, 20),
+                     hint, strlen(hint), ctx->style.font, nk_rgba(0, 0, 0, 0),
+                     nk_rgb(200, 200, 200));
       }
 
       // --- Render nodes ---
@@ -1251,6 +1271,23 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
       }
 
+      // --- Right-click context menu detection ---
+      if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_RIGHT) &&
+          mouse_in_design && !in_toolbar && is_active_design) {
+        float dx = (ui->mouse_x - bounds.x) / scale;
+        float dy = (ui->mouse_y - bounds.y) / scale;
+        Node *hit = design_find_node_at(dd, dx, dy);
+        if (hit) {
+          ui->show_context_menu = 1;
+          ui->context_menu_x = ui->mouse_x;
+          ui->context_menu_y = ui->mouse_y;
+          ui->context_menu_node = hit;
+          ui->selected_node = hit;
+        } else {
+          ui->show_context_menu = 0;
+        }
+      }
+
       // Close forms menu if clicking elsewhere
       if (ds->mouse_just_pressed && !in_toolbar && !in_forms_menu &&
           is_active_design) {
@@ -1433,6 +1470,18 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
       }
 
+      // --- Alignment guides when dragging ---
+      if (ds->is_dragging_node && ui->selected_node) {
+        Node *sel = ui->selected_node;
+        float nsx = bounds.x + sel->x * scale;
+        float nsy = bounds.y + sel->y * scale;
+        float nsw = sel->width * scale;
+        float nsh = sel->height * scale;
+        draw_alignment_guides(canvas_buf, sel, bounds.x + bounds.w / 2.0f,
+                              bounds.y + bounds.h / 2.0f, bounds.x, bounds.y,
+                              bounds.w, bounds.h, nsx, nsy, nsw, nsh);
+      }
+
       // Close Design content group (Artboard)
       nk_group_end(ctx);
     }
@@ -1569,6 +1618,39 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           ui->selected_node = NULL;
         }
       }
+
+      // Delete page button (trash icon) - only if more than 1 page
+      if (dd->page_count > 1) {
+        struct nk_rect del_btn = nk_rect(add_btn.x + nav_btn_size + 8.0f,
+                                         nav_y, nav_btn_size, nav_btn_size);
+        int del_hover =
+            (ui->mouse_x >= del_btn.x &&
+             ui->mouse_x < del_btn.x + del_btn.w &&
+             ui->mouse_y >= del_btn.y &&
+             ui->mouse_y < del_btn.y + del_btn.h);
+
+        if (del_hover)
+          nk_fill_rect(canvas_buf, del_btn, 4.0f, nk_rgba(220, 50, 50, 30));
+
+        const char *trash_icon = ICON_DELETE;
+        if (ui->font_icons) {
+          nk_draw_text(
+              canvas_buf,
+              nk_rect(del_btn.x + 4, del_btn.y + 2, 16, 20), trash_icon,
+              strlen(trash_icon), &ui->font_icons->handle,
+              nk_rgba(0, 0, 0, 0),
+              del_hover ? nk_rgb(220, 50, 50) : nk_rgb(160, 160, 160));
+        }
+
+        if (del_hover && ds->mouse_just_pressed &&
+            (ds->active_design_id == block->id)) {
+          int del_idx = dd->current_page;
+          block_design_delete_page(block, del_idx);
+          if (dd->current_page >= dd->page_count)
+            dd->current_page = dd->page_count - 1;
+          ui->selected_node = NULL;
+        }
+      }
     }
 
     if (ds->mouse_just_pressed &&
@@ -1578,6 +1660,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                     ws_bounds.w, toolbar_h))) {
       ds->show_forms_menu = 0;
     }
+
+    // --- Right-click context menu ---
+    render_node_context_menu(ui, ctx, nk_window_get_canvas(ctx), block);
 
     // Close Workspace group (Column 1)
     nk_group_end(ctx);

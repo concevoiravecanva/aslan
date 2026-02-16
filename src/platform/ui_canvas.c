@@ -24,6 +24,162 @@ int tessellate_bezier(float x1, float y1, float cp1x, float cp1y, float cp2x,
                       int max_pts, int include_last);
 
 // -----------------------------------------------------------------------------
+// Shared Helper: Draw alignment center guides when dragging a node
+// -----------------------------------------------------------------------------
+
+void draw_alignment_guides(struct nk_command_buffer *canvas_buf, Node *node,
+                           float area_cx, float area_cy, float area_x,
+                           float area_y, float area_w, float area_h,
+                           float node_sx, float node_sy, float node_sw,
+                           float node_sh) {
+  if (!node)
+    return;
+  struct nk_color guide_col = nk_rgba(66, 133, 244, 150);
+  float tolerance = 3.0f;
+
+  float node_cx = node_sx + node_sw / 2.0f;
+  float node_cy = node_sy + node_sh / 2.0f;
+
+  // Vertical center guide
+  if (fabsf(node_cx - area_cx) < tolerance) {
+    nk_stroke_line(canvas_buf, area_cx, area_y, area_cx, area_y + area_h, 1.0f,
+                   guide_col);
+  }
+  // Horizontal center guide
+  if (fabsf(node_cy - area_cy) < tolerance) {
+    nk_stroke_line(canvas_buf, area_x, area_cy, area_x + area_w, area_cy, 1.0f,
+                   guide_col);
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Shared Helper: Render right-click context menu for nodes
+// -----------------------------------------------------------------------------
+
+void render_node_context_menu(UIHost *ui, struct nk_context *ctx,
+                              struct nk_command_buffer *canvas_buf,
+                              Block *block) {
+  if (!ui->show_context_menu || !ui->context_menu_node)
+    return;
+
+  Node *node = ui->context_menu_node;
+  const float menu_w = 150.0f;
+  const float item_h = 30.0f;
+  const float padding = 6.0f;
+  const int item_count = 4;
+  float menu_h = item_count * item_h + 2 * padding;
+  float mx = ui->context_menu_x;
+  float my = ui->context_menu_y;
+
+  // Shadow
+  nk_fill_rect(canvas_buf, nk_rect(mx + 2, my + 3, menu_w, menu_h), 8.0f,
+               nk_rgba(0, 0, 0, 25));
+  // Background
+  nk_fill_rect(canvas_buf, nk_rect(mx, my, menu_w, menu_h), 8.0f,
+               nk_rgb(255, 255, 255));
+  nk_stroke_rect(canvas_buf, nk_rect(mx, my, menu_w, menu_h), 8.0f, 1.0f,
+                 nk_rgb(220, 220, 220));
+
+  const char *labels[] = {"Duplicate", "Delete", "Bring to Front",
+                           "Send to Back"};
+
+  for (int i = 0; i < item_count; i++) {
+    struct nk_rect item_r =
+        nk_rect(mx + padding, my + padding + i * item_h,
+                menu_w - 2 * padding, item_h);
+    int hovered =
+        (ui->mouse_x >= item_r.x && ui->mouse_x < item_r.x + item_r.w &&
+         ui->mouse_y >= item_r.y && ui->mouse_y < item_r.y + item_r.h);
+
+    if (hovered)
+      nk_fill_rect(canvas_buf, item_r, 4.0f, nk_rgba(66, 133, 244, 20));
+
+    nk_draw_text(canvas_buf,
+                 nk_rect(item_r.x + 10, item_r.y + 6, item_r.w - 20, 20),
+                 labels[i], strlen(labels[i]), ctx->style.font,
+                 nk_rgba(0, 0, 0, 0),
+                 i == 1 ? nk_rgb(220, 50, 50) : nk_rgb(40, 40, 40));
+
+    if (hovered && nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+      if (i == 0) {
+        // Duplicate
+        Node *dup = NULL;
+        if (block->type == BLOCK_CANVAS) {
+          dup = node_create(block->data.canvas.next_node_id++, node->type,
+                            node->name);
+        } else if (block->type == BLOCK_DESIGN) {
+          dup = node_create(block->data.design.next_node_id++, node->type,
+                            node->name);
+        }
+        if (dup) {
+          dup->x = node->x + 20.0f;
+          dup->y = node->y + 20.0f;
+          dup->width = node->width;
+          dup->height = node->height;
+          dup->rotation = node->rotation;
+          dup->fill_color = node->fill_color;
+          dup->stroke_color = node->stroke_color;
+          dup->stroke_width = node->stroke_width;
+          dup->corner_radius = node->corner_radius;
+          dup->font_size = node->font_size;
+          dup->font_type = node->font_type;
+          dup->line_start_style = node->line_start_style;
+          dup->line_end_style = node->line_end_style;
+          dup->visible = 1;
+          dup->is_container = node->is_container;
+          strncpy(dup->text, node->text, sizeof(dup->text) - 1);
+          strncpy(dup->image_path, node->image_path,
+                  sizeof(dup->image_path) - 1);
+
+          Node *root = NULL;
+          if (block->type == BLOCK_CANVAS)
+            root = block->data.canvas.root;
+          else if (block->type == BLOCK_DESIGN)
+            root = block->data.design.root;
+          if (root) {
+            dup->parent = root;
+            node_add_child(root, dup);
+            ui->selected_node = dup;
+          }
+        }
+      } else if (i == 1) {
+        // Delete
+        if (block->type == BLOCK_CANVAS)
+          block_canvas_delete_node(block, node->id);
+        else if (block->type == BLOCK_DESIGN)
+          block_design_delete_node(block, node->id);
+        ui->selected_node = NULL;
+      } else if (i == 2) {
+        // Bring to Front (move to end of sibling list)
+        node_move_down(node);
+        node_move_down(node);
+        node_move_down(node);
+        node_move_down(node); // Move several times to ensure front
+      } else if (i == 3) {
+        // Send to Back (move to start of sibling list)
+        node_move_up(node);
+        node_move_up(node);
+        node_move_up(node);
+        node_move_up(node);
+      }
+      ui->show_context_menu = 0;
+      ui->context_menu_node = NULL;
+    }
+  }
+
+  // Close menu on left click outside
+  if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+    int in_menu =
+        (ui->mouse_x >= mx && ui->mouse_x < mx + menu_w &&
+         ui->mouse_y >= my && ui->mouse_y < my + menu_h);
+    if (!in_menu) {
+      ui->show_context_menu = 0;
+      ui->context_menu_node = NULL;
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
 // Canvas Helper: Draw infinite dot grid
 // -----------------------------------------------------------------------------
 
@@ -85,7 +241,7 @@ int canvas_point_in_toolbar(struct nk_rect bounds, float mx, float my,
                             CanvasInteraction *cs) {
   const float btn_size = 36.0f;
   const float btn_spacing = 8.0f;
-  const float toolbar_w = 6 * btn_size + 5 * btn_spacing + 24.0f; // 6 buttons
+  const float toolbar_w = 7 * btn_size + 6 * btn_spacing + 24.0f; // 7 buttons
   const float toolbar_h = 52.0f;
   const float margin = 20.0f;
 
@@ -419,10 +575,9 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
 
       nk_layout_row_dynamic(ctx, 20, 1);
       nk_spacing(ctx, 1);
-      nk_layout_row_dynamic(ctx, 25, 1);
-      nk_label(ctx, "Background", NK_TEXT_LEFT);
-      // Background color picker could go here too if needed, but per-page
-      // exists
+      // Per-page background color picker
+      ui_render_color_property(ctx, "Background",
+                               &dd->pages[dd->current_page].bg_color);
     } else {
       nk_layout_row_dynamic(ctx, 30, 1);
       nk_label(ctx, "No element selected", NK_TEXT_LEFT);
@@ -830,7 +985,6 @@ void recursive_convert_to_path(Node *node) {
   // Convert current node only if it's a basic geometry shape
   // Note: We avoid converting TEXT or IMAGE or existing PATHs
   if (node->type == NODE_TYPE_RECT || node->type == NODE_TYPE_ELLIPSE ||
-      node->type == NODE_TYPE_TRIANGLE || node->type == NODE_TYPE_OCTAGON ||
       node->type == NODE_TYPE_TRIANGLE || node->type == NODE_TYPE_OCTAGON ||
       node->type == NODE_TYPE_HEART || node->type == NODE_TYPE_PENTAGON ||
       node->type == NODE_TYPE_HEXAGON) {
@@ -2283,6 +2437,23 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
     cs->is_dragging_node = 0;
   }
 
+  // --- Right-click context menu detection ---
+  if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_RIGHT) &&
+      cs->mouse_in_canvas && !in_toolbar) {
+    float wx = cam_x + (ui->mouse_x - bounds.x) / zoom;
+    float wy = cam_y + (ui->mouse_y - bounds.y) / zoom;
+    Node *hit = canvas_find_node_at(cd, wx, wy);
+    if (hit) {
+      ui->show_context_menu = 1;
+      ui->context_menu_x = ui->mouse_x;
+      ui->context_menu_y = ui->mouse_y;
+      ui->context_menu_node = hit;
+      ui->selected_node = hit;
+    } else {
+      ui->show_context_menu = 0;
+    }
+  }
+
   // --- 4. PEN TOOL logic ---
   if (cs->tool == CANVAS_TOOL_PEN && cs->mouse_in_canvas && !in_toolbar &&
       !in_forms_menu && !cs->is_panning && (ui->mouse_buttons & 1)) {
@@ -2382,6 +2553,19 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
     nk_fill_rect(canvas_buf, bounds, 0, nk_rgb(255, 255, 255));
     canvas_draw_dot_grid(canvas_buf, bounds, cam_x, cam_y, zoom);
     nk_push_scissor(canvas_buf, bounds);
+
+    // Empty state hint
+    if (!cd->root->first_child) {
+      const char *hint = "Click a tool to start";
+      float hint_w = ctx->style.font->width(ctx->style.font->userdata,
+                                             ctx->style.font->height, hint,
+                                             strlen(hint));
+      nk_draw_text(canvas_buf,
+                   nk_rect(bounds.x + (bounds.w - hint_w) / 2.0f,
+                           bounds.y + bounds.h / 2.0f - 10.0f, hint_w, 20),
+                   hint, strlen(hint), ctx->style.font, nk_rgba(0, 0, 0, 0),
+                   nk_rgb(180, 180, 180));
+    }
 
     // Nodes (including strokes)
     for (Node *node = cd->root->first_child; node; node = node->next_sibling) {
@@ -2955,8 +3139,142 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
     }
 
+    // --- Alignment guides when dragging ---
+    if (cs->is_dragging_node && ui->selected_node) {
+      Node *sel = ui->selected_node;
+      float sx = bounds.x + (sel->x - cam_x) * zoom;
+      float sy = bounds.y + (sel->y - cam_y) * zoom;
+      float sw = sel->width * zoom;
+      float sh = sel->height * zoom;
+      draw_alignment_guides(canvas_buf, sel, bounds.x + bounds.w / 2.0f,
+                            bounds.y + bounds.h / 2.0f, bounds.x, bounds.y,
+                            bounds.w, bounds.h, sx, sy, sw, sh);
+    }
+
     nk_push_scissor(canvas_buf, nk_rect(0, 0, 100000, 100000));
     canvas_render_toolbar(ui, ctx, bounds, block);
+
+    // --- Zoom controls (left of toolbar) ---
+    {
+      float tb_w = 7 * 36.0f + 6 * 8.0f + 24.0f;
+      float tb_x = bounds.x + (bounds.w - tb_w) / 2.0f;
+      float tb_y = bounds.y + bounds.h - 52.0f - 20.0f;
+      float zb_size = 24.0f;
+      float zy = tb_y + (52.0f - zb_size) / 2.0f;
+      float zx = tb_x - 130.0f;
+
+      // Zoom percentage label
+      char zoom_str[16];
+      snprintf(zoom_str, sizeof(zoom_str), "%d%%", (int)(cs->zoom * 100.0f));
+      nk_draw_text(canvas_buf, nk_rect(zx, zy + 2, 45, 20), zoom_str,
+                   strlen(zoom_str), ctx->style.font, nk_rgba(0, 0, 0, 0),
+                   nk_rgb(80, 80, 80));
+
+      // Minus button
+      struct nk_rect minus_btn = nk_rect(zx + 48, zy, zb_size, zb_size);
+      int minus_hover =
+          (ui->mouse_x >= minus_btn.x &&
+           ui->mouse_x < minus_btn.x + minus_btn.w &&
+           ui->mouse_y >= minus_btn.y &&
+           ui->mouse_y < minus_btn.y + minus_btn.h);
+      if (minus_hover)
+        nk_fill_rect(canvas_buf, minus_btn, 4.0f, nk_rgba(0, 0, 0, 20));
+      nk_draw_text(canvas_buf,
+                   nk_rect(minus_btn.x + 7, minus_btn.y + 2, 16, 20), "-", 1,
+                   ctx->style.font, nk_rgba(0, 0, 0, 0), nk_rgb(60, 60, 60));
+      if (minus_hover && cs->mouse_just_pressed) {
+        float old_zoom = cs->zoom;
+        cs->zoom *= 0.8f;
+        if (cs->zoom < 0.1f)
+          cs->zoom = 0.1f;
+        // Keep center stable
+        float cx = bounds.w / 2.0f, cy = bounds.h / 2.0f;
+        cs->cam_x += cx / old_zoom - cx / cs->zoom;
+        cs->cam_y += cy / old_zoom - cy / cs->zoom;
+      }
+
+      // Plus button
+      struct nk_rect plus_btn =
+          nk_rect(minus_btn.x + zb_size + 4, zy, zb_size, zb_size);
+      int plus_hover =
+          (ui->mouse_x >= plus_btn.x &&
+           ui->mouse_x < plus_btn.x + plus_btn.w &&
+           ui->mouse_y >= plus_btn.y &&
+           ui->mouse_y < plus_btn.y + plus_btn.h);
+      if (plus_hover)
+        nk_fill_rect(canvas_buf, plus_btn, 4.0f, nk_rgba(0, 0, 0, 20));
+      nk_draw_text(canvas_buf,
+                   nk_rect(plus_btn.x + 6, plus_btn.y + 2, 16, 20), "+", 1,
+                   ctx->style.font, nk_rgba(0, 0, 0, 0), nk_rgb(60, 60, 60));
+      if (plus_hover && cs->mouse_just_pressed) {
+        float old_zoom = cs->zoom;
+        cs->zoom *= 1.25f;
+        if (cs->zoom > 5.0f)
+          cs->zoom = 5.0f;
+        float cx = bounds.w / 2.0f, cy = bounds.h / 2.0f;
+        cs->cam_x += cx / old_zoom - cx / cs->zoom;
+        cs->cam_y += cy / old_zoom - cy / cs->zoom;
+      }
+
+      // Fit button
+      struct nk_rect fit_btn =
+          nk_rect(plus_btn.x + zb_size + 4, zy, 28, zb_size);
+      int fit_hover =
+          (ui->mouse_x >= fit_btn.x &&
+           ui->mouse_x < fit_btn.x + fit_btn.w &&
+           ui->mouse_y >= fit_btn.y &&
+           ui->mouse_y < fit_btn.y + fit_btn.h);
+      if (fit_hover)
+        nk_fill_rect(canvas_buf, fit_btn, 4.0f, nk_rgba(0, 0, 0, 20));
+      nk_draw_text(canvas_buf,
+                   nk_rect(fit_btn.x + 4, fit_btn.y + 2, 24, 20), "Fit", 3,
+                   ctx->style.font, nk_rgba(0, 0, 0, 0),
+                   fit_hover ? nk_rgb(66, 133, 244) : nk_rgb(80, 80, 80));
+      if (fit_hover && cs->mouse_just_pressed) {
+        // Compute bounding box of all nodes
+        Node *root = cd->root;
+        float min_x = 1e9f, min_y = 1e9f, max_x = -1e9f, max_y = -1e9f;
+        int has_nodes = 0;
+        if (root) {
+          for (Node *n = root->first_child; n; n = n->next_sibling) {
+            if (!n->visible)
+              continue;
+            has_nodes = 1;
+            if (n->x < min_x)
+              min_x = n->x;
+            if (n->y < min_y)
+              min_y = n->y;
+            if (n->x + n->width > max_x)
+              max_x = n->x + n->width;
+            if (n->y + n->height > max_y)
+              max_y = n->y + n->height;
+          }
+        }
+        if (has_nodes) {
+          float content_w = max_x - min_x + 100.0f; // Padding
+          float content_h = max_y - min_y + 100.0f;
+          float zw = bounds.w / content_w;
+          float zh = bounds.h / content_h;
+          cs->zoom = (zw < zh) ? zw : zh;
+          if (cs->zoom > 2.0f)
+            cs->zoom = 2.0f;
+          if (cs->zoom < 0.1f)
+            cs->zoom = 0.1f;
+          cs->cam_x = min_x - 50.0f -
+                      (bounds.w / cs->zoom - content_w + 100.0f) / 2.0f;
+          cs->cam_y = min_y - 50.0f -
+                      (bounds.h / cs->zoom - content_h + 100.0f) / 2.0f;
+        } else {
+          cs->zoom = 1.0f;
+          cs->cam_x = 0;
+          cs->cam_y = 0;
+        }
+      }
+    }
+
+    // --- Right-click context menu ---
+    render_node_context_menu(ui, ctx, canvas_buf, block);
+
     nk_group_end(ctx);
   }
 

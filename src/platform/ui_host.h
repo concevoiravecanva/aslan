@@ -376,6 +376,11 @@ typedef struct UIHost {
   // Sidebar state: 0=Properties/Layers, 1=Shape Selection
   int sidebar_mode;
 
+  // Right-click context menu for canvas/design nodes
+  int show_context_menu;
+  float context_menu_x, context_menu_y;
+  Node *context_menu_node;
+
   // Event-driven rendering: redraw only when needed
   int needs_redraw;         // 1 = re-render needed, 0 = idle
   int has_active_animation; // 1 = cursor blink, transitions, etc.
