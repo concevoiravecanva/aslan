@@ -475,44 +475,118 @@ void ui_render_color_property(struct nk_context *ctx, const char *label,
   }
 }
 
+// Helper: draw a subtle section divider line
+static void sidebar_section_divider(struct nk_context *ctx) {
+  nk_layout_row_dynamic(ctx, 8, 1);
+  nk_spacing(ctx, 1);
+}
+
+// Helper: section header with subtle gray label
+static void sidebar_section_header(struct nk_context *ctx, const char *title) {
+  nk_layout_row_dynamic(ctx, 20, 1);
+  struct nk_color header_col = nk_rgb(130, 130, 140);
+  nk_label_colored(ctx, title, NK_TEXT_LEFT, header_col);
+}
+
+// Helper: get display name for node type
+static const char *node_type_display_name(NodeType type) {
+  switch (type) {
+  case NODE_TYPE_RECT:
+    return "Rectangle";
+  case NODE_TYPE_ELLIPSE:
+    return "Ellipse";
+  case NODE_TYPE_TRIANGLE:
+    return "Triangle";
+  case NODE_TYPE_PENTAGON:
+    return "Pentagon";
+  case NODE_TYPE_HEXAGON:
+    return "Hexagon";
+  case NODE_TYPE_OCTAGON:
+    return "Octagon";
+  case NODE_TYPE_HEART:
+    return "Heart";
+  case NODE_TYPE_LINE:
+    return "Line";
+  case NODE_TYPE_PATH:
+    return "Path";
+  case NODE_TYPE_TEXT:
+    return "Text";
+  case NODE_TYPE_IMAGE:
+    return "Image";
+  case NODE_TYPE_STROKE:
+    return "Stroke";
+  case NODE_TYPE_CHART:
+    return "Chart";
+  case NODE_TYPE_FRAME:
+    return "Frame";
+  case NODE_TYPE_GROUP:
+    return "Group";
+  default:
+    return "Element";
+  }
+}
+
+// Helper: get icon for node type
+static const char *node_type_icon(Node *node) {
+  switch (node->type) {
+  case NODE_TYPE_RECT:
+  case NODE_TYPE_ELLIPSE:
+  case NODE_TYPE_TRIANGLE:
+  case NODE_TYPE_PENTAGON:
+  case NODE_TYPE_HEXAGON:
+  case NODE_TYPE_OCTAGON:
+  case NODE_TYPE_HEART:
+    return ICON_SHAPE;
+  case NODE_TYPE_LINE:
+  case NODE_TYPE_PATH:
+    return ICON_MAGIC;
+  case NODE_TYPE_TEXT:
+    return ICON_TEXT;
+  case NODE_TYPE_IMAGE:
+    return ICON_IMAGE;
+  case NODE_TYPE_STROKE:
+    return (node->stroke_data && node->stroke_data->type == STROKE_TYPE_MARKER)
+               ? ICON_MARKER
+               : ICON_BRUSH;
+  case NODE_TYPE_CHART:
+    return ICON_CHART;
+  default:
+    return ICON_SHAPE;
+  }
+}
+
 void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
                                   struct nk_context *ctx, Block *block) {
+  // =====================================================================
+  // NO NODE SELECTED — Show block-level settings
+  // =====================================================================
   if (!ui->selected_node) {
     if (block && block->type == BLOCK_DESIGN) {
       DesignData *dd = &block->data.design;
-      nk_layout_row_dynamic(ctx, 30, 1);
-      nk_label(ctx, "Design Settings", NK_TEXT_LEFT);
-      nk_layout_row_dynamic(ctx, 2, 1);
-      nk_spacing(ctx, 1);
+
+      sidebar_section_header(ctx, "ARTBOARD");
 
       int old_w = dd->width;
       int old_h = dd->height;
       int old_units = dd->units;
 
-      nk_layout_row_dynamic(ctx, 25, 1);
-      nk_label(ctx, "Artboard Settings", NK_TEXT_LEFT);
-
-      // --- Unit Selector ---
-      nk_layout_row_dynamic(ctx, 30, 1);
+      // Unit selector
+      nk_layout_row_dynamic(ctx, 28, 1);
       const char *unit_names[] = {"Pixels (px)", "Centimeters (cm)",
                                   "Inches (in)"};
       int cur_units =
-          nk_combo(ctx, unit_names, 3, dd->units, 30, nk_vec2(200, 200));
+          nk_combo(ctx, unit_names, 3, dd->units, 28, nk_vec2(200, 200));
 
-      // --- Dimension Inputs with Conversion ---
-      float val_w = (float)old_w;
-      float val_h = (float)old_h;
-      float step = 1.0f;
-      float min_val = 100.0f;
-      float max_val = 4000.0f;
-
-      if (cur_units == 1) { // CM
+      // Dimension inputs
+      float val_w = (float)old_w, val_h = (float)old_h;
+      float step = 1.0f, min_val = 100.0f, max_val = 4000.0f;
+      if (cur_units == 1) {
         val_w /= 37.795f;
         val_h /= 37.795f;
         step = 0.1f;
         min_val = 2.0f;
         max_val = 100.0f;
-      } else if (cur_units == 2) { // IN
+      } else if (cur_units == 2) {
         val_w /= 96.0f;
         val_h /= 96.0f;
         step = 0.1f;
@@ -520,13 +594,11 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
         max_val = 40.0f;
       }
 
-      nk_layout_row_dynamic(ctx, 30, 2);
+      nk_layout_row_dynamic(ctx, 28, 2);
       nk_property_float(ctx, "W:", min_val, &val_w, max_val, step, step / 2.0f);
       nk_property_float(ctx, "H:", min_val, &val_h, max_val, step, step / 2.0f);
 
-      // Convert back to pixels
-      int new_w = old_w;
-      int new_h = old_h;
+      int new_w = old_w, new_h = old_h;
       if (cur_units == 0) {
         new_w = (int)val_w;
         new_h = (int)val_h;
@@ -548,133 +620,132 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
         }
       }
 
-      // --- Presets ---
-      nk_layout_row_dynamic(ctx, 25, 1);
-      nk_label(ctx, "Presets", NK_TEXT_LEFT);
-      nk_layout_row_dynamic(ctx, 30, 3);
-      if (nk_button_label(ctx, "A4")) {
-        char cmd[128];
-        snprintf(cmd, sizeof(cmd), "block_design_resize %u %u %d %d %d",
-                 doc_page_get_active(engine->doc)->id, block->id, 794, 1123, 1);
-        engine_execute_command(engine, cmd);
-      }
-      if (nk_button_label(ctx, "Square")) {
-        char cmd[128];
-        snprintf(cmd, sizeof(cmd), "block_design_resize %u %u %d %d %d",
-                 doc_page_get_active(engine->doc)->id, block->id, 1080, 1080,
-                 0);
-        engine_execute_command(engine, cmd);
-      }
-      if (nk_button_label(ctx, "HD")) {
-        char cmd[128];
-        snprintf(cmd, sizeof(cmd), "block_design_resize %u %u %d %d %d",
-                 doc_page_get_active(engine->doc)->id, block->id, 1920, 1080,
-                 0);
-        engine_execute_command(engine, cmd);
+      // Presets
+      sidebar_section_divider(ctx);
+      sidebar_section_header(ctx, "PRESETS");
+      nk_layout_row_dynamic(ctx, 28, 4);
+      Page *page = doc_page_get_active(engine->doc);
+      if (page) {
+        struct {
+          const char *label;
+          int w, h, unit;
+        } presets[] = {{"A4", 794, 1123, 1},
+                       {"A3", 1123, 1587, 1},
+                       {"HD", 1920, 1080, 0},
+                       {"4K", 3840, 2160, 0}};
+        for (int i = 0; i < 4; i++) {
+          if (nk_button_label(ctx, presets[i].label)) {
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "block_design_resize %u %u %d %d %d",
+                     page->id, block->id, presets[i].w, presets[i].h,
+                     presets[i].unit);
+            engine_execute_command(engine, cmd);
+          }
+        }
+        nk_layout_row_dynamic(ctx, 28, 4);
+        struct {
+          const char *label;
+          int w, h;
+        } social[] = {{"Square", 1080, 1080},
+                      {"Story", 1080, 1920},
+                      {"Post", 1080, 1350},
+                      {"Banner", 1920, 480}};
+        for (int i = 0; i < 4; i++) {
+          if (nk_button_label(ctx, social[i].label)) {
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "block_design_resize %u %u %d %d %d",
+                     page->id, block->id, social[i].w, social[i].h, 0);
+            engine_execute_command(engine, cmd);
+          }
+        }
       }
 
-      nk_layout_row_dynamic(ctx, 20, 1);
-      nk_spacing(ctx, 1);
-      // Per-page background color picker
+      // Background color
+      sidebar_section_divider(ctx);
       ui_render_color_property(ctx, "Background",
                                &dd->pages[dd->current_page].bg_color);
     } else {
-      nk_layout_row_dynamic(ctx, 30, 1);
-      nk_label(ctx, "No element selected", NK_TEXT_LEFT);
+      nk_layout_row_dynamic(ctx, 28, 1);
+      nk_label_colored(ctx, "No element selected", NK_TEXT_LEFT,
+                        nk_rgb(150, 150, 150));
     }
     return;
   }
 
   Node *node = ui->selected_node;
 
-  // --- SPECIAL HANDLING FOR TEXT NODES ---
+  // =====================================================================
+  // NODE HEADER — Type icon + name
+  // =====================================================================
+  nk_layout_row_dynamic(ctx, 28, 1);
+  nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD | NK_EDIT_SIG_ENTER,
+                                 node->name, sizeof(node->name) - 1,
+                                 nk_filter_default);
+
+  // Type button (click to change shape)
+  nk_layout_row_dynamic(ctx, 26, 1);
+  const char *type_display = node_type_display_name(node->type);
+  if (nk_button_label(ctx, type_display)) {
+    ui->sidebar_mode = 1;
+  }
+
+  // =====================================================================
+  // TEXT NODES — Typography section
+  // =====================================================================
   if (node->type == NODE_TYPE_TEXT) {
-    // 1. Text Content
-    nk_layout_row_dynamic(ctx, 25, 1);
-    nk_label(ctx, "Text Content", NK_TEXT_LEFT);
-    nk_layout_row_dynamic(ctx, 60, 1);
+    sidebar_section_divider(ctx);
+    sidebar_section_header(ctx, "TEXT");
+
+    nk_layout_row_dynamic(ctx, 50, 1);
     nk_edit_string_zero_terminated(ctx, NK_EDIT_BOX, node->text,
                                    sizeof(node->text) - 1, nk_filter_default);
 
-    // 2. Font Type
-    nk_layout_row_dynamic(ctx, 25, 1);
-    nk_label(ctx, "Font", NK_TEXT_LEFT);
-    nk_layout_row_dynamic(ctx, 30, 1);
-    const char *fonts[] = {"Inter (Body)", "Heading 1", "Heading 2",
-                           "Heading 3", "Monospace"};
+    sidebar_section_header(ctx, "TYPOGRAPHY");
+
+    nk_layout_row_dynamic(ctx, 28, 1);
+    const char *fonts[] = {"Inter", "Heading 1", "Heading 2", "Heading 3",
+                           "Monospace"};
     node->font_type =
-        nk_combo(ctx, fonts, 5, node->font_type, 30, nk_vec2(200, 200));
+        nk_combo(ctx, fonts, 5, node->font_type, 28, nk_vec2(200, 200));
 
-    // 3. Font Size (More responsive step)
-    // Auto-fix invalid font size for legacy/broken nodes
-    if (node->font_size < 8.0f) {
+    if (node->font_size < 8.0f)
       node->font_size = 12.0f;
-    }
-    nk_layout_row_dynamic(ctx, 30, 1);
-    nk_property_float(ctx, "Size:", 8.0f, &node->font_size, 200.0f, 1.0f, 1.0f);
+    nk_layout_row_dynamic(ctx, 28, 1);
+    nk_property_float(ctx, "Size:", 8.0f, &node->font_size, 200.0f, 1.0f,
+                      1.0f);
 
-    // 4. Color (Text Color -> stroke_color)
-    nk_layout_row_dynamic(ctx, 25, 1);
-    nk_label(ctx, "Color", NK_TEXT_LEFT);
-    nk_layout_row_dynamic(ctx, 30, 1);
-    struct nk_color combo_color = nk_rgba(
-        (node->stroke_color >> 24) & 0xFF, (node->stroke_color >> 16) & 0xFF,
-        (node->stroke_color >> 8) & 0xFF, node->stroke_color & 0xFF);
-    if (nk_combo_begin_color(ctx, combo_color, nk_vec2(200, 400))) {
-      struct nk_colorf combo_colorf = nk_color_cf(combo_color);
-      nk_layout_row_dynamic(ctx, 180, 1);
-      combo_colorf = nk_color_picker(ctx, combo_colorf, NK_RGBA);
-      nk_layout_row_dynamic(ctx, 25, 1);
-      combo_colorf.r =
-          nk_propertyf(ctx, "#R:", 0, combo_colorf.r, 1, 0.01f, 0.005f);
-      combo_colorf.g =
-          nk_propertyf(ctx, "#G:", 0, combo_colorf.g, 1, 0.01f, 0.005f);
-      combo_colorf.b =
-          nk_propertyf(ctx, "#B:", 0, combo_colorf.b, 1, 0.01f, 0.005f);
-      combo_colorf.a =
-          nk_propertyf(ctx, "#A:", 0, combo_colorf.a, 1, 0.01f, 0.005f);
-      nk_combo_end(ctx);
-      combo_color = nk_rgba(
-          (int)(combo_colorf.r * 255.0f), (int)(combo_colorf.g * 255.0f),
-          (int)(combo_colorf.b * 255.0f), (int)(combo_colorf.a * 255.0f));
-      node->stroke_color =
-          ((uint32_t)combo_color.r << 24) | ((uint32_t)combo_color.g << 16) |
-          ((uint32_t)combo_color.b << 8) | (uint32_t)combo_color.a;
-    }
+    sidebar_section_divider(ctx);
+    ui_render_color_property(ctx, "Color", &node->stroke_color);
 
+    // Fill (background)
+    ui_render_color_property(ctx, "Background", &node->fill_color);
     return;
   }
 
-  // --- SPECIAL HANDLING FOR CHART NODES ---
+  // =====================================================================
+  // CHART NODES — Data settings
+  // =====================================================================
   if (node->type == NODE_TYPE_CHART && node->chart_data) {
     ChartData *cd = node->chart_data;
-    nk_layout_row_dynamic(ctx, 25, 1);
-    nk_label(ctx, "Chart Settings", NK_TEXT_LEFT);
+    sidebar_section_divider(ctx);
+    sidebar_section_header(ctx, "CHART");
 
-    // Type
-    nk_layout_row_dynamic(ctx, 25, 1);
-    nk_label(ctx, "Type", NK_TEXT_LEFT);
-    const char *chart_types[] = {"Bar Chart", "Line Chart", "Pie Chart"};
-    int current_type = (int)cd->type;
-    int new_type =
-        nk_combo(ctx, chart_types, 3, current_type, 25, nk_vec2(200, 200));
-    if (new_type != current_type)
-      cd->type = (ChartType)new_type;
+    nk_layout_row_dynamic(ctx, 28, 1);
+    const char *chart_types[] = {"Bar", "Line", "Pie"};
+    int ct = (int)cd->type;
+    int new_ct = nk_combo(ctx, chart_types, 3, ct, 28, nk_vec2(200, 200));
+    if (new_ct != ct)
+      cd->type = (ChartType)new_ct;
 
-    // Color
     ui_render_color_property(ctx, "Color", &cd->color);
 
-    // Source Table Selector
-    nk_layout_row_dynamic(ctx, 25, 1);
-    nk_label(ctx, "Data Source (Table)", NK_TEXT_LEFT);
-
+    sidebar_section_header(ctx, "DATA SOURCE");
     Page *page = doc_page_get_active(engine->doc);
     if (page) {
       char *table_names[32];
       uint32_t table_ids[32];
       int table_count = 0;
       int current_table_idx = -1;
-
       table_names[0] = "None";
       table_ids[0] = 0;
       table_count++;
@@ -682,7 +753,6 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
         current_table_idx = 0;
 
       char name_storage[32][64];
-
       for (Block *b = page->first_block; b && table_count < 32; b = b->next) {
         if (b->type == BLOCK_TABLE) {
           snprintf(name_storage[table_count], 64, "Table %u", b->id);
@@ -693,19 +763,18 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
           table_count++;
         }
       }
-
       if (current_table_idx == -1)
         current_table_idx = 0;
 
-      int new_table_idx = nk_combo(ctx, (const char **)table_names, table_count,
-                                   current_table_idx, 25, nk_vec2(200, 200));
-      if (new_table_idx != current_table_idx) {
-        cd->source_table_id = table_ids[new_table_idx];
+      nk_layout_row_dynamic(ctx, 28, 1);
+      int new_ti = nk_combo(ctx, (const char **)table_names, table_count,
+                            current_table_idx, 28, nk_vec2(200, 200));
+      if (new_ti != current_table_idx) {
+        cd->source_table_id = table_ids[new_ti];
         cd->label_col_idx = 0;
         cd->value_col_idx = 1;
       }
 
-      // Column Selectors
       if (cd->source_table_id != 0) {
         Block *src_block = NULL;
         for (Block *b = page->first_block; b; b = b->next) {
@@ -714,33 +783,30 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
             break;
           }
         }
-
         if (src_block && src_block->data.table.columnar) {
           AslanTable *tbl = src_block->data.table.columnar;
           int col_count = tbl->column_count;
           if (col_count > 0) {
             char *col_names[32];
-            for (int k = 0; k < col_count && k < 32; k++) {
+            for (int k = 0; k < col_count && k < 32; k++)
               col_names[k] = tbl->columns[k].name;
-            }
 
-            nk_layout_row_dynamic(ctx, 25, 1);
-            nk_label(ctx, "Label Column (X)", NK_TEXT_LEFT);
+            sidebar_section_header(ctx, "COLUMNS");
+            nk_layout_row_dynamic(ctx, 28, 1);
             int l_idx = cd->label_col_idx;
             if (l_idx >= col_count)
               l_idx = 0;
             int new_l = nk_combo(ctx, (const char **)col_names, col_count,
-                                 l_idx, 25, nk_vec2(200, 200));
+                                 l_idx, 28, nk_vec2(200, 200));
             if (new_l != cd->label_col_idx)
               cd->label_col_idx = new_l;
 
-            nk_layout_row_dynamic(ctx, 25, 1);
-            nk_label(ctx, "Value Column (Y)", NK_TEXT_LEFT);
+            nk_layout_row_dynamic(ctx, 28, 1);
             int v_idx = cd->value_col_idx;
             if (v_idx >= col_count)
               v_idx = 0;
             int new_v = nk_combo(ctx, (const char **)col_names, col_count,
-                                 v_idx, 25, nk_vec2(200, 200));
+                                 v_idx, 28, nk_vec2(200, 200));
             if (new_v != cd->value_col_idx)
               cd->value_col_idx = new_v;
           }
@@ -750,104 +816,84 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
     return;
   }
 
-  // Node Name
-  nk_layout_row_dynamic(ctx, 25, 1);
-  nk_label(ctx, "Name", NK_TEXT_LEFT);
-  nk_layout_row_dynamic(ctx, 30, 1);
-  nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD | NK_EDIT_SIG_ENTER,
-                                 node->name, sizeof(node->name) - 1,
-                                 nk_filter_default);
+  // =====================================================================
+  // POSITION & SIZE — Figma-style compact layout
+  // =====================================================================
+  sidebar_section_divider(ctx);
+  sidebar_section_header(ctx, "POSITION");
 
-  // Shape Type
-  nk_layout_row_dynamic(ctx, 25, 1);
-  nk_label(ctx, "Shape Type", NK_TEXT_LEFT);
-  nk_layout_row_dynamic(ctx, 30, 1);
-  const char *type_name = node_type_to_string(node->type);
-  if (nk_button_label(ctx, type_name ? type_name : "Unknown")) {
-    ui->sidebar_mode = 1; // Switch to shape selection
-  }
+  nk_layout_row_dynamic(ctx, 28, 2);
+  nk_property_float(ctx, "X:", -10000.0f, &node->x, 10000.0f, 1.0f, 0.5f);
+  nk_property_float(ctx, "Y:", -10000.0f, &node->y, 10000.0f, 1.0f, 0.5f);
 
-  // Detect if this is a Line
-  // 1. Rect with small height (horizontal line) or small width (vertical
-  // line)
-  // 2. Path with exactly 2 points (straight line segment)
-  // 3. Explicit NODE_TYPE_LINE
-  // 4. Stroke (Pen) - allow any stroke to have ends? Or just straight ones?
-  // Let's allow all.
+  sidebar_section_header(ctx, "SIZE");
+  nk_layout_row_dynamic(ctx, 28, 2);
+  nk_property_float(ctx, "W:", 1.0f, &node->width, 10000.0f, 1.0f, 0.5f);
+  nk_property_float(ctx, "H:", 1.0f, &node->height, 10000.0f, 1.0f, 0.5f);
+
+  // Rotation
+  nk_layout_row_dynamic(ctx, 28, 1);
+  nk_property_float(ctx, "Rotation:", -360.0f, &node->rotation, 360.0f, 1.0f,
+                    0.5f);
+
+  // =====================================================================
+  // LINE ENDPOINTS — for lines, strokes, thin rects
+  // =====================================================================
   int is_line = 0;
-  if (node->type == NODE_TYPE_RECT &&
-      ((node->height > 0 && node->height < 8.0f) ||
-       (node->width > 0 && node->width < 8.0f))) {
+  if ((node->type == NODE_TYPE_RECT &&
+       (node->height < 8.0f || node->width < 8.0f)) ||
+      (node->type == NODE_TYPE_PATH && node->path_point_count == 2) ||
+      node->type == NODE_TYPE_LINE || node->type == NODE_TYPE_STROKE) {
     is_line = 1;
-  } else if (node->type == NODE_TYPE_PATH && node->path_point_count == 2) {
-    is_line = 1;
-  } else if (node->type == NODE_TYPE_LINE) {
-    is_line = 1;
-  } else if (node->type == NODE_TYPE_STROKE) {
-    is_line = 1;
-  }
-
-  // Debug Print to Console
-  static int last_debug_id = -1;
-  if ((int)node->id != last_debug_id) {
-    ASLAN_DEBUG("Selected Node ID=%d Type=%d W=%.2f H=%.2f Pts=%d "
-                "IsLine=%d",
-                node->id, node->type, node->width, node->height,
-                node->path_point_count, is_line);
-    last_debug_id = node->id;
   }
 
   if (is_line) {
-    // Line Start Style
-    nk_layout_row_dynamic(ctx, 25, 1);
-    nk_label(ctx, "Start Style", NK_TEXT_LEFT);
-    nk_layout_row_dynamic(ctx, 30, 1);
-    const char *styles[] = {"None", "Circle", "Arrow"};
-    node->line_start_style =
-        nk_combo(ctx, styles, 3, node->line_start_style, 30, nk_vec2(200, 200));
-
-    // Line End Style
-    nk_layout_row_dynamic(ctx, 25, 1);
-    nk_label(ctx, "End Style", NK_TEXT_LEFT);
-    nk_layout_row_dynamic(ctx, 30, 1);
-    node->line_end_style =
-        nk_combo(ctx, styles, 3, node->line_end_style, 30, nk_vec2(200, 200));
+    sidebar_section_divider(ctx);
+    sidebar_section_header(ctx, "ENDPOINTS");
+    const char *end_styles[] = {"None", "Circle", "Arrow"};
+    nk_layout_row_dynamic(ctx, 28, 2);
+    node->line_start_style = nk_combo(ctx, end_styles, 3,
+                                       node->line_start_style, 28,
+                                       nk_vec2(100, 120));
+    node->line_end_style = nk_combo(ctx, end_styles, 3, node->line_end_style,
+                                     28, nk_vec2(100, 120));
   }
 
-  // Fill Color (Removed Width/Height)
+  // =====================================================================
+  // APPEARANCE — Fill, Stroke, Corner Radius, Opacity
+  // =====================================================================
+  sidebar_section_divider(ctx);
+  sidebar_section_header(ctx, "FILL");
+  ui_render_color_property(ctx, "Color", &node->fill_color);
 
-  // Fill Color
-  ui_render_color_property(ctx, "Fill Color", &node->fill_color);
+  // Corner radius (for shapes that support it)
+  if (node->type == NODE_TYPE_RECT || node->type == NODE_TYPE_IMAGE ||
+      node->type == NODE_TYPE_FRAME) {
+    nk_layout_row_dynamic(ctx, 28, 1);
+    nk_property_float(ctx, "Radius:", 0.0f, &node->corner_radius, 200.0f,
+                      1.0f, 0.5f);
+  }
 
-  // Stroke
-  nk_layout_row_dynamic(ctx, 30, 1);
-  nk_property_float(ctx, "Thickness:", 0.0f, &node->stroke_width, 100.0f, 0.5f,
+  sidebar_section_divider(ctx);
+  sidebar_section_header(ctx, "STROKE");
+  nk_layout_row_dynamic(ctx, 28, 1);
+  nk_property_float(ctx, "Width:", 0.0f, &node->stroke_width, 100.0f, 0.5f,
                     0.25f);
+  ui_render_color_property(ctx, "Color", &node->stroke_color);
 
-  // Stroke Color
-  ui_render_color_property(ctx, "Stroke Color", &node->stroke_color);
-
-  // Shape Mode (Standard / Container)
-  nk_layout_row_dynamic(ctx, 25, 1);
-  nk_label(ctx, "Shape Mode", NK_TEXT_LEFT);
-  nk_layout_row_dynamic(ctx, 30, 1);
-  const char *modes[] = {"Standard", "Container"};
-  int old_mode = node->is_container ? 1 : 0;
-  int new_mode = nk_combo(ctx, modes, 2, old_mode, 30, nk_vec2(200, 200));
-  if (new_mode != old_mode) {
-    node->is_container = new_mode;
-    if (new_mode == 1) { // If switched to container
-      // Optionally reset image or keep it
-    }
-  }
-
-  // Node-specific Text
-  if (node->type == NODE_TYPE_TEXT) {
-    nk_layout_row_dynamic(ctx, 25, 1);
-    nk_label(ctx, "Text Content", NK_TEXT_LEFT);
-    nk_layout_row_dynamic(ctx, 60, 1);
-    nk_edit_string_zero_terminated(ctx, NK_EDIT_BOX, node->text,
-                                   sizeof(node->text) - 1, nk_filter_default);
+  // =====================================================================
+  // ADVANCED — Container mode
+  // =====================================================================
+  if (node->type != NODE_TYPE_TEXT && node->type != NODE_TYPE_STROKE &&
+      node->type != NODE_TYPE_CHART) {
+    sidebar_section_divider(ctx);
+    sidebar_section_header(ctx, "ADVANCED");
+    nk_layout_row_dynamic(ctx, 28, 1);
+    const char *modes[] = {"Standard", "Image Container"};
+    int old_mode = node->is_container ? 1 : 0;
+    int new_mode = nk_combo(ctx, modes, 2, old_mode, 28, nk_vec2(200, 100));
+    if (new_mode != old_mode)
+      node->is_container = new_mode;
   }
 }
 
@@ -862,7 +908,7 @@ void ui_render_sidebar_layers(UIHost *ui, struct nk_context *ctx,
   if (!root)
     return;
 
-  // List nodes in reverse order (drawn top to bottom in UI)
+  // Collect nodes in reverse order (top layer first in UI)
   Node *nodes[1024];
   int count = 0;
   for (Node *node = root->first_child; node && count < 1024;
@@ -870,77 +916,160 @@ void ui_render_sidebar_layers(UIHost *ui, struct nk_context *ctx,
     nodes[count++] = node;
   }
 
+  // Header with element count
+  sidebar_section_header(ctx, "LAYERS");
+  nk_layout_row_dynamic(ctx, 16, 1);
+  char count_label[64];
+  snprintf(count_label, sizeof(count_label), "%d element%s", count,
+           count != 1 ? "s" : "");
+  nk_label_colored(ctx, count_label, NK_TEXT_LEFT, nk_rgb(160, 160, 165));
+
+  nk_layout_row_dynamic(ctx, 4, 1);
+  nk_spacing(ctx, 1);
+
+  struct nk_color row_bg_even = nk_rgba(0, 0, 0, 0);
+  struct nk_color row_bg_odd = nk_rgba(245, 245, 248, 255);
+  struct nk_color selected_bg = nk_rgba(80, 140, 200, 40);
+  struct nk_color hidden_text = nk_rgb(180, 180, 185);
+
   for (int i = count - 1; i >= 0; i--) {
     Node *node = nodes[i];
+    int is_selected = (ui->selected_node == node);
+    int row_index = count - 1 - i;
+    struct nk_color bg = is_selected ? selected_bg
+                         : (row_index % 2) ? row_bg_odd
+                                           : row_bg_even;
 
-    nk_layout_row_template_begin(ctx, 30);
-    nk_layout_row_template_push_static(ctx, 25);   // Eye (Visibility)
-    nk_layout_row_template_push_variable(ctx, 80); // Name
-    nk_layout_row_template_push_static(ctx, 25);   // Up
-    nk_layout_row_template_push_static(ctx, 25);   // Down
-    nk_layout_row_template_push_static(ctx, 25);   // Delete
+    // Row background highlight
+    struct nk_rect row_bounds = nk_widget_bounds(ctx);
+    (void)row_bounds;
+
+    // -- Layer row: [Icon] [Name ............] [Vis] [Up] [Dn] --
+    nk_layout_row_template_begin(ctx, 28);
+    nk_layout_row_template_push_static(ctx, 24);    // Type icon
+    nk_layout_row_template_push_variable(ctx, 60);  // Name
+    nk_layout_row_template_push_static(ctx, 22);    // Visibility
+    nk_layout_row_template_push_static(ctx, 22);    // Up
+    nk_layout_row_template_push_static(ctx, 22);    // Down
     nk_layout_row_template_end(ctx);
 
-    // Visibility toggle
-    if (ui_icon_button(ui, node->visible ? ICON_EYE : ICON_EYE_OFF)) {
-      node->visible = !node->visible;
+    // Draw row background
+    row_bounds = nk_widget_bounds(ctx);
+    struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
+    struct nk_rect full_row = nk_rect(row_bounds.x - 4, row_bounds.y,
+                                      row_bounds.w + 100, 28);
+    nk_fill_rect(canvas_buf, full_row, 0, bg);
+
+    // Type icon button (clicking selects) — switch to icon font
+    const char *icon = node_type_icon(node);
+    struct nk_style_button icon_style = ctx->style.button;
+    icon_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    icon_style.hover = nk_style_item_color(nk_rgba(0, 0, 0, 15));
+    icon_style.active = nk_style_item_color(nk_rgba(0, 0, 0, 25));
+    icon_style.border = 0;
+    icon_style.padding = nk_vec2(2, 2);
+    struct nk_color icon_col = node->visible ? nk_rgb(120, 120, 130)
+                                             : hidden_text;
+    icon_style.text_normal = icon_col;
+    icon_style.text_hover = icon_col;
+    icon_style.text_active = icon_col;
+    if (ui->font_icons)
+      nk_style_set_font(ctx, &ui->font_icons->handle);
+    if (nk_button_label_styled(ctx, &icon_style, icon)) {
+      ui->selected_node = node;
+    }
+    if (ui->font_inter)
+      nk_style_set_font(ctx, &ui->font_inter->handle);
+
+    // Name button
+    const char *display = node->name[0] ? node->name
+                                        : node_type_display_name(node->type);
+    // For strokes, use specific name
+    if (!node->name[0] && node->type == NODE_TYPE_STROKE) {
+      display = (node->stroke_data &&
+                 node->stroke_data->type == STROKE_TYPE_MARKER)
+                    ? "Marker Stroke"
+                    : "Pen Stroke";
     }
 
-    // Selection / Name
-    int is_selected = (ui->selected_node == node);
-    struct nk_style_button bstyle = ctx->style.button;
-    if (is_selected) {
-      bstyle.normal = nk_style_item_color(COLOR_ACCENT);
-      bstyle.hover = nk_style_item_color(COLOR_ACCENT);
-      bstyle.active = nk_style_item_color(COLOR_ACCENT);
-    } else {
-      bstyle.normal = ctx->style.button.normal;
-    }
-    bstyle.text_normal = COLOR_TEXT;
-    bstyle.text_hover = COLOR_TEXT;
-    bstyle.text_active = COLOR_TEXT;
-    bstyle.padding = nk_vec2(4, 4);
-
-    const char *node_display_name = node->name[0] ? node->name : "Untitled";
-    if (!node->name[0]) {
-      if (node->type == NODE_TYPE_RECT)
-        node_display_name = "Rectangle";
-      else if (node->type == NODE_TYPE_ELLIPSE)
-        node_display_name = "Ellipse";
-      else if (node->type == NODE_TYPE_TEXT)
-        node_display_name = "Text";
-      else if (node->type == NODE_TYPE_IMAGE)
-        node_display_name = "Image";
-      else if (node->type == NODE_TYPE_PATH)
-        node_display_name = "Path";
-      else if (node->type == NODE_TYPE_STROKE) {
-        if (node->stroke_data && node->stroke_data->type == STROKE_TYPE_MARKER)
-          node_display_name = "Marker Stroke";
-        else
-          node_display_name = "Pen Stroke";
-      }
-    }
-
-    if (nk_button_label_styled(ctx, &bstyle, node_display_name)) {
+    struct nk_style_button name_style = ctx->style.button;
+    name_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    name_style.hover = nk_style_item_color(nk_rgba(0, 0, 0, 10));
+    name_style.active = nk_style_item_color(nk_rgba(0, 0, 0, 20));
+    name_style.border = 0;
+    name_style.padding = nk_vec2(4, 4);
+    name_style.text_alignment = NK_TEXT_LEFT;
+    struct nk_color text_col = !node->visible ? hidden_text
+                               : is_selected  ? COLOR_ACCENT
+                                              : COLOR_TEXT;
+    name_style.text_normal = text_col;
+    name_style.text_hover = text_col;
+    name_style.text_active = text_col;
+    if (nk_button_label_styled(ctx, &name_style, display)) {
       ui->selected_node = node;
     }
 
-    // Reordering
-    if (ui_icon_button(ui, ICON_COLLAPSE)) { // Up arrow
-      node_move_up(node);
-    }
-    if (ui_icon_button(ui, ICON_EXPAND)) { // Down arrow
-      node_move_down(node);
+    // Visibility toggle — icon font
+    struct nk_style_button vis_style = icon_style;
+    struct nk_color vis_col = node->visible ? nk_rgb(130, 130, 140)
+                                            : nk_rgb(200, 200, 205);
+    vis_style.text_normal = vis_col;
+    vis_style.text_hover = nk_rgb(80, 140, 200);
+    vis_style.text_active = vis_col;
+    if (ui->font_icons)
+      nk_style_set_font(ctx, &ui->font_icons->handle);
+    if (nk_button_label_styled(ctx, &vis_style,
+                               node->visible ? ICON_EYE : ICON_EYE_OFF)) {
+      node->visible = !node->visible;
     }
 
-    // Delete
-    if (ui_icon_button(ui, ICON_DELETE)) {
+    // Reorder Up
+    struct nk_style_button arrow_style = icon_style;
+    arrow_style.text_normal = nk_rgb(160, 160, 165);
+    arrow_style.text_hover = COLOR_ACCENT;
+    arrow_style.text_active = nk_rgb(160, 160, 165);
+    if (nk_button_label_styled(ctx, &arrow_style, ICON_COLLAPSE)) {
+      node_move_up(node);
+    }
+
+    // Reorder Down
+    if (nk_button_label_styled(ctx, &arrow_style, ICON_EXPAND)) {
+      node_move_down(node);
+    }
+    if (ui->font_inter)
+      nk_style_set_font(ctx, &ui->font_inter->handle);
+  }
+
+  // Separator before delete zone
+  if (ui->selected_node) {
+    nk_layout_row_dynamic(ctx, 6, 1);
+    nk_spacing(ctx, 1);
+
+    nk_layout_row_dynamic(ctx, 28, 1);
+    struct nk_style_button del_style = ctx->style.button;
+    del_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    del_style.hover = nk_style_item_color(nk_rgba(220, 60, 60, 25));
+    del_style.active = nk_style_item_color(nk_rgba(220, 60, 60, 40));
+    del_style.border = 0;
+    del_style.text_normal = nk_rgb(200, 80, 80);
+    del_style.text_hover = nk_rgb(220, 50, 50);
+    del_style.text_active = nk_rgb(180, 40, 40);
+    del_style.text_alignment = NK_TEXT_LEFT;
+    del_style.padding = nk_vec2(4, 4);
+
+    const char *sel_name =
+        ui->selected_node->name[0]
+            ? ui->selected_node->name
+            : node_type_display_name(ui->selected_node->type);
+    char del_label[128];
+    snprintf(del_label, sizeof(del_label), "Delete %s", sel_name);
+    if (nk_button_label_styled(ctx, &del_style, del_label)) {
+      Node *to_del = ui->selected_node;
+      ui->selected_node = NULL;
       if (block->type == BLOCK_CANVAS)
-        block_canvas_delete_node(block, node->id);
+        block_canvas_delete_node(block, to_del->id);
       else if (block->type == BLOCK_DESIGN)
-        block_design_delete_node(block, node->id);
-      if (ui->selected_node == node)
-        ui->selected_node = NULL;
+        block_design_delete_node(block, to_del->id);
     }
   }
 }
