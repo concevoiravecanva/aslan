@@ -292,7 +292,8 @@ typedef struct UIHost {
 
   // Block drag-and-drop
   struct {
-    int is_active; // 1 = dragging a block
+    int is_active;       // 1 = mouse held on handle, waiting or dragging
+    int threshold_met;   // 1 = moved past dead zone, actually dragging
     uint32_t dragged_block_id;
     float start_x, start_y; // Where drag started
     float mouse_x, mouse_y; // Current mouse during drag

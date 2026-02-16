@@ -471,7 +471,17 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     if (ui->block_drag.is_active) {
       ui->block_drag.mouse_x = ui->mouse_x;
       ui->block_drag.mouse_y = ui->mouse_y;
-      ui->block_drag.drop_valid = 0; // Reset, recalc in render
+      // Dead zone: require 6px movement before committing to drag
+      if (!ui->block_drag.threshold_met) {
+        float dx = ui->mouse_x - ui->block_drag.start_x;
+        float dy = ui->mouse_y - ui->block_drag.start_y;
+        if (dx * dx + dy * dy > 36.0f) { // 6px radius
+          ui->block_drag.threshold_met = 1;
+        }
+      }
+      if (ui->block_drag.threshold_met) {
+        ui->block_drag.drop_valid = 0; // Reset, recalc in render
+      }
       ui_request_redraw(ui);
     }
 
@@ -566,7 +576,8 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 
       // Block drag-and-drop: execute drop on mouse release
       if (ui->block_drag.is_active) {
-        if (ui->block_drag.drop_valid && ui->engine) {
+        if (ui->block_drag.threshold_met && ui->block_drag.drop_valid &&
+            ui->engine) {
           Page *page = doc_page_get_active(ui->engine->doc);
           if (page) {
             Block *dragged =
@@ -575,55 +586,110 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
                 page_find_block_by_id(page, ui->block_drag.drop_target_id);
             if (dragged && target && dragged != target) {
               int pos = ui->block_drag.drop_position;
+              uint16_t target_row = target->layout_row;
+
+              // Remember old row of dragged block for cleanup
+              uint16_t old_row = dragged->layout_row;
+
+              // Remove dragged from its current position
               page_remove_block(page, dragged);
 
+              // Check if old row is now empty (no blocks left in that row)
+              // If so, compact: decrement all rows above old_row
+              int old_row_empty = 1;
+              for (Block *r = page->first_block; r; r = r->next) {
+                if (r->layout_row == old_row) {
+                  old_row_empty = 0;
+                  break;
+                }
+              }
+              if (old_row_empty) {
+                for (Block *r = page->first_block; r; r = r->next) {
+                  if (r->layout_row > old_row)
+                    r->layout_row--;
+                }
+                // Adjust target_row if it was affected
+                if (target_row > old_row)
+                  target_row--;
+              }
+
+              // Reassign layout_col in old row (may have shifted)
+              if (!old_row_empty) {
+                uint8_t ci = 0;
+                for (Block *r = page->first_block; r; r = r->next) {
+                  if (r->layout_row == old_row)
+                    r->layout_col = ci++;
+                }
+              }
+
               if (pos == 0) {
-                // Above: insert before target, own row
-                page_insert_block_before(page, target, dragged);
-                dragged->layout_row = target->layout_row;
-                // Renumber: shift target and subsequent blocks' rows up
-                for (Block *r = target; r; r = r->next) {
-                  r->layout_row++;
+                // Above: insert before first block in target row, own new row
+                // Shift target row and everything after
+                for (Block *r = page->first_block; r; r = r->next) {
+                  if (r->layout_row >= target_row)
+                    r->layout_row++;
                 }
+                // Find first block in target row (now target_row+1)
+                Block *first_in_row = NULL;
+                for (Block *r = page->first_block; r; r = r->next) {
+                  if (r->layout_row == target_row + 1) {
+                    first_in_row = r;
+                    break;
+                  }
+                }
+                if (first_in_row)
+                  page_insert_block_before(page, first_in_row, dragged);
+                else
+                  page_insert_block_after(page, target, dragged);
+                dragged->layout_row = target_row;
+                dragged->layout_col = 0;
+
               } else if (pos == 1) {
-                // Below: insert after target, own row
-                // Find last block in target's row
-                Block *last_in_row = target;
-                while (last_in_row->next &&
-                       last_in_row->next->layout_row == target->layout_row)
-                  last_in_row = last_in_row->next;
-                page_insert_block_after(page, last_in_row, dragged);
-                dragged->layout_row = target->layout_row + 1;
-                // Shift subsequent rows
-                for (Block *r = dragged->next; r; r = r->next) {
-                  r->layout_row++;
+                // Below: insert after last block in target row, own new row
+                Block *last_in_row = NULL;
+                for (Block *r = page->first_block; r; r = r->next) {
+                  if (r->layout_row == target_row)
+                    last_in_row = r;
                 }
+                uint16_t new_row = target_row + 1;
+                // Shift everything after target row
+                for (Block *r = page->first_block; r; r = r->next) {
+                  if (r->layout_row >= new_row)
+                    r->layout_row++;
+                }
+                if (last_in_row)
+                  page_insert_block_after(page, last_in_row, dragged);
+                else
+                  page_insert_block_after(page, target, dragged);
+                dragged->layout_row = new_row;
+                dragged->layout_col = 0;
+
               } else if (pos == 2) {
-                // Left: place in same row, before target
+                // Left: place in same row as target, before target
                 page_insert_block_before(page, target, dragged);
-                dragged->layout_row = target->layout_row;
+                dragged->layout_row = target_row;
                 // Reassign layout_col for all blocks in this row
-                uint16_t row = target->layout_row;
-                uint8_t col = 0;
+                uint8_t ci = 0;
                 for (Block *r = page->first_block; r; r = r->next) {
-                  if (r->layout_row == row)
-                    r->layout_col = col++;
+                  if (r->layout_row == target_row)
+                    r->layout_col = ci++;
                 }
+
               } else if (pos == 3) {
-                // Right: place in same row, after target
+                // Right: place in same row as target, after target
                 page_insert_block_after(page, target, dragged);
-                dragged->layout_row = target->layout_row;
-                uint16_t row = target->layout_row;
-                uint8_t col = 0;
+                dragged->layout_row = target_row;
+                uint8_t ci = 0;
                 for (Block *r = page->first_block; r; r = r->next) {
-                  if (r->layout_row == row)
-                    r->layout_col = col++;
+                  if (r->layout_row == target_row)
+                    r->layout_col = ci++;
                 }
               }
             }
           }
         }
         ui->block_drag.is_active = 0;
+        ui->block_drag.threshold_met = 0;
         ui->block_drag.drop_valid = 0;
         ui_request_redraw(ui);
       }
@@ -1001,6 +1067,7 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
     ui->block_drag.start_y = my;
     ui->block_drag.mouse_x = mx;
     ui->block_drag.mouse_y = my;
+    ui->block_drag.threshold_met = 0;
     ui->block_drag.drop_valid = 0;
   }
   if (_btn_hovered && mouse_down && !ui->block_drag.is_active) {
@@ -1010,6 +1077,7 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
     ui->block_drag.start_y = my;
     ui->block_drag.mouse_x = mx;
     ui->block_drag.mouse_y = my;
+    ui->block_drag.threshold_met = 0;
     ui->block_drag.drop_valid = 0;
   }
 
@@ -1472,6 +1540,7 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ui->block_drag.start_y = my;
       ui->block_drag.mouse_x = mx;
       ui->block_drag.mouse_y = my;
+      ui->block_drag.threshold_met = 0;
       ui->block_drag.drop_valid = 0;
     }
   }
@@ -1744,7 +1813,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
               // Drop zone indicators during drag (clear, non-overlapping
               // zones)
-              if (ui->block_drag.is_active &&
+              if (ui->block_drag.is_active && ui->block_drag.threshold_met &&
                   ui->block_drag.dragged_block_id != row_blocks[0]->id) {
                 struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
                 struct nk_rect cr = nk_window_get_content_region(ctx);
@@ -1893,7 +1962,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
               ctx->style.window.rounding = saved_rounding;
 
               // Drop zone indicators for multi-column rows during drag
-              if (ui->block_drag.is_active) {
+              if (ui->block_drag.is_active && ui->block_drag.threshold_met) {
                 struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
                 struct nk_rect cr = nk_window_get_content_region(ctx);
                 float bx = cr.x;
@@ -2032,8 +2101,8 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     // (The table render code handles more precise deselection)
   }
 
-  // Override cursor during block drag
-  if (ui->block_drag.is_active) {
+  // Override cursor during block drag (only when past dead zone)
+  if (ui->block_drag.is_active && ui->block_drag.threshold_met) {
     ui->cursor_type = UI_CURSOR_HAND;
   }
 
