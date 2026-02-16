@@ -283,6 +283,17 @@ typedef struct UIHost {
   int show_doc_menu;
   struct nk_rect doc_menu_rect;
 
+  // Split View (Data-Driven layout)
+  struct {
+    int active;               // 1 = split view mode is on
+    float ratio;              // 0.0-1.0 — left panel portion (0.5 = 50/50)
+    int is_dragging_splitter; // 1 = currently dragging the splitter
+    int mode;                 // 0=collab(50/50), 1=design(3/97), 2=data(97/3)
+    uint32_t master_table_id; // Block ID of the "brain" table
+    int active_view;          // 0=Design, 1=Canvas, 2=Kanban, 3=Calendar, 4=Chart
+    int selected_row;         // Selected row in master table (-1=none)
+  } split_view;
+
   // Block editing state
   uint32_t active_block_id;   // Block currently active/selected (showing icons)
   uint32_t editing_block_id;  // Block being edited (0=none)
@@ -533,5 +544,11 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_UNCHECK "\xEE\xAD\xA4"           // ri-checkbox-blank-line
 #define ICON_TABLE_LINE "\xEF\x83\xA4"        // ri-table-line
 #define ICON_ADD_LINE "\xEE\xA8\x8E"          // ri-add-line
+
+// Split view icons
+#define ICON_SPLIT "\xEE\xBD\x9A"             // ri-layout-column-line
+#define ICON_KANBAN "\xEE\xB8\xBC"            // ri-layout-masonry-line
+#define ICON_CALENDAR "\xEE\xAC\xA7"          // ri-calendar-line (same as date)
+#define ICON_DASHBOARD "\xEE\xAA\xB4"         // ri-dashboard-line
 
 #endif // UI_HOST_H

@@ -1638,6 +1638,779 @@ float ui_measure_block_height(UIHost *ui, Block *block, float width) {
   }
 }
 
+// =============================================================================
+// SPLIT VIEW — Data-Driven Layout
+// =============================================================================
+
+// Find first block of given type in page
+static Block *page_find_first_block_of_type(Page *page, BlockType type) {
+  for (Block *b = page->first_block; b; b = b->next) {
+    if (b->type == type)
+      return b;
+  }
+  return NULL;
+}
+
+// Render view tabs bar at top of right panel
+static void ui_render_view_tabs(UIHost *ui, struct nk_context *ctx,
+                                float width) {
+  const char *tab_labels[] = {"Design", "Canvas", "Kanban", "Calendar",
+                              "Chart"};
+  const char *tab_icons[] = {ICON_DESIGN, ICON_CANVAS, ICON_KANBAN,
+                             ICON_CALENDAR, ICON_CHART};
+  int tab_count = 5;
+
+  struct nk_color active_col = nk_rgb(55, 120, 235);
+  struct nk_color inactive_col =
+      ui->dark_mode ? nk_rgb(140, 142, 150) : nk_rgb(130, 130, 138);
+  // Draw tab bar background
+  struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+
+  float tab_w = width / (float)tab_count;
+  if (tab_w > 120.0f)
+    tab_w = 120.0f;
+
+  nk_layout_row_begin(ctx, NK_STATIC, 32, tab_count);
+  for (int i = 0; i < tab_count; i++) {
+    nk_layout_row_push(ctx, tab_w);
+    int is_active = (ui->split_view.active_view == i);
+
+    struct nk_style_button tab_style = ctx->style.button;
+    tab_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    tab_style.hover = nk_style_item_color(
+        ui->dark_mode ? nk_rgba(255, 255, 255, 10) : nk_rgba(0, 0, 0, 8));
+    tab_style.active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    tab_style.border = 0;
+    tab_style.rounding = 0;
+    tab_style.text_normal = is_active ? active_col : inactive_col;
+    tab_style.text_hover = active_col;
+    tab_style.text_active = active_col;
+    tab_style.padding = nk_vec2(4, 4);
+
+    // Draw icon + label
+    struct nk_rect tb = nk_widget_bounds(ctx);
+    if (nk_button_label_styled(ctx, &tab_style, tab_labels[i])) {
+      ui->split_view.active_view = i;
+    }
+
+    // Draw icon on top (left side of button)
+    if (ui->font_icons) {
+      const char *icon = tab_icons[i];
+      struct nk_color ic = is_active ? active_col : inactive_col;
+      nk_draw_text(canvas, nk_rect(tb.x + 4, tb.y + 7, 18, 18), icon,
+                   strlen(icon), &ui->font_icons->handle, nk_rgba(0, 0, 0, 0),
+                   ic);
+    }
+
+    // Active underline
+    if (is_active) {
+      nk_fill_rect(canvas, nk_rect(tb.x + 4, tb.y + 29, tb.w - 8, 2.5f),
+                   1.0f, active_col);
+    }
+  }
+  nk_layout_row_end(ctx);
+
+  // Bottom separator
+  nk_layout_row_dynamic(ctx, 1, 1);
+  struct nk_rect sep = nk_widget_bounds(ctx);
+  nk_fill_rect(canvas, sep, 0,
+               ui->dark_mode ? nk_rgb(55, 57, 65) : nk_rgb(228, 228, 232));
+  nk_spacing(ctx, 1);
+}
+
+// Render Kanban view from a table
+static void ui_render_view_kanban(UIHost *ui, Engine *engine,
+                                  struct nk_context *ctx, Block *table_block,
+                                  float width, float height) {
+  (void)engine;
+  if (!table_block || table_block->type != BLOCK_TABLE)
+    return;
+  AslanTable *tbl = table_block->data.table.columnar;
+  if (!tbl)
+    return;
+
+  // Find first SELECT column for kanban grouping
+  int select_col = -1;
+  int title_col = -1;
+  for (size_t c = 0; c < tbl->column_count; c++) {
+    if (tbl->columns[c].type == ASLAN_COL_SELECT && select_col < 0)
+      select_col = (int)c;
+    if (tbl->columns[c].type == ASLAN_COL_TEXT && title_col < 0)
+      title_col = (int)c;
+  }
+
+  if (select_col < 0) {
+    nk_layout_row_dynamic(ctx, 60, 1);
+    nk_label(ctx, "Add a Select column to enable Kanban view", NK_TEXT_CENTERED);
+    return;
+  }
+
+  AslanColumn *sel_col = &tbl->columns[select_col];
+  int opt_count = sel_col->option_count;
+  if (opt_count <= 0) {
+    nk_layout_row_dynamic(ctx, 60, 1);
+    nk_label(ctx, "Add options to the Select column", NK_TEXT_CENTERED);
+    return;
+  }
+
+  // Collect row IDs
+  size_t row_count = aslan_table_view_count(tbl);
+
+  // Calculate column widths
+  float gap = 8.0f;
+  float col_w = (width - (float)(opt_count + 1) * gap) / (float)opt_count;
+  if (col_w < 140.0f)
+    col_w = 140.0f;
+
+  // Kanban columns
+  float cols[16];
+  int n_cols = 0;
+  for (int i = 0; i < opt_count && i < 16; i++) {
+    if (n_cols > 0) {
+      cols[n_cols++] = gap; // spacer
+    }
+    cols[n_cols++] = col_w;
+  }
+
+  nk_layout_row(ctx, NK_STATIC, height - 45, n_cols, cols);
+
+  for (int opt = 0; opt < opt_count && opt < 16; opt++) {
+    if (opt > 0)
+      nk_spacing(ctx, 1); // spacer
+
+    uint32_t opt_color = sel_col->options[opt].color;
+    struct nk_color header_col =
+        nk_rgba((opt_color >> 24) & 0xFF, (opt_color >> 16) & 0xFF,
+                (opt_color >> 8) & 0xFF, 255);
+
+    char grp_name[32];
+    snprintf(grp_name, sizeof(grp_name), "kanban_%d", opt);
+
+    struct nk_color col_bg =
+        ui->dark_mode ? nk_rgb(38, 40, 46) : nk_rgb(245, 245, 248);
+    struct nk_style_item saved_bg = ctx->style.window.fixed_background;
+    ctx->style.window.fixed_background = nk_style_item_color(col_bg);
+
+    if (nk_group_begin(ctx, grp_name, NK_WINDOW_BORDER)) {
+      // Column header with color accent
+      nk_layout_row_dynamic(ctx, 3, 1);
+      struct nk_rect accent_rect = nk_widget_bounds(ctx);
+      nk_fill_rect(nk_window_get_canvas(ctx), accent_rect, 0, header_col);
+      nk_spacing(ctx, 1);
+
+      nk_layout_row_dynamic(ctx, 22, 1);
+      char header_label[80];
+      snprintf(header_label, sizeof(header_label), "%s",
+               sel_col->options[opt].label);
+      nk_label(ctx, header_label, NK_TEXT_CENTERED);
+
+      nk_layout_row_dynamic(ctx, 4, 1);
+      nk_spacing(ctx, 1);
+
+      // Cards for rows matching this option
+      for (size_t r = 0; r < row_count; r++) {
+        uint64_t row_id = aslan_table_view_row_id(tbl, r);
+        int sel_val = aslan_table_get_select(tbl, select_col, row_id);
+        if (sel_val != opt)
+          continue;
+
+        // Card
+        nk_layout_row_dynamic(ctx, 52, 1);
+        struct nk_rect card_rect = nk_widget_bounds(ctx);
+        struct nk_command_buffer *cv = nk_window_get_canvas(ctx);
+
+        // Card background
+        struct nk_color card_bg =
+            ui->dark_mode ? nk_rgb(48, 50, 58) : nk_rgb(255, 255, 255);
+        nk_fill_rect(cv, card_rect, 6.0f, card_bg);
+        // Card shadow
+        nk_fill_rect(cv, nk_rect(card_rect.x + 1, card_rect.y + 2,
+                                  card_rect.w, card_rect.h),
+                     6.0f, nk_rgba(0, 0, 0, ui->dark_mode ? 20 : 10));
+        nk_fill_rect(cv, card_rect, 6.0f, card_bg);
+
+        // Card border on hover
+        int is_selected = (ui->split_view.selected_row == (int)r);
+        if (is_selected) {
+          nk_stroke_rect(cv, card_rect, 6.0f, 1.5f, nk_rgb(55, 120, 235));
+        }
+
+        // Card title
+        char title[128] = "";
+        if (title_col >= 0) {
+          const char *txt = aslan_table_get_text(tbl, title_col, row_id);
+          if (txt)
+            snprintf(title, sizeof(title), "%s", txt);
+        }
+        if (title[0] == '\0')
+          snprintf(title, sizeof(title), "Row %d", (int)r + 1);
+
+        struct nk_color txt_col =
+            ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(40, 40, 50);
+        nk_draw_text(cv, nk_rect(card_rect.x + 10, card_rect.y + 8,
+                                  card_rect.w - 20, 20),
+                     title, strlen(title), &ui->font_inter->handle,
+                     nk_rgba(0, 0, 0, 0), txt_col);
+
+        // Click to select
+        float mx = ctx->input.mouse.pos.x;
+        float my = ctx->input.mouse.pos.y;
+        if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
+            mx >= card_rect.x && mx < card_rect.x + card_rect.w &&
+            my >= card_rect.y && my < card_rect.y + card_rect.h) {
+          ui->split_view.selected_row = (int)r;
+        }
+
+        nk_spacing(ctx, 1);
+        nk_layout_row_dynamic(ctx, 4, 1);
+        nk_spacing(ctx, 1);
+      }
+      nk_group_end(ctx);
+    }
+    ctx->style.window.fixed_background = saved_bg;
+  }
+}
+
+// Render Calendar view from a table
+static void ui_render_view_calendar(UIHost *ui, Engine *engine,
+                                    struct nk_context *ctx, Block *table_block,
+                                    float width, float height) {
+  (void)engine;
+  (void)width;
+  if (!table_block || table_block->type != BLOCK_TABLE)
+    return;
+  AslanTable *tbl = table_block->data.table.columnar;
+  if (!tbl)
+    return;
+
+  // Find first DATE column
+  int date_col = -1;
+  int title_col = -1;
+  for (size_t c = 0; c < tbl->column_count; c++) {
+    if (tbl->columns[c].type == ASLAN_COL_DATE && date_col < 0)
+      date_col = (int)c;
+    if (tbl->columns[c].type == ASLAN_COL_TEXT && title_col < 0)
+      title_col = (int)c;
+  }
+
+  if (date_col < 0) {
+    nk_layout_row_dynamic(ctx, 60, 1);
+    nk_label(ctx, "Add a Date column to enable Calendar view", NK_TEXT_CENTERED);
+    return;
+  }
+
+  // Use a static month/year state (persists across frames)
+  static int cal_year = 0, cal_month = 0;
+  if (cal_year == 0) {
+    time_t now = time(NULL);
+    struct tm *tm = localtime(&now);
+    cal_year = tm->tm_year + 1900;
+    cal_month = tm->tm_mon;
+  }
+
+  struct nk_color txt_col =
+      ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(40, 40, 50);
+  struct nk_color dim_col =
+      ui->dark_mode ? nk_rgb(100, 102, 110) : nk_rgb(160, 162, 168);
+  struct nk_color accent = nk_rgb(55, 120, 235);
+
+  // Month navigation
+  struct nk_style_button nav_btn = ctx->style.button;
+  nav_btn.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+  nav_btn.hover = nk_style_item_color(
+      ui->dark_mode ? nk_rgba(255, 255, 255, 15) : nk_rgba(0, 0, 0, 8));
+  nav_btn.active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+  nav_btn.border = 0;
+  nav_btn.rounding = 4;
+  nav_btn.text_normal = txt_col;
+  nav_btn.text_hover = accent;
+
+  nk_layout_row_begin(ctx, NK_STATIC, 32, 3);
+  nk_layout_row_push(ctx, 40);
+  if (nk_button_label_styled(ctx, &nav_btn, "<")) {
+    cal_month--;
+    if (cal_month < 0) {
+      cal_month = 11;
+      cal_year--;
+    }
+  }
+
+  static const char *month_names[] = {"January",   "February", "March",
+                                      "April",     "May",      "June",
+                                      "July",      "August",   "September",
+                                      "October",   "November", "December"};
+  char title[64];
+  snprintf(title, sizeof(title), "%s %d", month_names[cal_month], cal_year);
+  nk_layout_row_push(ctx, width - 100);
+  nk_label(ctx, title, NK_TEXT_CENTERED);
+
+  nk_layout_row_push(ctx, 40);
+  if (nk_button_label_styled(ctx, &nav_btn, ">")) {
+    cal_month++;
+    if (cal_month > 11) {
+      cal_month = 0;
+      cal_year++;
+    }
+  }
+  nk_layout_row_end(ctx);
+
+  // Day headers
+  nk_layout_row_dynamic(ctx, 20, 7);
+  static const char *dow[] = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"};
+  for (int i = 0; i < 7; i++) {
+    nk_label_colored(ctx, dow[i], NK_TEXT_CENTERED, dim_col);
+  }
+
+  // Calculate first day and days in month
+  struct tm first_tm = {0};
+  first_tm.tm_year = cal_year - 1900;
+  first_tm.tm_mon = cal_month;
+  first_tm.tm_mday = 1;
+  first_tm.tm_isdst = -1;
+  mktime(&first_tm);
+  int start_offset = (first_tm.tm_wday + 6) % 7;
+
+  struct tm next_m = {0};
+  next_m.tm_year = cal_year - 1900;
+  next_m.tm_mon = cal_month + 1;
+  next_m.tm_mday = 0;
+  next_m.tm_isdst = -1;
+  mktime(&next_m);
+  int days_in_month = next_m.tm_mday;
+
+  // Collect events for this month
+  size_t row_count = aslan_table_view_count(tbl);
+
+  // Calendar grid (cell height adapts to available space)
+  float cell_h = (height - 90) / 6.0f;
+  if (cell_h < 50)
+    cell_h = 50;
+  if (cell_h > 100)
+    cell_h = 100;
+
+  for (int row = 0; row < 6; row++) {
+    nk_layout_row_dynamic(ctx, cell_h, 7);
+    for (int col = 0; col < 7; col++) {
+      int cell = row * 7 + col;
+      int day = cell - start_offset + 1;
+
+      struct nk_rect cell_rect = nk_widget_bounds(ctx);
+      struct nk_command_buffer *cv = nk_window_get_canvas(ctx);
+
+      if (day < 1 || day > days_in_month) {
+        nk_spacing(ctx, 1);
+        continue;
+      }
+
+      // Cell background
+      struct nk_color cell_bg =
+          ui->dark_mode ? nk_rgba(42, 44, 50, 180) : nk_rgba(255, 255, 255, 200);
+      nk_fill_rect(cv, nk_rect(cell_rect.x + 1, cell_rect.y + 1,
+                                cell_rect.w - 2, cell_rect.h - 2),
+                   4.0f, cell_bg);
+
+      // Day number
+      char day_str[4];
+      snprintf(day_str, sizeof(day_str), "%d", day);
+
+      // Today highlight
+      time_t now = time(NULL);
+      struct tm *now_tm = localtime(&now);
+      int is_today = (day == now_tm->tm_mday && cal_month == now_tm->tm_mon &&
+                      cal_year == now_tm->tm_year + 1900);
+      struct nk_color day_col = is_today ? accent : dim_col;
+      nk_draw_text(cv,
+                   nk_rect(cell_rect.x + 4, cell_rect.y + 2, 30, 16),
+                   day_str, strlen(day_str), &ui->font_inter->handle,
+                   nk_rgba(0, 0, 0, 0), day_col);
+
+      // Events for this day
+      float ev_y = cell_rect.y + 20;
+      for (size_t r = 0; r < row_count && ev_y < cell_rect.y + cell_h - 4; r++) {
+        uint64_t row_id = aslan_table_view_row_id(tbl, r);
+        int64_t ts = aslan_table_get_date(tbl, date_col, row_id);
+        if (ts <= 0)
+          continue;
+
+        time_t t = (time_t)(ts / 1000);
+        struct tm *etm = localtime(&t);
+        if (etm->tm_mday != day || etm->tm_mon != cal_month ||
+            etm->tm_year + 1900 != cal_year)
+          continue;
+
+        // Event pill
+        char ev_label[64] = "";
+        if (title_col >= 0) {
+          const char *txt = aslan_table_get_text(tbl, title_col, row_id);
+          if (txt)
+            snprintf(ev_label, sizeof(ev_label), "%s", txt);
+        }
+        if (ev_label[0] == '\0')
+          snprintf(ev_label, sizeof(ev_label), "Event");
+
+        struct nk_color pill_bg = nk_rgba(55, 120, 235, 40);
+        struct nk_color pill_txt = accent;
+        int is_sel = (ui->split_view.selected_row == (int)r);
+        if (is_sel) {
+          pill_bg = nk_rgba(55, 120, 235, 120);
+          pill_txt = nk_rgb(255, 255, 255);
+        }
+
+        nk_fill_rect(cv, nk_rect(cell_rect.x + 2, ev_y, cell_rect.w - 4, 14),
+                     3.0f, pill_bg);
+        nk_draw_text(
+            cv, nk_rect(cell_rect.x + 5, ev_y + 1, cell_rect.w - 10, 12),
+            ev_label, strlen(ev_label), &ui->font_inter->handle,
+            nk_rgba(0, 0, 0, 0), pill_txt);
+
+        ev_y += 16;
+      }
+
+      // Click on cell
+      float mx = ctx->input.mouse.pos.x;
+      float my = ctx->input.mouse.pos.y;
+      if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
+          mx >= cell_rect.x && mx < cell_rect.x + cell_rect.w &&
+          my >= cell_rect.y && my < cell_rect.y + cell_rect.h) {
+        // Select first event on this day
+        for (size_t r = 0; r < row_count; r++) {
+          uint64_t row_id = aslan_table_view_row_id(tbl, r);
+          int64_t ts = aslan_table_get_date(tbl, date_col, row_id);
+          if (ts <= 0)
+            continue;
+          time_t t = (time_t)(ts / 1000);
+          struct tm *etm = localtime(&t);
+          if (etm->tm_mday == day && etm->tm_mon == cal_month &&
+              etm->tm_year + 1900 == cal_year) {
+            ui->split_view.selected_row = (int)r;
+            break;
+          }
+        }
+      }
+
+      nk_spacing(ctx, 1);
+    }
+    if ((row + 1) * 7 - start_offset > days_in_month)
+      break;
+  }
+}
+
+// Render the split view layout
+static void ui_render_split_view(UIHost *ui, Engine *engine,
+                                 struct nk_context *ctx, int win_w,
+                                 int win_h) {
+  Page *page = doc_page_get_active(engine->doc);
+  if (!page)
+    return;
+
+  // Find master table
+  Block *master = page_find_block_by_id(page, ui->split_view.master_table_id);
+  if (!master || master->type != BLOCK_TABLE) {
+    // Try to find any table
+    master = page_find_first_block_of_type(page, BLOCK_TABLE);
+    if (master)
+      ui->split_view.master_table_id = master->id;
+  }
+
+  // No table found — show create prompt
+  if (!master) {
+    nk_layout_row_dynamic(ctx, (float)win_h * 0.4f, 1);
+    nk_spacing(ctx, 1);
+    nk_layout_row_dynamic(ctx, 24, 1);
+    nk_label(ctx, "Create a table to start", NK_TEXT_CENTERED);
+    nk_layout_row_dynamic(ctx, 8, 1);
+    nk_spacing(ctx, 1);
+    nk_layout_row_dynamic(ctx, 36, 1);
+    struct nk_rect btn_area = nk_widget_bounds(ctx);
+    // Center button
+    float btn_w = 200;
+    float btn_x = btn_area.x + (btn_area.w - btn_w) / 2;
+    nk_layout_row_begin(ctx, NK_STATIC, 36, 1);
+    nk_layout_row_push(ctx, btn_area.w);
+    if (nk_button_label(ctx, "+ New Table")) {
+      char cmd[128];
+      snprintf(cmd, sizeof(cmd), "block_create %u %u table", page->id,
+               page->next_block_id);
+      engine_execute_command(engine, cmd);
+    }
+    nk_layout_row_end(ctx);
+    (void)btn_x;
+    (void)btn_w;
+    return;
+  }
+
+  float ratio = ui->split_view.ratio;
+  if (ratio < 0.03f)
+    ratio = 0.03f;
+  if (ratio > 0.97f)
+    ratio = 0.97f;
+
+  float splitter_w = 6.0f;
+  float left_w = (float)win_w * ratio - splitter_w * 0.5f;
+  float right_w = (float)win_w - left_w - splitter_w;
+  if (left_w < 30)
+    left_w = 30;
+  if (right_w < 30)
+    right_w = 30;
+
+  float full_h = (float)win_h;
+
+  // --- Splitter interaction (mouse detection) ---
+  float splitter_x = left_w;
+  float mx = ctx->input.mouse.pos.x;
+  float my = ctx->input.mouse.pos.y;
+  int mouse_in_splitter = (mx >= splitter_x - 4 && mx <= splitter_x + splitter_w + 4 &&
+                           my >= 0 && my < full_h);
+
+  if (mouse_in_splitter)
+    ui->cursor_type = UI_CURSOR_SIZEWE;
+
+  if (mouse_in_splitter &&
+      nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+    ui->split_view.is_dragging_splitter = 1;
+  }
+
+  if (ui->split_view.is_dragging_splitter) {
+    if (nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+      float new_ratio = mx / (float)win_w;
+      if (new_ratio < 0.03f)
+        new_ratio = 0.03f;
+      if (new_ratio > 0.97f)
+        new_ratio = 0.97f;
+      ui->split_view.ratio = new_ratio;
+      ui->cursor_type = UI_CURSOR_SIZEWE;
+    } else {
+      ui->split_view.is_dragging_splitter = 0;
+    }
+  }
+
+  // Double-click on splitter: cycle modes
+  if (mouse_in_splitter &&
+      nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+    // Detect double-click (simple: check if mouse was pressed recently)
+    static float last_click_time = 0;
+    float now = (float)SDL_GetTicks() / 1000.0f;
+    if (now - last_click_time < 0.35f) {
+      // Cycle: 50/50 → 3/97 → 97/3 → 50/50
+      if (ui->split_view.mode == 0) {
+        ui->split_view.mode = 1;
+        ui->split_view.ratio = 0.03f;
+      } else if (ui->split_view.mode == 1) {
+        ui->split_view.mode = 2;
+        ui->split_view.ratio = 0.97f;
+      } else {
+        ui->split_view.mode = 0;
+        ui->split_view.ratio = 0.5f;
+      }
+    }
+    last_click_time = now;
+  }
+
+  // Recalculate after potential ratio change
+  ratio = ui->split_view.ratio;
+  left_w = (float)win_w * ratio - splitter_w * 0.5f;
+  right_w = (float)win_w - left_w - splitter_w;
+  if (left_w < 30)
+    left_w = 30;
+  if (right_w < 30)
+    right_w = 30;
+
+  // --- Layout: 3 columns (left | splitter | right) ---
+  float cols[3] = {left_w, splitter_w, right_w};
+  nk_layout_row(ctx, NK_STATIC, full_h - 10, 3, cols);
+
+  // ===================== LEFT PANEL (Data) =====================
+  struct nk_color left_bg =
+      ui->dark_mode ? nk_rgb(28, 30, 36) : nk_rgb(252, 252, 253);
+  struct nk_style_item saved_bg = ctx->style.window.fixed_background;
+  ctx->style.window.fixed_background = nk_style_item_color(left_bg);
+  struct nk_vec2 saved_pad = ctx->style.window.group_padding;
+  ctx->style.window.group_padding = nk_vec2(4, 4);
+
+  if (nk_group_begin(ctx, "SplitLeft", NK_WINDOW_NO_SCROLLBAR)) {
+    int compact_mode = (ratio < 0.08f);
+
+    if (compact_mode) {
+      // --- Compact mode: color pills only ---
+      AslanTable *tbl = master->data.table.columnar;
+      if (tbl) {
+        size_t row_count = aslan_table_view_count(tbl);
+        // Find first select column for colors
+        int sel_c = -1;
+        for (size_t c = 0; c < tbl->column_count; c++) {
+          if (tbl->columns[c].type == ASLAN_COL_SELECT) {
+            sel_c = (int)c;
+            break;
+          }
+        }
+
+        for (size_t r = 0; r < row_count; r++) {
+          nk_layout_row_dynamic(ctx, 16, 1);
+          struct nk_rect pill = nk_widget_bounds(ctx);
+          struct nk_command_buffer *cv = nk_window_get_canvas(ctx);
+
+          struct nk_color pill_col = nk_rgb(120, 120, 130);
+          if (sel_c >= 0) {
+            uint64_t row_id = aslan_table_view_row_id(tbl, r);
+            int sv = aslan_table_get_select(tbl, sel_c, row_id);
+            if (sv >= 0 && sv < tbl->columns[sel_c].option_count) {
+              uint32_t oc = tbl->columns[sel_c].options[sv].color;
+              pill_col = nk_rgba((oc >> 24) & 0xFF, (oc >> 16) & 0xFF,
+                                 (oc >> 8) & 0xFF, 255);
+            }
+          }
+
+          int is_sel = (ui->split_view.selected_row == (int)r);
+          float pw = left_w - 12;
+          if (pw < 8)
+            pw = 8;
+          nk_fill_rect(cv,
+                       nk_rect(pill.x + 2, pill.y + 2, pw, 12),
+                       6.0f, pill_col);
+          if (is_sel)
+            nk_stroke_rect(cv, nk_rect(pill.x + 1, pill.y + 1, pw + 2, 14),
+                           6.0f, 1.5f, nk_rgb(255, 255, 255));
+
+          // Click to select
+          if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
+              mx >= pill.x && mx < pill.x + pw && my >= pill.y &&
+              my < pill.y + 16) {
+            ui->split_view.selected_row = (int)r;
+          }
+          nk_spacing(ctx, 1);
+        }
+      }
+    } else {
+      // --- Normal mode: full table ---
+      ui_render_block_table(ui, engine, ctx, master, left_w - 8);
+    }
+    nk_group_end(ctx);
+  }
+  ctx->style.window.fixed_background = saved_bg;
+  ctx->style.window.group_padding = saved_pad;
+
+  // ===================== SPLITTER =====================
+  {
+    struct nk_rect sp = nk_widget_bounds(ctx);
+    struct nk_command_buffer *cv = nk_window_get_canvas(ctx);
+    struct nk_color sp_bg =
+        ui->dark_mode ? nk_rgb(42, 44, 52) : nk_rgb(235, 235, 238);
+    struct nk_color sp_dot =
+        ui->dark_mode ? nk_rgb(80, 82, 92) : nk_rgb(180, 180, 188);
+    if (mouse_in_splitter || ui->split_view.is_dragging_splitter) {
+      sp_bg = ui->dark_mode ? nk_rgb(55, 57, 68) : nk_rgb(218, 218, 225);
+      sp_dot = ui->dark_mode ? nk_rgb(120, 122, 135) : nk_rgb(140, 140, 150);
+    }
+    nk_fill_rect(cv, sp, 0, sp_bg);
+    // 3 dots vertically centered
+    float dot_y = sp.y + sp.h * 0.5f - 10;
+    for (int d = 0; d < 3; d++) {
+      nk_fill_rect(cv,
+                   nk_rect(sp.x + sp.w * 0.5f - 1.5f, dot_y + (float)d * 7,
+                           3, 3),
+                   1.5f, sp_dot);
+    }
+    nk_spacing(ctx, 1);
+  }
+
+  // ===================== RIGHT PANEL (View) =====================
+  struct nk_color right_bg =
+      ui->dark_mode ? nk_rgb(24, 26, 32) : nk_rgb(255, 255, 255);
+  ctx->style.window.fixed_background = nk_style_item_color(right_bg);
+  ctx->style.window.group_padding = nk_vec2(6, 4);
+
+  if (nk_group_begin(ctx, "SplitRight", NK_WINDOW_NO_SCROLLBAR)) {
+    float view_w = right_w - 12;
+    float view_h = full_h - 55;
+
+    // View tabs
+    ui_render_view_tabs(ui, ctx, view_w);
+
+    // Dispatch to active view
+    int view = ui->split_view.active_view;
+
+    if (view == 0) {
+      // Design
+      Block *design = page_find_first_block_of_type(page, BLOCK_DESIGN);
+      if (design) {
+        nk_layout_row_dynamic(ctx, view_h, 1);
+        if (nk_group_begin(ctx, "SplitDesignView", NK_WINDOW_NO_SCROLLBAR)) {
+          ui_render_block_design(ui, engine, ctx, design, view_w);
+          nk_group_end(ctx);
+        }
+      } else {
+        nk_layout_row_dynamic(ctx, 60, 1);
+        nk_label(ctx, "No Design block on this page", NK_TEXT_CENTERED);
+        nk_layout_row_dynamic(ctx, 32, 1);
+        if (nk_button_label(ctx, "+ Create Design")) {
+          char cmd[128];
+          snprintf(cmd, sizeof(cmd), "block_create %u %u design", page->id,
+                   page->next_block_id);
+          engine_execute_command(engine, cmd);
+        }
+      }
+    } else if (view == 1) {
+      // Canvas
+      Block *canvas = page_find_first_block_of_type(page, BLOCK_CANVAS);
+      if (canvas) {
+        nk_layout_row_dynamic(ctx, view_h, 1);
+        if (nk_group_begin(ctx, "SplitCanvasView", NK_WINDOW_NO_SCROLLBAR)) {
+          ui_render_block_canvas(ui, engine, ctx, canvas, view_w);
+          nk_group_end(ctx);
+        }
+      } else {
+        nk_layout_row_dynamic(ctx, 60, 1);
+        nk_label(ctx, "No Canvas block on this page", NK_TEXT_CENTERED);
+        nk_layout_row_dynamic(ctx, 32, 1);
+        if (nk_button_label(ctx, "+ Create Canvas")) {
+          char cmd[128];
+          snprintf(cmd, sizeof(cmd), "block_create %u %u canvas", page->id,
+                   page->next_block_id);
+          engine_execute_command(engine, cmd);
+        }
+      }
+    } else if (view == 2) {
+      // Kanban
+      nk_layout_row_dynamic(ctx, view_h, 1);
+      if (nk_group_begin(ctx, "SplitKanbanView", 0)) {
+        ui_render_view_kanban(ui, engine, ctx, master, view_w, view_h);
+        nk_group_end(ctx);
+      }
+    } else if (view == 3) {
+      // Calendar
+      nk_layout_row_dynamic(ctx, view_h, 1);
+      if (nk_group_begin(ctx, "SplitCalendarView", NK_WINDOW_NO_SCROLLBAR)) {
+        ui_render_view_calendar(ui, engine, ctx, master, view_w, view_h);
+        nk_group_end(ctx);
+      }
+    } else if (view == 4) {
+      // Chart
+      Block *chart = page_find_first_block_of_type(page, BLOCK_CHART);
+      if (chart) {
+        nk_layout_row_dynamic(ctx, view_h, 1);
+        if (nk_group_begin(ctx, "SplitChartView", NK_WINDOW_NO_SCROLLBAR)) {
+          ui_render_block_chart(ui, engine, ctx, page, chart, view_w);
+          nk_group_end(ctx);
+        }
+      } else {
+        nk_layout_row_dynamic(ctx, 60, 1);
+        nk_label(ctx, "No Chart block on this page", NK_TEXT_CENTERED);
+        nk_layout_row_dynamic(ctx, 32, 1);
+        if (nk_button_label(ctx, "+ Create Chart")) {
+          char cmd[128];
+          snprintf(cmd, sizeof(cmd), "block_create %u %u chart", page->id,
+                   page->next_block_id);
+          engine_execute_command(engine, cmd);
+        }
+      }
+    }
+
+    nk_group_end(ctx);
+  }
+  ctx->style.window.fixed_background = saved_bg;
+  ctx->style.window.group_padding = saved_pad;
+}
+
 void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   // Update window dims for smart placement
   ui->win_width = win_w;
@@ -1682,396 +2455,22 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     ctx->style.window.padding = old_padding;
     ctx->style.window.group_padding = old_group_padding;
   } else {
-    // Normal editor view
-    if (nk_begin(ctx, "EditorMain", nk_rect(0, 0, (float)win_w, (float)win_h),
+    // Split view mode (Data-Driven) — default and only editor mode
+    // Auto-activate split view with default ratio if needed
+    if (ui->split_view.ratio < 0.01f)
+      ui->split_view.ratio = 0.5f;
+    ui->split_view.active = 1;
+
+    struct nk_vec2 old_padding_sv = ctx->style.window.padding;
+    ctx->style.window.padding = nk_vec2(0, 0);
+
+    if (nk_begin(ctx, "SplitMain",
+                 nk_rect(0, 0, (float)win_w, (float)win_h),
                  NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
-      const float padding = 10.0f;
-      const float content_h = (float)win_h;
-      const float content_w = (float)win_w - (padding * 2);
-
-      // Smooth Scrolling Interpolation
-      float scroll_speed = 0.15f;
-      if (fabsf(ui->scroll_target_y - ui->scroll_y) > 1.0f) {
-        ui->scroll_y += (ui->scroll_target_y - ui->scroll_y) * scroll_speed;
-      } else {
-        ui->scroll_y = ui->scroll_target_y;
-      }
-
-      // Responsive margin (~Coda-style generous whitespace)
-      float margin = 96.0f;
-
-      struct nk_vec2 old_group_padding = ctx->style.window.group_padding;
-      ctx->style.window.group_padding = nk_vec2(margin, 12.0f);
-
-      // Single column layout
-      nk_layout_row_dynamic(ctx, content_h - 100, 1);
-
-      // Main Content Area (as a group, not a window)
-      // Completely disable scrollbars (horizontal & vertical)
-      if (nk_group_begin(ctx, "ContentGroup", NK_WINDOW_NO_SCROLLBAR)) {
-        // --- Synchronize Scrollbar Interactivity ---
-        nk_uint nx, ny;
-        nk_group_get_scroll(ctx, "ContentGroup", &nx, &ny);
-
-        // Detect manual scrollbar drag or other internal Nuklear scroll
-        // changes If the Nuklear scroll position (ny) differs from our
-        // current position (ui->scroll_y) and we are NOT currently in the
-        // middle of a smooth scroll interpolation, it means the user likely
-        // dragged the scrollbar.
-        float scroll_diff = fabsf((float)ny - ui->scroll_y);
-        float interpolation_dist = fabsf(ui->scroll_target_y - ui->scroll_y);
-
-        if (scroll_diff > 2.0f && interpolation_dist < 1.1f) {
-          // Sync our state to Nuklear's internal state
-          ui->scroll_y = (float)ny;
-          ui->scroll_target_y = (float)ny;
-        }
-
-        // Apply smooth scroll (only if we are actively interpolating)
-        if (interpolation_dist > 0.1f) {
-          nk_group_set_scroll(ctx, "ContentGroup", 0, (nk_uint)ui->scroll_y);
-        }
-
-        Page *page = doc_page_get_active(engine->doc);
-
-        // Reset active_block_id on click outside blocks (will be re-set by
-        // block click detection)
-        /*
-        if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
-            !ui->block_drag.is_active) {
-          uint32_t prev_active = ui->active_block_id;
-          ui->active_block_id = 0;
-          if (prev_active != 0)
-            ui_request_redraw(ui);
-        }
-        */
-
-        if (page && page->block_count > 0) {
-          float total_width = content_w - (margin * 2.0f);
-          Block *b = page->first_block;
-          while (b) {
-            // Collect blocks in the same layout_row
-            Block *row_blocks[5] = {NULL};
-            int row_count = 0;
-            uint16_t current_row = b->layout_row;
-
-            while (b && b->layout_row == current_row && row_count < 5) {
-              row_blocks[row_count++] = b;
-              b = b->next;
-            }
-
-            if (row_count == 1) {
-              // Single block row: wrap in elegant card
-              // --- Clean Coda-style block rendering (no card wrapping, truly
-              // transparent) ---
-              struct nk_vec2 saved_grp_pad = ctx->style.window.group_padding;
-              float saved_grp_border = ctx->style.window.group_border;
-              struct nk_color saved_grp_border_col =
-                  ctx->style.window.group_border_color;
-              struct nk_style_item saved_fixed_bg =
-                  ctx->style.window.fixed_background;
-              float saved_rounding = ctx->style.window.rounding;
-
-              ctx->style.window.group_padding =
-                  nk_vec2(0, 0); // Minimal vertical padding
-              ctx->style.window.group_border = 0.0f;
-              ctx->style.window.group_border_color = nk_rgba(0, 0, 0, 0);
-              ctx->style.window.fixed_background =
-                  nk_style_item_hide(); // Truly transparent
-              ctx->style.window.rounding = 0.0f;
-
-              // Content-adaptive height
-              float card_h =
-                  ui_measure_block_height(ui, row_blocks[0], total_width - 16);
-
-              nk_layout_row_dynamic(ctx, card_h, 1);
-              float block_start_y = nk_layout_widget_bounds(ctx).y;
-              char grp_name[64];
-              snprintf(grp_name, sizeof(grp_name), "single_card_%u",
-                       row_blocks[0]->id);
-
-              // No shadow — clean Coda look
-
-              if (nk_group_begin(ctx, grp_name, NK_WINDOW_NO_SCROLLBAR)) {
-                ui_render_block(ui, engine, ctx, page, row_blocks[0],
-                                total_width - 16);
-                nk_group_end(ctx);
-              }
-
-              // Restore styles
-              ctx->style.window.group_padding = saved_grp_pad;
-              ctx->style.window.group_border = saved_grp_border;
-              ctx->style.window.group_border_color = saved_grp_border_col;
-              ctx->style.window.fixed_background = saved_fixed_bg;
-              ctx->style.window.rounding = saved_rounding;
-
-              float block_end_y = nk_layout_widget_bounds(ctx).y;
-              // Tighter spacing between blocks (removed extra spacing calls)
-              float blk_h = block_end_y - block_start_y;
-              if (blk_h < 30.0f)
-                blk_h = 100.0f;
-
-              // Drop zone indicators during drag (clear, non-overlapping
-              // zones)
-              if (ui->block_drag.is_active && ui->block_drag.threshold_met &&
-                  ui->block_drag.dragged_block_id != row_blocks[0]->id) {
-                struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-                struct nk_rect cr = nk_window_get_content_region(ctx);
-                float bx = cr.x;
-                float dmx = ui->block_drag.mouse_x;
-                float dmy = ui->block_drag.mouse_y;
-
-                // Define zones (non-overlapping):
-                // Top 20% → ABOVE, Bottom 20% → BELOW
-                // Left 15% (middle 60%) → LEFT, Right 15% (middle 60%) →
-                // RIGHT
-                float top_zone = block_start_y + blk_h * 0.2f;
-                float bot_zone = block_start_y + blk_h * 0.8f;
-                float left_zone = bx + total_width * 0.15f;
-                float right_zone = bx + total_width * 0.85f;
-                struct nk_color drop_line = nk_rgba(55, 120, 250, 220);
-                struct nk_color drop_fill = nk_rgba(55, 120, 250, 40);
-
-                int in_x = (dmx >= bx && dmx <= bx + total_width);
-                int in_block = (in_x && dmy >= block_start_y &&
-                                dmy < block_start_y + blk_h);
-
-                if (in_x && dmy >= block_start_y - 8 && dmy < top_zone) {
-                  // ABOVE: horizontal line at top + highlight strip
-                  nk_fill_rect(canvas,
-                               nk_rect(bx, block_start_y - 2, total_width, 4),
-                               2.0f, drop_line);
-                  nk_fill_rect(
-                      canvas,
-                      nk_rect(bx, block_start_y, total_width, blk_h * 0.15f), 0,
-                      drop_fill);
-                  ui->block_drag.drop_valid = 1;
-                  ui->block_drag.drop_target_id = row_blocks[0]->id;
-                  ui->block_drag.drop_position = 0;
-                } else if (in_x && dmy >= bot_zone &&
-                           dmy < block_start_y + blk_h + 8) {
-                  // BELOW: horizontal line at bottom + highlight strip
-                  float bot_y = block_start_y + blk_h;
-                  nk_fill_rect(canvas, nk_rect(bx, bot_y - 3, total_width, 6),
-                               3.0f, drop_line);
-                  nk_fill_rect(canvas,
-                               nk_rect(bx, bot_y - blk_h * 0.15f, total_width,
-                                       blk_h * 0.15f),
-                               0, drop_fill);
-                  ui->block_drag.drop_valid = 1;
-                  ui->block_drag.drop_target_id = row_blocks[0]->id;
-                  ui->block_drag.drop_position = 1;
-                } else if (in_block && dmx < left_zone && row_count < 5) {
-                  // LEFT: vertical line at left + highlight column
-                  nk_fill_rect(canvas, nk_rect(bx - 1, block_start_y, 4, blk_h),
-                               2.0f, drop_line);
-                  nk_fill_rect(
-                      canvas,
-                      nk_rect(bx, block_start_y, total_width * 0.5f, blk_h), 0,
-                      drop_fill);
-                  ui->block_drag.drop_valid = 1;
-                  ui->block_drag.drop_target_id = row_blocks[0]->id;
-                  ui->block_drag.drop_position = 2;
-                } else if (in_block && dmx > right_zone && row_count < 5) {
-                  // RIGHT: vertical line at right + highlight column
-                  float rx = bx + total_width;
-                  nk_fill_rect(canvas, nk_rect(rx - 3, block_start_y, 4, blk_h),
-                               2.0f, drop_line);
-                  nk_fill_rect(canvas,
-                               nk_rect(bx + total_width * 0.5f, block_start_y,
-                                       total_width * 0.5f, blk_h),
-                               0, drop_fill);
-                  ui->block_drag.drop_valid = 1;
-                  ui->block_drag.drop_target_id = row_blocks[0]->id;
-                  ui->block_drag.drop_position = 3;
-                }
-              }
-            } else {
-              // Multi-column row: render blocks as elegant cards side-by-side
-              float gap = 8.0f;
-              float col_w = (total_width - (float)(row_count - 1) * gap) /
-                            (float)row_count;
-
-              // Calculate max height for the row
-              float row_h = 0.0f;
-              for (int k = 0; k < row_count; k++) {
-                float h = ui_measure_block_height(ui, row_blocks[k], col_w);
-                if (h > row_h)
-                  row_h = h;
-              }
-              if (row_h < 100.0f)
-                row_h = 100.0f;
-
-              float mcol_start_y = nk_layout_widget_bounds(ctx).y;
-
-              // --- Unified Transparent Multi-block Row Style ---
-              struct nk_vec2 saved_grp_pad = ctx->style.window.group_padding;
-              float saved_grp_border = ctx->style.window.group_border;
-              struct nk_color saved_grp_border_col =
-                  ctx->style.window.group_border_color;
-              struct nk_style_item saved_fixed_bg =
-                  ctx->style.window.fixed_background;
-              float saved_rounding = ctx->style.window.rounding;
-
-              // Force 0 padding for inner card groups to prevent tight
-              // margins
-              ctx->style.window.group_padding = nk_vec2(0, 0);
-              ctx->style.window.group_border = 0.0f;
-              ctx->style.window.group_border_color = nk_rgba(0, 0, 0, 0);
-              ctx->style.window.fixed_background = nk_style_item_hide();
-              ctx->style.window.rounding = 0.0f;
-
-              // Build layout: card columns separated by explicit gap spacers
-              float col_sizes[9]; // max 5 cards + 4 gaps
-              int n_layout_cols = 0;
-              for (int c = 0; c < row_count; c++) {
-                if (c > 0)
-                  col_sizes[n_layout_cols++] = gap;
-                col_sizes[n_layout_cols++] = col_w;
-              }
-
-              nk_layout_row(ctx, NK_STATIC, row_h, n_layout_cols, col_sizes);
-              for (int col = 0; col < row_count; col++) {
-                if (col > 0)
-                  nk_spacing(ctx, 1); // consume gap spacer
-                char grp_name[64];
-                snprintf(grp_name, sizeof(grp_name), "card_grp_%u_%d",
-                         current_row, col);
-
-                // No shadow/fill needed anymore
-                // struct nk_rect card_bounds = nk_layout_widget_bounds(ctx);
-                // struct nk_command_buffer *canvas =
-                // nk_window_get_canvas(ctx); nk_fill_rect(...)
-
-                if (nk_group_begin(ctx, grp_name, NK_WINDOW_NO_SCROLLBAR)) {
-                  if (row_blocks[col]) {
-                    // Reduce width to account for group padding (8px * 2 =
-                    // 16px)
-                    ui_render_block(ui, engine, ctx, page, row_blocks[col],
-                                    col_w);
-                  }
-                  nk_group_end(ctx);
-                }
-              }
-
-              // Restore group styles
-              ctx->style.window.group_padding = saved_grp_pad;
-              ctx->style.window.group_border = saved_grp_border;
-              ctx->style.window.group_border_color = saved_grp_border_col;
-              ctx->style.window.fixed_background = saved_fixed_bg;
-              ctx->style.window.rounding = saved_rounding;
-
-              // Drop zone indicators for multi-column rows during drag
-              if (ui->block_drag.is_active && ui->block_drag.threshold_met) {
-                struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-                struct nk_rect cr = nk_window_get_content_region(ctx);
-                float bx = cr.x;
-                float dmx = ui->block_drag.mouse_x;
-                float dmy = ui->block_drag.mouse_y;
-                float mcol_end_y = nk_layout_widget_bounds(ctx).y;
-                float mcol_h = mcol_end_y - mcol_start_y;
-                if (mcol_h < 30.0f)
-                  mcol_h = row_h;
-                struct nk_color drop_line = nk_rgba(55, 120, 250, 220);
-                struct nk_color drop_fill = nk_rgba(55, 120, 250, 40);
-
-                int in_x = (dmx >= bx && dmx <= bx + total_width);
-                int in_row = (in_x && dmy >= mcol_start_y &&
-                              dmy < mcol_start_y + mcol_h);
-                float top_zone = mcol_start_y + mcol_h * 0.2f;
-                float bot_zone = mcol_start_y + mcol_h * 0.8f;
-
-                // Check dragged block is not in this row
-                int dragged_in_row = 0;
-                for (int c = 0; c < row_count; c++) {
-                  if (row_blocks[c] &&
-                      row_blocks[c]->id == ui->block_drag.dragged_block_id)
-                    dragged_in_row = 1;
-                }
-
-                if (!dragged_in_row) {
-                  if (in_x && dmy >= mcol_start_y - 8 && dmy < top_zone) {
-                    nk_fill_rect(canvas,
-                                 nk_rect(bx, mcol_start_y - 3, total_width, 6),
-                                 3.0f, drop_line);
-                    nk_fill_rect(
-                        canvas,
-                        nk_rect(bx, mcol_start_y, total_width, mcol_h * 0.15f),
-                        0, drop_fill);
-                    ui->block_drag.drop_valid = 1;
-                    ui->block_drag.drop_target_id = row_blocks[0]->id;
-                    ui->block_drag.drop_position = 0;
-                  } else if (in_x && dmy >= bot_zone &&
-                             dmy < mcol_start_y + mcol_h + 8) {
-                    float bot_y = mcol_start_y + mcol_h;
-                    nk_fill_rect(canvas, nk_rect(bx, bot_y - 3, total_width, 6),
-                                 3.0f, drop_line);
-                    nk_fill_rect(canvas,
-                                 nk_rect(bx, bot_y - mcol_h * 0.15f,
-                                         total_width, mcol_h * 0.15f),
-                                 0, drop_fill);
-                    ui->block_drag.drop_valid = 1;
-                    ui->block_drag.drop_target_id =
-                        row_blocks[row_count - 1]->id;
-                    ui->block_drag.drop_position = 1;
-                  } else if (in_row && row_count < 5) {
-                    for (int c = 0; c < row_count; c++) {
-                      float cx = bx + (float)c * (col_w + gap);
-                      float cx_mid = cx + col_w * 0.5f;
-                      if (dmx >= cx &&
-                          dmx < cx + col_w + (c < row_count - 1 ? gap : 0)) {
-                        if (dmx < cx_mid) {
-                          nk_fill_rect(canvas,
-                                       nk_rect(cx - 1, mcol_start_y, 4, mcol_h),
-                                       2.0f, drop_line);
-                          nk_fill_rect(
-                              canvas,
-                              nk_rect(cx, mcol_start_y, col_w * 0.4f, mcol_h),
-                              0, drop_fill);
-                          ui->block_drag.drop_valid = 1;
-                          ui->block_drag.drop_target_id = row_blocks[c]->id;
-                          ui->block_drag.drop_position = 2;
-                        } else {
-                          float rx = cx + col_w;
-                          nk_fill_rect(canvas,
-                                       nk_rect(rx - 2, mcol_start_y, 4, mcol_h),
-                                       2.0f, drop_line);
-                          nk_fill_rect(canvas,
-                                       nk_rect(cx + col_w * 0.6f, mcol_start_y,
-                                               col_w * 0.4f, mcol_h),
-                                       0, drop_fill);
-                          ui->block_drag.drop_valid = 1;
-                          ui->block_drag.drop_target_id = row_blocks[c]->id;
-                          ui->block_drag.drop_position = 3;
-                        }
-                        break;
-                      }
-                    }
-                  }
-                }
-              }
-            }
-
-            // Inter-row spacing
-            nk_layout_row_dynamic(ctx, 12.0f, 1);
-            nk_spacing(ctx, 1);
-          }
-        } else {
-          // Empty state
-          nk_layout_row_dynamic(ctx, 100.0f, 1);
-          nk_label(ctx, "No blocks yet. Use the toolbar below to add content.",
-                   NK_TEXT_CENTERED);
-        }
-        nk_group_end(ctx);
-      }
-      ctx->style.window.group_padding = old_group_padding;
-      // Render Toolbar inside EditorMain window context
-      if (ui->expanded_block_id == 0) {
-        ui_render_document_toolbar(ui, engine, ctx, win_w, win_h);
-      }
-      ui_render_document_menu(ui, ctx);
+      ui_render_split_view(ui, engine, ctx, win_w, win_h);
     }
     nk_end(ctx);
+    ctx->style.window.padding = old_padding_sv;
   }
 
   // Reset per-frame input state (after all processing is done)

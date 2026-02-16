@@ -80,7 +80,6 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
     struct nk_rect btn_rect = nk_rect(btn_x + i * (btn_size + btn_spacing),
                                       btn_y, btn_size, btn_size);
 
-    // Use Nuklear's hovering logic for better reliability
     int hovered = nk_input_is_mouse_hovering_rect(&ctx->input, btn_rect);
 
     if (hovered) {
@@ -100,14 +99,14 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
                    &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), icon_color);
     }
 
-    // Check for click using Nuklear's standard way + our custom flag for safety
     int clicked =
         (hovered && (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) ||
                      ui->canvas_state.mouse_just_pressed));
 
     if (clicked && page) {
       ASLAN_DEBUG("Toolbar click: button %d", i);
-      static const char *block_types[] = {"table", "canvas", "design", "chart"};
+      static const char *block_types[] = {"table", "canvas", "design",
+                                          "chart"};
       if (i >= 0 && i < 4) {
         char cmd[128];
         snprintf(cmd, sizeof(cmd), "block_create %u %u %s", page_id,

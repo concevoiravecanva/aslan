@@ -345,3 +345,26 @@ block_chart_init 1 101 line 99 0 1
 block_chart_init 1 101 pie 99 0 1
 block_create 1 102 canvas
 block_delete 1 102
+-- Session started --
+block_table_col_width 1 99 0 100
+-- Session started --
+block_table_col_width 1 99 4 191
+block_table_col_width 1 99 5 110
+block_chart_init 1 101 bar 99 0 1
+block_chart_init 1 101 line 99 0 1
+block_chart_init 1 101 pie 99 0 1
+block_chart_init 1 101 pie 99 0 1
+block_chart_init 1 101 pie 99 0 1
+block_chart_init 1 101 pie 99 0 1
+block_chart_init 1 101 pie 99 0 2
+block_create 1 103 chart
+block_chart_init 1 103 line 99 0 1
+block_chart_init 1 103 pie 99 0 1
+block_chart_init 1 103 pie 99 0 2
+-- Session started --
+block_delete 1 100
+block_delete 1 99
+block_delete 1 101
+block_delete 1 103
+-- Session started --
+block_create 1 104 table
