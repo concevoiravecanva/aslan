@@ -673,6 +673,8 @@ static bool handle_block_table_view(Engine *engine, const AofCommand *cmd,
       mode = TABLE_VIEW_LIST;
     else if (strcmp(view_str, "board") == 0)
       mode = TABLE_VIEW_BOARD;
+    else if (strcmp(view_str, "calendar") == 0)
+      mode = TABLE_VIEW_CALENDAR;
     block_table_set_view(block, mode);
     engine_emit_command(engine, command_line);
     return true;

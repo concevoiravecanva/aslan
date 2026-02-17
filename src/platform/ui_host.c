@@ -1996,12 +1996,9 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
     cols[n_cols++] = col_w;
   }
 
-  // Record swimlane screen geometry for drag hit-testing
-  struct nk_rect win_bounds = nk_window_get_bounds(ctx);
-  float swimlane_x[16];
-  for (int i = 0; i < opt_count && i < 16; i++) {
-    swimlane_x[i] = win_bounds.x + gap + (float)i * (col_w + gap);
-  }
+  // Swimlane bounds captured from actual Nuklear layout
+  struct nk_rect swimlane_bounds[16];
+  memset(swimlane_bounds, 0, sizeof(swimlane_bounds));
 
   nk_layout_row(ctx, NK_STATIC, height - 45, n_cols, cols);
 
@@ -2033,12 +2030,15 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
       ctx->style.window.fixed_background = nk_style_item_color(col_bg);
     }
 
+    // Capture swimlane bounds BEFORE group_begin (widget rect from layout)
+    swimlane_bounds[opt] = nk_widget_bounds(ctx);
+
     if (nk_group_begin(ctx, grp_name, NK_WINDOW_BORDER)) {
       // Drop target indicator border
       if (is_drop_target) {
         struct nk_command_buffer *dcv = nk_window_get_canvas(ctx);
-        struct nk_rect grp_b = nk_window_get_bounds(ctx);
-        nk_stroke_rect(dcv, grp_b, 0.0f, 2.0f, nk_rgba(55, 120, 235, 120));
+        nk_stroke_rect(dcv, swimlane_bounds[opt], 0.0f, 2.0f,
+                       nk_rgba(55, 120, 235, 120));
       }
 
       // Column header with color accent
@@ -2152,13 +2152,26 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
         ui->kanban_drag.threshold_met = 1;
     }
 
-    // Drop target: which swimlane is the mouse over?
+    // Drop target: which swimlane is the mouse over? (using actual bounds)
     if (ui->kanban_drag.threshold_met) {
       ui->kanban_drag.drop_target_opt = -1;
+      float best_dist = 1e9f;
       for (int i = 0; i < opt_count && i < 16; i++) {
-        if (mx >= swimlane_x[i] && mx < swimlane_x[i] + col_w) {
+        struct nk_rect sb = swimlane_bounds[i];
+        if (sb.w <= 0) continue;
+        // Exact hit
+        if (mx >= sb.x && mx < sb.x + sb.w &&
+            my >= sb.y && my < sb.y + sb.h) {
           ui->kanban_drag.drop_target_opt = i;
+          best_dist = 0;
           break;
+        }
+        // Nearest swimlane fallback (horizontal distance only)
+        float cx = sb.x + sb.w * 0.5f;
+        float dist = (mx - cx) * (mx - cx);
+        if (dist < best_dist && my >= sb.y && my < sb.y + sb.h) {
+          best_dist = dist;
+          ui->kanban_drag.drop_target_opt = i;
         }
       }
     }
@@ -2379,6 +2392,33 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
                    day_str, strlen(day_str), &ui->font_inter->handle,
                    nk_rgba(0, 0, 0, 0), day_col);
 
+      // Detect if mouse is inside this cell (for drop target detection)
+      float mx = ctx->input.mouse.pos.x;
+      float my = ctx->input.mouse.pos.y;
+      int mouse_in_cell = (mx >= cell_rect.x && mx < cell_rect.x + cell_rect.w &&
+                           my >= cell_rect.y && my < cell_rect.y + cell_rect.h);
+
+      // Drop target highlight
+      int is_drop_target = (ui->calendar_drag.is_active &&
+                            ui->calendar_drag.threshold_met &&
+                            ui->calendar_drag.drop_target_day == day &&
+                            day != ui->calendar_drag.source_day);
+      if (is_drop_target) {
+        nk_fill_rect(cv, nk_rect(cell_rect.x + 1, cell_rect.y + 1,
+                                  cell_rect.w - 2, cell_rect.h - 2),
+                     4.0f,
+                     ui->dark_mode ? nk_rgba(55, 120, 235, 30) : nk_rgba(55, 120, 235, 20));
+        nk_stroke_rect(cv, nk_rect(cell_rect.x + 1, cell_rect.y + 1,
+                                    cell_rect.w - 2, cell_rect.h - 2),
+                       4.0f, 1.5f, nk_rgba(55, 120, 235, 120));
+      }
+
+      // Update drop target if dragging and mouse is in this cell
+      if (ui->calendar_drag.is_active && ui->calendar_drag.threshold_met &&
+          mouse_in_cell) {
+        ui->calendar_drag.drop_target_day = day;
+      }
+
       // Events for this day
       float ev_y = cell_rect.y + 20;
       for (size_t r = 0; r < row_count && ev_y < cell_rect.y + cell_h - 4; r++) {
@@ -2393,7 +2433,7 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
             etm->tm_year + 1900 != cal_year)
           continue;
 
-        // Event pill
+        // Event pill label
         char ev_label[64] = "";
         if (title_col >= 0) {
           const char *txt = aslan_table_get_text(tbl, title_col, row_id);
@@ -2403,33 +2443,60 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
         if (ev_label[0] == '\0')
           snprintf(ev_label, sizeof(ev_label), "Event");
 
-        struct nk_color pill_bg = nk_rgba(55, 120, 235, 40);
-        struct nk_color pill_txt = accent;
+        // Dim pill if it's being dragged
+        int is_dragged = (ui->calendar_drag.is_active &&
+                          ui->calendar_drag.threshold_met &&
+                          ui->calendar_drag.dragged_row_id == row_id);
+
+        struct nk_color pill_bg, pill_txt_col;
         int is_sel = (ui->split_view.selected_row == (int)r);
-        if (is_sel) {
+        if (is_dragged) {
+          pill_bg = nk_rgba(55, 120, 235, 20);
+          pill_txt_col = nk_rgba(accent.r, accent.g, accent.b, 60);
+        } else if (is_sel) {
           pill_bg = nk_rgba(55, 120, 235, 120);
-          pill_txt = nk_rgb(255, 255, 255);
+          pill_txt_col = nk_rgb(255, 255, 255);
+        } else {
+          pill_bg = nk_rgba(55, 120, 235, 40);
+          pill_txt_col = accent;
         }
 
-        nk_fill_rect(cv, nk_rect(cell_rect.x + 2, ev_y, cell_rect.w - 4, 14),
-                     3.0f, pill_bg);
+        struct nk_rect pill_rect = nk_rect(cell_rect.x + 2, ev_y,
+                                           cell_rect.w - 4, 14);
+        nk_fill_rect(cv, pill_rect, 3.0f, pill_bg);
         nk_draw_text(
             cv, nk_rect(cell_rect.x + 5, ev_y + 1, cell_rect.w - 10, 12),
             ev_label, strlen(ev_label), &ui->font_inter->handle,
-            nk_rgba(0, 0, 0, 0), pill_txt);
+            nk_rgba(0, 0, 0, 0), pill_txt_col);
+
+        // Click on pill — select + initiate drag
+        if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
+            mx >= pill_rect.x && mx < pill_rect.x + pill_rect.w &&
+            my >= pill_rect.y && my < pill_rect.y + pill_rect.h &&
+            !ui->calendar_drag.is_active) {
+          ui->split_view.selected_row = (int)r;
+          ui->calendar_drag.is_active      = 1;
+          ui->calendar_drag.threshold_met  = 0;
+          ui->calendar_drag.dragged_row_id = row_id;
+          ui->calendar_drag.block_id       = table_block->id;
+          ui->calendar_drag.date_col       = date_col;
+          ui->calendar_drag.title_col      = title_col;
+          ui->calendar_drag.source_day     = day;
+          ui->calendar_drag.start_x        = mx;
+          ui->calendar_drag.start_y        = my;
+          ui->calendar_drag.drop_target_day = -1;
+        }
 
         ev_y += 16;
       }
 
-      // Click on cell — select existing event or create new one
-      float mx = ctx->input.mouse.pos.x;
-      float my = ctx->input.mouse.pos.y;
+      // Click on empty cell (not on a pill, not dragging) — create new event
       if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
-          mx >= cell_rect.x && mx < cell_rect.x + cell_rect.w &&
-          my >= cell_rect.y && my < cell_rect.y + cell_rect.h) {
-        // Try to select first event on this day
-        int found_event = 0;
-        for (size_t r = 0; r < row_count; r++) {
+          mouse_in_cell && !ui->calendar_drag.is_active) {
+        // Check if we clicked on an event pill (already handled above)
+        int clicked_pill = 0;
+        float check_y = cell_rect.y + 20;
+        for (size_t r = 0; r < row_count && check_y < cell_rect.y + cell_h - 4; r++) {
           uint64_t rid = aslan_table_view_row_id(tbl, r);
           int64_t ts2 = aslan_table_get_date(tbl, date_col, rid);
           if (ts2 <= 0)
@@ -2438,26 +2505,25 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
           struct tm *etm2 = localtime(&t2);
           if (etm2->tm_mday == day && etm2->tm_mon == cal_month &&
               etm2->tm_year + 1900 == cal_year) {
-            ui->split_view.selected_row = (int)r;
-            found_event = 1;
-            break;
+            if (my >= check_y && my < check_y + 14) {
+              clicked_pill = 1;
+              break;
+            }
+            check_y += 16;
           }
         }
-        // No event on this day — create one
-        if (!found_event && engine && engine->doc) {
+        if (!clicked_pill && engine && engine->doc) {
           Page *pg = doc_page_get_active(engine->doc);
           if (pg) {
-            // Build midnight timestamp for the clicked day
             struct tm new_day = {0};
             new_day.tm_year = cal_year - 1900;
             new_day.tm_mon  = cal_month;
             new_day.tm_mday = day;
-            new_day.tm_hour = 12; // noon to avoid DST edge cases
+            new_day.tm_hour = 12;
             new_day.tm_isdst = -1;
             time_t new_t = mktime(&new_day);
             long long ts_ms = (long long)new_t * 1000;
 
-            // Insert row + set date cell via engine (undo-able)
             char cmd_buf[256];
             snprintf(cmd_buf, sizeof(cmd_buf),
                      "block_table_insert_row %u %u 0",
@@ -2480,6 +2546,84 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
     }
     if ((row + 1) * 7 - start_offset > days_in_month)
       break;
+  }
+
+  // --- Calendar drag: threshold, drop commit, ghost pill ---
+  if (ui->calendar_drag.is_active) {
+    float mx = ctx->input.mouse.pos.x;
+    float my = ctx->input.mouse.pos.y;
+
+    // Threshold detection (5px dead zone)
+    if (!ui->calendar_drag.threshold_met) {
+      float dx = mx - ui->calendar_drag.start_x;
+      float dy = my - ui->calendar_drag.start_y;
+      if (dx * dx + dy * dy > 25.0f)
+        ui->calendar_drag.threshold_met = 1;
+    }
+
+    // Drop on mouse release
+    if (!nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+      if (ui->calendar_drag.threshold_met &&
+          ui->calendar_drag.drop_target_day > 0 &&
+          ui->calendar_drag.drop_target_day != ui->calendar_drag.source_day) {
+        // Build new timestamp for the target day
+        struct tm new_day = {0};
+        new_day.tm_year = cal_year - 1900;
+        new_day.tm_mon  = cal_month;
+        new_day.tm_mday = ui->calendar_drag.drop_target_day;
+        new_day.tm_hour = 12;
+        new_day.tm_isdst = -1;
+        time_t new_t = mktime(&new_day);
+        long long ts_ms = (long long)new_t * 1000;
+
+        // Find view index for the dragged row
+        int view_idx = -1;
+        for (size_t r = 0; r < row_count; r++) {
+          if (aslan_table_view_row_id(tbl, r) == ui->calendar_drag.dragged_row_id) {
+            view_idx = (int)r;
+            break;
+          }
+        }
+        if (view_idx >= 0) {
+          Page *pg = doc_page_get_active(engine->doc);
+          if (pg) {
+            char cmd_buf[256];
+            snprintf(cmd_buf, sizeof(cmd_buf),
+                     "block_table_cell %u %u %d %d \"%lld\"",
+                     pg->id, ui->calendar_drag.block_id,
+                     view_idx, ui->calendar_drag.date_col, ts_ms);
+            engine_execute_command(engine, cmd_buf);
+          }
+        }
+      }
+      ui->calendar_drag.is_active = 0;
+      ui->calendar_drag.threshold_met = 0;
+      ui->calendar_drag.drop_target_day = -1;
+      ui_request_redraw(ui);
+    }
+
+    // Draw ghost pill following mouse
+    if (ui->calendar_drag.threshold_met) {
+      struct nk_command_buffer *gcv = nk_window_get_canvas(ctx);
+      float gx = mx - 50.0f;
+      float gy = my - 7.0f;
+      struct nk_rect ghost = nk_rect(gx, gy, 100.0f, 14.0f);
+
+      nk_fill_rect(gcv, ghost, 3.0f, nk_rgba(55, 120, 235, 180));
+
+      char ghost_label[64] = "Event";
+      if (ui->calendar_drag.title_col >= 0) {
+        const char *gt = aslan_table_get_text(tbl, ui->calendar_drag.title_col,
+                                              ui->calendar_drag.dragged_row_id);
+        if (gt) snprintf(ghost_label, sizeof(ghost_label), "%s", gt);
+      }
+      nk_draw_text(gcv, nk_rect(gx + 4, gy + 1, 92, 12),
+                   ghost_label, strlen(ghost_label),
+                   &ui->font_inter->handle,
+                   nk_rgba(0, 0, 0, 0), nk_rgb(255, 255, 255));
+
+      ui_request_redraw(ui);
+    }
   }
 }
 

@@ -332,6 +332,19 @@ typedef struct UIHost {
     int      drop_target_opt;  // Swimlane option index mouse hovers (-1=none)
   } kanban_drag;
 
+  // Calendar event drag-and-drop
+  struct {
+    int      is_active;
+    int      threshold_met;
+    uint64_t dragged_row_id;
+    uint32_t block_id;
+    int      date_col;         // Column index of the DATE column
+    int      title_col;        // Column index of the TEXT column (for ghost label)
+    int      source_day;       // Day the event came from (1-31)
+    float    start_x, start_y;
+    int      drop_target_day;  // Day the mouse is hovering over (-1=none)
+  } calendar_drag;
+
   // Canvas node text editing
   Node *editing_node;       // Node being text-edited (NULL=none)
   char edit_buffer[512];    // Text buffer for editing
