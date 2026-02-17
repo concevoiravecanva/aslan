@@ -922,6 +922,38 @@ static bool handle_block_design_bg(Engine *engine, const AofCommand *cmd,
   return false;
 }
 
+static bool handle_block_design_nolimits(Engine *engine, const AofCommand *cmd,
+                                        const char *command_line) {
+  if (cmd->argc < 4)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (block && block->type == BLOCK_DESIGN) {
+    block->data.design.no_limits = atoi(cmd->argv[3]);
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
+static bool handle_block_design_view(Engine *engine, const AofCommand *cmd,
+                                     const char *command_line) {
+  if (cmd->argc < 6)
+    return false;
+  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
+  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
+  Block *block = find_block(engine, page_id, block_id);
+  if (block && block->type == BLOCK_DESIGN) {
+    block->data.design.view_x = (float)atof(cmd->argv[3]);
+    block->data.design.view_y = (float)atof(cmd->argv[4]);
+    block->data.design.zoom = (float)atof(cmd->argv[5]);
+    engine_emit_command(engine, command_line);
+    return true;
+  }
+  return false;
+}
+
 static bool handle_block_design_resize(Engine *engine, const AofCommand *cmd,
                                        const char *command_line) {
   if (cmd->argc < 5)
@@ -1094,6 +1126,8 @@ static const CommandEntry k_dispatch_table[] = {
     {"block_canvas_node", handle_block_canvas_node},
     {"block_design_init", handle_block_design_init},
     {"block_design_bg", handle_block_design_bg},
+    {"block_design_nolimits", handle_block_design_nolimits},
+    {"block_design_view", handle_block_design_view},
     {"block_design_resize", handle_block_design_resize},
     {"block_design_node", handle_block_design_node},
     {"block_chart_init", handle_block_chart_init},

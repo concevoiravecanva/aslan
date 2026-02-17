@@ -55,11 +55,18 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   int is_fullscreen = (ui->expanded_block_id == block->id);
 
+  // Initialize zoom for no_limits mode
+  if (dd->no_limits && dd->zoom < 0.01f)
+    dd->zoom = 1.0f;
+
   // --- Layout height calculation ---
   float toolbar_h = 52.0f;
   float display_h = 0;
 
-  if (!is_fullscreen) {
+  if (dd->no_limits) {
+    // Infinite canvas: use all available height
+    display_h = is_fullscreen ? nk_window_get_height(ctx) - 100.0f : 400.0f;
+  } else if (!is_fullscreen) {
     // Inline mode: scale to fit width, but cap height
     float scale_w = width / (float)dd->width;
     display_h = (float)dd->height * scale_w;
@@ -123,55 +130,89 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ds->mouse_just_pressed = 1;
     }
 
-    // 1. Draw Workspace background (Notion gray)
-    nk_fill_rect(canvas_buf, ws_bounds, 0, nk_rgb(241, 241, 239));
+    float scale = 1.0f;
 
-    // 2. Calculate Artboard Scale & Centering (Stable dimensions)
-    float margin = 20.0f;
-    float avail_w = ws_bounds.w - margin * 2;
-    float avail_h = display_h - margin * 2; // Fixed height, not visible bounds
+    if (dd->no_limits) {
+      // --- Infinite Canvas Mode ---
+      float zoom = dd->zoom > 0.01f ? dd->zoom : 1.0f;
+      float cam_x = dd->view_x, cam_y = dd->view_y;
 
-    float scale_w = avail_w / (float)dd->width;
-    float scale_h = avail_h / (float)dd->height;
-    float scale = (scale_w < scale_h) ? scale_w : scale_h;
-    if (scale > 1.0f)
-      scale = 1.0f; // Don't upscale past 100%
+      // Sync design_state camera
+      if (ds->active_design_id != block->id) {
+        ds->cam_x = cam_x;
+        ds->cam_y = cam_y;
+        ds->zoom = zoom;
+      } else {
+        cam_x = ds->cam_x;
+        cam_y = ds->cam_y;
+        zoom = ds->zoom > 0.01f ? ds->zoom : 1.0f;
+      }
+      scale = zoom;
 
-    float art_w = (float)dd->width * scale;
-    float art_h = (float)dd->height * scale;
+      // Background: white + dot grid
+      nk_fill_rect(canvas_buf, ws_bounds, 0, nk_rgb(255, 255, 255));
+      canvas_draw_dot_grid(canvas_buf, ws_bounds, cam_x, cam_y, zoom);
+      nk_push_scissor(canvas_buf, ws_bounds);
 
-    // Centering: Vertical centering should use display_h, but absolute screen
-    // position
-    float sx = ws_bounds.x + (ws_bounds.w - art_w) / 2.0f;
-    float sy = ws_bounds.y + (display_h - art_h) / 2.0f;
+      // Use full workspace as coordinate space
+      nk_layout_space_begin(ctx, NK_STATIC, ws_bounds.h, 1);
+      nk_layout_space_push(ctx, nk_rect(0, 0, ws_bounds.w, ws_bounds.h));
+    } else {
+      // --- Fixed Artboard Mode ---
+      nk_fill_rect(canvas_buf, ws_bounds, 0, nk_rgb(241, 241, 239));
 
-    // 3. Draw Shadow
-    struct nk_rect shadow_rect = nk_rect(sx + 2, sy + 2, art_w, art_h);
-    nk_fill_rect(canvas_buf, shadow_rect, 2, nk_rgba(0, 0, 0, 40));
+      float margin = 20.0f;
+      float avail_w = ws_bounds.w - margin * 2;
+      float avail_h = display_h - margin * 2;
 
-    // 4. Draw Artboard (Page background)
-    struct nk_rect art_rect = nk_rect(sx, sy, art_w, art_h);
-    nk_fill_rect(canvas_buf, art_rect, 0,
-                 nk_rgba((dd->pages[dd->current_page].bg_color >> 24) & 0xFF,
-                         (dd->pages[dd->current_page].bg_color >> 16) & 0xFF,
-                         (dd->pages[dd->current_page].bg_color >> 8) & 0xFF,
-                         dd->pages[dd->current_page].bg_color & 0xFF));
-    nk_stroke_rect(canvas_buf, art_rect, 0, 1.0f, nk_rgb(200, 200, 200));
+      float scale_w = avail_w / (float)dd->width;
+      float scale_h = avail_h / (float)dd->height;
+      scale = (scale_w < scale_h) ? scale_w : scale_h;
+      if (scale > 1.0f)
+        scale = 1.0f;
 
-    // 5. Setup Coordinate System and Clipping (Inside space)
-    nk_layout_space_begin(ctx, NK_STATIC, ws_bounds.h, 1);
-    nk_layout_space_push(
-        ctx, nk_rect(sx - ws_bounds.x, sy - ws_bounds.y, art_w, art_h));
+      float art_w = (float)dd->width * scale;
+      float art_h = (float)dd->height * scale;
 
+      float sx = ws_bounds.x + (ws_bounds.w - art_w) / 2.0f;
+      float sy = ws_bounds.y + (display_h - art_h) / 2.0f;
+
+      struct nk_rect shadow_rect = nk_rect(sx + 2, sy + 2, art_w, art_h);
+      nk_fill_rect(canvas_buf, shadow_rect, 2, nk_rgba(0, 0, 0, 40));
+
+      struct nk_rect art_rect = nk_rect(sx, sy, art_w, art_h);
+      nk_fill_rect(canvas_buf, art_rect, 0,
+                   nk_rgba((dd->pages[dd->current_page].bg_color >> 24) & 0xFF,
+                           (dd->pages[dd->current_page].bg_color >> 16) & 0xFF,
+                           (dd->pages[dd->current_page].bg_color >> 8) & 0xFF,
+                           dd->pages[dd->current_page].bg_color & 0xFF));
+      nk_stroke_rect(canvas_buf, art_rect, 0, 1.0f, nk_rgb(200, 200, 200));
+
+      nk_layout_space_begin(ctx, NK_STATIC, ws_bounds.h, 1);
+      nk_layout_space_push(
+          ctx, nk_rect(sx - ws_bounds.x, sy - ws_bounds.y, art_w, art_h));
+    }
+
+    // --- Shared content rendering (both modes) ---
     if (nk_group_begin(ctx, "design_content", NK_WINDOW_NO_SCROLLBAR)) {
-      struct nk_rect bounds = nk_window_get_content_region(ctx);
-      // Coordinate note: bounds.x/y are now absolute artboard screen pos
+      struct nk_rect bounds_raw = nk_window_get_content_region(ctx);
+      struct nk_rect bounds;
 
-      // Sync bounds and scale for interactions
-      ds->bounds_x = bounds.x;
-      ds->bounds_y = bounds.y;
-      ds->bounds_w = bounds.w;
-      ds->bounds_h = bounds.h;
+      if (dd->no_limits) {
+        // Offset bounds so existing code (bounds.x + node.x * scale) works
+        float cam_x = ds->cam_x, cam_y = ds->cam_y;
+        float zoom = ds->zoom > 0.01f ? ds->zoom : 1.0f;
+        bounds = nk_rect(bounds_raw.x - cam_x * zoom,
+                         bounds_raw.y - cam_y * zoom,
+                         bounds_raw.w, bounds_raw.h);
+      } else {
+        bounds = bounds_raw;
+      }
+
+      ds->bounds_x = bounds_raw.x;
+      ds->bounds_y = bounds_raw.y;
+      ds->bounds_w = bounds_raw.w;
+      ds->bounds_h = bounds_raw.h;
       ds->scale = scale;
 
       // Track if this design is active
@@ -1248,6 +1289,15 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
             ui->editing_node = NULL;
             SDL_StopTextInput();
           }
+          // Start panning in no_limits mode when clicking background
+          if (dd->no_limits && ds->tool != CANVAS_TOOL_PEN &&
+              !ui->block_drag.is_active) {
+            ds->is_panning = 1;
+            ds->pan_start_x = ui->mouse_x;
+            ds->pan_start_y = ui->mouse_y;
+            ds->cam_start_x = ds->cam_x;
+            ds->cam_start_y = ds->cam_y;
+          }
         }
       }
 
@@ -1258,13 +1308,15 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         ui->selected_node->x = design_x - ds->drag_offset_x;
         ui->selected_node->y = design_y - ds->drag_offset_y;
 
-        // Clamp to design bounds
-        ui->selected_node->x =
-            fmaxf(0, fminf(ui->selected_node->x,
-                           dd->width - ui->selected_node->width));
-        ui->selected_node->y =
-            fmaxf(0, fminf(ui->selected_node->y,
-                           dd->height - ui->selected_node->height));
+        // Clamp to design bounds (only in artboard mode)
+        if (!dd->no_limits) {
+          ui->selected_node->x =
+              fmaxf(0, fminf(ui->selected_node->x,
+                             dd->width - ui->selected_node->width));
+          ui->selected_node->y =
+              fmaxf(0, fminf(ui->selected_node->y,
+                             dd->height - ui->selected_node->height));
+        }
 
         if (ds->mouse_just_released) {
           ds->is_dragging_node = 0;
@@ -1547,6 +1599,47 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
 
+      // "No limits" toggle (left of toolbar)
+      {
+        const char *lbl = dd->no_limits ? "Bounded" : "No limits";
+        float lbl_w = ctx->style.font->width(ctx->style.font->userdata,
+                                              ctx->style.font->height,
+                                              lbl, strlen(lbl)) + 16.0f;
+        float toggle_x = toolbar_x - lbl_w - 16.0f;
+        float toggle_y = toolbar_y + (toolbar_h - 24.0f) / 2.0f;
+        struct nk_rect toggle_r = nk_rect(toggle_x, toggle_y, lbl_w, 24.0f);
+        int toggle_hover =
+            (ui->mouse_x >= toggle_r.x &&
+             ui->mouse_x < toggle_r.x + toggle_r.w &&
+             ui->mouse_y >= toggle_r.y &&
+             ui->mouse_y < toggle_r.y + toggle_r.h);
+
+        struct nk_color bg = toggle_hover ? nk_rgba(0, 0, 0, 30)
+                                          : nk_rgba(0, 0, 0, 15);
+        if (dd->no_limits)
+          bg = toggle_hover ? nk_rgba(55, 120, 250, 60)
+                            : nk_rgba(55, 120, 250, 40);
+        nk_fill_rect(canvas_buf, toggle_r, 12.0f, bg);
+        nk_draw_text(canvas_buf,
+                     nk_rect(toggle_r.x + 8, toggle_r.y + 4, lbl_w - 16, 16),
+                     lbl, strlen(lbl), ctx->style.font, nk_rgba(0, 0, 0, 0),
+                     dd->no_limits ? nk_rgb(55, 120, 250) : nk_rgb(100, 100, 100));
+
+        if (toggle_hover && ds->mouse_just_pressed &&
+            (ds->active_design_id == block->id)) {
+          dd->no_limits = !dd->no_limits;
+          if (dd->no_limits && dd->zoom < 0.01f)
+            dd->zoom = 1.0f;
+          Page *page = doc_page_get_active(engine->doc);
+          if (page) {
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "block_design_nolimits %u %u %d",
+                     page->id, block->id, dd->no_limits);
+            engine_execute_command(engine, cmd);
+          }
+        }
+      }
+
       // Previous page button
       struct nk_rect prev_btn =
           nk_rect(nav_x, nav_y, nav_btn_size, nav_btn_size);
@@ -1661,12 +1754,50 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ds->show_forms_menu = 0;
     }
 
+    // --- Zoom controls for no_limits mode ---
+    if (dd->no_limits) {
+      struct nk_command_buffer *zcb = nk_window_get_canvas(ctx);
+
+      // Zoom with scroll wheel
+      if (ui->mouse_x >= ws_bounds.x &&
+          ui->mouse_x < ws_bounds.x + ws_bounds.w &&
+          ui->mouse_y >= ws_bounds.y &&
+          ui->mouse_y < ws_bounds.y + ws_bounds.h) {
+        float scroll = ctx->input.mouse.scroll_delta.y;
+        if (scroll != 0.0f) {
+          float old_zoom = ds->zoom;
+          if (scroll > 0)
+            ds->zoom *= 1.15f;
+          else
+            ds->zoom *= 0.87f;
+          if (ds->zoom < 0.1f) ds->zoom = 0.1f;
+          if (ds->zoom > 5.0f) ds->zoom = 5.0f;
+          float cx = ws_bounds.w / 2.0f, cy = ws_bounds.h / 2.0f;
+          ds->cam_x += cx / old_zoom - cx / ds->zoom;
+          ds->cam_y += cy / old_zoom - cy / ds->zoom;
+        }
+      }
+
+      // Zoom percentage display
+      char zoom_str[16];
+      snprintf(zoom_str, sizeof(zoom_str), "%d%%", (int)(ds->zoom * 100));
+      float zx = ws_bounds.x + ws_bounds.w - 60.0f;
+      float zy = ws_bounds.y + ws_bounds.h - 30.0f;
+      nk_draw_text(zcb, nk_rect(zx, zy, 50, 20), zoom_str, strlen(zoom_str),
+                   ctx->style.font, nk_rgba(0, 0, 0, 0), nk_rgb(120, 120, 120));
+
+      // Save camera state back to DesignData
+      dd->view_x = ds->cam_x;
+      dd->view_y = ds->cam_y;
+      dd->zoom = ds->zoom;
+    }
+
     // --- Right-click context menu ---
     render_node_context_menu(ui, ctx, nk_window_get_canvas(ctx), block);
 
     // Close Workspace group (Column 1)
     nk_group_end(ctx);
-  }
+  } // design_content_group
 
   // --- Column 2: Sidebar (only in fullscreen mode) ---
   if (is_fullscreen) {

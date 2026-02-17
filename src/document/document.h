@@ -214,6 +214,10 @@ typedef struct {
   float zoom;        // View zoom
   uint32_t bg_color; // Default background color for new pages
 
+  // Canvas mode toggle
+  int no_limits;       // 0 = fixed artboard (default), 1 = infinite canvas mode
+  float view_x, view_y; // Pan offset (used when no_limits=1)
+
   // Legacy: single root for backwards compatibility (points to current page's
   // root)
   Node *root;

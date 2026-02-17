@@ -180,6 +180,13 @@ typedef struct {
   float bounds_x, bounds_y, bounds_w, bounds_h;
   float scale;
 
+  // Panning (no_limits / infinite canvas mode)
+  int is_panning;
+  float pan_start_x, pan_start_y;
+  float cam_start_x, cam_start_y;
+  float cam_x, cam_y;
+  float zoom;
+
   uint32_t active_design_id;
   Block *active_block;
 
@@ -284,14 +291,15 @@ typedef struct UIHost {
   struct nk_rect doc_menu_rect;
 
   // Split View (Data-Driven layout)
+  // View indices: 0=Table, 1=Design, 2=Kanban, 3=Calendar, 4=Chart
   struct {
     int active;               // 1 = split view mode is on
     float ratio;              // 0.0-1.0 — left panel portion (0.5 = 50/50)
     int is_dragging_splitter; // 1 = currently dragging the splitter
     int mode;                 // 0=collab(50/50), 1=design(3/97), 2=data(97/3)
-    uint32_t master_table_id; // Block ID of the "brain" table
-    int active_view;          // 0=Design, 1=Canvas, 2=Kanban, 3=Calendar, 4=Chart
-    int selected_row;         // Selected row in master table (-1=none)
+    int left_view;            // View shown in left panel (default: 0=Table)
+    int right_view;           // View shown in right panel (default: 1=Design)
+    int selected_row;         // Selected row in table (-1=none)
   } split_view;
 
   // Block editing state

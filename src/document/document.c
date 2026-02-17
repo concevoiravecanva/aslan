@@ -1857,6 +1857,11 @@ void doc_save_aof(const Document *doc, FILE *fp) {
                 dd->width, dd->height);
         fprintf(fp, "block_design_bg %u %u %u\n", page->id, b->id,
                 dd->bg_color);
+        if (dd->no_limits) {
+          fprintf(fp, "block_design_nolimits %u %u 1\n", page->id, b->id);
+          fprintf(fp, "block_design_view %u %u %.2f %.2f %.2f\n",
+                  page->id, b->id, dd->view_x, dd->view_y, dd->zoom);
+        }
         if (dd->root) {
           for (Node *n = dd->root->first_child; n; n = n->next_sibling) {
             save_node_recursive(fp, page->id, b->id, "block_design", n);
