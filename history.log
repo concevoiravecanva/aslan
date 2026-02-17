@@ -371,3 +371,13 @@ block_create 1 104 table
 -- Session started --
 -- Session started --
 block_create 1 105 design
+-- Session started --
+-- Session started --
+block_create 1 106 chart
+block_chart_init 1 106 line 104 0 1
+block_chart_init 1 106 pie 104 0 1
+block_chart_init 1 106 bar 104 0 1
+block_design_nolimits 1 105 1
+block_design_nolimits 1 105 0
+block_design_nolimits 1 105 1
+block_design_nolimits 1 105 0

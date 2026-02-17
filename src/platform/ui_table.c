@@ -1135,8 +1135,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               if (tbl->columns[c].formula && tbl->columns[c].formula[0]) {
                 strncpy(display_buf, val_str, sizeof(display_buf) - 1);
                 display_buf[sizeof(display_buf) - 1] = '\0';
-                txt_col = ui->dark_mode ? nk_rgb(180, 200, 240)
-                                        : nk_rgb(40, 70, 140);
+                txt_col =
+                    ui->dark_mode ? nk_rgb(180, 200, 240) : nk_rgb(40, 70, 140);
               } else {
                 strncpy(display_buf, "= formula", sizeof(display_buf) - 1);
                 display_buf[sizeof(display_buf) - 1] = '\0';
@@ -1261,9 +1261,9 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             ctx->style.edit.text_normal = ts > 0 ? cell_txt_d : muted_gray;
             ctx->style.edit.border = 0;
 
-            nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD | NK_EDIT_READ_ONLY,
-                                           display, sizeof(display) - 1,
-                                           nk_filter_default);
+            nk_edit_string_zero_terminated(
+                ctx, NK_EDIT_FIELD | NK_EDIT_READ_ONLY, display,
+                sizeof(display) - 1, nk_filter_default);
 
             ctx->style.edit.normal = sv_n_d;
             ctx->style.edit.hover = sv_h_d;
@@ -1663,8 +1663,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           nk_popup_close(ctx);
         }
         nk_layout_row_dynamic(ctx, 28, 1);
-        const char *types[] = {"Text", "Number", "Checkbox",
-                               "Select", "Date", "Formula"};
+        const char *types[] = {"Text",   "Number", "Checkbox",
+                               "Select", "Date",   "Formula"};
         AslanColumnType type_vals[] = {ASLAN_COL_TEXT,     ASLAN_COL_NUMBER,
                                        ASLAN_COL_CHECKBOX, ASLAN_COL_SELECT,
                                        ASLAN_COL_DATE,     ASLAN_COL_FORMULA};
@@ -1672,9 +1672,18 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           struct nk_rect item_rect = nk_widget_bounds(ctx);
           if (nk_button_label_styled(ctx, &menu_btn, "")) {
             if (tbl) {
-              char col_name[32];
-              snprintf(col_name, sizeof(col_name), "Column %d",
-                       (int)tbl->column_count + 1);
+              char col_name[64];
+              int sequence = (int)tbl->column_count + 1;
+
+              // Find a unique name (e.g., "Column 3", "Column 4"...)
+              while (1) {
+                snprintf(col_name, sizeof(col_name), "Column %d", sequence);
+                if (aslan_table_find_column(tbl, col_name) < 0) {
+                  break; // Found unique name
+                }
+                sequence++;
+              }
+
               aslan_table_add_column(tbl, col_name, type_vals[i]);
             }
             ui->table_state.show_col_menu = 0;
@@ -2294,9 +2303,9 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                nk_style_item_color(dp_bg));
 
       float dp_w = 270, dp_h = 330;
-      struct nk_rect dp_rect = table_smart_popup_rect(
-          ui, ui->table_state.date_picker_x,
-          ui->table_state.date_picker_y + 2, dp_w, dp_h);
+      struct nk_rect dp_rect =
+          table_smart_popup_rect(ui, ui->table_state.date_picker_x,
+                                 ui->table_state.date_picker_y + 2, dp_w, dp_h);
 
       if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Date Picker",
                          NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER, dp_rect)) {
@@ -2308,8 +2317,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         int dp_year = ui->table_state.date_picker_year;
         int dp_month = ui->table_state.date_picker_month; // 0-11
 
-        struct nk_color dp_text =
-            ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
+        struct nk_color dp_text = ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
         struct nk_color dp_muted =
             ui->dark_mode ? nk_rgb(100, 102, 110) : nk_rgb(160, 162, 168);
         struct nk_color dp_accent = nk_rgb(45, 127, 249);
@@ -2318,8 +2326,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         struct nk_style_button nav_btn = ctx->style.button;
         nav_btn.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
         nav_btn.hover = nk_style_item_color(
-            ui->dark_mode ? nk_rgba(255, 255, 255, 20)
-                          : nk_rgba(0, 0, 0, 10));
+            ui->dark_mode ? nk_rgba(255, 255, 255, 20) : nk_rgba(0, 0, 0, 10));
         nav_btn.active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
         nav_btn.border = 0;
         nav_btn.rounding = 4;
@@ -2341,13 +2348,12 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
 
         // Month/Year title
-        static const char *month_names[] = {
-            "January",   "February", "March",    "April",
-            "May",       "June",     "July",     "August",
-            "September", "October",  "November", "December"};
+        static const char *month_names[] = {"January", "February", "March",
+                                            "April",   "May",      "June",
+                                            "July",    "August",   "September",
+                                            "October", "November", "December"};
         char title[64];
-        snprintf(title, sizeof(title), "%s %d",
-                 month_names[dp_month], dp_year);
+        snprintf(title, sizeof(title), "%s %d", month_names[dp_month], dp_year);
         nk_layout_row_push(ctx, dp_w - 80);
         struct nk_style_button title_btn = nav_btn;
         title_btn.text_normal = dp_text;
@@ -2367,8 +2373,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
         // --- Day-of-week headers ---
         nk_layout_row_dynamic(ctx, 20, 7);
-        static const char *dow[] = {"Mo", "Tu", "We", "Th",
-                                    "Fr", "Sa", "Su"};
+        static const char *dow[] = {"Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"};
         for (int i = 0; i < 7; i++) {
           nk_label_colored(ctx, dow[i], NK_TEXT_CENTERED, dp_muted);
         }
@@ -2380,7 +2385,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         first_tm.tm_mon = dp_month;
         first_tm.tm_mday = 1;
         first_tm.tm_isdst = -1;
-        mktime(&first_tm); // normalize
+        mktime(&first_tm);                 // normalize
         int first_wday = first_tm.tm_wday; // 0=Sunday
         // Convert to Monday=0 system
         int start_offset = (first_wday + 6) % 7;
@@ -2398,9 +2403,9 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
 
         // Get current stored date for highlighting
-        int64_t stored_ts = aslan_table_get_date(
-            tbl, ui->table_state.date_picker_col,
-            ui->table_state.date_picker_row);
+        int64_t stored_ts =
+            aslan_table_get_date(tbl, ui->table_state.date_picker_col,
+                                 ui->table_state.date_picker_row);
         int sel_day = 0, sel_month = -1, sel_year = 0;
         if (stored_ts > 0) {
           time_t st = (time_t)(stored_ts / 1000);
@@ -2468,10 +2473,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                 time_t new_time = mktime(&new_tm);
                 if (new_time != -1) {
                   int64_t new_ts = (int64_t)new_time * 1000;
-                  aslan_table_set_date(tbl,
-                                       ui->table_state.date_picker_col,
-                                       ui->table_state.date_picker_row,
-                                       new_ts);
+                  aslan_table_set_date(tbl, ui->table_state.date_picker_col,
+                                       ui->table_state.date_picker_row, new_ts);
                 }
                 ui->table_state.show_date_picker = 0;
                 nk_popup_close(ctx);
