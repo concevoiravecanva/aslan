@@ -115,6 +115,14 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
               engine_save_snapshot_as_aslan(engine, engine->doc_path);
             }
           }
+          // Cmd+I — Import CSV as new table block
+          if (mod && e.key.keysym.sym == SDLK_i) {
+            ui_host_import_csv(ui, engine);
+          }
+          // Cmd+E — Export design block as SVG
+          if (mod && e.key.keysym.sym == SDLK_e) {
+            ui_host_export_svg(ui, engine);
+          }
           // Cmd+N — New table block on active page
           if (mod && e.key.keysym.sym == SDLK_n) {
             Page *page = doc_page_get_active(engine->doc);

@@ -2,6 +2,7 @@
 #include "aslan_table.h"
 #include "spatial_index.h"
 #include <ctype.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1884,6 +1885,259 @@ void doc_save_aof(const Document *doc, FILE *fp) {
   if (doc->active_page_idx >= 0 && doc->pages[doc->active_page_idx].in_use) {
     fprintf(fp, "page_activate %u\n", doc->pages[doc->active_page_idx].id);
   }
+}
+
+// =============================================================================
+// SVG Export
+// =============================================================================
+
+// Convert RGBA uint32 to SVG color string: "rgba(r,g,b,a)"
+static void svg_color(uint32_t rgba, char *buf, size_t len) {
+  uint8_t r = (rgba >> 24) & 0xFF;
+  uint8_t g = (rgba >> 16) & 0xFF;
+  uint8_t b = (rgba >> 8) & 0xFF;
+  uint8_t a = rgba & 0xFF;
+  if (a == 255)
+    snprintf(buf, len, "rgb(%d,%d,%d)", r, g, b);
+  else
+    snprintf(buf, len, "rgba(%d,%d,%d,%.2f)", r, g, b, a / 255.0);
+}
+
+// Write SVG for a single node (recursive for children)
+static void svg_write_node(FILE *fp, const Node *node) {
+  if (!node || !node->visible)
+    return;
+
+  char fill[64], stroke[64];
+  svg_color(node->fill_color, fill, sizeof(fill));
+  svg_color(node->stroke_color, stroke, sizeof(stroke));
+
+  // Rotation transform
+  char transform[128] = "";
+  if (node->rotation != 0.0f) {
+    float cx = node->x + node->width / 2.0f;
+    float cy = node->y + node->height / 2.0f;
+    snprintf(transform, sizeof(transform),
+             " transform=\"rotate(%.1f %.1f %.1f)\"", node->rotation, cx, cy);
+  }
+
+  switch (node->type) {
+  case NODE_TYPE_RECT:
+  case NODE_TYPE_FRAME:
+    fprintf(fp,
+            "  <rect x=\"%.1f\" y=\"%.1f\" width=\"%.1f\" height=\"%.1f\""
+            " rx=\"%.1f\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
+            node->x, node->y, node->width, node->height, node->corner_radius,
+            fill, stroke, node->stroke_width, transform);
+    break;
+
+  case NODE_TYPE_ELLIPSE: {
+    float cx = node->x + node->width / 2.0f;
+    float cy = node->y + node->height / 2.0f;
+    fprintf(fp,
+            "  <ellipse cx=\"%.1f\" cy=\"%.1f\" rx=\"%.1f\" ry=\"%.1f\""
+            " fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
+            cx, cy, node->width / 2.0f, node->height / 2.0f, fill, stroke,
+            node->stroke_width, transform);
+    break;
+  }
+
+  case NODE_TYPE_TEXT:
+    fprintf(fp,
+            "  <text x=\"%.1f\" y=\"%.1f\" font-size=\"%.1f\""
+            " fill=\"%s\"%s>",
+            node->x, node->y + node->font_size, node->font_size, fill,
+            transform);
+    // Escape XML entities in text
+    for (const char *p = node->text; *p; p++) {
+      switch (*p) {
+      case '<':
+        fputs("&lt;", fp);
+        break;
+      case '>':
+        fputs("&gt;", fp);
+        break;
+      case '&':
+        fputs("&amp;", fp);
+        break;
+      case '"':
+        fputs("&quot;", fp);
+        break;
+      default:
+        fputc(*p, fp);
+        break;
+      }
+    }
+    fprintf(fp, "</text>\n");
+    break;
+
+  case NODE_TYPE_LINE:
+    fprintf(fp,
+            "  <line x1=\"%.1f\" y1=\"%.1f\" x2=\"%.1f\" y2=\"%.1f\""
+            " stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
+            node->x, node->y, node->x + node->width,
+            node->y + node->height, stroke, node->stroke_width, transform);
+    break;
+
+  case NODE_TYPE_TRIANGLE: {
+    float x = node->x, y = node->y, w = node->width, h = node->height;
+    fprintf(fp,
+            "  <polygon points=\"%.1f,%.1f %.1f,%.1f %.1f,%.1f\""
+            " fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
+            x + w / 2, y, x, y + h, x + w, y + h, fill, stroke,
+            node->stroke_width, transform);
+    break;
+  }
+
+  case NODE_TYPE_PENTAGON: {
+    float cx = node->x + node->width / 2, cy = node->y + node->height / 2;
+    float rx = node->width / 2, ry = node->height / 2;
+    fprintf(fp, "  <polygon points=\"");
+    for (int i = 0; i < 5; i++) {
+      double a = (i * 2 * 3.14159265 / 5) - 3.14159265 / 2;
+      fprintf(fp, "%.1f,%.1f ", cx + rx * cos(a), cy + ry * sin(a));
+    }
+    fprintf(fp, "\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
+            fill, stroke, node->stroke_width, transform);
+    break;
+  }
+
+  case NODE_TYPE_HEXAGON: {
+    float cx = node->x + node->width / 2, cy = node->y + node->height / 2;
+    float rx = node->width / 2, ry = node->height / 2;
+    fprintf(fp, "  <polygon points=\"");
+    for (int i = 0; i < 6; i++) {
+      double a = (i * 2 * 3.14159265 / 6) - 3.14159265 / 2;
+      fprintf(fp, "%.1f,%.1f ", cx + rx * cos(a), cy + ry * sin(a));
+    }
+    fprintf(fp, "\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
+            fill, stroke, node->stroke_width, transform);
+    break;
+  }
+
+  case NODE_TYPE_OCTAGON: {
+    float cx = node->x + node->width / 2, cy = node->y + node->height / 2;
+    float rx = node->width / 2, ry = node->height / 2;
+    fprintf(fp, "  <polygon points=\"");
+    for (int i = 0; i < 8; i++) {
+      double a = (i * 2 * 3.14159265 / 8) - 3.14159265 / 2;
+      fprintf(fp, "%.1f,%.1f ", cx + rx * cos(a), cy + ry * sin(a));
+    }
+    fprintf(fp, "\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
+            fill, stroke, node->stroke_width, transform);
+    break;
+  }
+
+  case NODE_TYPE_STAR: {
+    float cx = node->x + node->width / 2, cy = node->y + node->height / 2;
+    float rx = node->width / 2, ry = node->height / 2;
+    fprintf(fp, "  <polygon points=\"");
+    for (int i = 0; i < 10; i++) {
+      double a = (i * 2 * 3.14159265 / 10) - 3.14159265 / 2;
+      float r = (i % 2 == 0) ? 1.0f : 0.4f;
+      fprintf(fp, "%.1f,%.1f ", cx + rx * r * cos(a), cy + ry * r * sin(a));
+    }
+    fprintf(fp, "\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
+            fill, stroke, node->stroke_width, transform);
+    break;
+  }
+
+  case NODE_TYPE_HEART: {
+    // Heart as a simplified SVG path
+    float x = node->x, y = node->y, w = node->width, h = node->height;
+    fprintf(fp,
+            "  <path d=\"M%.1f,%.1f C%.1f,%.1f %.1f,%.1f %.1f,%.1f"
+            " C%.1f,%.1f %.1f,%.1f %.1f,%.1f Z\""
+            " fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
+            x + w / 2, y + h * 0.3, x + w * 0.1, y, x, y + h * 0.4, x + w / 2,
+            y + h, x + w, y + h * 0.4, x + w * 0.9, y, x + w / 2, y + h * 0.3,
+            fill, stroke, node->stroke_width, transform);
+    break;
+  }
+
+  case NODE_TYPE_PATH:
+    if (node->path_points && node->path_point_count > 0) {
+      fprintf(fp, "  <path d=\"M%.1f,%.1f", node->x + node->path_points[0].x,
+              node->y + node->path_points[0].y);
+      for (int i = 1; i < node->path_point_count; i++) {
+        NodePathPoint *pt = &node->path_points[i];
+        if (pt->type == 1) {
+          NodePathPoint *prev = &node->path_points[i - 1];
+          fprintf(fp, " C%.1f,%.1f %.1f,%.1f %.1f,%.1f",
+                  node->x + prev->cp2x, node->y + prev->cp2y,
+                  node->x + pt->cp1x, node->y + pt->cp1y, node->x + pt->x,
+                  node->y + pt->y);
+        } else {
+          fprintf(fp, " L%.1f,%.1f", node->x + pt->x, node->y + pt->y);
+        }
+      }
+      fprintf(fp, "\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
+              fill, stroke, node->stroke_width, transform);
+    }
+    break;
+
+  case NODE_TYPE_STROKE:
+    if (node->stroke_data) {
+      Stroke *s = node->stroke_data;
+      if (s->count > 0) {
+        fprintf(fp, "  <polyline points=\"");
+        for (int i = 0; i < s->count; i++) {
+          fprintf(fp, "%.1f,%.1f ", s->points[i].x, s->points[i].y);
+        }
+        fprintf(fp, "\" fill=\"none\" stroke=\"%s\" stroke-width=\"%.1f\""
+                     " stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n",
+                stroke, node->stroke_width > 0 ? node->stroke_width : 2.0f);
+      }
+    }
+    break;
+
+  default:
+    // GROUP, ROOT, IMAGE, CHART — skip or render as rect placeholder
+    break;
+  }
+
+  // Recurse into children (for FRAME, GROUP, ROOT)
+  for (Node *child = node->first_child; child; child = child->next_sibling) {
+    svg_write_node(fp, child);
+  }
+}
+
+bool block_design_export_svg(const Block *block, const char *filepath) {
+  if (!block || block->type != BLOCK_DESIGN || !filepath)
+    return false;
+
+  const DesignData *dd = &block->data.design;
+  if (!dd->pages || dd->current_page < 0 || dd->current_page >= dd->page_count)
+    return false;
+
+  const DesignPage *page = &dd->pages[dd->current_page];
+  if (!page->root)
+    return false;
+
+  FILE *fp = fopen(filepath, "w");
+  if (!fp)
+    return false;
+
+  int w = dd->width;
+  int h = dd->height;
+  char bg[64];
+  uint32_t bg_color = page->bg_color ? page->bg_color : 0xFFFFFFFF;
+  svg_color(bg_color, bg, sizeof(bg));
+
+  fprintf(fp, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+  fprintf(fp, "<svg xmlns=\"http://www.w3.org/2000/svg\" "
+              "width=\"%d\" height=\"%d\" viewBox=\"0 0 %d %d\">\n",
+          w, h, w, h);
+  fprintf(fp, "  <rect width=\"%d\" height=\"%d\" fill=\"%s\"/>\n", w, h, bg);
+
+  // Export all nodes in current page
+  for (Node *node = page->root->first_child; node; node = node->next_sibling) {
+    svg_write_node(fp, node);
+  }
+
+  fprintf(fp, "</svg>\n");
+  fclose(fp);
+  return true;
 }
 
 void doc_save_snapshot(const Document *doc, const char *filepath) {

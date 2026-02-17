@@ -410,4 +410,8 @@ void aslan_table_mem_stats(const AslanTable *table, AslanTableMemStats *stats);
 // Evaluate all formula columns (call after data changes)
 void aslan_table_eval_formulas(AslanTable *table);
 
+// CSV export/import
+bool aslan_table_export_csv(const AslanTable *table, const char *filepath);
+bool aslan_table_import_csv(AslanTable *table, const char *filepath);
+
 #endif // ASLAN_TABLE_H

@@ -57,6 +57,28 @@ int open_image_file_dialog(char *out_path, size_t path_size) {
   return 0;
 }
 
+// Opens a native file dialog to select a CSV file for import
+static int open_csv_file_dialog(char *out_path, size_t path_size) {
+  const char *script =
+      "osascript -e 'set theFile to choose file of type {\"public.comma-separated-values-text\", \"public.text\"} "
+      "with prompt \"Select a CSV file\"' -e 'POSIX path of theFile' 2>/dev/null";
+  FILE *fp = popen(script, "r");
+  if (!fp) return 0;
+  char result[512] = {0};
+  if (fgets(result, sizeof(result), fp) != NULL) {
+    size_t len = strlen(result);
+    if (len > 0 && result[len - 1] == '\n') { result[len - 1] = '\0'; len--; }
+    if (len > 0) {
+      strncpy(out_path, result, path_size - 1);
+      out_path[path_size - 1] = '\0';
+      pclose(fp);
+      return 1;
+    }
+  }
+  pclose(fp);
+  return 0;
+}
+
 // Copy file to assets directory, returns path relative to document
 // Creates assets/ directory if needed
 // Opens a native file save dialog for CSV
@@ -94,6 +116,109 @@ int save_csv_file_dialog(char *out_path, size_t path_size,
 
   pclose(fp);
   return 0;
+}
+
+// Opens a native file save dialog for SVG
+static int save_svg_file_dialog(char *out_path, size_t path_size,
+                                const char *default_name) {
+  char script[1024];
+  snprintf(
+      script, sizeof(script),
+      "osascript -e 'set theName to \"%s\"' "
+      "-e 'set theFile to choose file name default name theName default "
+      "location (path to desktop folder) with prompt \"Export Design as SVG\"' "
+      "-e 'POSIX path of theFile' 2>/dev/null",
+      default_name ? default_name : "Design.svg");
+  FILE *fp = popen(script, "r");
+  if (!fp)
+    return 0;
+  char result[512] = {0};
+  if (fgets(result, sizeof(result), fp) != NULL) {
+    size_t len = strlen(result);
+    if (len > 0 && result[len - 1] == '\n') {
+      result[len - 1] = '\0';
+      len--;
+    }
+    if (len > 0) {
+      strncpy(out_path, result, path_size - 1);
+      out_path[path_size - 1] = '\0';
+      pclose(fp);
+      return 1;
+    }
+  }
+  pclose(fp);
+  return 0;
+}
+
+// Export active design block as SVG
+void ui_host_export_svg(UIHost *ui, Engine *engine) {
+  (void)ui;
+  Page *page = doc_page_get_active(engine->doc);
+  if (!page)
+    return;
+
+  // Find the first design block on this page
+  Block *design_block = NULL;
+  for (Block *b = page->first_block; b; b = b->next) {
+    if (b->type == BLOCK_DESIGN) {
+      design_block = b;
+      break;
+    }
+  }
+  if (!design_block)
+    return;
+
+  char filename[512];
+  char default_name[128];
+  snprintf(default_name, sizeof(default_name), "%s.svg", page->name);
+  if (save_svg_file_dialog(filename, sizeof(filename), default_name)) {
+    if (block_design_export_svg(design_block, filename)) {
+      ASLAN_DEBUG("Exported SVG to: %s", filename);
+    }
+  }
+}
+
+// Import a CSV file: open dialog, create table block, populate from CSV
+void ui_host_import_csv(UIHost *ui, Engine *engine) {
+  (void)ui;
+  char csv_path[512];
+  if (!open_csv_file_dialog(csv_path, sizeof(csv_path)))
+    return;
+
+  Page *page = doc_page_get_active(engine->doc);
+  if (!page)
+    return;
+
+  // Create a new table block (id = 0 → auto-assigned)
+  uint32_t new_id = page->next_block_id; // predict the ID
+  char cmd_buf[128];
+  snprintf(cmd_buf, sizeof(cmd_buf), "block_create %u %u table", page->id,
+           new_id);
+  engine_execute_command(engine, cmd_buf);
+
+  // Find the newly created block
+  Block *block = page_find_block_by_id(page, new_id);
+  if (!block || block->type != BLOCK_TABLE || !block->data.table.columnar)
+    return;
+
+  // Import CSV into the table
+  aslan_table_import_csv(block->data.table.columnar, csv_path);
+
+  // Extract filename for table name
+  const char *fname = strrchr(csv_path, '/');
+  fname = fname ? fname + 1 : csv_path;
+  char tname[64];
+  strncpy(tname, fname, sizeof(tname) - 1);
+  tname[sizeof(tname) - 1] = '\0';
+  // Strip .csv extension
+  char *dot = strrchr(tname, '.');
+  if (dot)
+    *dot = '\0';
+  snprintf(block->data.table.columnar->name, 64, "%s", tname);
+
+  ASLAN_DEBUG("Imported CSV: %s (%zu cols, %zu rows)", csv_path,
+              block->data.table.columnar->column_count,
+              block->data.table.columnar->active_count);
 }
 
 int copy_image_to_assets(const char *src_path, const char *doc_dir,
@@ -1116,8 +1241,8 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
         // Open Save Dialog
         // Open Save Dialog
         if (save_csv_file_dialog(filename, sizeof(filename), default_name)) {
-          // aslan_table_export_csv removed to fix compilation
-          ASLAN_DEBUG("Export to CSV not implemented yet: %s", filename);
+          aslan_table_export_csv(block->data.table.columnar, filename);
+          ASLAN_DEBUG("Exported CSV to: %s", filename);
         } else {
           ASLAN_DEBUG("Export cancelled by user");
         }

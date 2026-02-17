@@ -477,6 +477,9 @@ void doc_save_aof(const Document *doc, FILE *fp);
 // Snapshot Operations
 void doc_save_snapshot(const Document *doc, const char *filepath);
 
+// SVG Export (Design block → SVG file)
+bool block_design_export_svg(const Block *block, const char *filepath);
+
 // =============================================================================
 // UTILITY
 // =============================================================================

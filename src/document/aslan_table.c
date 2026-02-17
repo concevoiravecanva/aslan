@@ -2100,3 +2100,153 @@ void aslan_table_mem_stats(const AslanTable *table, AslanTableMemStats *stats) {
       stats->data_bytes + stats->index_bytes + stats->overhead_bytes;
 }
 
+// -----------------------------------------------------------------------------
+// CSV Export
+// -----------------------------------------------------------------------------
+
+// Write a CSV field, quoting if it contains comma, quote, or newline.
+static void csv_write_field(FILE *fp, const char *val) {
+  if (!val || val[0] == '\0') return;
+  int need_quote = 0;
+  for (const char *p = val; *p; p++) {
+    if (*p == ',' || *p == '"' || *p == '\n' || *p == '\r') {
+      need_quote = 1;
+      break;
+    }
+  }
+  if (need_quote) {
+    fputc('"', fp);
+    for (const char *p = val; *p; p++) {
+      if (*p == '"') fputc('"', fp);
+      fputc(*p, fp);
+    }
+    fputc('"', fp);
+  } else {
+    fputs(val, fp);
+  }
+}
+
+bool aslan_table_export_csv(const AslanTable *table, const char *filepath) {
+  if (!table || !filepath) return false;
+  FILE *fp = fopen(filepath, "w");
+  if (!fp) return false;
+
+  // Header row
+  for (size_t c = 0; c < table->column_count; c++) {
+    if (c > 0) fputc(',', fp);
+    csv_write_field(fp, table->columns[c].name);
+  }
+  fputc('\n', fp);
+
+  // Data rows
+  size_t row_count = aslan_table_view_count(table);
+  for (size_t r = 0; r < row_count; r++) {
+    uint64_t row_id = aslan_table_view_row_id(table, r);
+    for (size_t c = 0; c < table->column_count; c++) {
+      if (c > 0) fputc(',', fp);
+      char buf[512];
+      const char *val = aslan_table_get_cell_display(table, (int)c, row_id,
+                                                     buf, sizeof(buf));
+      csv_write_field(fp, val);
+    }
+    fputc('\n', fp);
+  }
+
+  fclose(fp);
+  return true;
+}
+
+// -----------------------------------------------------------------------------
+// CSV Import
+// -----------------------------------------------------------------------------
+
+// Parse a single CSV line into fields. Returns field count.
+// Handles RFC 4180 quoting. Fields are written into `fields[]` pointing
+// into the mutable `line` buffer (destructive parse).
+static int csv_parse_line(char *line, char *fields[], int max_fields) {
+  int count = 0;
+  char *p = line;
+  while (*p && count < max_fields) {
+    if (*p == '"') {
+      // Quoted field
+      p++;
+      fields[count] = p;
+      char *dst = p;
+      while (*p) {
+        if (*p == '"') {
+          if (*(p + 1) == '"') {
+            *dst++ = '"';
+            p += 2;
+          } else {
+            p++; // closing quote
+            break;
+          }
+        } else {
+          *dst++ = *p++;
+        }
+      }
+      *dst = '\0';
+      if (*p == ',') p++;
+    } else {
+      // Unquoted field
+      fields[count] = p;
+      while (*p && *p != ',' && *p != '\n' && *p != '\r') p++;
+      if (*p == ',') { *p = '\0'; p++; }
+      else { *p = '\0'; }
+    }
+    count++;
+  }
+  return count;
+}
+
+bool aslan_table_import_csv(AslanTable *table, const char *filepath) {
+  if (!table || !filepath) return false;
+  FILE *fp = fopen(filepath, "r");
+  if (!fp) return false;
+
+  char line[8192];
+
+  // Read header line to create columns
+  if (!fgets(line, sizeof(line), fp)) {
+    fclose(fp);
+    return false;
+  }
+  // Strip trailing newline
+  size_t len = strlen(line);
+  while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+    line[--len] = '\0';
+
+  char *headers[64];
+  int col_count = csv_parse_line(line, headers, 64);
+  if (col_count <= 0) {
+    fclose(fp);
+    return false;
+  }
+
+  // Create columns (all TEXT type — universal)
+  for (int c = 0; c < col_count; c++) {
+    aslan_table_add_column(table, headers[c], ASLAN_COL_TEXT);
+  }
+
+  // Read data rows
+  while (fgets(line, sizeof(line), fp)) {
+    len = strlen(line);
+    while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+      line[--len] = '\0';
+    if (len == 0) continue;
+
+    char *fields[64];
+    int field_count = csv_parse_line(line, fields, 64);
+
+    uint64_t row_id = aslan_table_add_row(table);
+    for (int c = 0; c < field_count && c < col_count; c++) {
+      if (fields[c][0] != '\0') {
+        aslan_table_set_cell(table, c, row_id, fields[c]);
+      }
+    }
+  }
+
+  fclose(fp);
+  return true;
+}
+

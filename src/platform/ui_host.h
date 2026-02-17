@@ -451,6 +451,8 @@ void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx, Block *block);
 void ui_handle_event(UIHost *ui, SDL_Event *evt);
 void ui_host_handle_file_drop(UIHost *ui, const char *file_path, int mx,
                               int my);
+void ui_host_import_csv(UIHost *ui, Engine *engine);
+void ui_host_export_svg(UIHost *ui, Engine *engine);
 void ui_update(UIHost *ui, Engine *engine);
 void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h);
 void ui_apply_theme(UIHost *ui);
