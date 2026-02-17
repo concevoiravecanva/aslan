@@ -321,6 +321,17 @@ typedef struct UIHost {
     int drop_position; // 0=above, 1=below, 2=left, 3=right
   } block_drag;
 
+  // Kanban card drag-and-drop
+  struct {
+    int      is_active;        // 1 = drag in progress or threshold not yet met
+    int      threshold_met;    // 1 = moved past 5px dead zone
+    uint64_t dragged_row_id;   // AslanTable persistent row ID
+    int      source_opt;       // SELECT option index the card came from
+    uint32_t block_id;         // Table block ID being dragged from
+    float    start_x, start_y; // Screen coords where drag began
+    int      drop_target_opt;  // Swimlane option index mouse hovers (-1=none)
+  } kanban_drag;
+
   // Canvas node text editing
   Node *editing_node;       // Node being text-edited (NULL=none)
   char edit_buffer[512];    // Text buffer for editing

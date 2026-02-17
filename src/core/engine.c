@@ -250,6 +250,11 @@ void engine_destroy(Engine *engine) {
     return;
   if (engine->history_file)
     fclose(engine->history_file);
+  // Free undo/redo stacks
+  for (int i = 0; i < engine->undo_top; i++)
+    free(engine->undo_stack[i].buf);
+  for (int i = 0; i < engine->redo_top; i++)
+    free(engine->redo_stack[i].buf);
   doc_destroy(engine->doc);
   free(engine);
 }
@@ -314,6 +319,20 @@ static bool handle_clear(Engine *engine, const AofCommand *cmd,
     engine->ui_host->selected_node = NULL;
   }
   scripting_set_document(engine->doc);
+
+  // Clear undo/redo stacks (document changed radically)
+  for (int i = 0; i < engine->undo_top; i++) {
+    free(engine->undo_stack[i].buf);
+    engine->undo_stack[i].buf = NULL;
+  }
+  engine->undo_top = 0;
+  for (int i = 0; i < engine->redo_top; i++) {
+    free(engine->redo_stack[i].buf);
+    engine->redo_stack[i].buf = NULL;
+  }
+  engine->redo_top = 0;
+  engine->last_snapshot_ticks = 0;
+  engine->last_snapshot_verb[0] = '\0';
 
   engine->history_file = fopen(engine->history_path, "a");
   if (engine->history_file) {
@@ -1093,9 +1112,191 @@ static bool handle_block_layout(Engine *engine, const AofCommand *cmd,
   return true;
 }
 
+// -----------------------------------------------------------------------------
+// Undo/Redo — Snapshot-based
+// NOTE: Operations that bypass engine_execute_command (canvas arrow-key nudge,
+// Cmd+D duplicate, Delete key) are not captured in the undo stack.
+// -----------------------------------------------------------------------------
+
+// Serialise current document into a heap buffer via open_memstream.
+static char *engine_snapshot_current(Engine *engine, size_t *out_size) {
+  if (!engine || !engine->doc) return NULL;
+  char  *ptr  = NULL;
+  size_t size = 0;
+  FILE  *mem  = open_memstream(&ptr, &size);
+  if (!mem) return NULL;
+  doc_save_aof(engine->doc, mem);
+  fclose(mem);
+  if (out_size) *out_size = size;
+  return ptr;
+}
+
+// Verbs that must NOT trigger an undo snapshot.
+static bool engine_verb_is_non_mutating(const char *verb) {
+  static const char * const skip[] = {
+    "exit", "clear", "doc_save_as", "doc_save_snapshot",
+    "page_activate", "block_canvas_view", "block_design_view",
+    "undo", "redo", NULL
+  };
+  for (int i = 0; skip[i]; i++) {
+    if (strcmp(verb, skip[i]) == 0) return true;
+  }
+  return false;
+}
+
+// Push undo snapshot before a mutating command executes.
+static void engine_push_undo_snapshot(Engine *engine, const char *verb) {
+  if (engine->is_loading) return;
+  if (engine_verb_is_non_mutating(verb)) return;
+
+  // Coalescing: skip if same verb within 500ms
+  uint32_t now = SDL_GetTicks();
+  if (engine->last_snapshot_ticks != 0 &&
+      strcmp(verb, engine->last_snapshot_verb) == 0 &&
+      (now - engine->last_snapshot_ticks) < 500) {
+    return;
+  }
+
+  size_t snap_size = 0;
+  char  *snap = engine_snapshot_current(engine, &snap_size);
+  if (!snap) return;
+
+  // Evict oldest if full
+  if (engine->undo_top >= ENGINE_UNDO_MAX) {
+    free(engine->undo_stack[0].buf);
+    memmove(&engine->undo_stack[0], &engine->undo_stack[1],
+            (ENGINE_UNDO_MAX - 1) * sizeof(engine->undo_stack[0]));
+    engine->undo_top = ENGINE_UNDO_MAX - 1;
+  }
+
+  engine->undo_stack[engine->undo_top].buf  = snap;
+  engine->undo_stack[engine->undo_top].size = snap_size;
+  engine->undo_top++;
+
+  // Clear redo stack
+  for (int i = 0; i < engine->redo_top; i++) {
+    free(engine->redo_stack[i].buf);
+    engine->redo_stack[i].buf = NULL;
+  }
+  engine->redo_top = 0;
+
+  engine->last_snapshot_ticks = now;
+  strncpy(engine->last_snapshot_verb, verb,
+          sizeof(engine->last_snapshot_verb) - 1);
+  engine->last_snapshot_verb[sizeof(engine->last_snapshot_verb) - 1] = '\0';
+}
+
+// Restore document from an AOF snapshot string.
+static void engine_restore_from_snapshot(Engine *engine,
+                                         const char *buf, size_t size) {
+  (void)size;
+
+  doc_destroy(engine->doc);
+  engine->doc = doc_create();
+  if (engine->ui_host) {
+    engine->ui_host->selected_node = NULL;
+  }
+  scripting_set_document(engine->doc);
+
+  engine->is_loading = true;
+
+  const char *p = buf;
+  while (*p) {
+    const char *eol = p;
+    while (*eol && *eol != '\n') eol++;
+
+    char line[2048];
+    size_t len = (size_t)(eol - p);
+    if (len >= sizeof(line)) len = sizeof(line) - 1;
+    memcpy(line, p, len);
+    line[len] = '\0';
+
+    strip_trailing_newlines(line);
+    if (!is_comment_or_empty(line)) {
+      engine_execute_command(engine, line);
+    }
+
+    p = (*eol == '\n') ? eol + 1 : eol;
+  }
+
+  engine->is_loading = false;
+
+  if (engine->ui_host) {
+    ui_request_redraw(engine->ui_host);
+  }
+}
+
+static bool handle_undo(Engine *engine, const AofCommand *cmd,
+                        const char *command_line) {
+  (void)cmd;
+  (void)command_line;
+
+  if (engine->undo_top == 0) return false;
+
+  // Push current state onto redo stack
+  if (engine->redo_top < ENGINE_UNDO_MAX) {
+    size_t now_size = 0;
+    char  *now_snap = engine_snapshot_current(engine, &now_size);
+    if (now_snap) {
+      engine->redo_stack[engine->redo_top].buf  = now_snap;
+      engine->redo_stack[engine->redo_top].size = now_size;
+      engine->redo_top++;
+    }
+  }
+
+  // Pop undo stack
+  engine->undo_top--;
+  char  *snap = engine->undo_stack[engine->undo_top].buf;
+  size_t sz   = engine->undo_stack[engine->undo_top].size;
+  engine->undo_stack[engine->undo_top].buf  = NULL;
+  engine->undo_stack[engine->undo_top].size = 0;
+
+  engine_restore_from_snapshot(engine, snap, sz);
+  free(snap);
+
+  engine->last_snapshot_ticks = 0;
+  engine->last_snapshot_verb[0] = '\0';
+  return true;
+}
+
+static bool handle_redo(Engine *engine, const AofCommand *cmd,
+                        const char *command_line) {
+  (void)cmd;
+  (void)command_line;
+
+  if (engine->redo_top == 0) return false;
+
+  // Push current state onto undo stack
+  if (engine->undo_top < ENGINE_UNDO_MAX) {
+    size_t now_size = 0;
+    char  *now_snap = engine_snapshot_current(engine, &now_size);
+    if (now_snap) {
+      engine->undo_stack[engine->undo_top].buf  = now_snap;
+      engine->undo_stack[engine->undo_top].size = now_size;
+      engine->undo_top++;
+    }
+  }
+
+  // Pop redo stack
+  engine->redo_top--;
+  char  *snap = engine->redo_stack[engine->redo_top].buf;
+  size_t sz   = engine->redo_stack[engine->redo_top].size;
+  engine->redo_stack[engine->redo_top].buf  = NULL;
+  engine->redo_stack[engine->redo_top].size = 0;
+
+  engine_restore_from_snapshot(engine, snap, sz);
+  free(snap);
+
+  engine->last_snapshot_ticks = 0;
+  engine->last_snapshot_verb[0] = '\0';
+  return true;
+}
+
 static const CommandEntry k_dispatch_table[] = {
     {"exit", handle_exit},
     {"clear", handle_clear},
+    {"undo", handle_undo},
+    {"redo", handle_redo},
     {"doc_title", handle_doc_title},
     {"set_global", handle_set_global},
     {"unset_global", handle_unset_global},
@@ -1145,6 +1346,10 @@ bool engine_execute_command(Engine *engine, const char *command_line) {
     return false;
 
   const char *verb = cmd.argv[0];
+
+  // Push undo snapshot before mutating commands (skipped during replay)
+  engine_push_undo_snapshot(engine, verb);
+
   for (int i = 0; k_dispatch_table[i].verb != NULL; i++) {
     if (strcmp(verb, k_dispatch_table[i].verb) == 0) {
       return k_dispatch_table[i].handler(engine, &cmd, command_line);

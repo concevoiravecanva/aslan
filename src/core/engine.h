@@ -3,10 +3,19 @@
 
 #include "../document/document.h"
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 // Forward declaration
 struct UIHost;
+
+#define ENGINE_UNDO_MAX 50
+
+typedef struct {
+  char   *buf;   // Heap-allocated AOF snapshot string (NULL = empty slot)
+  size_t  size;  // Length of buf in bytes
+} UndoSnapshot;
 
 struct Engine {
   Document *doc;
@@ -17,6 +26,16 @@ struct Engine {
   char doc_path[1024];     // Chemin vers le dossier du document
   char history_path[1100]; // doc_path + "/history.log"
   char redo_path[1100];    // doc_path + "/redo.log"
+
+  // In-memory undo/redo stacks (snapshot-based)
+  UndoSnapshot undo_stack[ENGINE_UNDO_MAX];
+  int undo_top;            // Next free slot (stack depth = undo_top)
+  UndoSnapshot redo_stack[ENGINE_UNDO_MAX];
+  int redo_top;
+
+  // Coalescing: avoid per-keystroke snapshots
+  uint32_t last_snapshot_ticks;    // SDL_GetTicks() at last push
+  char     last_snapshot_verb[64]; // Verb that triggered last push
 };
 
 typedef struct Engine Engine;

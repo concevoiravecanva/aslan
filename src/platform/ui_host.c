@@ -57,37 +57,6 @@ int open_image_file_dialog(char *out_path, size_t path_size) {
   return 0;
 }
 
-// Opens a native file dialog to select a video file
-// TODO: Enable when video block is implemented
-__attribute__((unused)) static int open_video_file_dialog(char *out_path,
-                                                          size_t path_size) {
-  const char *script =
-      "osascript -e 'set theFile to choose file of type {\"public.movie\"} "
-      "with prompt \"Select a video\"' -e 'POSIX path of theFile' 2>/dev/null";
-
-  FILE *fp = popen(script, "r");
-  if (!fp)
-    return 0;
-
-  char result[512] = {0};
-  if (fgets(result, sizeof(result), fp) != NULL) {
-    size_t len = strlen(result);
-    if (len > 0 && result[len - 1] == '\n') {
-      result[len - 1] = '\0';
-      len--;
-    }
-    if (len > 0) {
-      strncpy(out_path, result, path_size - 1);
-      out_path[path_size - 1] = '\0';
-      pclose(fp);
-      return 1;
-    }
-  }
-
-  pclose(fp);
-  return 0;
-}
-
 // Copy file to assets directory, returns path relative to document
 // Creates assets/ directory if needed
 // Opens a native file save dialog for CSV
@@ -1840,7 +1809,6 @@ static void ui_render_panel_view(UIHost *ui, Engine *engine,
 static void ui_render_view_kanban(UIHost *ui, Engine *engine,
                                   struct nk_context *ctx, Block *table_block,
                                   float width, float height) {
-  (void)engine;
   if (!table_block || table_block->type != BLOCK_TABLE)
     return;
   AslanTable *tbl = table_block->data.table.columnar;
@@ -1871,7 +1839,6 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
     return;
   }
 
-  // Collect row IDs
   size_t row_count = aslan_table_view_count(tbl);
 
   // Calculate column widths
@@ -1880,21 +1847,27 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
   if (col_w < 140.0f)
     col_w = 140.0f;
 
-  // Kanban columns
-  float cols[16];
+  // Kanban columns layout array
+  float cols[32];
   int n_cols = 0;
   for (int i = 0; i < opt_count && i < 16; i++) {
-    if (n_cols > 0) {
-      cols[n_cols++] = gap; // spacer
-    }
+    if (n_cols > 0)
+      cols[n_cols++] = gap;
     cols[n_cols++] = col_w;
+  }
+
+  // Record swimlane screen geometry for drag hit-testing
+  struct nk_rect win_bounds = nk_window_get_bounds(ctx);
+  float swimlane_x[16];
+  for (int i = 0; i < opt_count && i < 16; i++) {
+    swimlane_x[i] = win_bounds.x + gap + (float)i * (col_w + gap);
   }
 
   nk_layout_row(ctx, NK_STATIC, height - 45, n_cols, cols);
 
   for (int opt = 0; opt < opt_count && opt < 16; opt++) {
     if (opt > 0)
-      nk_spacing(ctx, 1); // spacer
+      nk_spacing(ctx, 1);
 
     uint32_t opt_color = sel_col->options[opt].color;
     struct nk_color header_col =
@@ -1907,9 +1880,27 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
     struct nk_color col_bg =
         ui->dark_mode ? nk_rgb(38, 40, 46) : nk_rgb(245, 245, 248);
     struct nk_style_item saved_bg = ctx->style.window.fixed_background;
-    ctx->style.window.fixed_background = nk_style_item_color(col_bg);
+
+    // Highlight drop target swimlane
+    int is_drop_target = (ui->kanban_drag.is_active &&
+                          ui->kanban_drag.threshold_met &&
+                          ui->kanban_drag.drop_target_opt == opt &&
+                          opt != ui->kanban_drag.source_opt);
+    if (is_drop_target) {
+      struct nk_color hl = ui->dark_mode ? nk_rgb(35, 50, 70) : nk_rgb(220, 235, 255);
+      ctx->style.window.fixed_background = nk_style_item_color(hl);
+    } else {
+      ctx->style.window.fixed_background = nk_style_item_color(col_bg);
+    }
 
     if (nk_group_begin(ctx, grp_name, NK_WINDOW_BORDER)) {
+      // Drop target indicator border
+      if (is_drop_target) {
+        struct nk_command_buffer *dcv = nk_window_get_canvas(ctx);
+        struct nk_rect grp_b = nk_window_get_bounds(ctx);
+        nk_stroke_rect(dcv, grp_b, 0.0f, 2.0f, nk_rgba(55, 120, 235, 120));
+      }
+
       // Column header with color accent
       nk_layout_row_dynamic(ctx, 3, 1);
       struct nk_rect accent_rect = nk_widget_bounds(ctx);
@@ -1932,24 +1923,31 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
         if (sel_val != opt)
           continue;
 
-        // Card
+        // Dim card if it's being dragged
+        int is_dragged_card = (ui->kanban_drag.is_active &&
+                               ui->kanban_drag.threshold_met &&
+                               ui->kanban_drag.dragged_row_id == row_id);
+
         nk_layout_row_dynamic(ctx, 52, 1);
         struct nk_rect card_rect = nk_widget_bounds(ctx);
         struct nk_command_buffer *cv = nk_window_get_canvas(ctx);
 
-        // Card background
-        struct nk_color card_bg =
-            ui->dark_mode ? nk_rgb(48, 50, 58) : nk_rgb(255, 255, 255);
-        nk_fill_rect(cv, card_rect, 6.0f, card_bg);
+        // Card background (dimmed if being dragged)
+        struct nk_color card_bg;
+        if (is_dragged_card) {
+          card_bg = ui->dark_mode ? nk_rgba(48, 50, 58, 80) : nk_rgba(200, 200, 200, 80);
+        } else {
+          card_bg = ui->dark_mode ? nk_rgb(48, 50, 58) : nk_rgb(255, 255, 255);
+        }
         // Card shadow
         nk_fill_rect(cv, nk_rect(card_rect.x + 1, card_rect.y + 2,
                                   card_rect.w, card_rect.h),
                      6.0f, nk_rgba(0, 0, 0, ui->dark_mode ? 20 : 10));
         nk_fill_rect(cv, card_rect, 6.0f, card_bg);
 
-        // Card border on hover
+        // Card border: blue if selected
         int is_selected = (ui->split_view.selected_row == (int)r);
-        if (is_selected) {
+        if (is_selected && !is_dragged_card) {
           nk_stroke_rect(cv, card_rect, 6.0f, 1.5f, nk_rgb(55, 120, 235));
         }
 
@@ -1965,18 +1963,31 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
 
         struct nk_color txt_col =
             ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(40, 40, 50);
+        if (is_dragged_card)
+          txt_col = nk_rgba(txt_col.r, txt_col.g, txt_col.b, 80);
         nk_draw_text(cv, nk_rect(card_rect.x + 10, card_rect.y + 8,
                                   card_rect.w - 20, 20),
                      title, strlen(title), &ui->font_inter->handle,
                      nk_rgba(0, 0, 0, 0), txt_col);
 
-        // Click to select
+        // Click to select + drag initiation
         float mx = ctx->input.mouse.pos.x;
         float my = ctx->input.mouse.pos.y;
         if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
             mx >= card_rect.x && mx < card_rect.x + card_rect.w &&
             my >= card_rect.y && my < card_rect.y + card_rect.h) {
           ui->split_view.selected_row = (int)r;
+
+          if (!ui->kanban_drag.is_active) {
+            ui->kanban_drag.is_active       = 1;
+            ui->kanban_drag.threshold_met   = 0;
+            ui->kanban_drag.dragged_row_id  = row_id;
+            ui->kanban_drag.source_opt      = opt;
+            ui->kanban_drag.block_id        = table_block->id;
+            ui->kanban_drag.start_x         = mx;
+            ui->kanban_drag.start_y         = my;
+            ui->kanban_drag.drop_target_opt = -1;
+          }
         }
 
         nk_spacing(ctx, 1);
@@ -1986,6 +1997,93 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
       nk_group_end(ctx);
     }
     ctx->style.window.fixed_background = saved_bg;
+  }
+
+  // --- Drag tracking, drop target detection, commit, ghost card ---
+  if (ui->kanban_drag.is_active) {
+    float mx = ctx->input.mouse.pos.x;
+    float my = ctx->input.mouse.pos.y;
+
+    // Threshold detection (5px dead zone)
+    if (!ui->kanban_drag.threshold_met) {
+      float dx = mx - ui->kanban_drag.start_x;
+      float dy = my - ui->kanban_drag.start_y;
+      if (dx * dx + dy * dy > 25.0f)
+        ui->kanban_drag.threshold_met = 1;
+    }
+
+    // Drop target: which swimlane is the mouse over?
+    if (ui->kanban_drag.threshold_met) {
+      ui->kanban_drag.drop_target_opt = -1;
+      for (int i = 0; i < opt_count && i < 16; i++) {
+        if (mx >= swimlane_x[i] && mx < swimlane_x[i] + col_w) {
+          ui->kanban_drag.drop_target_opt = i;
+          break;
+        }
+      }
+    }
+
+    // Drop on mouse release
+    if (!nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+      if (ui->kanban_drag.threshold_met &&
+          ui->kanban_drag.drop_target_opt >= 0 &&
+          ui->kanban_drag.drop_target_opt != ui->kanban_drag.source_opt) {
+        // Find the view index for the dragged row_id
+        int view_idx = -1;
+        for (size_t r = 0; r < row_count; r++) {
+          if (aslan_table_view_row_id(tbl, r) == ui->kanban_drag.dragged_row_id) {
+            view_idx = (int)r;
+            break;
+          }
+        }
+        if (view_idx >= 0) {
+          Page *page = doc_page_get_active(engine->doc);
+          if (page) {
+            char cmd_buf[256];
+            snprintf(cmd_buf, sizeof(cmd_buf),
+                     "block_table_cell %u %u %d %d \"%d\"",
+                     page->id, ui->kanban_drag.block_id,
+                     view_idx, select_col,
+                     ui->kanban_drag.drop_target_opt);
+            engine_execute_command(engine, cmd_buf);
+          }
+        }
+      }
+      ui->kanban_drag.is_active = 0;
+      ui->kanban_drag.threshold_met = 0;
+      ui->kanban_drag.drop_target_opt = -1;
+      ui_request_redraw(ui);
+    }
+
+    // Draw ghost card following mouse
+    if (ui->kanban_drag.threshold_met) {
+      struct nk_command_buffer *gcv = nk_window_get_canvas(ctx);
+      float gx = mx - col_w * 0.5f;
+      float gy = my - 26.0f;
+      struct nk_rect ghost = nk_rect(gx, gy, col_w, 52.0f);
+
+      // Ghost shadow + background
+      nk_fill_rect(gcv, nk_rect(gx + 1, gy + 2, col_w, 52.0f),
+                   6.0f, nk_rgba(0, 0, 0, 30));
+      nk_fill_rect(gcv, ghost, 6.0f,
+                   ui->dark_mode ? nk_rgba(48, 50, 58, 220) : nk_rgba(255, 255, 255, 220));
+      nk_stroke_rect(gcv, ghost, 6.0f, 1.5f, nk_rgba(55, 120, 235, 180));
+
+      // Ghost title text
+      char ghost_title[128] = "Card";
+      if (title_col >= 0) {
+        const char *gt = aslan_table_get_text(tbl, title_col,
+                                              ui->kanban_drag.dragged_row_id);
+        if (gt) snprintf(ghost_title, sizeof(ghost_title), "%s", gt);
+      }
+      struct nk_color gt_col = ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(40, 40, 50);
+      nk_draw_text(gcv,
+                   nk_rect(ghost.x + 10, ghost.y + 8, ghost.w - 20, 20),
+                   ghost_title, strlen(ghost_title),
+                   &ui->font_inter->handle, nk_rgba(0, 0, 0, 0), gt_col);
+
+      ui_request_redraw(ui);
+    }
   }
 }
 
