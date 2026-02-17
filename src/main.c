@@ -291,15 +291,6 @@ int main(int argc, char **argv) {
   engine_load_from_history(engine);
 
   // 6. Create default content only on first launch
-  bool history_has_content = false;
-  FILE *hf = fopen(engine->history_path, "r");
-  if (hf) {
-    int c = fgetc(hf);
-    if (c != EOF)
-      history_has_content = true;
-    fclose(hf);
-  }
-
   if (engine->doc->page_count == 0) {
     engine_execute_command(engine, "page_create 1 \"New Note\"");
     engine_execute_command(engine, "block_create 1 1 h1");

@@ -2100,12 +2100,3 @@ void aslan_table_mem_stats(const AslanTable *table, AslanTableMemStats *stats) {
       stats->data_bytes + stats->index_bytes + stats->overhead_bytes;
 }
 
-// -----------------------------------------------------------------------------
-// Lua Bindings (stub - to be implemented)
-// -----------------------------------------------------------------------------
-
-int luaopen_aslan_table(void *lua_state) {
-  (void)lua_state;
-  // TODO: Register Lua metatable for table access
-  return 0;
-}

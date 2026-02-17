@@ -473,15 +473,9 @@ void node_move_down(Node *node);
 
 // AOF (Append-Only File) Operations
 void doc_save_aof(const Document *doc, FILE *fp);
-void doc_load_aof(Document *doc, FILE *fp);
 
 // Snapshot Operations
 void doc_save_snapshot(const Document *doc, const char *filepath);
-Document *doc_load_snapshot(const char *filepath);
-
-// Export
-void doc_export_svg(const Document *doc, const char *filepath);
-void doc_export_pdf(const Document *doc, const char *filepath);
 
 // =============================================================================
 // UTILITY

@@ -1557,6 +1557,7 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
 // -----------------------------------------------------------------------------
 
 float ui_measure_block_height(UIHost *ui, Block *block, float width) {
+  (void)ui;
   if (!block)
     return 100.0f;
 

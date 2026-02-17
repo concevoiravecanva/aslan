@@ -566,6 +566,8 @@ void ui_render_block_chart(UIHost *ui, Engine *engine, struct nk_context *ctx,
 void ui_render_chart_node_config_bar(UIHost *ui, Engine *engine,
                                      struct nk_context *ctx, Node *node,
                                      struct nk_rect bounds, Page *page) {
+  (void)ui;
+  (void)engine;
   if (!node || node->type != NODE_TYPE_CHART || !node->chart_data || !page)
     return;
 

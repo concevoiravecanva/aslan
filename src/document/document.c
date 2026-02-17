@@ -14,18 +14,6 @@
 // Utility Functions
 // -----------------------------------------------------------------------------
 
-static char *aslan_strdup(const char *s) {
-  if (!s)
-    s = "";
-  size_t n = strlen(s);
-  char *out = (char *)malloc(n + 1);
-  if (!out)
-    return NULL;
-  memcpy(out, s, n);
-  out[n] = '\0';
-  return out;
-}
-
 static void safe_strcpy(char *dst, const char *src, size_t dst_size) {
   if (!dst || dst_size == 0)
     return;
@@ -1898,13 +1886,6 @@ void doc_save_aof(const Document *doc, FILE *fp) {
   }
 }
 
-void doc_load_aof(Document *doc, FILE *fp) {
-  // AOF loading is complex - placeholder for now
-  // Would parse line by line and execute commands
-  (void)doc;
-  (void)fp;
-}
-
 void doc_save_snapshot(const Document *doc, const char *filepath) {
   if (!doc || !filepath)
     return;
@@ -1915,51 +1896,4 @@ void doc_save_snapshot(const Document *doc, const char *filepath) {
 
   doc_save_aof(doc, fp);
   fclose(fp);
-}
-
-Document *doc_load_snapshot(const char *filepath) {
-  if (!filepath)
-    return NULL;
-
-  FILE *fp = fopen(filepath, "r");
-  if (!fp)
-    return NULL;
-
-  Document *doc = doc_create();
-  if (doc) {
-    doc_load_aof(doc, fp);
-  }
-
-  fclose(fp);
-  return doc;
-}
-
-// -----------------------------------------------------------------------------
-// Export
-// -----------------------------------------------------------------------------
-
-void doc_export_svg(const Document *doc, const char *filepath) {
-  if (!doc || !filepath)
-    return;
-
-  FILE *f = fopen(filepath, "w");
-  if (!f)
-    return;
-
-  fprintf(f, "<?xml version='1.0' encoding='UTF-8'?>\n");
-  fprintf(f,
-          "<svg width='%d' height='%d' xmlns='http://www.w3.org/2000/svg'>\n",
-          doc->doc_width, doc->doc_height);
-  fprintf(f, "  <rect width='100%%' height='100%%' fill='#ffffff'/>\n");
-  fprintf(f, "  <text x='20' y='40' font-family='sans-serif' font-size='16'>");
-  fprintf(f, "ASLAN Document Export</text>\n");
-  fprintf(f, "</svg>\n");
-
-  fclose(f);
-}
-
-void doc_export_pdf(const Document *doc, const char *filepath) {
-  // PDF export would require a library - placeholder
-  (void)doc;
-  (void)filepath;
 }

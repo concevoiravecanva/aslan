@@ -407,13 +407,6 @@ typedef struct {
 void aslan_table_mem_stats(const AslanTable *table, AslanTableMemStats *stats);
 
 // -----------------------------------------------------------------------------
-// Lua Binding Helpers
-// -----------------------------------------------------------------------------
-
-// Register table API in Lua (call from scripting_init)
-// Pass lua_State* as void* to avoid header dependency
-int luaopen_aslan_table(void *lua_state);
-
 // Evaluate all formula columns (call after data changes)
 void aslan_table_eval_formulas(AslanTable *table);
 

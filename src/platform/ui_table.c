@@ -333,8 +333,6 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
   const float min_col_w = 80.0f;
   const float max_col_w = 500.0f;
   const float row_num_w = 44.0f;
-  const float table_rounding = 8.0f;
-
   // Colors — Airtable-inspired warm palette
   struct nk_color header_bg =
       ui->dark_mode ? nk_rgb(38, 39, 44) : nk_rgb(245, 245, 244);
@@ -344,8 +342,6 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ui->dark_mode ? nk_rgb(32, 33, 38) : nk_rgb(250, 250, 249);
   struct nk_color muted_gray =
       ui->dark_mode ? nk_rgb(110, 112, 118) : nk_rgb(155, 155, 158);
-  struct nk_color table_outer_border =
-      ui->dark_mode ? nk_rgba(55, 57, 62, 180) : nk_rgba(218, 218, 216, 220);
 
   // Text colors adapted to light header/footer
   struct nk_color header_text_col =
@@ -914,7 +910,6 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         } else if (is_dragging_active) {
           // Track which column mouse is over
           ui->table_state.drop_target_col = -1;
-          float col_x = hdr_bounds.x; // approximate start from last bounds
           // Recalculate column positions for drop target
           float acc_x = 0;
           for (int dc = 0; dc < (int)tbl->column_count; dc++) {

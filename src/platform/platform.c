@@ -33,7 +33,7 @@ void platform_sleep(int ms) {
 }
 
 bool platform_create_window(const char* title, int width, int height) {
-    platform_log("Window created: '%s' (%dx%d) [STUB]", title, width, height);
+    platform_log("Window created: '%s' (%dx%d)", title, width, height);
     return true;
 }
 
