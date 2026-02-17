@@ -515,13 +515,22 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 
       ASLAN_DEBUG("SDL click down: (%d, %d)", evt->button.x, evt->button.y);
 
-      // Start panning with space + left click
+      // Start panning with space + left click (canvas)
       if (cs->space_held && cs->mouse_in_canvas) {
         cs->is_panning = 1;
         cs->pan_start_x = ui->mouse_x;
         cs->pan_start_y = ui->mouse_y;
         cs->cam_start_x = cs->cam_x;
         cs->cam_start_y = cs->cam_y;
+      }
+      // Start panning with space + left click (design)
+      DesignInteraction *ds_sp = &ui->design_state;
+      if (ds_sp->space_held) {
+        ds_sp->is_panning = 1;
+        ds_sp->pan_start_x = ui->mouse_x;
+        ds_sp->pan_start_y = ui->mouse_y;
+        ds_sp->cam_start_x = ds_sp->cam_x;
+        ds_sp->cam_start_y = ds_sp->cam_y;
       }
     }
 
@@ -697,9 +706,10 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       ui->mouse_buttons &= ~4;
   }
 
-  // Track spacebar for pan mode
+  // Track spacebar for pan mode (canvas + design)
   if (evt->type == SDL_KEYDOWN && evt->key.keysym.sym == SDLK_SPACE) {
     ui->canvas_state.space_held = 1;
+    ui->design_state.space_held = 1;
     ASLAN_DEBUG("Spacebar DOWN");
   }
   if (evt->type == SDL_KEYUP && evt->key.keysym.sym == SDLK_SPACE) {
@@ -708,6 +718,10 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       ui->canvas_state.space_held = 0;
     }
     ui->canvas_state.is_panning = 0;
+    if (!ui->design_state.pan_from_menu) {
+      ui->design_state.space_held = 0;
+    }
+    ui->design_state.is_panning = 0;
     ASLAN_DEBUG("Spacebar UP");
   }
 
@@ -2091,7 +2105,6 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
 static void ui_render_view_calendar(UIHost *ui, Engine *engine,
                                     struct nk_context *ctx, Block *table_block,
                                     float width, float height) {
-  (void)engine;
   (void)width;
   if (!table_block || table_block->type != BLOCK_TABLE)
     return;
@@ -2282,24 +2295,57 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
         ev_y += 16;
       }
 
-      // Click on cell
+      // Click on cell — select existing event or create new one
       float mx = ctx->input.mouse.pos.x;
       float my = ctx->input.mouse.pos.y;
       if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
           mx >= cell_rect.x && mx < cell_rect.x + cell_rect.w &&
           my >= cell_rect.y && my < cell_rect.y + cell_rect.h) {
-        // Select first event on this day
+        // Try to select first event on this day
+        int found_event = 0;
         for (size_t r = 0; r < row_count; r++) {
-          uint64_t row_id = aslan_table_view_row_id(tbl, r);
-          int64_t ts = aslan_table_get_date(tbl, date_col, row_id);
-          if (ts <= 0)
+          uint64_t rid = aslan_table_view_row_id(tbl, r);
+          int64_t ts2 = aslan_table_get_date(tbl, date_col, rid);
+          if (ts2 <= 0)
             continue;
-          time_t t = (time_t)(ts / 1000);
-          struct tm *etm = localtime(&t);
-          if (etm->tm_mday == day && etm->tm_mon == cal_month &&
-              etm->tm_year + 1900 == cal_year) {
+          time_t t2 = (time_t)(ts2 / 1000);
+          struct tm *etm2 = localtime(&t2);
+          if (etm2->tm_mday == day && etm2->tm_mon == cal_month &&
+              etm2->tm_year + 1900 == cal_year) {
             ui->split_view.selected_row = (int)r;
+            found_event = 1;
             break;
+          }
+        }
+        // No event on this day — create one
+        if (!found_event && engine && engine->doc) {
+          Page *pg = doc_page_get_active(engine->doc);
+          if (pg) {
+            // Build midnight timestamp for the clicked day
+            struct tm new_day = {0};
+            new_day.tm_year = cal_year - 1900;
+            new_day.tm_mon  = cal_month;
+            new_day.tm_mday = day;
+            new_day.tm_hour = 12; // noon to avoid DST edge cases
+            new_day.tm_isdst = -1;
+            time_t new_t = mktime(&new_day);
+            long long ts_ms = (long long)new_t * 1000;
+
+            // Insert row + set date cell via engine (undo-able)
+            char cmd_buf[256];
+            snprintf(cmd_buf, sizeof(cmd_buf),
+                     "block_table_insert_row %u %u 0",
+                     pg->id, table_block->id);
+            engine_execute_command(engine, cmd_buf);
+
+            size_t new_idx = aslan_table_view_count(tbl) - 1;
+            snprintf(cmd_buf, sizeof(cmd_buf),
+                     "block_table_cell %u %u %zu %d \"%lld\"",
+                     pg->id, table_block->id, new_idx, date_col, ts_ms);
+            engine_execute_command(engine, cmd_buf);
+
+            ui->split_view.selected_row = (int)new_idx;
+            row_count = aslan_table_view_count(tbl);
           }
         }
       }

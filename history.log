@@ -370,3 +370,4 @@ block_delete 1 103
 block_create 1 104 table
 -- Session started --
 -- Session started --
+block_create 1 105 design

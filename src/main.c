@@ -97,13 +97,47 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
                       e.button.y, e.button.button);
         }
 
-        // Keyboard shortcuts (macOS): Cmd+Z (Undo), Cmd+Shift+Z (Redo)
+        // Global keyboard shortcuts (Cmd = macOS, Ctrl = Linux/Windows)
         if (e.type == SDL_KEYDOWN && !nk_item_is_any_active(ui->ctx)) {
           SDL_Keymod mods = SDL_GetModState();
-          bool cmd = (mods & KMOD_GUI) != 0;
+          bool cmd   = (mods & KMOD_GUI) != 0;
+          bool ctrl  = (mods & KMOD_CTRL) != 0;
           bool shift = (mods & KMOD_SHIFT) != 0;
-          if (cmd && e.key.keysym.sym == SDLK_z) {
+          bool mod   = cmd || ctrl;
+
+          // Cmd+Z / Cmd+Shift+Z — Undo / Redo
+          if (mod && e.key.keysym.sym == SDLK_z) {
             engine_execute_command(engine, shift ? "redo" : "undo");
+          }
+          // Cmd+S — Save snapshot
+          if (mod && e.key.keysym.sym == SDLK_s) {
+            if (engine->doc_path[0]) {
+              engine_save_snapshot_as_aslan(engine, engine->doc_path);
+            }
+          }
+          // Cmd+N — New table block on active page
+          if (mod && e.key.keysym.sym == SDLK_n) {
+            Page *page = doc_page_get_active(engine->doc);
+            if (page) {
+              char cmd_buf[128];
+              snprintf(cmd_buf, sizeof(cmd_buf),
+                       "block_create %u 0 table", page->id);
+              engine_execute_command(engine, cmd_buf);
+            }
+          }
+          // Delete / Backspace — Delete active block (only if no node selected)
+          if ((e.key.keysym.sym == SDLK_DELETE ||
+               e.key.keysym.sym == SDLK_BACKSPACE) &&
+              !mod && ui->active_block_id != 0 &&
+              ui->selected_node == NULL) {
+            Page *page = doc_page_get_active(engine->doc);
+            if (page) {
+              char cmd_buf[128];
+              snprintf(cmd_buf, sizeof(cmd_buf),
+                       "block_delete %u %u", page->id, ui->active_block_id);
+              engine_execute_command(engine, cmd_buf);
+              ui->active_block_id = 0;
+            }
           }
         }
 
