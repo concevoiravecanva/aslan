@@ -151,6 +151,163 @@ static int save_svg_file_dialog(char *out_path, size_t path_size,
 }
 
 // Export active design block as SVG
+// Copy selected node or active block into clipboard
+void ui_host_copy_node(UIHost *ui, Engine *engine) {
+  if (!ui)
+    return;
+
+  // Priority 1: copy selected node (canvas/design)
+  if (ui->selected_node) {
+    Node *src = ui->selected_node;
+    ui->clipboard_node.has_data         = 1;
+    ui->clipboard_node.type             = src->type;
+    // Determine if the node comes from a canvas block (vs design block)
+    ui->clipboard_node.from_canvas      = (ui->canvas_state.active_block &&
+                                           ui->canvas_state.active_block->type == BLOCK_CANVAS);
+    strncpy(ui->clipboard_node.name, src->name,
+            sizeof(ui->clipboard_node.name) - 1);
+    ui->clipboard_node.x                = src->x;
+    ui->clipboard_node.y                = src->y;
+    ui->clipboard_node.width            = src->width;
+    ui->clipboard_node.height           = src->height;
+    ui->clipboard_node.rotation         = src->rotation;
+    ui->clipboard_node.corner_radius    = src->corner_radius;
+    ui->clipboard_node.fill_color       = src->fill_color;
+    ui->clipboard_node.stroke_color     = src->stroke_color;
+    ui->clipboard_node.stroke_width     = src->stroke_width;
+    ui->clipboard_node.font_size        = src->font_size;
+    ui->clipboard_node.font_type        = src->font_type;
+    ui->clipboard_node.line_start_style = src->line_start_style;
+    ui->clipboard_node.line_end_style   = src->line_end_style;
+    strncpy(ui->clipboard_node.text, src->text,
+            sizeof(ui->clipboard_node.text) - 1);
+    strncpy(ui->clipboard_node.image_path, src->image_path,
+            sizeof(ui->clipboard_node.image_path) - 1);
+    // Clear block clipboard to avoid confusion on paste
+    ui->clipboard_block.has_data = 0;
+    ASLAN_DEBUG("Clipboard: copied node '%s' (type=%d)", src->name, src->type);
+    return;
+  }
+
+  // Priority 2: copy active text/heading block (needs engine to look up block)
+  if (ui->active_block_id != 0 && engine) {
+    Page *page = doc_page_get_active(engine->doc);
+    if (page) {
+      Block *blk = page_find_block_by_id(page, ui->active_block_id);
+      if (blk && (blk->type == BLOCK_TEXT || blk->type == BLOCK_HEADING_1)) {
+        ui->clipboard_block.has_data = 1;
+        ui->clipboard_block.type     = blk->type;
+        strncpy(ui->clipboard_block.text,
+                blk->text ? blk->text : "",
+                sizeof(ui->clipboard_block.text) - 1);
+        // Clear node clipboard
+        ui->clipboard_node.has_data = 0;
+        ASLAN_DEBUG("Clipboard: copied block id=%u type=%d", blk->id, blk->type);
+      }
+    }
+  }
+}
+
+// Paste clipboard node into active canvas or design block
+void ui_host_paste_node(UIHost *ui, Engine *engine) {
+  if (!ui || (!ui->clipboard_node.has_data && !ui->clipboard_block.has_data) || !engine)
+    return;
+
+  Page *page = doc_page_get_active(engine->doc);
+  if (!page)
+    return;
+
+  // --- Branch: paste a copied text/heading block ---
+  if (ui->clipboard_block.has_data && !ui->clipboard_node.has_data) {
+    uint32_t new_id = page->next_block_id;
+    char cmd_buf[256];
+    snprintf(cmd_buf, sizeof(cmd_buf), "block_create %u %u %s",
+             page->id, new_id,
+             block_type_to_string(ui->clipboard_block.type));
+    engine_execute_command(engine, cmd_buf);
+
+    // Set text via block_text command (text may contain spaces → quoted)
+    Block *new_block = page_find_block_by_id(page, new_id);
+    if (new_block && ui->clipboard_block.text[0]) {
+      char text_buf[4096 + 64];
+      snprintf(text_buf, sizeof(text_buf), "block_text %u %u \"%s\"",
+               page->id, new_id, ui->clipboard_block.text);
+      engine_execute_command(engine, text_buf);
+    }
+
+    ui->active_block_id = new_id;
+    ui_request_redraw(ui);
+    ASLAN_DEBUG("Clipboard: pasted block id=%u type=%s", new_id,
+                block_type_to_string(ui->clipboard_block.type));
+    return;
+  }
+
+  // Find an appropriate target block (prefer canvas/design matching clipboard)
+  Block *target = NULL;
+  int is_canvas = 0;
+  for (Block *b = page->first_block; b; b = b->next) {
+    if (b->type == BLOCK_CANVAS && ui->clipboard_node.from_canvas) {
+      target = b; is_canvas = 1; break;
+    }
+    if (b->type == BLOCK_DESIGN && !ui->clipboard_node.from_canvas) {
+      target = b; is_canvas = 0; break;
+    }
+  }
+  // Fall back to any canvas or design block
+  if (!target) {
+    for (Block *b = page->first_block; b; b = b->next) {
+      if (b->type == BLOCK_CANVAS) { target = b; is_canvas = 1; break; }
+      if (b->type == BLOCK_DESIGN) { target = b; is_canvas = 0; break; }
+    }
+  }
+  if (!target)
+    return;
+
+  // Reserve node ID
+  uint32_t new_id = is_canvas ? target->data.canvas.next_node_id
+                               : target->data.design.next_node_id;
+
+  // Issue create command — triggers undo snapshot via engine
+  char cmd_buf[256];
+  snprintf(cmd_buf, sizeof(cmd_buf), "%s_node %u %u create %u %s \"%s\"",
+           is_canvas ? "block_canvas" : "block_design",
+           page->id, target->id, new_id,
+           node_type_to_string(ui->clipboard_node.type),
+           ui->clipboard_node.name);
+  engine_execute_command(engine, cmd_buf);
+
+  // Find the freshly created node and patch all properties
+  Node *pasted = is_canvas ? block_canvas_find_node(target, new_id)
+                           : block_design_find_node(target, new_id);
+  if (!pasted)
+    return;
+
+  // Offset paste by +20px so it doesn't overlap the source
+  pasted->x             = ui->clipboard_node.x + 20.0f;
+  pasted->y             = ui->clipboard_node.y + 20.0f;
+  pasted->width         = ui->clipboard_node.width;
+  pasted->height        = ui->clipboard_node.height;
+  pasted->rotation      = ui->clipboard_node.rotation;
+  pasted->corner_radius = ui->clipboard_node.corner_radius;
+  pasted->fill_color    = ui->clipboard_node.fill_color;
+  pasted->stroke_color  = ui->clipboard_node.stroke_color;
+  pasted->stroke_width  = ui->clipboard_node.stroke_width;
+  pasted->font_size     = ui->clipboard_node.font_size;
+  pasted->font_type     = ui->clipboard_node.font_type;
+  pasted->line_start_style = ui->clipboard_node.line_start_style;
+  pasted->line_end_style   = ui->clipboard_node.line_end_style;
+  pasted->visible       = 1;
+  strncpy(pasted->text, ui->clipboard_node.text, sizeof(pasted->text) - 1);
+  strncpy(pasted->image_path, ui->clipboard_node.image_path,
+          sizeof(pasted->image_path) - 1);
+
+  // Select the pasted node
+  ui->selected_node = pasted;
+  ui_request_redraw(ui);
+
+  ASLAN_DEBUG("Clipboard: pasted node '%s' as id=%u", pasted->name, new_id);
+}
+
 void ui_host_export_svg(UIHost *ui, Engine *engine) {
   (void)ui;
   Page *page = doc_page_get_active(engine->doc);

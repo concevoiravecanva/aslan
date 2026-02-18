@@ -345,6 +345,31 @@ typedef struct UIHost {
     int      drop_target_day;  // Day the mouse is hovering over (-1=none)
   } calendar_drag;
 
+  // Node clipboard (Cmd+C / Cmd+V)
+  struct {
+    int      has_data;
+    NodeType type;
+    char     name[64];
+    float    x, y, width, height;
+    float    rotation, corner_radius;
+    uint32_t fill_color, stroke_color;
+    float    stroke_width;
+    char     text[256];
+    float    font_size;
+    int      font_type;
+    int      line_start_style, line_end_style;
+    char     image_path[256];
+    int      from_canvas; // 1=canvas block, 0=design block
+  } clipboard_node;
+
+  // Block clipboard (Cmd+C / Cmd+V on text/heading blocks)
+  struct {
+    int       has_data;
+    BlockType type;
+    char      text[4096];
+    int       heading_level; // For BLOCK_HEADING
+  } clipboard_block;
+
   // Canvas node text editing
   Node *editing_node;       // Node being text-edited (NULL=none)
   char edit_buffer[512];    // Text buffer for editing
@@ -466,6 +491,8 @@ void ui_host_handle_file_drop(UIHost *ui, const char *file_path, int mx,
                               int my);
 void ui_host_import_csv(UIHost *ui, Engine *engine);
 void ui_host_export_svg(UIHost *ui, Engine *engine);
+void ui_host_copy_node(UIHost *ui, Engine *engine);
+void ui_host_paste_node(UIHost *ui, Engine *engine);
 void ui_update(UIHost *ui, Engine *engine);
 void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h);
 void ui_apply_theme(UIHost *ui);

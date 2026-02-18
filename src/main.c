@@ -109,6 +109,14 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
           if (mod && e.key.keysym.sym == SDLK_z) {
             engine_execute_command(engine, shift ? "redo" : "undo");
           }
+          // Cmd+C — Copy selected node
+          if (mod && !shift && e.key.keysym.sym == SDLK_c) {
+            ui_host_copy_node(ui, engine);
+          }
+          // Cmd+V — Paste node from clipboard
+          if (mod && !shift && e.key.keysym.sym == SDLK_v) {
+            ui_host_paste_node(ui, engine);
+          }
           // Cmd+S — Save snapshot
           if (mod && e.key.keysym.sym == SDLK_s) {
             if (engine->doc_path[0]) {
