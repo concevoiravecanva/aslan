@@ -60,14 +60,20 @@ int open_image_file_dialog(char *out_path, size_t path_size) {
 // Opens a native file dialog to select a CSV file for import
 static int open_csv_file_dialog(char *out_path, size_t path_size) {
   const char *script =
-      "osascript -e 'set theFile to choose file of type {\"public.comma-separated-values-text\", \"public.text\"} "
-      "with prompt \"Select a CSV file\"' -e 'POSIX path of theFile' 2>/dev/null";
+      "osascript -e 'set theFile to choose file of type "
+      "{\"public.comma-separated-values-text\", \"public.text\"} "
+      "with prompt \"Select a CSV file\"' -e 'POSIX path of theFile' "
+      "2>/dev/null";
   FILE *fp = popen(script, "r");
-  if (!fp) return 0;
+  if (!fp)
+    return 0;
   char result[512] = {0};
   if (fgets(result, sizeof(result), fp) != NULL) {
     size_t len = strlen(result);
-    if (len > 0 && result[len - 1] == '\n') { result[len - 1] = '\0'; len--; }
+    if (len > 0 && result[len - 1] == '\n') {
+      result[len - 1] = '\0';
+      len--;
+    }
     if (len > 0) {
       strncpy(out_path, result, path_size - 1);
       out_path[path_size - 1] = '\0';
@@ -159,26 +165,27 @@ void ui_host_copy_node(UIHost *ui, Engine *engine) {
   // Priority 1: copy selected node (canvas/design)
   if (ui->selected_node) {
     Node *src = ui->selected_node;
-    ui->clipboard_node.has_data         = 1;
-    ui->clipboard_node.type             = src->type;
+    ui->clipboard_node.has_data = 1;
+    ui->clipboard_node.type = src->type;
     // Determine if the node comes from a canvas block (vs design block)
-    ui->clipboard_node.from_canvas      = (ui->canvas_state.active_block &&
-                                           ui->canvas_state.active_block->type == BLOCK_CANVAS);
+    ui->clipboard_node.from_canvas =
+        (ui->canvas_state.active_block &&
+         ui->canvas_state.active_block->type == BLOCK_CANVAS);
     strncpy(ui->clipboard_node.name, src->name,
             sizeof(ui->clipboard_node.name) - 1);
-    ui->clipboard_node.x                = src->x;
-    ui->clipboard_node.y                = src->y;
-    ui->clipboard_node.width            = src->width;
-    ui->clipboard_node.height           = src->height;
-    ui->clipboard_node.rotation         = src->rotation;
-    ui->clipboard_node.corner_radius    = src->corner_radius;
-    ui->clipboard_node.fill_color       = src->fill_color;
-    ui->clipboard_node.stroke_color     = src->stroke_color;
-    ui->clipboard_node.stroke_width     = src->stroke_width;
-    ui->clipboard_node.font_size        = src->font_size;
-    ui->clipboard_node.font_type        = src->font_type;
+    ui->clipboard_node.x = src->x;
+    ui->clipboard_node.y = src->y;
+    ui->clipboard_node.width = src->width;
+    ui->clipboard_node.height = src->height;
+    ui->clipboard_node.rotation = src->rotation;
+    ui->clipboard_node.corner_radius = src->corner_radius;
+    ui->clipboard_node.fill_color = src->fill_color;
+    ui->clipboard_node.stroke_color = src->stroke_color;
+    ui->clipboard_node.stroke_width = src->stroke_width;
+    ui->clipboard_node.font_size = src->font_size;
+    ui->clipboard_node.font_type = src->font_type;
     ui->clipboard_node.line_start_style = src->line_start_style;
-    ui->clipboard_node.line_end_style   = src->line_end_style;
+    ui->clipboard_node.line_end_style = src->line_end_style;
     strncpy(ui->clipboard_node.text, src->text,
             sizeof(ui->clipboard_node.text) - 1);
     strncpy(ui->clipboard_node.image_path, src->image_path,
@@ -196,13 +203,13 @@ void ui_host_copy_node(UIHost *ui, Engine *engine) {
       Block *blk = page_find_block_by_id(page, ui->active_block_id);
       if (blk && (blk->type == BLOCK_TEXT || blk->type == BLOCK_HEADING_1)) {
         ui->clipboard_block.has_data = 1;
-        ui->clipboard_block.type     = blk->type;
-        strncpy(ui->clipboard_block.text,
-                blk->text ? blk->text : "",
+        ui->clipboard_block.type = blk->type;
+        strncpy(ui->clipboard_block.text, blk->text ? blk->text : "",
                 sizeof(ui->clipboard_block.text) - 1);
         // Clear node clipboard
         ui->clipboard_node.has_data = 0;
-        ASLAN_DEBUG("Clipboard: copied block id=%u type=%d", blk->id, blk->type);
+        ASLAN_DEBUG("Clipboard: copied block id=%u type=%d", blk->id,
+                    blk->type);
       }
     }
   }
@@ -210,7 +217,8 @@ void ui_host_copy_node(UIHost *ui, Engine *engine) {
 
 // Paste clipboard node into active canvas or design block
 void ui_host_paste_node(UIHost *ui, Engine *engine) {
-  if (!ui || (!ui->clipboard_node.has_data && !ui->clipboard_block.has_data) || !engine)
+  if (!ui || (!ui->clipboard_node.has_data && !ui->clipboard_block.has_data) ||
+      !engine)
     return;
 
   Page *page = doc_page_get_active(engine->doc);
@@ -221,17 +229,16 @@ void ui_host_paste_node(UIHost *ui, Engine *engine) {
   if (ui->clipboard_block.has_data && !ui->clipboard_node.has_data) {
     uint32_t new_id = page->next_block_id;
     char cmd_buf[256];
-    snprintf(cmd_buf, sizeof(cmd_buf), "block_create %u %u %s",
-             page->id, new_id,
-             block_type_to_string(ui->clipboard_block.type));
+    snprintf(cmd_buf, sizeof(cmd_buf), "block_create %u %u %s", page->id,
+             new_id, block_type_to_string(ui->clipboard_block.type));
     engine_execute_command(engine, cmd_buf);
 
     // Set text via block_text command (text may contain spaces → quoted)
     Block *new_block = page_find_block_by_id(page, new_id);
     if (new_block && ui->clipboard_block.text[0]) {
       char text_buf[4096 + 64];
-      snprintf(text_buf, sizeof(text_buf), "block_text %u %u \"%s\"",
-               page->id, new_id, ui->clipboard_block.text);
+      snprintf(text_buf, sizeof(text_buf), "block_text %u %u \"%s\"", page->id,
+               new_id, ui->clipboard_block.text);
       engine_execute_command(engine, text_buf);
     }
 
@@ -247,17 +254,29 @@ void ui_host_paste_node(UIHost *ui, Engine *engine) {
   int is_canvas = 0;
   for (Block *b = page->first_block; b; b = b->next) {
     if (b->type == BLOCK_CANVAS && ui->clipboard_node.from_canvas) {
-      target = b; is_canvas = 1; break;
+      target = b;
+      is_canvas = 1;
+      break;
     }
     if (b->type == BLOCK_DESIGN && !ui->clipboard_node.from_canvas) {
-      target = b; is_canvas = 0; break;
+      target = b;
+      is_canvas = 0;
+      break;
     }
   }
   // Fall back to any canvas or design block
   if (!target) {
     for (Block *b = page->first_block; b; b = b->next) {
-      if (b->type == BLOCK_CANVAS) { target = b; is_canvas = 1; break; }
-      if (b->type == BLOCK_DESIGN) { target = b; is_canvas = 0; break; }
+      if (b->type == BLOCK_CANVAS) {
+        target = b;
+        is_canvas = 1;
+        break;
+      }
+      if (b->type == BLOCK_DESIGN) {
+        target = b;
+        is_canvas = 0;
+        break;
+      }
     }
   }
   if (!target)
@@ -265,14 +284,13 @@ void ui_host_paste_node(UIHost *ui, Engine *engine) {
 
   // Reserve node ID
   uint32_t new_id = is_canvas ? target->data.canvas.next_node_id
-                               : target->data.design.next_node_id;
+                              : target->data.design.next_node_id;
 
   // Issue create command — triggers undo snapshot via engine
   char cmd_buf[256];
   snprintf(cmd_buf, sizeof(cmd_buf), "%s_node %u %u create %u %s \"%s\"",
-           is_canvas ? "block_canvas" : "block_design",
-           page->id, target->id, new_id,
-           node_type_to_string(ui->clipboard_node.type),
+           is_canvas ? "block_canvas" : "block_design", page->id, target->id,
+           new_id, node_type_to_string(ui->clipboard_node.type),
            ui->clipboard_node.name);
   engine_execute_command(engine, cmd_buf);
 
@@ -283,20 +301,20 @@ void ui_host_paste_node(UIHost *ui, Engine *engine) {
     return;
 
   // Offset paste by +20px so it doesn't overlap the source
-  pasted->x             = ui->clipboard_node.x + 20.0f;
-  pasted->y             = ui->clipboard_node.y + 20.0f;
-  pasted->width         = ui->clipboard_node.width;
-  pasted->height        = ui->clipboard_node.height;
-  pasted->rotation      = ui->clipboard_node.rotation;
+  pasted->x = ui->clipboard_node.x + 20.0f;
+  pasted->y = ui->clipboard_node.y + 20.0f;
+  pasted->width = ui->clipboard_node.width;
+  pasted->height = ui->clipboard_node.height;
+  pasted->rotation = ui->clipboard_node.rotation;
   pasted->corner_radius = ui->clipboard_node.corner_radius;
-  pasted->fill_color    = ui->clipboard_node.fill_color;
-  pasted->stroke_color  = ui->clipboard_node.stroke_color;
-  pasted->stroke_width  = ui->clipboard_node.stroke_width;
-  pasted->font_size     = ui->clipboard_node.font_size;
-  pasted->font_type     = ui->clipboard_node.font_type;
+  pasted->fill_color = ui->clipboard_node.fill_color;
+  pasted->stroke_color = ui->clipboard_node.stroke_color;
+  pasted->stroke_width = ui->clipboard_node.stroke_width;
+  pasted->font_size = ui->clipboard_node.font_size;
+  pasted->font_type = ui->clipboard_node.font_type;
   pasted->line_start_style = ui->clipboard_node.line_start_style;
-  pasted->line_end_style   = ui->clipboard_node.line_end_style;
-  pasted->visible       = 1;
+  pasted->line_end_style = ui->clipboard_node.line_end_style;
+  pasted->visible = 1;
   strncpy(pasted->text, ui->clipboard_node.text, sizeof(pasted->text) - 1);
   strncpy(pasted->image_path, ui->clipboard_node.image_path,
           sizeof(pasted->image_path) - 1);
@@ -1056,8 +1074,7 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 
     // --- Escape: close table popups first ---
     if (key == SDLK_ESCAPE) {
-      if (ui->table_state.show_col_menu ||
-          ui->table_state.show_col_settings ||
+      if (ui->table_state.show_col_menu || ui->table_state.show_col_settings ||
           ui->table_state.show_footer_menu ||
           ui->table_state.show_select_popup ||
           ui->table_state.show_date_picker ||
@@ -1423,11 +1440,10 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
       if (hovered)
         nk_fill_rect(canvas, r, 4.0f, hover_bg);
       struct nk_color ic = hovered ? hover_icon : icon_col;
-      float tw = text_font->width(text_font->userdata, text_font->height,
-                                  "-", 1);
-      nk_draw_text(canvas,
-                   nk_rect(ix + (btn_w - tw) / 2, iy + 1, btn_w, btn_h), "-",
-                   1, text_font, nk_rgba(0, 0, 0, 0), ic);
+      float tw =
+          text_font->width(text_font->userdata, text_font->height, "-", 1);
+      nk_draw_text(canvas, nk_rect(ix + (btn_w - tw) / 2, iy + 1, btn_w, btn_h),
+                   "-", 1, text_font, nk_rgba(0, 0, 0, 0), ic);
       if (hovered && pressed) {
         float vs = block->view_scale;
         if (vs < 0.1f)
@@ -1448,11 +1464,10 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
       if (hovered)
         nk_fill_rect(canvas, r, 4.0f, hover_bg);
       struct nk_color ic = hovered ? hover_icon : icon_col;
-      float tw = text_font->width(text_font->userdata, text_font->height,
-                                  "+", 1);
-      nk_draw_text(canvas,
-                   nk_rect(ix + (btn_w - tw) / 2, iy + 1, btn_w, btn_h), "+",
-                   1, text_font, nk_rgba(0, 0, 0, 0), ic);
+      float tw =
+          text_font->width(text_font->userdata, text_font->height, "+", 1);
+      nk_draw_text(canvas, nk_rect(ix + (btn_w - tw) / 2, iy + 1, btn_w, btn_h),
+                   "+", 1, text_font, nk_rgba(0, 0, 0, 0), ic);
       if (hovered && pressed) {
         float vs = block->view_scale;
         if (vs < 0.1f)
@@ -1904,7 +1919,7 @@ float ui_measure_block_height(UIHost *ui, Block *block, float width) {
       if (aspect_h > 400.0f)
         aspect_h = 400.0f;
     }
-    return (aspect_h + 52.0f) * vs;
+    return (aspect_h + 52.0f + 250.0f) * vs;
   }
 
   case BLOCK_CHART:
@@ -1931,9 +1946,8 @@ static Block *page_find_first_block_of_type(Page *page, BlockType type) {
 // Render view tabs bar for a panel
 // active_view_ptr: pointer to the panel's view index
 // panel_id: "L" or "R" for unique Nuklear IDs
-static void ui_render_view_tabs(UIHost *ui, struct nk_context *ctx,
-                                float width, int *active_view_ptr,
-                                const char *panel_id) {
+static void ui_render_view_tabs(UIHost *ui, struct nk_context *ctx, float width,
+                                int *active_view_ptr, const char *panel_id) {
   const char *tab_labels[] = {"Table", "Design", "Kanban", "Calendar", "Chart"};
   const char *tab_icons[] = {ICON_TABLE, ICON_DESIGN, ICON_KANBAN,
                              ICON_CALENDAR, ICON_CHART};
@@ -1980,8 +1994,8 @@ static void ui_render_view_tabs(UIHost *ui, struct nk_context *ctx,
     }
 
     if (is_active) {
-      nk_fill_rect(canvas, nk_rect(tb.x + 4, tb.y + 29, tb.w - 8, 2.5f),
-                   1.0f, active_col);
+      nk_fill_rect(canvas, nk_rect(tb.x + 4, tb.y + 29, tb.w - 8, 2.5f), 1.0f,
+                   active_col);
     }
   }
   nk_layout_row_end(ctx);
@@ -1996,8 +2010,8 @@ static void ui_render_view_tabs(UIHost *ui, struct nk_context *ctx,
 
 // Forward declarations for view renderers used by panel dispatch
 static void ui_render_view_kanban(UIHost *ui, Engine *engine,
-                                  struct nk_context *ctx, Block *table,
-                                  float w, float h);
+                                  struct nk_context *ctx, Block *table, float w,
+                                  float h);
 static void ui_render_view_calendar(UIHost *ui, Engine *engine,
                                     struct nk_context *ctx, Block *table,
                                     float w, float h);
@@ -2006,8 +2020,8 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
 // view: 0=Table, 1=Design, 2=Kanban, 3=Calendar, 4=Chart
 // prefix: "L" or "R" for unique group names
 static void ui_render_panel_view(UIHost *ui, Engine *engine,
-                                 struct nk_context *ctx, Page *page,
-                                 int view, float view_w, float view_h,
+                                 struct nk_context *ctx, Page *page, int view,
+                                 float view_w, float view_h,
                                  const char *prefix) {
   char grp_name[64];
 
@@ -2022,8 +2036,8 @@ static void ui_render_panel_view(UIHost *ui, Engine *engine,
       nk_layout_row_dynamic(ctx, 32, 1);
       if (nk_button_label(ctx, "+ New Table")) {
         char cmd[128];
-        snprintf(cmd, sizeof(cmd), "block_create %u %u table",
-                 page->id, page->next_block_id);
+        snprintf(cmd, sizeof(cmd), "block_create %u %u table", page->id,
+                 page->next_block_id);
         engine_execute_command(engine, cmd);
       }
     }
@@ -2043,8 +2057,8 @@ static void ui_render_panel_view(UIHost *ui, Engine *engine,
       nk_layout_row_dynamic(ctx, 32, 1);
       if (nk_button_label(ctx, "+ Create Design")) {
         char cmd[128];
-        snprintf(cmd, sizeof(cmd), "block_create %u %u design",
-                 page->id, page->next_block_id);
+        snprintf(cmd, sizeof(cmd), "block_create %u %u design", page->id,
+                 page->next_block_id);
         engine_execute_command(engine, cmd);
       }
     }
@@ -2094,8 +2108,8 @@ static void ui_render_panel_view(UIHost *ui, Engine *engine,
       nk_layout_row_dynamic(ctx, 32, 1);
       if (nk_button_label(ctx, "+ Create Chart")) {
         char cmd[128];
-        snprintf(cmd, sizeof(cmd), "block_create %u %u chart",
-                 page->id, page->next_block_id);
+        snprintf(cmd, sizeof(cmd), "block_create %u %u chart", page->id,
+                 page->next_block_id);
         engine_execute_command(engine, cmd);
       }
     }
@@ -2124,7 +2138,8 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
 
   if (select_col < 0) {
     nk_layout_row_dynamic(ctx, 60, 1);
-    nk_label(ctx, "Add a Select column to enable Kanban view", NK_TEXT_CENTERED);
+    nk_label(ctx, "Add a Select column to enable Kanban view",
+             NK_TEXT_CENTERED);
     return;
   }
 
@@ -2176,12 +2191,13 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
     struct nk_style_item saved_bg = ctx->style.window.fixed_background;
 
     // Highlight drop target swimlane
-    int is_drop_target = (ui->kanban_drag.is_active &&
-                          ui->kanban_drag.threshold_met &&
-                          ui->kanban_drag.drop_target_opt == opt &&
-                          opt != ui->kanban_drag.source_opt);
+    int is_drop_target =
+        (ui->kanban_drag.is_active && ui->kanban_drag.threshold_met &&
+         ui->kanban_drag.drop_target_opt == opt &&
+         opt != ui->kanban_drag.source_opt);
     if (is_drop_target) {
-      struct nk_color hl = ui->dark_mode ? nk_rgb(35, 50, 70) : nk_rgb(220, 235, 255);
+      struct nk_color hl =
+          ui->dark_mode ? nk_rgb(35, 50, 70) : nk_rgb(220, 235, 255);
       ctx->style.window.fixed_background = nk_style_item_color(hl);
     } else {
       ctx->style.window.fixed_background = nk_style_item_color(col_bg);
@@ -2221,9 +2237,9 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
           continue;
 
         // Dim card if it's being dragged
-        int is_dragged_card = (ui->kanban_drag.is_active &&
-                               ui->kanban_drag.threshold_met &&
-                               ui->kanban_drag.dragged_row_id == row_id);
+        int is_dragged_card =
+            (ui->kanban_drag.is_active && ui->kanban_drag.threshold_met &&
+             ui->kanban_drag.dragged_row_id == row_id);
 
         nk_layout_row_dynamic(ctx, 52, 1);
         struct nk_rect card_rect = nk_widget_bounds(ctx);
@@ -2232,14 +2248,16 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
         // Card background (dimmed if being dragged)
         struct nk_color card_bg;
         if (is_dragged_card) {
-          card_bg = ui->dark_mode ? nk_rgba(48, 50, 58, 80) : nk_rgba(200, 200, 200, 80);
+          card_bg = ui->dark_mode ? nk_rgba(48, 50, 58, 80)
+                                  : nk_rgba(200, 200, 200, 80);
         } else {
           card_bg = ui->dark_mode ? nk_rgb(48, 50, 58) : nk_rgb(255, 255, 255);
         }
         // Card shadow
-        nk_fill_rect(cv, nk_rect(card_rect.x + 1, card_rect.y + 2,
-                                  card_rect.w, card_rect.h),
-                     6.0f, nk_rgba(0, 0, 0, ui->dark_mode ? 20 : 10));
+        nk_fill_rect(
+            cv,
+            nk_rect(card_rect.x + 1, card_rect.y + 2, card_rect.w, card_rect.h),
+            6.0f, nk_rgba(0, 0, 0, ui->dark_mode ? 20 : 10));
         nk_fill_rect(cv, card_rect, 6.0f, card_bg);
 
         // Card border: blue if selected
@@ -2262,10 +2280,11 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
             ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(40, 40, 50);
         if (is_dragged_card)
           txt_col = nk_rgba(txt_col.r, txt_col.g, txt_col.b, 80);
-        nk_draw_text(cv, nk_rect(card_rect.x + 10, card_rect.y + 8,
-                                  card_rect.w - 20, 20),
-                     title, strlen(title), &ui->font_inter->handle,
-                     nk_rgba(0, 0, 0, 0), txt_col);
+        nk_draw_text(
+            cv,
+            nk_rect(card_rect.x + 10, card_rect.y + 8, card_rect.w - 20, 20),
+            title, strlen(title), &ui->font_inter->handle, nk_rgba(0, 0, 0, 0),
+            txt_col);
 
         // Click to select + drag initiation
         float mx = ctx->input.mouse.pos.x;
@@ -2276,13 +2295,13 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
           ui->split_view.selected_row = (int)r;
 
           if (!ui->kanban_drag.is_active) {
-            ui->kanban_drag.is_active       = 1;
-            ui->kanban_drag.threshold_met   = 0;
-            ui->kanban_drag.dragged_row_id  = row_id;
-            ui->kanban_drag.source_opt      = opt;
-            ui->kanban_drag.block_id        = table_block->id;
-            ui->kanban_drag.start_x         = mx;
-            ui->kanban_drag.start_y         = my;
+            ui->kanban_drag.is_active = 1;
+            ui->kanban_drag.threshold_met = 0;
+            ui->kanban_drag.dragged_row_id = row_id;
+            ui->kanban_drag.source_opt = opt;
+            ui->kanban_drag.block_id = table_block->id;
+            ui->kanban_drag.start_x = mx;
+            ui->kanban_drag.start_y = my;
             ui->kanban_drag.drop_target_opt = -1;
           }
         }
@@ -2313,10 +2332,10 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
       float best_dist = 1e9f;
       for (int i = 0; i < opt_count && i < 16; i++) {
         struct nk_rect sb = swimlane_bounds[i];
-        if (sb.w <= 0) continue;
+        if (sb.w <= 0)
+          continue;
         // Exact hit
-        if (mx >= sb.x && mx < sb.x + sb.w &&
-            my >= sb.y && my < sb.y + sb.h) {
+        if (mx >= sb.x && mx < sb.x + sb.w && my >= sb.y && my < sb.y + sb.h) {
           ui->kanban_drag.drop_target_opt = i;
           best_dist = 0;
           break;
@@ -2339,7 +2358,8 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
         // Find the view index for the dragged row_id
         int view_idx = -1;
         for (size_t r = 0; r < row_count; r++) {
-          if (aslan_table_view_row_id(tbl, r) == ui->kanban_drag.dragged_row_id) {
+          if (aslan_table_view_row_id(tbl, r) ==
+              ui->kanban_drag.dragged_row_id) {
             view_idx = (int)r;
             break;
           }
@@ -2349,9 +2369,8 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
           if (page) {
             char cmd_buf[256];
             snprintf(cmd_buf, sizeof(cmd_buf),
-                     "block_table_cell %u %u %d %d \"%d\"",
-                     page->id, ui->kanban_drag.block_id,
-                     view_idx, select_col,
+                     "block_table_cell %u %u %d %d \"%d\"", page->id,
+                     ui->kanban_drag.block_id, view_idx, select_col,
                      ui->kanban_drag.drop_target_opt);
             engine_execute_command(engine, cmd_buf);
           }
@@ -2371,10 +2390,11 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
       struct nk_rect ghost = nk_rect(gx, gy, col_w, 52.0f);
 
       // Ghost shadow + background
-      nk_fill_rect(gcv, nk_rect(gx + 1, gy + 2, col_w, 52.0f),
-                   6.0f, nk_rgba(0, 0, 0, 30));
+      nk_fill_rect(gcv, nk_rect(gx + 1, gy + 2, col_w, 52.0f), 6.0f,
+                   nk_rgba(0, 0, 0, 30));
       nk_fill_rect(gcv, ghost, 6.0f,
-                   ui->dark_mode ? nk_rgba(48, 50, 58, 220) : nk_rgba(255, 255, 255, 220));
+                   ui->dark_mode ? nk_rgba(48, 50, 58, 220)
+                                 : nk_rgba(255, 255, 255, 220));
       nk_stroke_rect(gcv, ghost, 6.0f, 1.5f, nk_rgba(55, 120, 235, 180));
 
       // Ghost title text
@@ -2382,13 +2402,14 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
       if (title_col >= 0) {
         const char *gt = aslan_table_get_text(tbl, title_col,
                                               ui->kanban_drag.dragged_row_id);
-        if (gt) snprintf(ghost_title, sizeof(ghost_title), "%s", gt);
+        if (gt)
+          snprintf(ghost_title, sizeof(ghost_title), "%s", gt);
       }
-      struct nk_color gt_col = ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(40, 40, 50);
-      nk_draw_text(gcv,
-                   nk_rect(ghost.x + 10, ghost.y + 8, ghost.w - 20, 20),
-                   ghost_title, strlen(ghost_title),
-                   &ui->font_inter->handle, nk_rgba(0, 0, 0, 0), gt_col);
+      struct nk_color gt_col =
+          ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(40, 40, 50);
+      nk_draw_text(gcv, nk_rect(ghost.x + 10, ghost.y + 8, ghost.w - 20, 20),
+                   ghost_title, strlen(ghost_title), &ui->font_inter->handle,
+                   nk_rgba(0, 0, 0, 0), gt_col);
 
       ui_request_redraw(ui);
     }
@@ -2418,7 +2439,8 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
 
   if (date_col < 0) {
     nk_layout_row_dynamic(ctx, 60, 1);
-    nk_label(ctx, "Add a Date column to enable Calendar view", NK_TEXT_CENTERED);
+    nk_label(ctx, "Add a Date column to enable Calendar view",
+             NK_TEXT_CENTERED);
     return;
   }
 
@@ -2440,8 +2462,8 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
   // Month navigation
   struct nk_style_button nav_btn = ctx->style.button;
   nav_btn.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-  nav_btn.hover = nk_style_item_color(
-      ui->dark_mode ? nk_rgba(255, 255, 255, 15) : nk_rgba(0, 0, 0, 8));
+  nav_btn.hover = nk_style_item_color(ui->dark_mode ? nk_rgba(255, 255, 255, 15)
+                                                    : nk_rgba(0, 0, 0, 8));
   nav_btn.active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
   nav_btn.border = 0;
   nav_btn.rounding = 4;
@@ -2458,10 +2480,9 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
     }
   }
 
-  static const char *month_names[] = {"January",   "February", "March",
-                                      "April",     "May",      "June",
-                                      "July",      "August",   "September",
-                                      "October",   "November", "December"};
+  static const char *month_names[] = {
+      "January", "February", "March",     "April",   "May",      "June",
+      "July",    "August",   "September", "October", "November", "December"};
   char title[64];
   snprintf(title, sizeof(title), "%s %d", month_names[cal_month], cal_year);
   nk_layout_row_push(ctx, width - 100);
@@ -2526,10 +2547,11 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
       }
 
       // Cell background
-      struct nk_color cell_bg =
-          ui->dark_mode ? nk_rgba(42, 44, 50, 180) : nk_rgba(255, 255, 255, 200);
-      nk_fill_rect(cv, nk_rect(cell_rect.x + 1, cell_rect.y + 1,
-                                cell_rect.w - 2, cell_rect.h - 2),
+      struct nk_color cell_bg = ui->dark_mode ? nk_rgba(42, 44, 50, 180)
+                                              : nk_rgba(255, 255, 255, 200);
+      nk_fill_rect(cv,
+                   nk_rect(cell_rect.x + 1, cell_rect.y + 1, cell_rect.w - 2,
+                           cell_rect.h - 2),
                    4.0f, cell_bg);
 
       // Day number
@@ -2542,29 +2564,32 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
       int is_today = (day == now_tm->tm_mday && cal_month == now_tm->tm_mon &&
                       cal_year == now_tm->tm_year + 1900);
       struct nk_color day_col = is_today ? accent : dim_col;
-      nk_draw_text(cv,
-                   nk_rect(cell_rect.x + 4, cell_rect.y + 2, 30, 16),
+      nk_draw_text(cv, nk_rect(cell_rect.x + 4, cell_rect.y + 2, 30, 16),
                    day_str, strlen(day_str), &ui->font_inter->handle,
                    nk_rgba(0, 0, 0, 0), day_col);
 
       // Detect if mouse is inside this cell (for drop target detection)
       float mx = ctx->input.mouse.pos.x;
       float my = ctx->input.mouse.pos.y;
-      int mouse_in_cell = (mx >= cell_rect.x && mx < cell_rect.x + cell_rect.w &&
-                           my >= cell_rect.y && my < cell_rect.y + cell_rect.h);
+      int mouse_in_cell =
+          (mx >= cell_rect.x && mx < cell_rect.x + cell_rect.w &&
+           my >= cell_rect.y && my < cell_rect.y + cell_rect.h);
 
       // Drop target highlight
-      int is_drop_target = (ui->calendar_drag.is_active &&
-                            ui->calendar_drag.threshold_met &&
-                            ui->calendar_drag.drop_target_day == day &&
-                            day != ui->calendar_drag.source_day);
+      int is_drop_target =
+          (ui->calendar_drag.is_active && ui->calendar_drag.threshold_met &&
+           ui->calendar_drag.drop_target_day == day &&
+           day != ui->calendar_drag.source_day);
       if (is_drop_target) {
-        nk_fill_rect(cv, nk_rect(cell_rect.x + 1, cell_rect.y + 1,
-                                  cell_rect.w - 2, cell_rect.h - 2),
+        nk_fill_rect(cv,
+                     nk_rect(cell_rect.x + 1, cell_rect.y + 1, cell_rect.w - 2,
+                             cell_rect.h - 2),
                      4.0f,
-                     ui->dark_mode ? nk_rgba(55, 120, 235, 30) : nk_rgba(55, 120, 235, 20));
-        nk_stroke_rect(cv, nk_rect(cell_rect.x + 1, cell_rect.y + 1,
-                                    cell_rect.w - 2, cell_rect.h - 2),
+                     ui->dark_mode ? nk_rgba(55, 120, 235, 30)
+                                   : nk_rgba(55, 120, 235, 20));
+        nk_stroke_rect(cv,
+                       nk_rect(cell_rect.x + 1, cell_rect.y + 1,
+                               cell_rect.w - 2, cell_rect.h - 2),
                        4.0f, 1.5f, nk_rgba(55, 120, 235, 120));
       }
 
@@ -2576,7 +2601,8 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
 
       // Events for this day
       float ev_y = cell_rect.y + 20;
-      for (size_t r = 0; r < row_count && ev_y < cell_rect.y + cell_h - 4; r++) {
+      for (size_t r = 0; r < row_count && ev_y < cell_rect.y + cell_h - 4;
+           r++) {
         uint64_t row_id = aslan_table_view_row_id(tbl, r);
         int64_t ts = aslan_table_get_date(tbl, date_col, row_id);
         if (ts <= 0)
@@ -2599,9 +2625,9 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
           snprintf(ev_label, sizeof(ev_label), "Event");
 
         // Dim pill if it's being dragged
-        int is_dragged = (ui->calendar_drag.is_active &&
-                          ui->calendar_drag.threshold_met &&
-                          ui->calendar_drag.dragged_row_id == row_id);
+        int is_dragged =
+            (ui->calendar_drag.is_active && ui->calendar_drag.threshold_met &&
+             ui->calendar_drag.dragged_row_id == row_id);
 
         struct nk_color pill_bg, pill_txt_col;
         int is_sel = (ui->split_view.selected_row == (int)r);
@@ -2616,13 +2642,13 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
           pill_txt_col = accent;
         }
 
-        struct nk_rect pill_rect = nk_rect(cell_rect.x + 2, ev_y,
-                                           cell_rect.w - 4, 18);
+        struct nk_rect pill_rect =
+            nk_rect(cell_rect.x + 2, ev_y, cell_rect.w - 4, 18);
         nk_fill_rect(cv, pill_rect, 3.0f, pill_bg);
-        nk_draw_text(
-            cv, nk_rect(cell_rect.x + 5, ev_y + 2, cell_rect.w - 10, 15),
-            ev_label, strlen(ev_label), &ui->font_inter->handle,
-            nk_rgba(0, 0, 0, 0), pill_txt_col);
+        nk_draw_text(cv,
+                     nk_rect(cell_rect.x + 5, ev_y + 2, cell_rect.w - 10, 15),
+                     ev_label, strlen(ev_label), &ui->font_inter->handle,
+                     nk_rgba(0, 0, 0, 0), pill_txt_col);
 
         // Click on pill — select + initiate drag
         if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
@@ -2630,15 +2656,15 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
             my >= pill_rect.y && my < pill_rect.y + pill_rect.h &&
             !ui->calendar_drag.is_active) {
           ui->split_view.selected_row = (int)r;
-          ui->calendar_drag.is_active      = 1;
-          ui->calendar_drag.threshold_met  = 0;
+          ui->calendar_drag.is_active = 1;
+          ui->calendar_drag.threshold_met = 0;
           ui->calendar_drag.dragged_row_id = row_id;
-          ui->calendar_drag.block_id       = table_block->id;
-          ui->calendar_drag.date_col       = date_col;
-          ui->calendar_drag.title_col      = title_col;
-          ui->calendar_drag.source_day     = day;
-          ui->calendar_drag.start_x        = mx;
-          ui->calendar_drag.start_y        = my;
+          ui->calendar_drag.block_id = table_block->id;
+          ui->calendar_drag.date_col = date_col;
+          ui->calendar_drag.title_col = title_col;
+          ui->calendar_drag.source_day = day;
+          ui->calendar_drag.start_x = mx;
+          ui->calendar_drag.start_y = my;
           ui->calendar_drag.drop_target_day = -1;
         }
 
@@ -2651,7 +2677,8 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
         // Check if we clicked on an event pill (already handled above)
         int clicked_pill = 0;
         float check_y = cell_rect.y + 20;
-        for (size_t r = 0; r < row_count && check_y < cell_rect.y + cell_h - 4; r++) {
+        for (size_t r = 0; r < row_count && check_y < cell_rect.y + cell_h - 4;
+             r++) {
           uint64_t rid = aslan_table_view_row_id(tbl, r);
           int64_t ts2 = aslan_table_get_date(tbl, date_col, rid);
           if (ts2 <= 0)
@@ -2672,7 +2699,7 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
           if (pg) {
             struct tm new_day = {0};
             new_day.tm_year = cal_year - 1900;
-            new_day.tm_mon  = cal_month;
+            new_day.tm_mon = cal_month;
             new_day.tm_mday = day;
             new_day.tm_hour = 12;
             new_day.tm_isdst = -1;
@@ -2680,15 +2707,14 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
             long long ts_ms = (long long)new_t * 1000;
 
             char cmd_buf[256];
-            snprintf(cmd_buf, sizeof(cmd_buf),
-                     "block_table_insert_row %u %u 0",
+            snprintf(cmd_buf, sizeof(cmd_buf), "block_table_insert_row %u %u 0",
                      pg->id, table_block->id);
             engine_execute_command(engine, cmd_buf);
 
             size_t new_idx = aslan_table_view_count(tbl) - 1;
             snprintf(cmd_buf, sizeof(cmd_buf),
-                     "block_table_cell %u %u %zu %d \"%lld\"",
-                     pg->id, table_block->id, new_idx, date_col, ts_ms);
+                     "block_table_cell %u %u %zu %d \"%lld\"", pg->id,
+                     table_block->id, new_idx, date_col, ts_ms);
             engine_execute_command(engine, cmd_buf);
 
             ui->split_view.selected_row = (int)new_idx;
@@ -2724,7 +2750,7 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
         // Build new timestamp for the target day
         struct tm new_day = {0};
         new_day.tm_year = cal_year - 1900;
-        new_day.tm_mon  = cal_month;
+        new_day.tm_mon = cal_month;
         new_day.tm_mday = ui->calendar_drag.drop_target_day;
         new_day.tm_hour = 12;
         new_day.tm_isdst = -1;
@@ -2734,7 +2760,8 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
         // Find view index for the dragged row
         int view_idx = -1;
         for (size_t r = 0; r < row_count; r++) {
-          if (aslan_table_view_row_id(tbl, r) == ui->calendar_drag.dragged_row_id) {
+          if (aslan_table_view_row_id(tbl, r) ==
+              ui->calendar_drag.dragged_row_id) {
             view_idx = (int)r;
             break;
           }
@@ -2744,9 +2771,9 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
           if (pg) {
             char cmd_buf[256];
             snprintf(cmd_buf, sizeof(cmd_buf),
-                     "block_table_cell %u %u %d %d \"%lld\"",
-                     pg->id, ui->calendar_drag.block_id,
-                     view_idx, ui->calendar_drag.date_col, ts_ms);
+                     "block_table_cell %u %u %d %d \"%lld\"", pg->id,
+                     ui->calendar_drag.block_id, view_idx,
+                     ui->calendar_drag.date_col, ts_ms);
             engine_execute_command(engine, cmd_buf);
           }
         }
@@ -2770,11 +2797,11 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
       if (ui->calendar_drag.title_col >= 0) {
         const char *gt = aslan_table_get_text(tbl, ui->calendar_drag.title_col,
                                               ui->calendar_drag.dragged_row_id);
-        if (gt) snprintf(ghost_label, sizeof(ghost_label), "%s", gt);
+        if (gt)
+          snprintf(ghost_label, sizeof(ghost_label), "%s", gt);
       }
-      nk_draw_text(gcv, nk_rect(gx + 4, gy + 1, 92, 12),
-                   ghost_label, strlen(ghost_label),
-                   &ui->font_inter->handle,
+      nk_draw_text(gcv, nk_rect(gx + 4, gy + 1, 92, 12), ghost_label,
+                   strlen(ghost_label), &ui->font_inter->handle,
                    nk_rgba(0, 0, 0, 0), nk_rgb(255, 255, 255));
 
       ui_request_redraw(ui);
@@ -2784,8 +2811,7 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
 
 // Render the split view layout (symmetric: both panels can show any view)
 static void ui_render_split_view(UIHost *ui, Engine *engine,
-                                 struct nk_context *ctx, int win_w,
-                                 int win_h) {
+                                 struct nk_context *ctx, int win_w, int win_h) {
   Page *page = doc_page_get_active(engine->doc);
   if (!page)
     return;
@@ -2810,8 +2836,9 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
   float splitter_x = left_w;
   float mx = ctx->input.mouse.pos.x;
   float my = ctx->input.mouse.pos.y;
-  int mouse_in_splitter = (mx >= splitter_x - 4 && mx <= splitter_x + splitter_w + 4 &&
-                           my >= 0 && my < full_h);
+  int mouse_in_splitter =
+      (mx >= splitter_x - 4 && mx <= splitter_x + splitter_w + 4 && my >= 0 &&
+       my < full_h);
 
   if (mouse_in_splitter)
     ui->cursor_type = UI_CURSOR_SIZEWE;
@@ -2880,8 +2907,8 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
     float view_w = left_w - 12;
     float view_h = full_h - 55;
     ui_render_view_tabs(ui, ctx, view_w, &ui->split_view.left_view, "L");
-    ui_render_panel_view(ui, engine, ctx, page,
-                         ui->split_view.left_view, view_w, view_h, "L");
+    ui_render_panel_view(ui, engine, ctx, page, ui->split_view.left_view,
+                         view_w, view_h, "L");
     nk_group_end(ctx);
   }
   ctx->style.window.fixed_background = saved_bg;
@@ -2902,10 +2929,9 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
     nk_fill_rect(cv, sp, 0, sp_bg);
     float dot_y = sp.y + sp.h * 0.5f - 10;
     for (int d = 0; d < 3; d++) {
-      nk_fill_rect(cv,
-                   nk_rect(sp.x + sp.w * 0.5f - 1.5f, dot_y + (float)d * 7,
-                           3, 3),
-                   1.5f, sp_dot);
+      nk_fill_rect(
+          cv, nk_rect(sp.x + sp.w * 0.5f - 1.5f, dot_y + (float)d * 7, 3, 3),
+          1.5f, sp_dot);
     }
     nk_spacing(ctx, 1);
   }
@@ -2920,8 +2946,8 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
     float view_w = right_w - 12;
     float view_h = full_h - 55;
     ui_render_view_tabs(ui, ctx, view_w, &ui->split_view.right_view, "R");
-    ui_render_panel_view(ui, engine, ctx, page,
-                         ui->split_view.right_view, view_w, view_h, "R");
+    ui_render_panel_view(ui, engine, ctx, page, ui->split_view.right_view,
+                         view_w, view_h, "R");
     nk_group_end(ctx);
   }
   ctx->style.window.fixed_background = saved_bg;
@@ -2976,16 +3002,15 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     // Auto-activate split view with default ratio if needed
     if (ui->split_view.ratio < 0.01f) {
       ui->split_view.ratio = 0.5f;
-      ui->split_view.left_view = 0;   // Table
-      ui->split_view.right_view = 1;  // Design
+      ui->split_view.left_view = 0;  // Table
+      ui->split_view.right_view = 1; // Design
     }
     ui->split_view.active = 1;
 
     struct nk_vec2 old_padding_sv = ctx->style.window.padding;
     ctx->style.window.padding = nk_vec2(0, 0);
 
-    if (nk_begin(ctx, "SplitMain",
-                 nk_rect(0, 0, (float)win_w, (float)win_h),
+    if (nk_begin(ctx, "SplitMain", nk_rect(0, 0, (float)win_w, (float)win_h),
                  NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
       ui_render_split_view(ui, engine, ctx, win_w, win_h);
     }
