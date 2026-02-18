@@ -1133,12 +1133,14 @@ void recursive_convert_to_path(Node *node) {
 
 void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
                            struct nk_rect bounds, Block *block) {
-  (void)block;
+  int is_design = (block && block->type == BLOCK_DESIGN);
 
-  // 6 buttons: Shapes, Text, Image, Brush, Color, Bezier
   const float btn_size = 36.0f;
   const float btn_spacing = 8.0f;
-  const float toolbar_w = 7 * btn_size + 6 * btn_spacing + 24.0f; // 7 buttons
+  // Design gets an extra "Linked text" button (8 total), canvas has 7
+  int tool_count = is_design ? 8 : 7;
+  const float toolbar_w =
+      tool_count * btn_size + (tool_count - 1) * btn_spacing + 24.0f;
   const float toolbar_h = 52.0f;
   const float margin = 20.0f;
 
@@ -1166,12 +1168,11 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
   float btn_x = toolbar_x + 12.0f;
   float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
 
-  // 7 buttons: Shapes, Text, Image, Brush, Color, Bezier, Chart
-  // Brush icon changes based on marker mode
+  // 7 buttons (canvas) or 8 buttons (design): last button is Linked Text
   const char *brush_icon = cs->pen_is_marker ? ICON_MARKER : ICON_BRUSH;
-  const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT,  ICON_IMAGE, brush_icon,
-                              "",         ICON_MAGIC, ICON_CHART};
-  int tool_count = 7;
+  const char *tool_icons[] = {ICON_SHAPE,       ICON_TEXT,  ICON_IMAGE,
+                              brush_icon,       "",         ICON_MAGIC,
+                              ICON_CHART,       ICON_LINKED_TEXT};
 
   for (int i = 0; i < tool_count; i++) {
     struct nk_rect btn = nk_rect(btn_x + i * (btn_size + btn_spacing), btn_y,
@@ -1187,6 +1188,8 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
       is_active = cs->bezier_mode;
     if (i == 6)
       is_active = (cs->pending_create == 11); // Chart active state (transient)
+    if (i == 7)
+      is_active = (cs->pending_create == 7); // Linked text (transient)
 
     int hovered = (ui->mouse_x >= btn.x && ui->mouse_x < btn.x + btn.w &&
                    ui->mouse_y >= btn.y && ui->mouse_y < btn.y + btn.h);
@@ -1270,6 +1273,9 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
           cs->show_sub_menu = 0;
         } else if (i == 6) { // Chart button (direct action)
           cs->pending_create = 11;
+          cs->show_sub_menu = 0;
+        } else if (i == 7) { // Linked text button (design only, direct action)
+          cs->pending_create = 7;
           cs->show_sub_menu = 0;
         } else if (cs->active_cat == cat) {
           cs->show_sub_menu = !cs->show_sub_menu;

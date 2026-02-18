@@ -589,6 +589,7 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_HAND "\xEE\xB1\xA0"      // \uec60
 #define ICON_IMAGE "\xEE\xB9\x85"     // ri-image-2-line
 #define ICON_MAGIC "\xEE\xBF\x9E"     // ri-pen-nib-line
+#define ICON_LINKED_TEXT "\xEE\xBA\xB2" // \uEEB2 (linked/data text)
 
 // Table column type icons
 #define ICON_COL_TEXT "\xEF\x88\x81"     // \uf201

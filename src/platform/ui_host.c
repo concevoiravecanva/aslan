@@ -1948,7 +1948,7 @@ static Block *page_find_first_block_of_type(Page *page, BlockType type) {
 // panel_id: "L" or "R" for unique Nuklear IDs
 static void ui_render_view_tabs(UIHost *ui, struct nk_context *ctx, float width,
                                 int *active_view_ptr, const char *panel_id) {
-  const char *tab_labels[] = {"Table", "Design", "Kanban", "Calendar", "Chart"};
+  const char *tab_labels[] = {"Table", "Design", "Kanban", "Calendar", "Charts"};
   const char *tab_icons[] = {ICON_TABLE, ICON_DESIGN, ICON_KANBAN,
                              ICON_CALENDAR, ICON_CHART};
   int tab_count = 5;
@@ -2876,7 +2876,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
         ui->split_view.ratio = 0.97f;
       } else {
         ui->split_view.mode = 0;
-        ui->split_view.ratio = 0.5f;
+        ui->split_view.ratio = 0.1f;
       }
     }
     last_click_time = now;
@@ -2909,6 +2909,15 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
     ui_render_view_tabs(ui, ctx, view_w, &ui->split_view.left_view, "L");
     ui_render_panel_view(ui, engine, ctx, page, ui->split_view.left_view,
                          view_w, view_h, "L");
+    // Fade-to-white when panel gets too narrow (< 20% → progressively white)
+    if (ratio < 0.20f) {
+      float t = (0.20f - ratio) / 0.15f;
+      if (t > 1.0f) t = 1.0f;
+      struct nk_rect gr = nk_window_get_content_region(ctx);
+      nk_fill_rect(nk_window_get_canvas(ctx),
+                   nk_rect(gr.x - 4, gr.y - 4, gr.w + 8, gr.h + 8), 0,
+                   nk_rgba(255, 255, 255, (int)(t * 240)));
+    }
     nk_group_end(ctx);
   }
   ctx->style.window.fixed_background = saved_bg;
@@ -2948,6 +2957,16 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
     ui_render_view_tabs(ui, ctx, view_w, &ui->split_view.right_view, "R");
     ui_render_panel_view(ui, engine, ctx, page, ui->split_view.right_view,
                          view_w, view_h, "R");
+    // Fade-to-white when panel gets too narrow (> 80% left → right shrinks)
+    float right_ratio = 1.0f - ratio;
+    if (right_ratio < 0.20f) {
+      float t = (0.20f - right_ratio) / 0.15f;
+      if (t > 1.0f) t = 1.0f;
+      struct nk_rect gr = nk_window_get_content_region(ctx);
+      nk_fill_rect(nk_window_get_canvas(ctx),
+                   nk_rect(gr.x - 4, gr.y - 4, gr.w + 8, gr.h + 8), 0,
+                   nk_rgba(255, 255, 255, (int)(t * 240)));
+    }
     nk_group_end(ctx);
   }
   ctx->style.window.fixed_background = saved_bg;
@@ -3001,7 +3020,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     // Split view mode (Data-Driven) — default and only editor mode
     // Auto-activate split view with default ratio if needed
     if (ui->split_view.ratio < 0.01f) {
-      ui->split_view.ratio = 0.5f;
+      ui->split_view.ratio = 0.1f;
       ui->split_view.left_view = 0;  // Table
       ui->split_view.right_view = 1; // Design
     }

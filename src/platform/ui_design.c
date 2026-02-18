@@ -468,8 +468,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ui->active_block_id = block->id;
     }
 
-    // Pre-calculate toolbar flags for interaction logic
-    float toolbar_w = 6 * 36.0f + 5 * 8.0f + 24.0f;
+    // Pre-calculate toolbar flags for interaction logic (8 buttons in design)
+    float toolbar_w = 8 * 36.0f + 7 * 8.0f + 24.0f;
     float toolbar_x = ws_bounds.x + (ws_bounds.w - toolbar_w) / 2.0f;
     float toolbar_y = ws_bounds.y + ws_bounds.h - 52.0f - 20.0f; // toolbar_h=52
 
@@ -691,6 +691,13 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
               }
             }
           }
+        } else if (ds->pending_create == 7) { // Linked text
+          new_node = design_create_styled_node(
+              dd, NODE_STYLE_TEXT, nx, ny, 200.0f, 40.0f, ds->selected_color);
+          if (new_node)
+            strncpy(new_node->text, "Linked text",
+                    sizeof(new_node->text) - 1);
+          // linked_col_name starts empty; user links it via Properties sidebar
         } else if (ds->pending_create >= 10 && ds->pending_create <= 13) {
           NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
                                     NODE_STYLE_TRIANGLE, NODE_STYLE_LINE};
@@ -1978,125 +1985,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ui->canvas_state = temp_cs;
     }
 
-    // --- Page Navigation (next to toolbar) ---
-    {
-      float toolbar_w =
-          6 * 36.0f + 5 * 8.0f + 24.0f; // Use standard 6-btn width
-      float toolbar_x = ws_bounds.x + (ws_bounds.w - toolbar_w) / 2.0f;
-      float toolbar_y = ws_bounds.y + ws_bounds.h - toolbar_h - 20.0f;
 
-      float nav_x = toolbar_x + toolbar_w + 20.0f;
-      float nav_btn_size = 24.0f;
-      float nav_y = toolbar_y + (toolbar_h - nav_btn_size) / 2.0f;
-
-      struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
-
-      // "No limits" toggle removed (moved to Page tab)
-
-      // Previous page button
-      struct nk_rect prev_btn =
-          nk_rect(nav_x, nav_y, nav_btn_size, nav_btn_size);
-      int prev_hover =
-          (ui->mouse_x >= prev_btn.x && ui->mouse_x < prev_btn.x + prev_btn.w &&
-           ui->mouse_y >= prev_btn.y && ui->mouse_y < prev_btn.y + prev_btn.h);
-      int prev_enabled = (dd->current_page > 0);
-
-      if (prev_hover && prev_enabled)
-        nk_fill_rect(canvas_buf, prev_btn, 4.0f, nk_rgba(0, 0, 0, 20));
-      nk_draw_text(canvas_buf, nk_rect(prev_btn.x + 6, prev_btn.y + 2, 16, 20),
-                   "<", 1, ctx->style.font, nk_rgba(0, 0, 0, 0),
-                   prev_enabled ? nk_rgb(60, 60, 60) : nk_rgb(180, 180, 180));
-
-      if (prev_hover && ds->mouse_just_pressed && prev_enabled &&
-          (ds->active_design_id == block->id)) {
-        block_design_goto_page(block, dd->current_page - 1);
-        ui->selected_node = NULL;
-      }
-
-      // Page counter (e.g., "1 / 3")
-      char page_str[32];
-      snprintf(page_str, sizeof(page_str), "%d / %d", dd->current_page + 1,
-               dd->page_count);
-      float counter_x = nav_x + nav_btn_size + 4.0f;
-      float counter_w = 50.0f;
-      nk_draw_text(canvas_buf, nk_rect(counter_x, nav_y + 2, counter_w, 20),
-                   page_str, strlen(page_str), ctx->style.font,
-                   nk_rgba(0, 0, 0, 0), nk_rgb(80, 80, 80));
-
-      // Next page button
-      struct nk_rect next_btn =
-          nk_rect(counter_x + counter_w, nav_y, nav_btn_size, nav_btn_size);
-      int next_hover =
-          (ui->mouse_x >= next_btn.x && ui->mouse_x < next_btn.x + next_btn.w &&
-           ui->mouse_y >= next_btn.y && ui->mouse_y < next_btn.y + next_btn.h);
-      int next_enabled = (dd->current_page < dd->page_count - 1);
-
-      if (next_hover && next_enabled)
-        nk_fill_rect(canvas_buf, next_btn, 4.0f, nk_rgba(0, 0, 0, 20));
-      nk_draw_text(canvas_buf, nk_rect(next_btn.x + 6, next_btn.y + 2, 16, 20),
-                   ">", 1, ctx->style.font, nk_rgba(0, 0, 0, 0),
-                   next_enabled ? nk_rgb(60, 60, 60) : nk_rgb(180, 180, 180));
-
-      if (next_hover && ds->mouse_just_pressed && next_enabled &&
-          (ds->active_design_id == block->id)) {
-        block_design_goto_page(block, dd->current_page + 1);
-        ui->selected_node = NULL;
-      }
-
-      // Add page button (+) REMOVED as per user request
-      /*
-      struct nk_rect add_btn = nk_rect(next_btn.x + nav_btn_size + 8.0f, nav_y,
-                                       nav_btn_size, nav_btn_size);
-      int add_hover =
-          (ui->mouse_x >= add_btn.x && ui->mouse_x < add_btn.x + add_btn.w &&
-           ui->mouse_y >= add_btn.y && ui->mouse_y < add_btn.y + add_btn.h);
-
-      if (add_hover)
-        nk_fill_rect(canvas_buf, add_btn, 4.0f, nk_rgba(66, 133, 244, 30));
-      nk_draw_text(canvas_buf, nk_rect(add_btn.x + 6, add_btn.y + 2, 16, 20),
-                   "+", 1, ctx->style.font, nk_rgba(0, 0, 0, 0),
-                   nk_rgb(66, 133, 244));
-
-      if (add_hover && ds->mouse_just_pressed &&
-          (ds->active_design_id == block->id)) {
-        int new_idx = block_design_add_page(block);
-        if (new_idx >= 0) {
-          block_design_goto_page(block, new_idx);
-          ui->selected_node = NULL;
-        }
-      }
-      */
-
-      // Delete page button (trash icon) - only if more than 1 page
-      if (dd->page_count > 1) {
-        struct nk_rect del_btn = nk_rect(next_btn.x + nav_btn_size + 8.0f,
-                                         nav_y, nav_btn_size, nav_btn_size);
-        int del_hover =
-            (ui->mouse_x >= del_btn.x && ui->mouse_x < del_btn.x + del_btn.w &&
-             ui->mouse_y >= del_btn.y && ui->mouse_y < del_btn.y + del_btn.h);
-
-        if (del_hover)
-          nk_fill_rect(canvas_buf, del_btn, 4.0f, nk_rgba(220, 50, 50, 30));
-
-        const char *trash_icon = ICON_DELETE;
-        if (ui->font_icons) {
-          nk_draw_text(canvas_buf,
-                       nk_rect(del_btn.x + 4, del_btn.y + 2, 16, 20),
-                       trash_icon, strlen(trash_icon), &ui->font_icons->handle,
-                       nk_rgba(0, 0, 0, 0),
-                       del_hover ? nk_rgb(220, 50, 50) : nk_rgb(160, 160, 160));
-        }
-
-        if (del_hover && ds->mouse_just_pressed &&
-            (ds->active_design_id == block->id)) {
-          int del_idx = dd->current_page;
-          block_design_delete_page(block, del_idx);
-          if (dd->current_page >= dd->page_count)
-            dd->current_page = dd->page_count - 1;
-          ui->selected_node = NULL;
-        }
-      }
-    }
 
     if (ds->mouse_just_pressed &&
         !nk_input_is_mouse_hovering_rect(

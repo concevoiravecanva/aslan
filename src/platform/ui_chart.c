@@ -214,7 +214,11 @@ static void chart_draw_lines(struct nk_command_buffer *canvas,
       if (lbl_len > 8)
         lbl_len = 8;
       float tw = font->width(font->userdata, font->height, labels[i], lbl_len);
-      nk_draw_text(canvas, nk_rect(px - tw / 2, chart_y + chart_h + 3, tw, 14),
+      // Clamp so first/last labels stay within chart bounds
+      float lx = px - tw / 2;
+      if (lx < area.x) lx = area.x;
+      if (lx + tw > area.x + area.w) lx = area.x + area.w - tw;
+      nk_draw_text(canvas, nk_rect(lx, chart_y + chart_h + 3, tw, 14),
                    labels[i], lbl_len, font, nk_rgba(0, 0, 0, 0),
                    nk_rgba(120, 120, 120, 255));
     }
