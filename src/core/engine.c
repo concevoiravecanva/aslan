@@ -1025,6 +1025,31 @@ static bool handle_block_design_node(Engine *engine, const AofCommand *cmd,
       if (node)
         node_set_size(node, (float)atof(cmd->argv[5]),
                       (float)atof(cmd->argv[6]));
+    } else if (strcmp(action, "text") == 0 && cmd->argc >= 6) {
+      Node *node = block_design_find_node(block, (uint32_t)atoi(cmd->argv[4]));
+      if (node) {
+        char unescaped[256];
+        unescape_string(cmd->argv[5], unescaped, sizeof(unescaped));
+        node_set_text(node, unescaped);
+      }
+    } else if (strcmp(action, "fill") == 0 && cmd->argc >= 6) {
+      Node *node = block_design_find_node(block, (uint32_t)atoi(cmd->argv[4]));
+      if (node)
+        node_set_fill_color(node, (uint32_t)strtoul(cmd->argv[5], NULL, 0));
+    } else if (strcmp(action, "stroke") == 0 && cmd->argc >= 7) {
+      Node *node = block_design_find_node(block, (uint32_t)atoi(cmd->argv[4]));
+      if (node)
+        node_set_stroke(node, (uint32_t)strtoul(cmd->argv[5], NULL, 0),
+                        (float)atof(cmd->argv[6]));
+    } else if (strcmp(action, "linked_col") == 0 && cmd->argc >= 6) {
+      Node *node = block_design_find_node(block, (uint32_t)atoi(cmd->argv[4]));
+      if (node) {
+        char unescaped[64];
+        unescape_string(cmd->argv[5], unescaped, sizeof(unescaped));
+        strncpy(node->linked_col_name, unescaped,
+                sizeof(node->linked_col_name) - 1);
+        node->linked_col_name[sizeof(node->linked_col_name) - 1] = '\0';
+      }
     } else {
       return false;
     }

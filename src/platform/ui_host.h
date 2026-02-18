@@ -375,6 +375,12 @@ typedef struct UIHost {
   char edit_buffer[512];    // Text buffer for editing
   int show_text_edit_popup; // Show text edit popup
 
+  // Design bottom panel tab (0=Properties, 1=Layers)
+  int design_bottom_tab;
+
+  // Linked text row navigator: which table row to display in design (0-based)
+  int design_linked_row_idx;
+
   // Canvas/Design interaction
   float drag_start_x, drag_start_y;
   int is_dragging;

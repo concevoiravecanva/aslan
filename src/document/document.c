@@ -1671,6 +1671,14 @@ static void save_node_recursive(FILE *fp, uint32_t page_id, uint32_t block_id,
     fprintf(fp, "\n");
   }
 
+  // Linked column (design only)
+  if (node->linked_col_name[0]) {
+    fprintf(fp, "%s_node %u %u linked_col %u ", prefix, page_id, block_id,
+            node->id);
+    escape_string(fp, node->linked_col_name);
+    fprintf(fp, "\n");
+  }
+
   // Recurse to children and siblings
   for (Node *child = node->first_child; child; child = child->next_sibling) {
     save_node_recursive(fp, page_id, block_id, prefix, child);

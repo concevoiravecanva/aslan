@@ -1,5 +1,6 @@
 #include "ui_design.h"
 #include "../document/document.h"
+#include "../document/aslan_table.h"
 #include "ui_canvas.h"
 #include "ui_shared.h"
 #include <SDL.h>
@@ -23,6 +24,265 @@ void draw_alignment_guides(struct nk_command_buffer *canvas_buf, Node *node,
 void render_node_context_menu(UIHost *ui, struct nk_context *ctx,
                               struct nk_command_buffer *canvas_buf,
                               Block *block);
+
+// -----------------------------------------------------------------------------
+// Bottom panel: Properties | Layers (fullscreen design only)
+// -----------------------------------------------------------------------------
+
+// Returns true if any text node in the tree has a linked column set
+static bool design_has_linked_nodes(Node *node) {
+  if (!node) return false;
+  if (node->type == NODE_TYPE_TEXT && node->linked_col_name[0]) return true;
+  for (Node *c = node->first_child; c; c = c->next_sibling)
+    if (design_has_linked_nodes(c)) return true;
+  return false;
+}
+
+static void design_render_bottom_panel(UIHost *ui, Engine *engine,
+                                       struct nk_context *ctx, Block *block) {
+  if (!block || block->type != BLOCK_DESIGN)
+    return;
+
+  DesignData *dd = &block->data.design;
+  Page *page = doc_page_get_active(engine->doc);
+
+  // --- Tab bar ---
+  struct nk_style_button ts = ctx->style.button;
+  nk_layout_row_template_begin(ctx, 26);
+  nk_layout_row_template_push_static(ctx, 100);
+  nk_layout_row_template_push_static(ctx, 80);
+  nk_layout_row_template_push_dynamic(ctx);
+  nk_layout_row_template_end(ctx);
+
+  // Properties tab button
+  struct nk_style_button tab0 = ts;
+  if (ui->design_bottom_tab == 0) {
+    tab0.normal = nk_style_item_color(nk_rgb(55, 120, 235));
+    tab0.text_normal = nk_rgb(255, 255, 255);
+  }
+  if (nk_button_label_styled(ctx, &tab0, "Properties"))
+    ui->design_bottom_tab = 0;
+
+  // Layers tab button
+  struct nk_style_button tab1 = ts;
+  if (ui->design_bottom_tab == 1) {
+    tab1.normal = nk_style_item_color(nk_rgb(55, 120, 235));
+    tab1.text_normal = nk_rgb(255, 255, 255);
+  }
+  if (nk_button_label_styled(ctx, &tab1, "Layers"))
+    ui->design_bottom_tab = 1;
+
+  nk_spacing(ctx, 1);
+
+  // --- Separator ---
+  nk_layout_row_dynamic(ctx, 1, 1);
+  nk_spacing(ctx, 1);
+
+  // --- Row navigator (shown when any text node has a linked column) ---
+  if (dd->root && design_has_linked_nodes(dd->root)) {
+    int total_rows = 0;
+    for (Block *b = page ? page->first_block : NULL; b; b = b->next) {
+      if (b->type == BLOCK_TABLE && b->data.table.columnar) {
+        total_rows = (int)b->data.table.columnar->active_count;
+        break;
+      }
+    }
+    if (total_rows > 0) {
+      if (ui->design_linked_row_idx >= total_rows)
+        ui->design_linked_row_idx = total_rows - 1;
+      nk_layout_row_template_begin(ctx, 22);
+      nk_layout_row_template_push_static(ctx, 72); // label
+      nk_layout_row_template_push_static(ctx, 22); // <
+      nk_layout_row_template_push_static(ctx, 70); // "N / Total"
+      nk_layout_row_template_push_static(ctx, 22); // >
+      nk_layout_row_template_push_dynamic(ctx);
+      nk_layout_row_template_end(ctx);
+      nk_label(ctx, "Linked row:", NK_TEXT_LEFT);
+      if (nk_button_label(ctx, "<") && ui->design_linked_row_idx > 0)
+        ui->design_linked_row_idx--;
+      char row_label[32];
+      snprintf(row_label, sizeof(row_label), "%d / %d",
+               ui->design_linked_row_idx + 1, total_rows);
+      nk_label(ctx, row_label, NK_TEXT_CENTERED);
+      if (nk_button_label(ctx, ">") &&
+          ui->design_linked_row_idx < total_rows - 1)
+        ui->design_linked_row_idx++;
+      nk_spacing(ctx, 1);
+    }
+  }
+
+  // ===========================================================================
+  // TAB 0 — PROPERTIES (horizontal layout)
+  // ===========================================================================
+  if (ui->design_bottom_tab == 0) {
+    if (!ui->selected_node) {
+      // --- Artboard presets + size ---
+      nk_layout_row_template_begin(ctx, 28);
+      nk_layout_row_template_push_static(ctx, 36); // A4
+      nk_layout_row_template_push_static(ctx, 36); // A3
+      nk_layout_row_template_push_static(ctx, 36); // HD
+      nk_layout_row_template_push_static(ctx, 36); // 4K
+      nk_layout_row_template_push_static(ctx, 56); // Square
+      nk_layout_row_template_push_static(ctx, 46); // Story
+      nk_layout_row_template_push_static(ctx, 42); // Post
+      nk_layout_row_template_push_static(ctx, 52); // Banner
+      nk_layout_row_template_push_static(ctx, 10); // gap
+      nk_layout_row_template_push_static(ctx, 80); // W
+      nk_layout_row_template_push_static(ctx, 80); // H
+      nk_layout_row_template_push_static(ctx, 10); // gap
+      nk_layout_row_template_push_static(ctx, 90); // BG color
+      nk_layout_row_template_push_dynamic(ctx);
+      nk_layout_row_template_end(ctx);
+
+      if (page) {
+        struct { const char *label; int w, h, unit; } presets[] = {
+          {"A4", 794, 1123, 1}, {"A3", 1123, 1587, 1},
+          {"HD", 1920, 1080, 0}, {"4K", 3840, 2160, 0},
+          {"Square", 1080, 1080, 0}, {"Story", 1080, 1920, 0},
+          {"Post", 1080, 1350, 0}, {"Banner", 1920, 480, 0},
+        };
+        for (int i = 0; i < 8; i++) {
+          if (nk_button_label(ctx, presets[i].label)) {
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "block_design_resize %u %u %d %d %d",
+                     page->id, block->id,
+                     presets[i].w, presets[i].h, presets[i].unit);
+            engine_execute_command(engine, cmd);
+          }
+        }
+        nk_spacing(ctx, 1); // gap
+
+        // W / H inputs (pixels for simplicity)
+        float val_w = (float)dd->width;
+        float val_h = (float)dd->height;
+        nk_property_float(ctx, "W:", 100.0f, &val_w, 4000.0f, 1.0f, 0.5f);
+        nk_property_float(ctx, "H:", 100.0f, &val_h, 4000.0f, 1.0f, 0.5f);
+        int new_w = (int)val_w, new_h = (int)val_h;
+        if (new_w != dd->width || new_h != dd->height) {
+          char cmd[128];
+          snprintf(cmd, sizeof(cmd), "block_design_resize %u %u %d %d %d",
+                   page->id, block->id, new_w, new_h, 0);
+          engine_execute_command(engine, cmd);
+        }
+
+        nk_spacing(ctx, 1); // gap
+        ui_render_color_property(ctx, "BG",
+                                 &dd->pages[dd->current_page].bg_color);
+      }
+      nk_spacing(ctx, 1);
+
+    } else {
+      // --- Node selected: X Y W H | Fill Stroke StrokeW | Rotation ---
+      Node *node = ui->selected_node;
+
+      // Row 1: Position + Size + Rotation
+      nk_layout_row_template_begin(ctx, 28);
+      nk_layout_row_template_push_static(ctx, 88); // X
+      nk_layout_row_template_push_static(ctx, 88); // Y
+      nk_layout_row_template_push_static(ctx, 10); // gap
+      nk_layout_row_template_push_static(ctx, 88); // W
+      nk_layout_row_template_push_static(ctx, 88); // H
+      nk_layout_row_template_push_static(ctx, 10); // gap
+      nk_layout_row_template_push_static(ctx, 96); // Rotation
+      nk_layout_row_template_push_dynamic(ctx);
+      nk_layout_row_template_end(ctx);
+
+      nk_property_float(ctx, "X:", -10000.f, &node->x, 10000.f, 1.f, 0.5f);
+      nk_property_float(ctx, "Y:", -10000.f, &node->y, 10000.f, 1.f, 0.5f);
+      nk_spacing(ctx, 1);
+      nk_property_float(ctx, "W:", 1.f, &node->width, 10000.f, 1.f, 0.5f);
+      nk_property_float(ctx, "H:", 1.f, &node->height, 10000.f, 1.f, 0.5f);
+      nk_spacing(ctx, 1);
+      nk_property_float(ctx, "R:", -360.f, &node->rotation, 360.f, 1.f, 0.5f);
+      nk_spacing(ctx, 1);
+
+      // Row 2: Fill + Stroke + StrokeW  (+ font size for text nodes)
+      nk_layout_row_template_begin(ctx, 28);
+      nk_layout_row_template_push_static(ctx, 90);  // Fill color
+      nk_layout_row_template_push_static(ctx, 90);  // Stroke color
+      nk_layout_row_template_push_static(ctx, 88);  // Stroke width
+      if (node->type == NODE_TYPE_RECT || node->type == NODE_TYPE_IMAGE ||
+          node->type == NODE_TYPE_FRAME) {
+        nk_layout_row_template_push_static(ctx, 10); // gap
+        nk_layout_row_template_push_static(ctx, 96); // Corner radius
+      }
+      if (node->type == NODE_TYPE_TEXT) {
+        nk_layout_row_template_push_static(ctx, 10); // gap
+        nk_layout_row_template_push_static(ctx, 90); // Font size
+      }
+      nk_layout_row_template_push_dynamic(ctx);
+      nk_layout_row_template_end(ctx);
+
+      ui_render_color_property(ctx, "Fill", &node->fill_color);
+      ui_render_color_property(ctx, "Stroke", &node->stroke_color);
+      nk_property_float(ctx, "SW:", 0.f, &node->stroke_width, 100.f, 0.5f, 0.25f);
+      if (node->type == NODE_TYPE_RECT || node->type == NODE_TYPE_IMAGE ||
+          node->type == NODE_TYPE_FRAME) {
+        nk_spacing(ctx, 1);
+        nk_property_float(ctx, "R:", 0.f, &node->corner_radius, 200.f, 1.f, 0.5f);
+      }
+      if (node->type == NODE_TYPE_TEXT) {
+        if (node->font_size < 8.0f) node->font_size = 12.0f;
+        nk_spacing(ctx, 1);
+        nk_property_float(ctx, "Sz:", 8.f, &node->font_size, 200.f, 1.f, 0.5f);
+      }
+      nk_spacing(ctx, 1);
+
+      // Row 3: Link to column (text nodes only)
+      if (node->type == NODE_TYPE_TEXT) {
+        Block *tbl_block = NULL;
+        for (Block *b = page ? page->first_block : NULL; b; b = b->next) {
+          if (b->type == BLOCK_TABLE && b->data.table.columnar) {
+            tbl_block = b;
+            break;
+          }
+        }
+        if (tbl_block) {
+          AslanTable *tbl = tbl_block->data.table.columnar;
+          int col_count = (int)tbl->column_count;
+          const char *col_names[33];
+          col_names[0] = "None";
+          for (int k = 0; k < col_count && k < 32; k++)
+            col_names[k + 1] = tbl->columns[k].name;
+          int total_opts = col_count + 1;
+          int cur_sel = 0;
+          for (int k = 0; k < col_count; k++) {
+            if (strcmp(node->linked_col_name, tbl->columns[k].name) == 0) {
+              cur_sel = k + 1;
+              break;
+            }
+          }
+          nk_layout_row_template_begin(ctx, 26);
+          nk_layout_row_template_push_static(ctx, 76);  // label
+          nk_layout_row_template_push_static(ctx, 160); // combo
+          nk_layout_row_template_push_dynamic(ctx);
+          nk_layout_row_template_end(ctx);
+          nk_label(ctx, "Link to col:", NK_TEXT_LEFT);
+          int new_sel = nk_combo(ctx, col_names, total_opts, cur_sel, 26,
+                                 nk_vec2(200, 200));
+          nk_spacing(ctx, 1);
+          if (new_sel != cur_sel) {
+            if (new_sel == 0) {
+              node->linked_col_name[0] = '\0';
+            } else {
+              strncpy(node->linked_col_name, col_names[new_sel],
+                      sizeof(node->linked_col_name) - 1);
+              node->linked_col_name[sizeof(node->linked_col_name) - 1] = '\0';
+              ui->design_linked_row_idx = 0;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // ===========================================================================
+  // TAB 1 — LAYERS (vertical scrollable list, reuses existing function)
+  // ===========================================================================
+  if (ui->design_bottom_tab == 1) {
+    ui_render_sidebar_layers(ui, ctx, block);
+  }
+}
 
 void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                             Block *block, float width) {
@@ -61,11 +321,13 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   // --- Layout height calculation ---
   float toolbar_h = 52.0f;
+  float panel_h   = 150.0f; // Bottom properties/layers panel (fullscreen only)
   float display_h = 0;
 
   if (dd->no_limits) {
     // Infinite canvas: use all available height
-    display_h = is_fullscreen ? nk_window_get_height(ctx) - 100.0f : 400.0f;
+    display_h = is_fullscreen ? nk_window_get_height(ctx) - 100.0f - panel_h
+                              : 400.0f;
   } else if (!is_fullscreen) {
     // Inline mode: scale to fit width, but cap height
     float scale_w = width / (float)dd->width;
@@ -73,19 +335,12 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     if (display_h > 400.0f)
       display_h = 400.0f;
   } else {
-    // Fullscreen: use window height
-    display_h = nk_window_get_height(ctx) - 100.0f;
+    // Fullscreen: use window height minus bottom panel
+    display_h = nk_window_get_height(ctx) - 100.0f - panel_h;
   }
 
-  // Define layout
-  if (is_fullscreen) {
-    nk_layout_row_template_begin(ctx, display_h + toolbar_h);
-    nk_layout_row_template_push_variable(ctx, 75);   // Workspace
-    nk_layout_row_template_push_static(ctx, 250.0f); // Sidebar
-    nk_layout_row_template_end(ctx);
-  } else {
-    nk_layout_row_dynamic(ctx, display_h + toolbar_h, 1);
-  }
+  // Define layout — always a single full-width workspace row
+  nk_layout_row_dynamic(ctx, display_h + toolbar_h, 1);
 
   // --- Rendering Workspace ---
   // DEBUG: Visualize the intended area
@@ -978,7 +1233,35 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
               nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, fill);
 
             const char *display_text = node->text;
+            static char linked_val_buf[256];
             int is_editing = (ui->editing_node == node);
+            // Substitute linked column value when not editing
+            if (!is_editing && node->linked_col_name[0]) {
+              Page *lpage = doc_page_get_active(engine->doc);
+              for (Block *b = lpage ? lpage->first_block : NULL; b;
+                   b = b->next) {
+                if (b->type == BLOCK_TABLE && b->data.table.columnar) {
+                  AslanTable *tbl = b->data.table.columnar;
+                  for (int lk = 0; lk < (int)tbl->column_count; lk++) {
+                    if (strcmp(tbl->columns[lk].name,
+                               node->linked_col_name) == 0) {
+                      int ridx = ui->design_linked_row_idx;
+                      if (ridx < (int)tbl->active_count) {
+                        uint64_t rid =
+                            aslan_table_view_row_id(tbl, ridx);
+                        const char *val = aslan_table_get_cell_display(
+                            tbl, lk, rid, linked_val_buf,
+                            sizeof(linked_val_buf));
+                        if (val && val[0])
+                          display_text = val;
+                      }
+                      break;
+                    }
+                  }
+                  break;
+                }
+              }
+            }
             if (is_editing) {
               display_text = ui->edit_buffer;
               nk_fill_rect(canvas_buf,
@@ -1799,31 +2082,12 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     nk_group_end(ctx);
   } // design_content_group
 
-  // --- Column 2: Sidebar (only in fullscreen mode) ---
+  // --- Bottom panel: Properties | Layers (fullscreen only) ---
   if (is_fullscreen) {
-    if (nk_group_begin(ctx, "design_sidebar",
+    nk_layout_row_dynamic(ctx, panel_h, 1);
+    if (nk_group_begin(ctx, "design_bottom_panel",
                        NK_WINDOW_BORDER | NK_WINDOW_NO_SCROLLBAR)) {
-      if (ui->sidebar_mode == 1) {
-        ui_render_sidebar_shape_selection(ui, ctx);
-      } else {
-        // Properties section
-        nk_layout_row_dynamic(ctx, 30, 1);
-        nk_label(ctx, "Properties", NK_TEXT_LEFT);
-        nk_layout_row_dynamic(ctx, 2, 1);
-        nk_spacing(ctx, 1);
-        ui_render_sidebar_properties(ui, engine, ctx, block);
-
-        // Spacing between sections
-        nk_layout_row_dynamic(ctx, 20, 1);
-        nk_spacing(ctx, 1);
-
-        // Layers section
-        nk_layout_row_dynamic(ctx, 30, 1);
-        nk_label(ctx, "Layers", NK_TEXT_LEFT);
-        nk_layout_row_dynamic(ctx, 2, 1);
-        nk_spacing(ctx, 1);
-        ui_render_sidebar_layers(ui, ctx, block);
-      }
+      design_render_bottom_panel(ui, engine, ctx, block);
       nk_group_end(ctx);
     }
   }

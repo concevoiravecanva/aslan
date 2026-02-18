@@ -111,6 +111,9 @@ typedef struct Node {
   float font_size; // Default 20.0f
   int font_type;   // 0=Inter, 1=H1, 2=H2, 3=H3, 4=Mono
 
+  // Linked text (design only): if non-empty, display value from this column
+  char linked_col_name[64];
+
   // Line Styles
   int line_start_style; // 0=None, 1=Circle, 2=Arrow
   int line_end_style;   // 0=None, 1=Circle, 2=Arrow
