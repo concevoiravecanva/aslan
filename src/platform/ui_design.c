@@ -249,6 +249,12 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     dd->root = dd->pages[0].root;
   }
 
+  // Ensure background is not transparent (0) - default to White
+  if (dd->bg_color == 0)
+    dd->bg_color = 0xFFFFFFFF;
+  if (dd->pages[dd->current_page].bg_color == 0)
+    dd->pages[dd->current_page].bg_color = 0xFFFFFFFF;
+
   // Ensure root points to current page
   if (dd->current_page >= 0 && dd->current_page < dd->page_count) {
     dd->root = dd->pages[dd->current_page].root;
@@ -1886,7 +1892,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         ui->selected_node = NULL;
       }
 
-      // Add page button (+)
+      // Add page button (+) REMOVED as per user request
+      /*
       struct nk_rect add_btn = nk_rect(next_btn.x + nav_btn_size + 8.0f, nav_y,
                                        nav_btn_size, nav_btn_size);
       int add_hover =
@@ -1907,11 +1914,12 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           ui->selected_node = NULL;
         }
       }
+      */
 
       // Delete page button (trash icon) - only if more than 1 page
       if (dd->page_count > 1) {
-        struct nk_rect del_btn = nk_rect(add_btn.x + nav_btn_size + 8.0f, nav_y,
-                                         nav_btn_size, nav_btn_size);
+        struct nk_rect del_btn = nk_rect(next_btn.x + nav_btn_size + 8.0f,
+                                         nav_y, nav_btn_size, nav_btn_size);
         int del_hover =
             (ui->mouse_x >= del_btn.x && ui->mouse_x < del_btn.x + del_btn.w &&
              ui->mouse_y >= del_btn.y && ui->mouse_y < del_btn.y + del_btn.h);
