@@ -409,65 +409,14 @@ static void chart_render_config_bar(UIHost *ui, Engine *engine,
   (void)width;
 
   nk_layout_row_template_begin(ctx, 26.0f);
-  nk_layout_row_template_push_static(ctx, 70.0f);
-  nk_layout_row_template_push_static(ctx, 110.0f);
-  nk_layout_row_template_push_static(ctx, 100.0f);
-  nk_layout_row_template_push_static(ctx, 100.0f);
-  nk_layout_row_template_push_dynamic(ctx);
+  nk_layout_row_template_push_static(ctx, 100.0f); // Label column
+  nk_layout_row_template_push_static(ctx, 100.0f); // Value column
+  nk_layout_row_template_push_dynamic(ctx);         // Spacer
   nk_layout_row_template_end(ctx);
 
-  // --- Chart Type (cycle: Bar -> Line -> Pie) ---
-  const char *type_labels[] = {"Bar", "Line", "Pie"};
-  if (nk_button_label(ctx, type_labels[cd->type])) {
-    ui->active_block_id = block->id;
-    int next = (cd->type + 1) % 3;
-    const char *type_strs[] = {"bar", "line", "pie"};
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd), "block_chart_init %u %u %s %u %d %d", page_id,
-             block->id, type_strs[next], cd->source_table_id, cd->label_col_idx,
-             cd->value_col_idx);
-    engine_execute_command(engine, cmd);
-  }
-
-  // --- Source Table (cycle through TABLE blocks on page) ---
-  char src_label[64] = "Table...";
-  if (cd->source_table_id > 0) {
-    Block *src = page_find_block_by_id(page, cd->source_table_id);
-    if (src && src->type == BLOCK_TABLE)
-      snprintf(src_label, sizeof(src_label), "Table #%u", src->id);
-  }
-
-  if (nk_button_label(ctx, src_label)) {
-    ui->active_block_id = block->id;
-    Block *first_table = NULL;
-    Block *next_table = NULL;
-    bool found_current = false;
-    for (Block *b = page->first_block; b; b = b->next) {
-      if (b->type == BLOCK_TABLE && b->data.table.columnar) {
-        if (!first_table)
-          first_table = b;
-        if (found_current && !next_table) {
-          next_table = b;
-          break;
-        }
-        if (b->id == cd->source_table_id)
-          found_current = true;
-      }
-    }
-    if (!next_table)
-      next_table = first_table;
-    if (next_table) {
-      const char *type_strs[] = {"bar", "line", "pie"};
-      char cmd[256];
-      snprintf(cmd, sizeof(cmd), "block_chart_init %u %u %s %u %d %d", page_id,
-               block->id, type_strs[cd->type], next_table->id,
-               cd->label_col_idx, cd->value_col_idx);
-      engine_execute_command(engine, cmd);
-    }
-  }
+  AslanTable *tbl = chart_find_source_table(page, cd->source_table_id);
 
   // --- Label Column (cycle all columns) ---
-  AslanTable *tbl = chart_find_source_table(page, cd->source_table_id);
   char col_label[64] = "Label: -";
   if (tbl && cd->label_col_idx >= 0 &&
       cd->label_col_idx < (int)tbl->column_count) {
@@ -545,22 +494,37 @@ void ui_render_block_chart(UIHost *ui, Engine *engine, struct nk_context *ctx,
     }
   }
 
-  // Config header bar
+  // Config header bar (label col + value col only)
   chart_render_config_bar(ui, engine, ctx, page, block, width);
 
-  // Chart area
-  float chart_h = 280.0f;
-  nk_layout_row_dynamic(ctx, chart_h, 1);
-  struct nk_rect chart_bounds;
-  nk_widget(&chart_bounds, ctx);
+  // Render all 3 chart types stacked vertically
+  static const ChartType all_types[] = {CHART_BAR, CHART_LINE, CHART_PIE};
+  static const char *type_names[] = {"Bar", "Line", "Pie"};
+  float chart_h = 260.0f;
+  ChartData cd_copy = *cd;
 
-  if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
-                                      chart_bounds)) {
-    ui->active_block_id = block->id;
+  for (int t = 0; t < 3; t++) {
+    // Section label
+    nk_layout_row_dynamic(ctx, 18, 1);
+    nk_label(ctx, type_names[t], NK_TEXT_LEFT);
+
+    // Chart area
+    nk_layout_row_dynamic(ctx, chart_h, 1);
+    struct nk_rect chart_bounds;
+    nk_widget(&chart_bounds, ctx);
+
+    if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
+                                        chart_bounds)) {
+      ui->active_block_id = block->id;
+    }
+
+    cd_copy.type = all_types[t];
+    ui_render_chart_impl(ui, ctx, &cd_copy, chart_bounds, page);
+
+    // Small gap between charts
+    nk_layout_row_dynamic(ctx, 8, 1);
+    nk_spacing(ctx, 1);
   }
-
-  // Render chart into the widget area
-  ui_render_chart_impl(ui, ctx, cd, chart_bounds, page);
 }
 
 void ui_render_chart_node_config_bar(UIHost *ui, Engine *engine,

@@ -1287,7 +1287,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
             strncpy(ui->editing_node->text, ui->edit_buffer,
                     sizeof(ui->editing_node->text) - 1);
             ui->editing_node = NULL;
-            SDL_StopTextInput();
+            SDL_StartTextInput(); // keep text input alive for Nuklear edit widgets
           }
           // Start panning in no_limits mode when clicking background
           if (dd->no_limits && ds->tool != CANVAS_TOOL_PEN &&

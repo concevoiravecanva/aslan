@@ -2492,7 +2492,7 @@ void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
           strncpy(ui->editing_node->text, ui->edit_buffer,
                   sizeof(ui->editing_node->text) - 1);
           ui->editing_node = NULL;
-          SDL_StopTextInput();
+          SDL_StartTextInput(); // keep text input alive for Nuklear edit widgets
         }
         // Start pan mode automatically if not in pen tool
         if (cs->tool != CANVAS_TOOL_PEN && !ui->block_drag.is_active) {

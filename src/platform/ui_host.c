@@ -1016,10 +1016,10 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
                 sizeof(ui->editing_node->text) - 1);
         ui->editing_node->text[sizeof(ui->editing_node->text) - 1] = '\0';
         ui->editing_node = NULL;
-        SDL_StopTextInput();
+        SDL_StartTextInput(); // keep text input alive for Nuklear edit widgets
       } else if (evt->key.keysym.sym == SDLK_ESCAPE) {
         ui->editing_node = NULL;
-        SDL_StopTextInput();
+        SDL_StartTextInput(); // keep text input alive for Nuklear edit widgets
       } else if (evt->key.keysym.sym == SDLK_BACKSPACE) {
         size_t len = strlen(ui->edit_buffer);
         if (len > 0)
@@ -2053,7 +2053,7 @@ static void ui_render_panel_view(UIHost *ui, Engine *engine,
     Block *table = page_find_first_block_of_type(page, BLOCK_TABLE);
     snprintf(grp_name, sizeof(grp_name), "%sKanbanView", prefix);
     nk_layout_row_dynamic(ctx, view_h, 1);
-    if (nk_group_begin(ctx, grp_name, 0)) {
+    if (nk_group_begin(ctx, grp_name, NK_WINDOW_NO_SCROLLBAR)) {
       if (table) {
         ui_render_view_kanban(ui, engine, ctx, table, view_w, view_h);
       } else {
@@ -2084,7 +2084,7 @@ static void ui_render_panel_view(UIHost *ui, Engine *engine,
     if (chart) {
       snprintf(grp_name, sizeof(grp_name), "%sChartView", prefix);
       nk_layout_row_dynamic(ctx, view_h, 1);
-      if (nk_group_begin(ctx, grp_name, NK_WINDOW_NO_SCROLLBAR)) {
+      if (nk_group_begin(ctx, grp_name, 0)) {
         ui_render_block_chart(ui, engine, ctx, page, chart, view_w);
         nk_group_end(ctx);
       }
@@ -2287,8 +2287,6 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
           }
         }
 
-        nk_spacing(ctx, 1);
-        nk_layout_row_dynamic(ctx, 4, 1);
         nk_spacing(ctx, 1);
       }
       nk_group_end(ctx);
@@ -2619,10 +2617,10 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
         }
 
         struct nk_rect pill_rect = nk_rect(cell_rect.x + 2, ev_y,
-                                           cell_rect.w - 4, 14);
+                                           cell_rect.w - 4, 18);
         nk_fill_rect(cv, pill_rect, 3.0f, pill_bg);
         nk_draw_text(
-            cv, nk_rect(cell_rect.x + 5, ev_y + 1, cell_rect.w - 10, 12),
+            cv, nk_rect(cell_rect.x + 5, ev_y + 2, cell_rect.w - 10, 15),
             ev_label, strlen(ev_label), &ui->font_inter->handle,
             nk_rgba(0, 0, 0, 0), pill_txt_col);
 
@@ -2644,7 +2642,7 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
           ui->calendar_drag.drop_target_day = -1;
         }
 
-        ev_y += 16;
+        ev_y += 20;
       }
 
       // Click on empty cell (not on a pill, not dragging) — create new event
@@ -2662,11 +2660,11 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
           struct tm *etm2 = localtime(&t2);
           if (etm2->tm_mday == day && etm2->tm_mon == cal_month &&
               etm2->tm_year + 1900 == cal_year) {
-            if (my >= check_y && my < check_y + 14) {
+            if (my >= check_y && my < check_y + 18) {
               clicked_pill = 1;
               break;
             }
-            check_y += 16;
+            check_y += 20;
           }
         }
         if (!clicked_pill && engine && engine->doc) {

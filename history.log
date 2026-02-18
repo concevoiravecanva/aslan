@@ -399,3 +399,54 @@ block_table_cell 1 104 5 2 "1770807600000"
 block_table_insert_row 1 104 0
 block_table_cell 1 104 6 2 "1770894000000"
 block_table_cell 1 104 0 2 "1770202800000"
+-- Session started --
+block_chart_init 1 106 line 104 0 1
+block_chart_init 1 106 pie 104 0 1
+block_table_insert_row 1 104 0
+block_table_cell 1 104 5 4 "1770202800000"
+block_table_cell 1 104 3 4 "1770634800000"
+block_chart_init 1 106 bar 104 0 1
+block_table_col_width 1 104 3 125
+block_chart_init 1 106 bar 104 0 2
+block_chart_init 1 106 line 104 0 2
+block_chart_init 1 106 pie 104 0 2
+block_chart_init 1 106 pie 104 0 1
+block_chart_init 1 106 pie 104 1 1
+block_chart_init 1 106 pie 104 2 1
+block_chart_init 1 106 pie 104 3 1
+block_chart_init 1 106 pie 104 4 1
+block_chart_init 1 106 pie 104 5 1
+block_chart_init 1 106 pie 104 0 1
+block_chart_init 1 106 pie 104 0 1
+block_table_insert_row 1 104 0
+block_table_cell 1 104 6 4 "1771326000000"
+block_table_cell 1 104 6 4 "1770289200000"
+block_table_cell 1 104 0 5 "1"
+block_table_cell 1 104 1 5 "0"
+block_design_nolimits 1 105 1
+block_table_cell 1 104 2 5 "0"
+block_chart_init 1 106 bar 104 0 1
+block_chart_init 1 106 line 104 0 1
+block_chart_init 1 106 pie 104 0 1
+block_chart_init 1 106 bar 104 0 1
+block_chart_init 1 106 line 104 0 1
+block_chart_init 1 106 pie 104 0 1
+block_chart_init 1 106 bar 104 0 1
+block_chart_init 1 106 bar 104 0 2
+block_chart_init 1 106 bar 104 0 1
+block_chart_init 1 106 bar 104 0 2
+block_chart_init 1 106 bar 104 0 1
+block_chart_init 1 106 bar 104 0 2
+block_chart_init 1 106 bar 104 0 1
+block_chart_init 1 106 bar 104 0 2
+block_chart_init 1 106 bar 104 0 1
+block_chart_init 1 106 bar 104 0 2
+block_table_col_width 1 104 1 172
+block_table_col_width 1 104 1 84
+block_table_col_width 1 104 3 211
+block_chart_init 1 106 line 104 0 2
+block_chart_init 1 106 pie 104 0 2
+-- Session started --
+block_table_insert_row 1 104 0
+block_table_cell 1 104 7 2 "1770116400000"
+block_table_cell 1 104 7 3 "1"
