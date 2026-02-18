@@ -205,6 +205,20 @@ static void design_render_bottom_panel(UIHost *ui, Engine *engine,
         }
 
         nk_layout_row_dynamic(ctx, 28, 1);
+        int no_limits = dd->no_limits;
+        if (nk_checkbox_label(ctx, "Infinite Canvas", &no_limits)) {
+          if (no_limits != dd->no_limits) {
+            dd->no_limits = no_limits;
+            if (dd->no_limits && dd->zoom < 0.01f)
+              dd->zoom = 1.0f;
+            char cmd[128];
+            snprintf(cmd, sizeof(cmd), "block_design_nolimits %u %u %d",
+                     page->id, block->id, dd->no_limits);
+            engine_execute_command(engine, cmd);
+          }
+        }
+
+        nk_layout_row_dynamic(ctx, 28, 1);
         ui_render_color_property(ctx, "Background",
                                  &dd->pages[dd->current_page].bg_color);
       }
@@ -337,8 +351,13 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
       scale = zoom;
 
-      // Background: white + dot grid
-      nk_fill_rect(canvas_buf, ws_bounds, 0, nk_rgb(255, 255, 255));
+      // Background: use page bg color + dot grid
+      struct nk_color bg_col =
+          nk_rgba((dd->pages[dd->current_page].bg_color >> 24) & 0xFF,
+                  (dd->pages[dd->current_page].bg_color >> 16) & 0xFF,
+                  (dd->pages[dd->current_page].bg_color >> 8) & 0xFF,
+                  dd->pages[dd->current_page].bg_color & 0xFF);
+      nk_fill_rect(canvas_buf, ws_bounds, 0, bg_col);
       canvas_draw_dot_grid(canvas_buf, ws_bounds, cam_x, cam_y, zoom);
       nk_push_scissor(canvas_buf, ws_bounds);
 
@@ -1815,46 +1834,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
 
-      // "No limits" toggle (left of toolbar)
-      {
-        const char *lbl = dd->no_limits ? "Bounded" : "No limits";
-        float lbl_w =
-            ctx->style.font->width(ctx->style.font->userdata,
-                                   ctx->style.font->height, lbl, strlen(lbl)) +
-            16.0f;
-        float toggle_x = toolbar_x - lbl_w - 16.0f;
-        float toggle_y = toolbar_y + (toolbar_h - 24.0f) / 2.0f;
-        struct nk_rect toggle_r = nk_rect(toggle_x, toggle_y, lbl_w, 24.0f);
-        int toggle_hover = (ui->mouse_x >= toggle_r.x &&
-                            ui->mouse_x < toggle_r.x + toggle_r.w &&
-                            ui->mouse_y >= toggle_r.y &&
-                            ui->mouse_y < toggle_r.y + toggle_r.h);
-
-        struct nk_color bg =
-            toggle_hover ? nk_rgba(0, 0, 0, 30) : nk_rgba(0, 0, 0, 15);
-        if (dd->no_limits)
-          bg = toggle_hover ? nk_rgba(55, 120, 250, 60)
-                            : nk_rgba(55, 120, 250, 40);
-        nk_fill_rect(canvas_buf, toggle_r, 12.0f, bg);
-        nk_draw_text(
-            canvas_buf, nk_rect(toggle_r.x + 8, toggle_r.y + 4, lbl_w - 16, 16),
-            lbl, strlen(lbl), ctx->style.font, nk_rgba(0, 0, 0, 0),
-            dd->no_limits ? nk_rgb(55, 120, 250) : nk_rgb(100, 100, 100));
-
-        if (toggle_hover && ds->mouse_just_pressed &&
-            (ds->active_design_id == block->id)) {
-          dd->no_limits = !dd->no_limits;
-          if (dd->no_limits && dd->zoom < 0.01f)
-            dd->zoom = 1.0f;
-          Page *page = doc_page_get_active(engine->doc);
-          if (page) {
-            char cmd[128];
-            snprintf(cmd, sizeof(cmd), "block_design_nolimits %u %u %d",
-                     page->id, block->id, dd->no_limits);
-            engine_execute_command(engine, cmd);
-          }
-        }
-      }
+      // "No limits" toggle removed (moved to Page tab)
 
       // Previous page button
       struct nk_rect prev_btn =

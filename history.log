@@ -628,3 +628,8 @@ block_design_resize 1 105 869 651 0
 block_design_resize 1 105 1920 1080 0
 block_design_resize 1 105 1080 1080 0
 block_design_resize 1 105 1080 1920 0
+-- Session started --
+block_design_nolimits 1 105 1
+block_design_nolimits 1 105 0
+block_design_nolimits 1 105 1
+block_design_nolimits 1 105 0
