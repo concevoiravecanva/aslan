@@ -25,202 +25,364 @@ void render_node_context_menu(UIHost *ui, struct nk_context *ctx,
                               struct nk_command_buffer *canvas_buf,
                               Block *block);
 
-// -----------------------------------------------------------------------------
-// Bottom panel: Properties | Layers (fullscreen design only)
-// -----------------------------------------------------------------------------
+// =============================================================================
+// DESIGN SIDEBAR — Properties | Layers | Page
+// =============================================================================
 
 // Returns true if any text node in the tree has a linked column set
 static bool design_has_linked_nodes(Node *node) {
-  if (!node)
-    return false;
-  if (node->type == NODE_TYPE_TEXT && node->linked_col_name[0])
-    return true;
+  if (!node) return false;
+  if (node->type == NODE_TYPE_TEXT && node->linked_col_name[0]) return true;
   for (Node *c = node->first_child; c; c = c->next_sibling)
-    if (design_has_linked_nodes(c))
-      return true;
+    if (design_has_linked_nodes(c)) return true;
   return false;
 }
 
-static void design_render_bottom_panel(UIHost *ui, Engine *engine,
-                                       struct nk_context *ctx, Block *block) {
+// ── Section header: gap + tinted label + hairline ───────────────────────────
+static void ds_section(struct nk_context *ctx, const char *label) {
+  nk_layout_row_dynamic(ctx, 8, 1);
+  nk_spacing(ctx, 1);
+  nk_layout_row_dynamic(ctx, 18, 1);
+  struct nk_command_buffer *cb = nk_window_get_canvas(ctx);
+  struct nk_rect lb = nk_widget_bounds(ctx);
+  nk_fill_rect(cb, nk_rect(lb.x - 6, lb.y, lb.w + 12, lb.h), 0,
+               nk_rgba(0, 0, 0, 10));
+  nk_label_colored(ctx, label, NK_TEXT_LEFT, nk_rgb(95, 95, 115));
+  nk_layout_row_dynamic(ctx, 1, 1);
+  {
+    struct nk_rect sr = nk_widget_bounds(ctx);
+    nk_fill_rect(nk_window_get_canvas(ctx),
+                 nk_rect(sr.x - 6, sr.y, sr.w + 12, 1), 0,
+                 nk_rgba(0, 0, 0, 18));
+    nk_spacing(ctx, 1);
+  }
+  nk_layout_row_dynamic(ctx, 4, 1);
+  nk_spacing(ctx, 1);
+}
+
+// ── Compact color row: [label ........ ■ swatch_combo] ──────────────────────
+static void ds_color(struct nk_context *ctx, const char *label,
+                     uint32_t *c32) {
+  nk_layout_row_template_begin(ctx, 26);
+  nk_layout_row_template_push_dynamic(ctx);
+  nk_layout_row_template_push_static(ctx, 60);
+  nk_layout_row_template_end(ctx);
+  nk_label(ctx, label, NK_TEXT_LEFT);
+  struct nk_color c = nk_rgba((*c32 >> 24) & 0xFF, (*c32 >> 16) & 0xFF,
+                               (*c32 >> 8) & 0xFF, *c32 & 0xFF);
+  if (nk_combo_begin_color(ctx, c, nk_vec2(220, 380))) {
+    struct nk_colorf cf = nk_color_cf(c);
+    cf = ui_render_color_picker_content(ctx, cf);
+    nk_combo_end(ctx);
+    c = nk_rgba((int)(cf.r * 255), (int)(cf.g * 255), (int)(cf.b * 255),
+                (int)(cf.a * 255));
+    *c32 = ((uint32_t)c.r << 24) | ((uint32_t)c.g << 16) |
+           ((uint32_t)c.b << 8) | c.a;
+  }
+}
+
+// ── Main sidebar ─────────────────────────────────────────────────────────────
+static void design_render_sidebar(UIHost *ui, Engine *engine,
+                                  struct nk_context *ctx, Block *block) {
   if (!block || block->type != BLOCK_DESIGN)
     return;
 
   DesignData *dd = &block->data.design;
   Page *page = doc_page_get_active(engine->doc);
 
-  // --- Tab Bar ---
-  nk_layout_row_dynamic(ctx, 28, 3);
+  // ── Tab bar: Properties | Layers | Page ─────────────────────────────────
+  nk_layout_row_dynamic(ctx, 30, 3);
+  static const char *tab_labels[] = {"Properties", "Layers", "Page"};
+  for (int t = 0; t < 3; t++) {
+    struct nk_style_button ts = ctx->style.button;
+    if (ui->design_bottom_tab == t) {
+      ts.normal  = nk_style_item_color(nk_rgb(55, 120, 235));
+      ts.hover   = nk_style_item_color(nk_rgb(45, 100, 215));
+      ts.active  = nk_style_item_color(nk_rgb(35,  80, 195));
+      ts.text_normal = ts.text_hover = ts.text_active = nk_rgb(255, 255, 255);
+    } else {
+      ts.normal  = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+      ts.hover   = nk_style_item_color(nk_rgba(0, 0, 0, 10));
+      ts.active  = nk_style_item_color(nk_rgba(0, 0, 0, 20));
+      ts.text_normal = nk_rgb(110, 110, 130);
+      ts.text_hover  = nk_rgb(60, 60, 80);
+      ts.text_active = nk_rgb(40, 40, 60);
+      ts.border = 0;
+    }
+    if (nk_button_label_styled(ctx, &ts, tab_labels[t]))
+      ui->design_bottom_tab = t;
+  }
 
-  // Tab 0: Properties
-  struct nk_style_button tab_style = ctx->style.button;
+  // Thin hairline separator
+  nk_layout_row_dynamic(ctx, 1, 1);
+  {
+    struct nk_rect sr = nk_widget_bounds(ctx);
+    nk_fill_rect(nk_window_get_canvas(ctx),
+                 nk_rect(sr.x - 6, sr.y, sr.w + 12, 1), 0,
+                 nk_rgba(0, 0, 0, 25));
+    nk_spacing(ctx, 1);
+  }
+
+  // Scrollable content: fill remaining height in the sidebar group
+  float sb_avail = nk_window_get_content_region(ctx).h - 36.0f;
+  if (sb_avail < 50.0f) sb_avail = 50.0f;
+  nk_layout_row_dynamic(ctx, sb_avail, 1);
+
+  // =========================================================================
+  // TAB 0 — PROPERTIES
+  // =========================================================================
   if (ui->design_bottom_tab == 0) {
-    tab_style.normal = nk_style_item_color(nk_rgb(55, 120, 235));
-    tab_style.text_normal = nk_rgb(255, 255, 255);
-  }
-  if (nk_button_label_styled(ctx, &tab_style, "Properties")) {
-    ui->design_bottom_tab = 0;
-  }
-
-  // Tab 1: Layers
-  tab_style = ctx->style.button;
-  if (ui->design_bottom_tab == 1) {
-    tab_style.normal = nk_style_item_color(nk_rgb(55, 120, 235));
-    tab_style.text_normal = nk_rgb(255, 255, 255);
-  }
-  if (nk_button_label_styled(ctx, &tab_style, "Layers")) {
-    ui->design_bottom_tab = 1;
-  }
-
-  // Tab 2: Page Settings
-  tab_style = ctx->style.button;
-  if (ui->design_bottom_tab == 2) {
-    tab_style.normal = nk_style_item_color(nk_rgb(55, 120, 235));
-    tab_style.text_normal = nk_rgb(255, 255, 255);
-  }
-  if (nk_button_label_styled(ctx, &tab_style, "Page")) {
-    ui->design_bottom_tab = 2;
-  }
-
-  nk_layout_row_dynamic(ctx, 4, 1);
-  nk_spacing(ctx, 1);
-
-  // ===========================================================================
-  // CONTENT AREA
-  // ===========================================================================
-
-  // Calculate remaining height for the content
-  // Panel height (250) - Buttons (28) - Spacing (4) - Padding (~18)
-  nk_layout_row_dynamic(ctx, 200, 1);
-
-  // --- TAB 0: PROPERTIES (Selected Element) ---
-  if (ui->design_bottom_tab == 0) {
-    if (nk_group_begin(ctx, "design_props_tab", NK_WINDOW_NO_SCROLLBAR)) {
+    if (nk_group_begin(ctx, "ds_props", NK_WINDOW_BORDER)) {
       if (!ui->selected_node) {
-        nk_layout_row_dynamic(ctx, 40, 1);
-        nk_label(ctx, "No element selected", NK_TEXT_CENTERED);
-        nk_label_colored(ctx, "Select an element to view properties",
-                         NK_TEXT_CENTERED, nk_rgb(150, 150, 150));
+        nk_layout_row_dynamic(ctx, 50, 1);
+        nk_label_colored(ctx, "No element selected", NK_TEXT_CENTERED,
+                         nk_rgb(160, 160, 175));
+        nk_layout_row_dynamic(ctx, 18, 1);
+        nk_label_colored(ctx, "Click an element to edit", NK_TEXT_CENTERED,
+                         nk_rgb(195, 195, 210));
       } else {
         Node *node = ui->selected_node;
 
-        // Row 1: Position
-        nk_layout_row_template_begin(ctx, 28);
-        nk_layout_row_template_push_static(ctx, 20); // X
-        nk_layout_row_template_push_dynamic(ctx);
-        nk_layout_row_template_push_static(ctx, 20); // Y
-        nk_layout_row_template_push_dynamic(ctx);
-        nk_layout_row_template_push_static(ctx, 10);
-        nk_layout_row_template_push_static(ctx, 80); // Rotation
-        nk_layout_row_template_end(ctx);
+        // ── TRANSFORM ────────────────────────────────────────────────────
+        ds_section(ctx, "TRANSFORM");
+        nk_layout_row_dynamic(ctx, 24, 2);
+        nk_property_float(ctx, "X:", -10000.f, &node->x, 10000.f, 1.f, 0.5f);
+        nk_property_float(ctx, "Y:", -10000.f, &node->y, 10000.f, 1.f, 0.5f);
+        nk_layout_row_dynamic(ctx, 24, 2);
+        nk_property_float(ctx, "W:", 1.f, &node->width, 10000.f, 1.f, 0.5f);
+        nk_property_float(ctx, "H:", 1.f, &node->height, 10000.f, 1.f, 0.5f);
+        nk_layout_row_dynamic(ctx, 24, 1);
+        nk_property_float(ctx, "Rotation:", -360.f, &node->rotation, 360.f,
+                          1.f, 0.5f);
 
-        nk_property_float(ctx, "X", -10000.f, &node->x, 10000.f, 1.f, 0.5f);
-        nk_property_float(ctx, "Y", -10000.f, &node->y, 10000.f, 1.f, 0.5f);
-        nk_property_float(ctx, "R:", -360.f, &node->rotation, 360.f, 1.f, 0.5f);
-
-        // Row 2: Size
-        nk_layout_row_template_begin(ctx, 28);
-        nk_layout_row_template_push_static(ctx, 20); // W
-        nk_layout_row_template_push_dynamic(ctx);
-        nk_layout_row_template_push_static(ctx, 20); // H
-        nk_layout_row_template_push_dynamic(ctx);
-        nk_layout_row_template_end(ctx);
-
-        nk_property_float(ctx, "W", 1.f, &node->width, 10000.f, 1.f, 0.5f);
-        nk_property_float(ctx, "H", 1.f, &node->height, 10000.f, 1.f, 0.5f);
-
-        nk_layout_row_dynamic(ctx, 8, 1);
-        nk_spacing(ctx, 1);
-
-        // Row 3: Colors
-        nk_layout_row_template_begin(ctx, 28);
-        nk_layout_row_template_push_dynamic(ctx);
-        nk_layout_row_template_push_dynamic(ctx);
-        nk_layout_row_template_push_dynamic(ctx);
-        nk_layout_row_template_end(ctx);
-
-        ui_render_color_property(ctx, "Fill", &node->fill_color);
-        ui_render_color_property(ctx, "Stroke", &node->stroke_color);
-        nk_property_float(ctx, "Width", 0.f, &node->stroke_width, 100.f, 0.5f,
-                          0.25f);
-
-        // Extras
-        if (node->type == NODE_TYPE_TEXT) {
-          nk_layout_row_dynamic(ctx, 28, 1);
-          nk_property_float(ctx, "Font Size:", 8.f, &node->font_size, 200.f,
-                            1.f, 0.5f);
-        }
-        if (node->type == NODE_TYPE_RECT || node->type == NODE_TYPE_FRAME) {
-          nk_layout_row_dynamic(ctx, 28, 1);
-          nk_property_float(ctx, "Corner Radius:", 0.f, &node->corner_radius,
+        // ── APPEARANCE ───────────────────────────────────────────────────
+        ds_section(ctx, "APPEARANCE");
+        ds_color(ctx, "Fill", &node->fill_color);
+        ds_color(ctx, "Stroke", &node->stroke_color);
+        nk_layout_row_dynamic(ctx, 24, 1);
+        nk_property_float(ctx, "Stroke width:", 0.f, &node->stroke_width,
+                          100.f, 0.5f, 0.25f);
+        if (node->type == NODE_TYPE_RECT || node->type == NODE_TYPE_IMAGE ||
+            node->type == NODE_TYPE_FRAME) {
+          nk_layout_row_dynamic(ctx, 24, 1);
+          nk_property_float(ctx, "Corner radius:", 0.f, &node->corner_radius,
                             200.f, 1.f, 0.5f);
+        }
+
+        // ── TEXT ─────────────────────────────────────────────────────────
+        if (node->type == NODE_TYPE_TEXT) {
+          ds_section(ctx, "TEXT");
+          if (node->font_size < 8.0f) node->font_size = 12.0f;
+          nk_layout_row_dynamic(ctx, 24, 1);
+          nk_property_float(ctx, "Font size:", 8.f, &node->font_size, 200.f,
+                            1.f, 0.5f);
+
+          // Link to column
+          Block *tbl_block = NULL;
+          for (Block *b = page ? page->first_block : NULL; b; b = b->next) {
+            if (b->type == BLOCK_TABLE && b->data.table.columnar) {
+              tbl_block = b; break;
+            }
+          }
+          if (tbl_block) {
+            ds_section(ctx, "LINKED TEXT");
+            AslanTable *tbl = tbl_block->data.table.columnar;
+            int col_count = (int)tbl->column_count;
+            const char *col_names[33];
+            col_names[0] = "None";
+            for (int k = 0; k < col_count && k < 32; k++)
+              col_names[k + 1] = tbl->columns[k].name;
+            int cur_sel = 0;
+            for (int k = 0; k < col_count; k++) {
+              if (strcmp(node->linked_col_name, tbl->columns[k].name) == 0) {
+                cur_sel = k + 1; break;
+              }
+            }
+            nk_layout_row_dynamic(ctx, 24, 1);
+            int new_sel = nk_combo(ctx, col_names, col_count + 1, cur_sel,
+                                   24, nk_vec2(220, 200));
+            if (new_sel != cur_sel) {
+              if (new_sel == 0) {
+                node->linked_col_name[0] = '\0';
+              } else {
+                strncpy(node->linked_col_name, col_names[new_sel],
+                        sizeof(node->linked_col_name) - 1);
+                node->linked_col_name[sizeof(node->linked_col_name) - 1] = '\0';
+                ui->design_linked_row_idx = 0;
+              }
+            }
+            if (node->linked_col_name[0]) {
+              int total_rows = (int)tbl->active_count;
+              if (ui->design_linked_row_idx >= total_rows && total_rows > 0)
+                ui->design_linked_row_idx = total_rows - 1;
+              nk_layout_row_template_begin(ctx, 26);
+              nk_layout_row_template_push_static(ctx, 26);
+              nk_layout_row_template_push_dynamic(ctx);
+              nk_layout_row_template_push_static(ctx, 26);
+              nk_layout_row_template_end(ctx);
+              if (nk_button_label(ctx, "<") && ui->design_linked_row_idx > 0)
+                ui->design_linked_row_idx--;
+              char rl[32];
+              snprintf(rl, sizeof(rl), "Row %d / %d",
+                       ui->design_linked_row_idx + 1, total_rows);
+              nk_label(ctx, rl, NK_TEXT_CENTERED);
+              if (nk_button_label(ctx, ">") &&
+                  ui->design_linked_row_idx < total_rows - 1)
+                ui->design_linked_row_idx++;
+            }
+          }
         }
       }
       nk_group_end(ctx);
     }
   }
 
-  // --- TAB 1: LAYERS ---
+  // =========================================================================
+  // TAB 1 — LAYERS
+  // =========================================================================
   if (ui->design_bottom_tab == 1) {
-    if (nk_group_begin(ctx, "design_layers_wrapper", NK_WINDOW_NO_SCROLLBAR)) {
+    if (nk_group_begin(ctx, "ds_layers", NK_WINDOW_BORDER)) {
       ui_render_sidebar_layers(ui, ctx, block);
       nk_group_end(ctx);
     }
   }
 
-  // --- TAB 2: PAGE SETTINGS (Document) ---
+  // =========================================================================
+  // TAB 2 — PAGE
+  // =========================================================================
   if (ui->design_bottom_tab == 2) {
-    if (nk_group_begin(ctx, "design_page_tab", NK_WINDOW_NO_SCROLLBAR)) {
+    if (nk_group_begin(ctx, "ds_page", NK_WINDOW_BORDER)) {
       if (page) {
-        nk_layout_row_dynamic(ctx, 28, 4);
-        struct {
-          const char *l;
-          int w, h;
-        } p[] = {{"A4", 794, 1123},
-                 {"HD", 1920, 1080},
-                 {"Sq", 1080, 1080},
-                 {"Story", 1080, 1920}};
-
-        for (int i = 0; i < 4; i++) {
-          if (nk_button_label(ctx, p[i].l)) {
+        // ── CANVAS SIZE ──────────────────────────────────────────────────
+        ds_section(ctx, "CANVAS SIZE");
+        static const struct { const char *l; int w, h; } presets[] = {
+          {"A4",   794, 1123}, {"A3",    1123, 1587},
+          {"HD",  1920, 1080}, {"4K",    3840, 2160},
+          {"Sq.", 1080, 1080}, {"Story", 1080, 1920},
+          {"Post",1080, 1350}, {"Banner",1920,  480},
+        };
+        nk_layout_row_dynamic(ctx, 26, 4);
+        for (int i = 0; i < 8; i++) {
+          if (nk_button_label(ctx, presets[i].l)) {
             char cmd[128];
             snprintf(cmd, sizeof(cmd), "block_design_resize %u %u %d %d 0",
-                     page->id, block->id, p[i].w, p[i].h);
+                     page->id, block->id, presets[i].w, presets[i].h);
             engine_execute_command(engine, cmd);
           }
         }
-
-        nk_layout_row_dynamic(ctx, 28, 2);
+        nk_layout_row_dynamic(ctx, 24, 2);
         float val_w = (float)dd->width;
         float val_h = (float)dd->height;
-        nk_property_float(ctx, "Width:", 100.f, &val_w, 4000.f, 1.f, 1.f);
-        nk_property_float(ctx, "Height:", 100.f, &val_h, 4000.f, 1.f, 1.f);
-
-        int new_w = (int)val_w, new_h = (int)val_h;
-        if (new_w != dd->width || new_h != dd->height) {
+        nk_property_float(ctx, "W:", 100.f, &val_w, 5000.f, 1.f, 1.f);
+        nk_property_float(ctx, "H:", 100.f, &val_h, 5000.f, 1.f, 1.f);
+        if ((int)val_w != dd->width || (int)val_h != dd->height) {
           char cmd[128];
           snprintf(cmd, sizeof(cmd), "block_design_resize %u %u %d %d 0",
-                   page->id, block->id, new_w, new_h);
+                   page->id, block->id, (int)val_w, (int)val_h);
           engine_execute_command(engine, cmd);
         }
 
-        nk_layout_row_dynamic(ctx, 28, 1);
+        // ── BACKGROUND ───────────────────────────────────────────────────
+        ds_section(ctx, "BACKGROUND");
+        ds_color(ctx, "Color", &dd->pages[dd->current_page].bg_color);
+
+        // ── MODE ─────────────────────────────────────────────────────────
+        ds_section(ctx, "MODE");
+        nk_layout_row_dynamic(ctx, 24, 1);
         int no_limits = dd->no_limits;
-        if (nk_checkbox_label(ctx, "Infinite Canvas", &no_limits)) {
-          if (no_limits != dd->no_limits) {
-            dd->no_limits = no_limits;
-            if (dd->no_limits && dd->zoom < 0.01f)
-              dd->zoom = 1.0f;
-            char cmd[128];
-            snprintf(cmd, sizeof(cmd), "block_design_nolimits %u %u %d",
-                     page->id, block->id, dd->no_limits);
-            engine_execute_command(engine, cmd);
+        if (nk_checkbox_label(ctx, "Infinite canvas", &no_limits) &&
+            no_limits != dd->no_limits) {
+          dd->no_limits = no_limits;
+          if (dd->no_limits && dd->zoom < 0.01f) dd->zoom = 1.0f;
+          char cmd[128];
+          snprintf(cmd, sizeof(cmd), "block_design_nolimits %u %u %d",
+                   page->id, block->id, dd->no_limits);
+          engine_execute_command(engine, cmd);
+        }
+
+        // ── PAGES ────────────────────────────────────────────────────────
+        ds_section(ctx, "PAGES");
+        nk_layout_row_template_begin(ctx, 28);
+        nk_layout_row_template_push_static(ctx, 28); // <
+        nk_layout_row_template_push_dynamic(ctx);    // counter
+        nk_layout_row_template_push_static(ctx, 28); // >
+        nk_layout_row_template_push_static(ctx, 28); // +
+        nk_layout_row_template_end(ctx);
+
+        int prev_ok = (dd->current_page > 0);
+        int next_ok = (dd->current_page < dd->page_count - 1);
+        struct nk_style_button arr = ctx->style.button;
+        arr.padding = nk_vec2(2, 2);
+
+        struct nk_style_button arr_prev = arr;
+        if (!prev_ok) arr_prev.text_normal = nk_rgb(200, 200, 215);
+        if (nk_button_label_styled(ctx, &arr_prev, "<") && prev_ok) {
+          block_design_goto_page(block, dd->current_page - 1);
+          ui->selected_node = NULL;
+        }
+        char pg_str[32];
+        snprintf(pg_str, sizeof(pg_str), "%d / %d",
+                 dd->current_page + 1, dd->page_count);
+        nk_label(ctx, pg_str, NK_TEXT_CENTERED);
+        struct nk_style_button arr_next = arr;
+        if (!next_ok) arr_next.text_normal = nk_rgb(200, 200, 215);
+        if (nk_button_label_styled(ctx, &arr_next, ">") && next_ok) {
+          block_design_goto_page(block, dd->current_page + 1);
+          ui->selected_node = NULL;
+        }
+        struct nk_style_button add_btn = arr;
+        add_btn.text_normal = nk_rgb(55, 120, 235);
+        if (nk_button_label_styled(ctx, &add_btn, "+")) {
+          int new_pg = block_design_add_page(block);
+          if (new_pg >= 0) { block_design_goto_page(block, new_pg); ui->selected_node = NULL; }
+        }
+
+        if (dd->page_count > 1) {
+          nk_layout_row_dynamic(ctx, 24, 1);
+          struct nk_style_button del_btn = ctx->style.button;
+          del_btn.normal  = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+          del_btn.hover   = nk_style_item_color(nk_rgba(220, 50, 50, 18));
+          del_btn.active  = nk_style_item_color(nk_rgba(220, 50, 50, 35));
+          del_btn.border  = 0;
+          del_btn.text_normal = nk_rgb(200, 65, 65);
+          del_btn.text_hover  = nk_rgb(220, 35, 35);
+          del_btn.text_active = nk_rgb(180, 25, 25);
+          if (nk_button_label_styled(ctx, &del_btn, "Delete current page")) {
+            int cur = dd->current_page;
+            block_design_delete_page(block, cur);
+            block_design_goto_page(block, cur > 0 ? cur - 1 : 0);
+            ui->selected_node = NULL;
           }
         }
 
-        nk_layout_row_dynamic(ctx, 28, 1);
-        ui_render_color_property(ctx, "Background",
-                                 &dd->pages[dd->current_page].bg_color);
+        // ── LINKED DATA ──────────────────────────────────────────────────
+        if (dd->root && design_has_linked_nodes(dd->root)) {
+          ds_section(ctx, "LINKED DATA");
+          int total_rows = 0;
+          for (Block *b = page->first_block; b; b = b->next) {
+            if (b->type == BLOCK_TABLE && b->data.table.columnar) {
+              total_rows = (int)b->data.table.columnar->active_count; break;
+            }
+          }
+          if (total_rows > 0) {
+            if (ui->design_linked_row_idx >= total_rows)
+              ui->design_linked_row_idx = total_rows - 1;
+            nk_layout_row_template_begin(ctx, 26);
+            nk_layout_row_template_push_static(ctx, 26);
+            nk_layout_row_template_push_dynamic(ctx);
+            nk_layout_row_template_push_static(ctx, 26);
+            nk_layout_row_template_end(ctx);
+            if (nk_button_label(ctx, "<") && ui->design_linked_row_idx > 0)
+              ui->design_linked_row_idx--;
+            char rl[32];
+            snprintf(rl, sizeof(rl), "Row %d / %d",
+                     ui->design_linked_row_idx + 1, total_rows);
+            nk_label(ctx, rl, NK_TEXT_CENTERED);
+            if (nk_button_label(ctx, ">") &&
+                ui->design_linked_row_idx < total_rows - 1)
+              ui->design_linked_row_idx++;
+          }
+        }
       }
       nk_group_end(ctx);
     }
@@ -270,30 +432,19 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   // --- Layout height calculation ---
   float toolbar_h = 52.0f;
-  float panel_h = 250.0f; // Bottom properties/layers panel (always visible)
+  float sidebar_w = 260.0f;
 
-  float display_h = 0;
+  float row_h = nk_window_get_content_region(ctx).h;
+  if (row_h < 200.0f) row_h = 200.0f;
 
-  if (dd->no_limits) {
-    // Infinite canvas: use all available height
-    display_h =
-        is_fullscreen ? nk_window_get_height(ctx) - 100.0f - panel_h : 400.0f;
-  } else if (!is_fullscreen) {
-    // Inline mode: scale to fit width, but cap height
-    float scale_w = width / (float)dd->width;
-    display_h = (float)dd->height * scale_w;
-    if (display_h > 400.0f)
-      display_h = 400.0f;
-    // Provide room for bottom panel in inline mode too
-    // Note: The total row height allocated is display_h + toolbar_h.
-    // We need to ensure that the layout logic respects vertical space.
-  } else {
-    // Fullscreen: use window height minus bottom panel
-    display_h = nk_window_get_height(ctx) - 100.0f - panel_h;
-  }
+  float display_h = row_h - toolbar_h;
+  if (display_h < 100.0f) display_h = 100.0f;
 
-  // Define layout — always a single full-width workspace row
-  nk_layout_row_dynamic(ctx, display_h + toolbar_h, 1);
+  // Workspace column (dynamic width) + sidebar column (fixed width)
+  nk_layout_row_template_begin(ctx, row_h);
+  nk_layout_row_template_push_dynamic(ctx);
+  nk_layout_row_template_push_static(ctx, sidebar_w);
+  nk_layout_row_template_end(ctx);
 
   // --- Rendering Workspace ---
   // DEBUG: Visualize the intended area
@@ -2002,13 +2153,10 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     nk_group_end(ctx);
   } // design_content_group
 
-  // --- Bottom panel: Properties | Layers (always visible) ---
-  // if (is_fullscreen) { -- Removed to make it always visible
-  nk_layout_row_dynamic(ctx, panel_h, 1);
-  if (nk_group_begin(ctx, "design_bottom_panel", NK_WINDOW_BORDER)) {
-
-    design_render_bottom_panel(ui, engine, ctx, block);
+  // --- Right sidebar: Properties | Layers | Page ---
+  if (nk_group_begin(ctx, "design_sidebar",
+                     NK_WINDOW_BORDER | NK_WINDOW_NO_SCROLLBAR)) {
+    design_render_sidebar(ui, engine, ctx, block);
     nk_group_end(ctx);
   }
-  // }
 }
