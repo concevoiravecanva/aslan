@@ -332,6 +332,25 @@ typedef struct UIHost {
     int      drop_target_opt;  // Swimlane option index mouse hovers (-1=none)
   } kanban_drag;
 
+  // Kanban column visibility state
+  struct {
+    uint32_t block_id;       // Reset state when block changes
+    uint8_t  col_hidden[32]; // col_hidden[i]=1 → option i is hidden
+  } kanban_state;
+
+  // View settings popup (shared across all views)
+  struct {
+    int   show_popup;   // 1 = popup visible
+    int   active_view;  // which view's settings (0-4)
+    float btn_x, btn_y; // settings button screen position (popup anchor)
+  } view_settings;
+
+  // Calendar view state
+  struct {
+    int show_week;    // 0 = month view, 1 = week view
+    int week_offset;  // weeks from current week (0 = this week)
+  } calendar_state;
+
   // Calendar event drag-and-drop
   struct {
     int      is_active;
@@ -578,6 +597,9 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_EYE_OFF "\xEE\xB5\xA3"         // ri-eye-off-line
 #define ICON_MORE "\xEE\xAB\xA3"            // ri-settings-4-line
 #define ICON_SETTINGS "\xEE\xBD\x92"        // ri-settings-3-line
+#define ICON_KANBAN_COL_SHOW "\xEE\xB2\xB5" // U+ECB5  column visible
+#define ICON_KANBAN_COL_HIDE "\xEE\xB2\xB7" // U+ECB7  column hidden
+#define ICON_VIEW_SETTINGS   "\xEE\xB8\xA8" // U+EE28  view settings gear
 
 // Canvas tools icons
 #define ICON_CURSOR "\xEE\xAA\x8A"    // ri-cursor-line (select tool)
