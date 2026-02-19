@@ -3162,15 +3162,16 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
     }
 
     // Count total items to properly size the popup.
-    // Each row is 32px + 4px Nuklear item-spacing = 36px per item.
-    // Popup overhead (border + internal padding): ~24px.
+    // Each row: 32px height + 4px item-spacing = 36px.
+    // Window padding top+bottom: 8px. Border: 2px. Total overhead: ~18px.
     int n_items = 1; // dark / light always
     if (av == 3) n_items += 1;              // calendar: week view
     if (av == 2 && ks_opt_count > 0) n_items += ks_opt_count; // kanban cols
 
     float popup_w = 210.0f;
-    float popup_h = (float)n_items * 36.0f + 24.0f;
-    if (popup_h > 380.0f) popup_h = 380.0f;
+    float popup_h = (float)n_items * 38.0f + 18.0f;
+    // Cap height; items beyond cap remain accessible via scrollbar
+    if (popup_h > 320.0f) popup_h = 320.0f;
 
     float px = ui->view_settings.btn_x - popup_w + 32.0f;
     float py = ui->view_settings.btn_y + 34.0f;
@@ -3186,8 +3187,8 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
       ctx->style.window.fixed_background = nk_style_item_color(
           ui->dark_mode ? nk_rgb(40, 42, 48) : nk_rgb(252, 252, 254));
 
-      if (nk_popup_begin(ctx, NK_POPUP_DYNAMIC, "ViewSettingsPopup",
-                         NK_WINDOW_NO_SCROLLBAR,
+      if (nk_popup_begin(ctx, NK_POPUP_STATIC, "ViewSettingsPopup",
+                         NK_WINDOW_SCROLL_AUTO_HIDE,
                          nk_rect(px, py, popup_w, popup_h))) {
         nk_popup_open = 1;
 
