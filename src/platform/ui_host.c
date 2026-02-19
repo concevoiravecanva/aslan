@@ -3175,32 +3175,60 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
     float px = ui->view_settings.btn_x - popup_w + 32.0f;
     float py = ui->view_settings.btn_y + 34.0f;
 
-    struct nk_style_item old_bg_popup = ctx->style.window.fixed_background;
-    ctx->style.window.fixed_background = nk_style_item_color(
-        ui->dark_mode ? nk_rgb(40, 42, 48) : nk_rgb(252, 252, 254));
+    // nk_popup_open tracks whether Nuklear has an active popup panel.
+    // We MUST keep calling nk_popup_begin until it returns false even after
+    // show_popup is cleared — if we skip it, Nuklear's popup stays alive
+    // internally and steals all mouse/keyboard events (UI freezes).
+    static int nk_popup_open = 0;
 
-    // NK_POPUP_DYNAMIC closes automatically when user clicks outside
-    if (nk_popup_begin(ctx, NK_POPUP_DYNAMIC, "ViewSettingsPopup",
-                       NK_WINDOW_NO_SCROLLBAR,
-                       nk_rect(px, py, popup_w, popup_h))) {
+    if (ui->view_settings.show_popup || nk_popup_open) {
+      struct nk_style_item old_bg_popup = ctx->style.window.fixed_background;
+      ctx->style.window.fixed_background = nk_style_item_color(
+          ui->dark_mode ? nk_rgb(40, 42, 48) : nk_rgb(252, 252, 254));
 
-        // ---- Dark / Light mode (all views) ----
-        nk_layout_row_dynamic(ctx, 32, 1);
-        if (nk_button_label(ctx, ui->dark_mode ? "Light mode" : "Dark mode")) {
-          ui->dark_mode = !ui->dark_mode;
-          ui_apply_theme(ui);
-        }
+      if (nk_popup_begin(ctx, NK_POPUP_DYNAMIC, "ViewSettingsPopup",
+                         NK_WINDOW_NO_SCROLLBAR,
+                         nk_rect(px, py, popup_w, popup_h))) {
+        nk_popup_open = 1;
 
-        // ---- Calendar: week / month view toggle ----
-        if (av == 3) {
-          nk_layout_row_dynamic(ctx, 32, 1);
-          if (nk_button_label(ctx, ui->calendar_state.show_week
-                                       ? "Month view" : "Week view")) {
-            ui->calendar_state.show_week = !ui->calendar_state.show_week;
-            nk_popup_close(ctx);
-            ui->view_settings.show_popup = 0;
+        // Should we close this frame?
+        // Case A: button toggle already set show_popup=0 on this same frame
+        int do_close = !ui->view_settings.show_popup;
+        // Case B: click outside popup and outside button
+        if (!do_close) {
+          float mx = ctx->input.mouse.pos.x, my = ctx->input.mouse.pos.y;
+          if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+            int on_btn = (mx >= ui->view_settings.btn_x &&
+                          mx <= ui->view_settings.btn_x + 32.0f &&
+                          my >= ui->view_settings.btn_y &&
+                          my <= ui->view_settings.btn_y + 32.0f);
+            int in_popup = (mx >= px && mx <= px + popup_w &&
+                            my >= py && my <= py + popup_h);
+            if (!on_btn && !in_popup) do_close = 1;
           }
         }
+
+        if (do_close) {
+          nk_popup_close(ctx);
+          ui->view_settings.show_popup = 0;
+        } else {
+          // ---- Dark / Light mode (all views) ----
+          nk_layout_row_dynamic(ctx, 32, 1);
+          if (nk_button_label(ctx, ui->dark_mode ? "Light mode" : "Dark mode")) {
+            ui->dark_mode = !ui->dark_mode;
+            ui_apply_theme(ui);
+          }
+
+          // ---- Calendar: week / month view toggle ----
+          if (av == 3) {
+            nk_layout_row_dynamic(ctx, 32, 1);
+            if (nk_button_label(ctx, ui->calendar_state.show_week
+                                         ? "Month view" : "Week view")) {
+              ui->calendar_state.show_week = !ui->calendar_state.show_week;
+              nk_popup_close(ctx);
+              ui->view_settings.show_popup = 0;
+            }
+          }
 
         // ---- Kanban: column visibility ----
         if (av == 2 && ks_sel_col && ks_opt_count > 0) {
@@ -3259,14 +3287,18 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
                 (int)strlen(ks_sel_col->options[i].label),
                 &ui->font_inter->handle, nk_rgba(0, 0, 0, 0), lbl_col);
           }
-        }
+        } // end kanban section
+
+        } // end else (do_close)
 
         nk_popup_end(ctx);
       } else {
-        // Popup closed by NK_POPUP_DYNAMIC (click outside)
+        // nk_popup_begin returned false: Nuklear has cleaned up the popup
+        nk_popup_open = 0;
         ui->view_settings.show_popup = 0;
       }
       ctx->style.window.fixed_background = old_bg_popup;
+    }
   }
 }
 
