@@ -679,3 +679,8 @@ block_design_nolimits 1 105 0
 -- Session started --
 -- Session started --
 -- Session started --
+block_table_col_width 1 104 1 160
+block_table_col_width 1 104 0 232
+block_table_col_width 1 104 1 122
+-- Session started --
+block_table_col_width 1 104 0 107

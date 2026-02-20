@@ -773,6 +773,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               ui_request_redraw(ui);
             }
           }
+        } else {
+          nk_spacing(ctx, 1);
         }
 
         // --- Drawing ---
