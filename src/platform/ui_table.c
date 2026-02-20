@@ -64,11 +64,11 @@ static int table_popup_header(UIHost *ui, struct nk_context *ctx,
       ui->dark_mode ? nk_rgb(130, 130, 140) : nk_rgb(140, 140, 148);
 
   nk_layout_row_template_begin(ctx, 24);
-  nk_layout_row_template_push_variable(ctx, 60);
+  nk_layout_row_template_push_dynamic(ctx);
   nk_layout_row_template_push_static(ctx, 24);
   nk_layout_row_template_end(ctx);
 
-  nk_label_colored(ctx, title, NK_TEXT_LEFT, title_col);
+  nk_label_colored(ctx, title, NK_TEXT_CENTERED, title_col);
 
   struct nk_style_button close_style = ctx->style.button;
   close_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
@@ -84,13 +84,7 @@ static int table_popup_header(UIHost *ui, struct nk_context *ctx,
   close_style.padding = nk_vec2(0, 0);
   int closed = nk_button_label_styled(ctx, &close_style, "x");
 
-  // Separator line
-  nk_layout_row_dynamic(ctx, 1, 1);
-  struct nk_rect sep = nk_widget_bounds(ctx);
-  nk_fill_rect(nk_window_get_canvas(ctx), sep, 0,
-               ui->dark_mode ? nk_rgb(60, 62, 68) : nk_rgb(230, 230, 235));
-  nk_spacing(ctx, 1);
-
+  // Small padding instead of a hard line
   nk_layout_row_dynamic(ctx, 4, 1);
   nk_spacing(ctx, 1);
 
@@ -2024,7 +2018,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       struct nk_rect popup_rect =
           table_smart_popup_rect(ui, ui->table_state.menu_pos_x,
-                                 ui->table_state.menu_pos_y, 220, popup_h);
+                                 ui->table_state.menu_pos_y, 260, popup_h);
       if (ui->table_state.menu_pos_y > ui->win_height - popup_h - 40) {
         popup_rect.y = ui->table_state.menu_pos_y - popup_h;
       }
@@ -2074,24 +2068,21 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             struct nk_style_button opt_btn_style = ctx->style.button;
 
             // Background for label part
-            struct nk_color label_bg = nk_rgba(c_bg.r, c_bg.g, c_bg.b, 40);
+            struct nk_color label_bg = nk_rgba(c_bg.r, c_bg.g, c_bg.b, 20);
             if (is_selected) {
-              label_bg = nk_rgba(c_bg.r, c_bg.g, c_bg.b, 200);
+              label_bg = nk_rgba(c_bg.r, c_bg.g, c_bg.b, 60);
             }
 
-            if (is_selected) {
-              opt_btn_style.normal = nk_style_item_color(label_bg);
-              opt_btn_style.text_normal = nk_rgb(255, 255, 255);
-              opt_btn_style.hover = nk_style_item_color(label_bg);
-              opt_btn_style.text_hover = nk_rgb(255, 255, 255);
-            } else {
-              opt_btn_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-              struct nk_color txt =
-                  ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
-              opt_btn_style.text_normal = txt;
-              opt_btn_style.text_hover = txt;
-              opt_btn_style.hover = nk_style_item_color(label_bg);
-            }
+            struct nk_color txt = ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK;
+
+            opt_btn_style.normal = nk_style_item_color(
+                is_selected ? label_bg : nk_rgba(0, 0, 0, 0));
+            opt_btn_style.text_normal = txt;
+            opt_btn_style.hover = nk_style_item_color(label_bg);
+            opt_btn_style.text_hover = txt;
+            opt_btn_style.active = nk_style_item_color(
+                is_selected ? label_bg : nk_rgba(0, 0, 0, 0));
+            opt_btn_style.text_active = txt;
             opt_btn_style.rounding = 4.0f;
             opt_btn_style.text_alignment = NK_TEXT_LEFT;
 
@@ -2114,7 +2105,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
             // 3. Color Picker Palette (if active)
             if (ui->table_state.active_color_picker_option == i) {
-              nk_layout_row_dynamic(ctx, 24, 9);
+              nk_layout_row_dynamic(ctx, 28, 5); // 5 cols
               uint32_t palette[] = {
                   0x888888FF, // Gray
                   0x8D6E63FF, // Brown
@@ -2124,10 +2115,11 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                   0x42A5F5FF, // Blue
                   0xAB47BCFF, // Purple
                   0xEC407AFF, // Pink
-                  0xEF5350FF  // Red
+                  0xEF5350FF, // Red
+                  0x26C6DAFF  // Cyan
               };
 
-              for (int p = 0; p < 9; p++) {
+              for (int p = 0; p < 10; p++) {
                 struct nk_color p_col = nk_rgba((palette[p] >> 24) & 0xFF,
                                                 (palette[p] >> 16) & 0xFF,
                                                 (palette[p] >> 8) & 0xFF, 255);
@@ -2136,7 +2128,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                 pal_style.normal = nk_style_item_color(p_col);
                 pal_style.hover = nk_style_item_color(p_col);
                 pal_style.active = nk_style_item_color(p_col);
-                pal_style.rounding = 12.0f;
+                pal_style.rounding = 14.0f;
                 pal_style.border =
                     (col->options[i].color == palette[p]) ? 2.0f : 0.0f;
                 pal_style.border_color = nk_rgb(255, 255, 255);
@@ -2154,11 +2146,9 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           nk_group_end(ctx);
         }
 
-        // Separator
-        nk_layout_row_dynamic(ctx, 1, 1);
-        struct nk_rect sep_rect = nk_widget_bounds(ctx);
-        nk_fill_rect(nk_window_get_canvas(ctx), sep_rect, 0,
-                     nk_rgb(100, 100, 100));
+        // Spacer
+        nk_layout_row_dynamic(ctx, 8, 1);
+        nk_spacing(ctx, 1);
 
         // Add new option field
         nk_layout_row_template_begin(ctx, 30);
@@ -2184,7 +2174,18 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
         // Check for Enter key in text field
         int enter_pressed = nk_input_is_key_pressed(&ctx->input, NK_KEY_ENTER);
-        int click_add = nk_button_label(ctx, "Add");
+
+        struct nk_style_button add_btn = ctx->style.button;
+        add_btn.normal = nk_style_item_color(
+            ui->dark_mode ? nk_rgb(45, 45, 52) : nk_rgb(235, 235, 240));
+        add_btn.hover = nk_style_item_color(
+            ui->dark_mode ? nk_rgb(60, 60, 68) : nk_rgb(220, 220, 225));
+        add_btn.text_normal =
+            ui->dark_mode ? nk_rgb(200, 200, 200) : nk_rgb(60, 60, 60);
+        add_btn.text_hover =
+            ui->dark_mode ? nk_rgb(255, 255, 255) : nk_rgb(20, 20, 20);
+
+        int click_add = nk_button_label_styled(ctx, &add_btn, "Add");
 
         if ((click_add || enter_pressed) &&
             ui->table_state.option_buffer[0] != '\0') {

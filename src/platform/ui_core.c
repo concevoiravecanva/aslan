@@ -92,11 +92,11 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
         ui->dark_mode ? nk_rgb(200, 200, 205) : nk_rgb(60, 60, 60);
 
     if (ui->font_icons) {
-      nk_draw_text(canvas_buf,
-                   nk_rect(btn_rect.x + 8, btn_rect.y + 8, btn_size - 16,
-                           btn_size - 16),
-                   tool_icons[i], strlen(tool_icons[i]),
-                   &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), icon_color);
+      nk_draw_text(
+          canvas_buf,
+          nk_rect(btn_rect.x + 8, btn_rect.y + 8, btn_size - 16, btn_size - 16),
+          tool_icons[i], strlen(tool_icons[i]), &ui->font_icons->handle,
+          nk_rgba(0, 0, 0, 0), icon_color);
     }
 
     int clicked =
@@ -149,11 +149,16 @@ void ui_apply_theme(UIHost *ui) {
 
     s->window.background = bg;
     s->window.fixed_background = nk_style_item_color(bg);
-    s->window.border_color = bg;
-    s->window.border = 0;
-    s->window.spacing = nk_vec2(0, 1);
+    s->window.border_color = border;
+    s->window.border = 1.0f;
+    s->window.rounding = 8.0f;
+    s->window.spacing = nk_vec2(4, 4);
+    s->window.padding = nk_vec2(8, 8);
     s->window.group_border_color = nk_rgba(60, 60, 68, 80);
     s->window.group_border = 0.0f;
+    s->window.popup_border = 1.0f;
+    s->window.popup_border_color = border;
+    s->window.popup_padding = nk_vec2(12, 12);
 
     s->button.normal = nk_style_item_color(button);
     s->button.hover = nk_style_item_color(button_hover);
@@ -190,11 +195,16 @@ void ui_apply_theme(UIHost *ui) {
 
     s->window.background = bg;
     s->window.fixed_background = nk_style_item_color(bg);
-    s->window.border_color = bg;
-    s->window.border = 0;
-    s->window.spacing = nk_vec2(0, 1);
+    s->window.border_color = border;
+    s->window.border = 1.0f;
+    s->window.rounding = 8.0f;
+    s->window.spacing = nk_vec2(4, 4);
+    s->window.padding = nk_vec2(8, 8);
     s->window.group_border_color = nk_rgba(230, 230, 233, 100);
     s->window.group_border = 0.0f;
+    s->window.popup_border = 1.0f;
+    s->window.popup_border_color = border;
+    s->window.popup_padding = nk_vec2(12, 12);
 
     s->button.normal = nk_style_item_color(button);
     s->button.hover = nk_style_item_color(button_hover);
