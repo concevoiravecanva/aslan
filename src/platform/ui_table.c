@@ -2009,10 +2009,13 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       uint64_t row_id = ui->table_state.select_popup_row;
 
       // Calculate popup height based on options count
-      float popup_h =
-          100.0f + (col->option_count * 28) + 80; // header + options + add
-      if (popup_h > 420)
-        popup_h = 420;
+      float base_options_h = col->option_count * 28;
+      if (ui->table_state.active_color_picker_option >= 0) {
+        base_options_h += 64; // Height of the 2-row color palette
+      }
+      float popup_h = 100.0f + base_options_h + 80; // header + options + add
+      if (popup_h > 480)
+        popup_h = 480;
       if (popup_h < 180)
         popup_h = 180;
 
