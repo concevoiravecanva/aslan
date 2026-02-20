@@ -1274,20 +1274,6 @@ void block_canvas_destroy(Block *block) {
     spatial_index_destroy(cd->index);
     cd->index = NULL;
   }
-
-  // Free strokes (Legacy/Dead code cleanup: cd->strokes is unused in current
-  // node-based system) Node-based strokes are freed via
-  // node_destroy_tree(cd->root) above.
-  /*
-  Stroke *s = cd->strokes;
-  while (s) {
-    Stroke *next = s->next;
-    free(s->points);
-    free(s);
-    s = next;
-  }
-  */
-  cd->strokes = NULL;
 }
 
 static Node *find_node_recursive(Node *node, uint32_t id) {
@@ -1381,42 +1367,6 @@ void block_canvas_set_view(Block *block, float x, float y, float zoom) {
   cd->view_x = x;
   cd->view_y = y;
   cd->zoom = zoom;
-}
-
-// Helper to add a stroke to the canvas
-void block_canvas_add_stroke(Block *block, Stroke *stroke) {
-  if (!block || block->type != BLOCK_CANVAS || !stroke)
-    return;
-
-  CanvasData *cd = &block->data.canvas;
-
-  // Append to end of list (simple O(N) append for now, acceptable for < 10k
-  // strokes) Optimization: Could store last_stroke pointer in CanvasData
-  if (!cd->strokes) {
-    cd->strokes = stroke;
-  } else {
-    Stroke *last = cd->strokes;
-    while (last->next) {
-      last = last->next;
-    }
-    last->next = stroke;
-  }
-}
-
-// Helper to clear all strokes
-void block_canvas_clear_strokes(Block *block) {
-  if (!block || block->type != BLOCK_CANVAS)
-    return;
-
-  CanvasData *cd = &block->data.canvas;
-  Stroke *s = cd->strokes;
-  while (s) {
-    Stroke *next = s->next;
-    free(s->points);
-    free(s);
-    s = next;
-  }
-  cd->strokes = NULL;
 }
 
 // -----------------------------------------------------------------------------

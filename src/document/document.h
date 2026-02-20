@@ -195,8 +195,6 @@ typedef struct {
   float zoom;           // Zoom level (1.0 = 100%)
   SpatialIndex *index;  // Hit-testing acceleration
 
-  // Ink Data
-  Stroke *strokes; // Helper linked list for strokes
 } CanvasData;
 
 // --- Design Block Data (Finite, Multi-Page) ---
@@ -423,7 +421,6 @@ Node *block_canvas_find_node(Block *block, uint32_t node_id);
 Node *block_canvas_find_node_at(Block *block, float x, float y);
 bool block_canvas_delete_node(Block *block, uint32_t node_id);
 void block_canvas_set_view(Block *block, float x, float y, float zoom);
-void block_canvas_add_stroke(Block *block, Stroke *stroke);
 
 // =============================================================================
 // DESIGN BLOCK API

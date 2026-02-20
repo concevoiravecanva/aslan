@@ -118,7 +118,6 @@ typedef struct {
   int mouse_just_released; // Left button just released this frame
 
   // Forms menu state (Legacy, will be replaced by active_cat logic)
-  int show_forms_menu;
 
   // Pending element creation (from toolbar click)
   int pending_create; // 0=none, 1=text, 2=note, 3=image, 10+shape_index=form
@@ -164,8 +163,7 @@ typedef struct {
   int space_held;    // For compatibility with Canvas toolbar
   int pan_from_menu; // For compatibility with Canvas toolbar
 
-  int show_forms_menu; // Legacy, will be replaced
-  int pending_create;  // 0=none, 1=text, 2=image, 6=H1, 10+=forms
+  int pending_create; // 0=none, 1=text, 2=image, 6=H1, 10+=forms
   int mouse_just_pressed;
   int mouse_just_released;
   int is_dragging_node;

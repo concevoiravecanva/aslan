@@ -31,10 +31,13 @@ void render_node_context_menu(UIHost *ui, struct nk_context *ctx,
 
 // Returns true if any text node in the tree has a linked column set
 static bool design_has_linked_nodes(Node *node) {
-  if (!node) return false;
-  if (node->type == NODE_TYPE_TEXT && node->linked_col_name[0]) return true;
+  if (!node)
+    return false;
+  if (node->type == NODE_TYPE_TEXT && node->linked_col_name[0])
+    return true;
   for (Node *c = node->first_child; c; c = c->next_sibling)
-    if (design_has_linked_nodes(c)) return true;
+    if (design_has_linked_nodes(c))
+      return true;
   return false;
 }
 
@@ -61,15 +64,14 @@ static void ds_section(struct nk_context *ctx, const char *label) {
 }
 
 // ── Compact color row: [label ........ ■ swatch_combo] ──────────────────────
-static void ds_color(struct nk_context *ctx, const char *label,
-                     uint32_t *c32) {
+static void ds_color(struct nk_context *ctx, const char *label, uint32_t *c32) {
   nk_layout_row_template_begin(ctx, 26);
   nk_layout_row_template_push_dynamic(ctx);
   nk_layout_row_template_push_static(ctx, 60);
   nk_layout_row_template_end(ctx);
   nk_label(ctx, label, NK_TEXT_LEFT);
   struct nk_color c = nk_rgba((*c32 >> 24) & 0xFF, (*c32 >> 16) & 0xFF,
-                               (*c32 >> 8) & 0xFF, *c32 & 0xFF);
+                              (*c32 >> 8) & 0xFF, *c32 & 0xFF);
   if (nk_combo_begin_color(ctx, c, nk_vec2(220, 380))) {
     struct nk_colorf cf = nk_color_cf(c);
     cf = ui_render_color_picker_content(ctx, cf);
@@ -96,16 +98,16 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
   for (int t = 0; t < 3; t++) {
     struct nk_style_button ts = ctx->style.button;
     if (ui->design_bottom_tab == t) {
-      ts.normal  = nk_style_item_color(nk_rgb(55, 120, 235));
-      ts.hover   = nk_style_item_color(nk_rgb(45, 100, 215));
-      ts.active  = nk_style_item_color(nk_rgb(35,  80, 195));
+      ts.normal = nk_style_item_color(nk_rgb(55, 120, 235));
+      ts.hover = nk_style_item_color(nk_rgb(45, 100, 215));
+      ts.active = nk_style_item_color(nk_rgb(35, 80, 195));
       ts.text_normal = ts.text_hover = ts.text_active = nk_rgb(255, 255, 255);
     } else {
-      ts.normal  = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-      ts.hover   = nk_style_item_color(nk_rgba(0, 0, 0, 10));
-      ts.active  = nk_style_item_color(nk_rgba(0, 0, 0, 20));
+      ts.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+      ts.hover = nk_style_item_color(nk_rgba(0, 0, 0, 10));
+      ts.active = nk_style_item_color(nk_rgba(0, 0, 0, 20));
       ts.text_normal = nk_rgb(110, 110, 130);
-      ts.text_hover  = nk_rgb(60, 60, 80);
+      ts.text_hover = nk_rgb(60, 60, 80);
       ts.text_active = nk_rgb(40, 40, 60);
       ts.border = 0;
     }
@@ -125,7 +127,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
 
   // Scrollable content: fill remaining height in the sidebar group
   float sb_avail = nk_window_get_content_region(ctx).h - 36.0f;
-  if (sb_avail < 50.0f) sb_avail = 50.0f;
+  if (sb_avail < 50.0f)
+    sb_avail = 50.0f;
   nk_layout_row_dynamic(ctx, sb_avail, 1);
 
   // =========================================================================
@@ -152,16 +155,16 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         nk_property_float(ctx, "W:", 1.f, &node->width, 10000.f, 1.f, 0.5f);
         nk_property_float(ctx, "H:", 1.f, &node->height, 10000.f, 1.f, 0.5f);
         nk_layout_row_dynamic(ctx, 24, 1);
-        nk_property_float(ctx, "Rotation:", -360.f, &node->rotation, 360.f,
-                          1.f, 0.5f);
+        nk_property_float(ctx, "Rotation:", -360.f, &node->rotation, 360.f, 1.f,
+                          0.5f);
 
         // ── APPEARANCE ───────────────────────────────────────────────────
         ds_section(ctx, "APPEARANCE");
         ds_color(ctx, "Fill", &node->fill_color);
         ds_color(ctx, "Stroke", &node->stroke_color);
         nk_layout_row_dynamic(ctx, 24, 1);
-        nk_property_float(ctx, "Stroke width:", 0.f, &node->stroke_width,
-                          100.f, 0.5f, 0.25f);
+        nk_property_float(ctx, "Stroke width:", 0.f, &node->stroke_width, 100.f,
+                          0.5f, 0.25f);
         if (node->type == NODE_TYPE_RECT || node->type == NODE_TYPE_IMAGE ||
             node->type == NODE_TYPE_FRAME) {
           nk_layout_row_dynamic(ctx, 24, 1);
@@ -172,7 +175,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         // ── TEXT ─────────────────────────────────────────────────────────
         if (node->type == NODE_TYPE_TEXT) {
           ds_section(ctx, "TEXT");
-          if (node->font_size < 8.0f) node->font_size = 12.0f;
+          if (node->font_size < 8.0f)
+            node->font_size = 12.0f;
           nk_layout_row_dynamic(ctx, 24, 1);
           nk_property_float(ctx, "Font size:", 8.f, &node->font_size, 200.f,
                             1.f, 0.5f);
@@ -181,7 +185,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           Block *tbl_block = NULL;
           for (Block *b = page ? page->first_block : NULL; b; b = b->next) {
             if (b->type == BLOCK_TABLE && b->data.table.columnar) {
-              tbl_block = b; break;
+              tbl_block = b;
+              break;
             }
           }
           if (tbl_block) {
@@ -195,12 +200,13 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
             int cur_sel = 0;
             for (int k = 0; k < col_count; k++) {
               if (strcmp(node->linked_col_name, tbl->columns[k].name) == 0) {
-                cur_sel = k + 1; break;
+                cur_sel = k + 1;
+                break;
               }
             }
             nk_layout_row_dynamic(ctx, 24, 1);
-            int new_sel = nk_combo(ctx, col_names, col_count + 1, cur_sel,
-                                   24, nk_vec2(220, 200));
+            int new_sel = nk_combo(ctx, col_names, col_count + 1, cur_sel, 24,
+                                   nk_vec2(220, 200));
             if (new_sel != cur_sel) {
               if (new_sel == 0) {
                 node->linked_col_name[0] = '\0';
@@ -255,11 +261,13 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
       if (page) {
         // ── CANVAS SIZE ──────────────────────────────────────────────────
         ds_section(ctx, "CANVAS SIZE");
-        static const struct { const char *l; int w, h; } presets[] = {
-          {"A4",   794, 1123}, {"A3",    1123, 1587},
-          {"HD",  1920, 1080}, {"4K",    3840, 2160},
-          {"Sq.", 1080, 1080}, {"Story", 1080, 1920},
-          {"Post",1080, 1350}, {"Banner",1920,  480},
+        static const struct {
+          const char *l;
+          int w, h;
+        } presets[] = {
+            {"A4", 794, 1123},    {"A3", 1123, 1587},    {"HD", 1920, 1080},
+            {"4K", 3840, 2160},   {"Sq.", 1080, 1080},   {"Story", 1080, 1920},
+            {"Post", 1080, 1350}, {"Banner", 1920, 480},
         };
         nk_layout_row_dynamic(ctx, 26, 4);
         for (int i = 0; i < 8; i++) {
@@ -293,10 +301,11 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         if (nk_checkbox_label(ctx, "Infinite canvas", &no_limits) &&
             no_limits != dd->no_limits) {
           dd->no_limits = no_limits;
-          if (dd->no_limits && dd->zoom < 0.01f) dd->zoom = 1.0f;
+          if (dd->no_limits && dd->zoom < 0.01f)
+            dd->zoom = 1.0f;
           char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_design_nolimits %u %u %d",
-                   page->id, block->id, dd->no_limits);
+          snprintf(cmd, sizeof(cmd), "block_design_nolimits %u %u %d", page->id,
+                   block->id, dd->no_limits);
           engine_execute_command(engine, cmd);
         }
 
@@ -315,17 +324,19 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         arr.padding = nk_vec2(2, 2);
 
         struct nk_style_button arr_prev = arr;
-        if (!prev_ok) arr_prev.text_normal = nk_rgb(200, 200, 215);
+        if (!prev_ok)
+          arr_prev.text_normal = nk_rgb(200, 200, 215);
         if (nk_button_label_styled(ctx, &arr_prev, "<") && prev_ok) {
           block_design_goto_page(block, dd->current_page - 1);
           ui->selected_node = NULL;
         }
         char pg_str[32];
-        snprintf(pg_str, sizeof(pg_str), "%d / %d",
-                 dd->current_page + 1, dd->page_count);
+        snprintf(pg_str, sizeof(pg_str), "%d / %d", dd->current_page + 1,
+                 dd->page_count);
         nk_label(ctx, pg_str, NK_TEXT_CENTERED);
         struct nk_style_button arr_next = arr;
-        if (!next_ok) arr_next.text_normal = nk_rgb(200, 200, 215);
+        if (!next_ok)
+          arr_next.text_normal = nk_rgb(200, 200, 215);
         if (nk_button_label_styled(ctx, &arr_next, ">") && next_ok) {
           block_design_goto_page(block, dd->current_page + 1);
           ui->selected_node = NULL;
@@ -334,18 +345,21 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         add_btn.text_normal = nk_rgb(55, 120, 235);
         if (nk_button_label_styled(ctx, &add_btn, "+")) {
           int new_pg = block_design_add_page(block);
-          if (new_pg >= 0) { block_design_goto_page(block, new_pg); ui->selected_node = NULL; }
+          if (new_pg >= 0) {
+            block_design_goto_page(block, new_pg);
+            ui->selected_node = NULL;
+          }
         }
 
         if (dd->page_count > 1) {
           nk_layout_row_dynamic(ctx, 24, 1);
           struct nk_style_button del_btn = ctx->style.button;
-          del_btn.normal  = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-          del_btn.hover   = nk_style_item_color(nk_rgba(220, 50, 50, 18));
-          del_btn.active  = nk_style_item_color(nk_rgba(220, 50, 50, 35));
-          del_btn.border  = 0;
+          del_btn.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+          del_btn.hover = nk_style_item_color(nk_rgba(220, 50, 50, 18));
+          del_btn.active = nk_style_item_color(nk_rgba(220, 50, 50, 35));
+          del_btn.border = 0;
           del_btn.text_normal = nk_rgb(200, 65, 65);
-          del_btn.text_hover  = nk_rgb(220, 35, 35);
+          del_btn.text_hover = nk_rgb(220, 35, 35);
           del_btn.text_active = nk_rgb(180, 25, 25);
           if (nk_button_label_styled(ctx, &del_btn, "Delete current page")) {
             int cur = dd->current_page;
@@ -361,7 +375,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           int total_rows = 0;
           for (Block *b = page->first_block; b; b = b->next) {
             if (b->type == BLOCK_TABLE && b->data.table.columnar) {
-              total_rows = (int)b->data.table.columnar->active_count; break;
+              total_rows = (int)b->data.table.columnar->active_count;
+              break;
             }
           }
           if (total_rows > 0) {
@@ -435,10 +450,12 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
   float sidebar_w = 260.0f;
 
   float row_h = nk_window_get_content_region(ctx).h;
-  if (row_h < 200.0f) row_h = 200.0f;
+  if (row_h < 200.0f)
+    row_h = 200.0f;
 
   float display_h = row_h - toolbar_h;
-  if (display_h < 100.0f) display_h = 100.0f;
+  if (display_h < 100.0f)
+    display_h = 100.0f;
 
   // Workspace column (dynamic width) + sidebar column (fixed width)
   nk_layout_row_template_begin(ctx, row_h);
@@ -476,7 +493,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     int in_toolbar =
         (ui->mouse_x >= toolbar_x && ui->mouse_x < toolbar_x + toolbar_w &&
          ui->mouse_y >= toolbar_y && ui->mouse_y < toolbar_y + 52.0f);
-    int in_forms_menu = ds->show_forms_menu;
+    int in_forms_menu = 0;
 
     // Early check for active state
     int is_active_design = (ds->active_design_id == block->id);
@@ -695,8 +712,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           new_node = design_create_styled_node(
               dd, NODE_STYLE_TEXT, nx, ny, 200.0f, 40.0f, ds->selected_color);
           if (new_node)
-            strncpy(new_node->text, "Linked text",
-                    sizeof(new_node->text) - 1);
+            strncpy(new_node->text, "Linked text", sizeof(new_node->text) - 1);
           // linked_col_name starts empty; user links it via Properties sidebar
         } else if (ds->pending_create >= 10 && ds->pending_create <= 13) {
           NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
@@ -1742,7 +1758,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       // Close forms menu if clicking elsewhere
       if (ds->mouse_just_pressed && !in_toolbar && !in_forms_menu &&
           is_active_design) {
-        ds->show_forms_menu = 0;
       }
 
       // --- PEN TOOL logic (Adapted for Design) ---
@@ -1985,14 +2000,11 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ui->canvas_state = temp_cs;
     }
 
-
-
     if (ds->mouse_just_pressed &&
         !nk_input_is_mouse_hovering_rect(
             &ctx->input,
             nk_rect(ws_bounds.x, ws_bounds.y + ws_bounds.h - toolbar_h,
                     ws_bounds.w, toolbar_h))) {
-      ds->show_forms_menu = 0;
     }
 
     // --- Zoom controls for no_limits mode ---
