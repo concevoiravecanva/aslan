@@ -34,7 +34,6 @@ typedef enum {
   BLOCK_TEXT = 0,  // Monospace text (Kilo-style editor)
   BLOCK_HEADING_1, // H1 title
   BLOCK_TABLE,     // Notion-style table with views
-  BLOCK_CANVAS,    // Infinite canvas (Miro-style)
   BLOCK_DESIGN,    // Finite design surface (Canva-style)
   BLOCK_CHART,     // Data-driven chart (linked to Table block)
 
@@ -188,14 +187,7 @@ typedef struct Stroke {
   struct Stroke *next;
 } Stroke;
 
-typedef struct {
-  Node *root; // Node tree root
-  uint32_t next_node_id;
-  float view_x, view_y; // Pan offset
-  float zoom;           // Zoom level (1.0 = 100%)
-  SpatialIndex *index;  // Hit-testing acceleration
-
-} CanvasData;
+// (CanvasData removed — Canvas block type has been deleted)
 
 // --- Design Block Data (Finite, Multi-Page) ---
 
@@ -255,7 +247,6 @@ typedef struct Block {
   // Type-specific payload
   union {
     TableData table;
-    CanvasData canvas;
     DesignData design;
     ChartData chart;
   } data;
@@ -410,17 +401,7 @@ void block_table_delete_row(Block *block, int row_idx);
 void block_table_delete_col(Block *block, int col_idx);
 void block_table_set_view(Block *block, TableViewMode mode);
 
-// =============================================================================
-// CANVAS BLOCK API
-// =============================================================================
-
-void block_canvas_init(Block *block);
-void block_canvas_destroy(Block *block);
-Node *block_canvas_create_node(Block *block, NodeType type, const char *name);
-Node *block_canvas_find_node(Block *block, uint32_t node_id);
-Node *block_canvas_find_node_at(Block *block, float x, float y);
-bool block_canvas_delete_node(Block *block, uint32_t node_id);
-void block_canvas_set_view(Block *block, float x, float y, float zoom);
+// (Canvas Block API removed — Canvas block type has been deleted)
 
 // =============================================================================
 // DESIGN BLOCK API
@@ -524,15 +505,7 @@ NodeType node_type_from_string(const char *str);
 // block_table_delete_row <page_id> <block_id> <row_idx>
 // block_table_delete_col <page_id> <block_id> <col_idx>
 //
-// # Canvas Block
-// block_canvas_node <page_id> <block_id> create <node_id> <type> "<name>"
-// block_canvas_node <page_id> <block_id> delete <node_id>
-// block_canvas_node <page_id> <block_id> move <node_id> <x> <y>
-// block_canvas_node <page_id> <block_id> resize <node_id> <w> <h>
-// block_canvas_node <page_id> <block_id> text <node_id> "<content>"
-// block_canvas_node <page_id> <block_id> fill <node_id> <rgba>
-// block_canvas_node <page_id> <block_id> stroke <node_id> <rgba> <width>
-// block_canvas_view <page_id> <block_id> <x> <y> <zoom>
+// (Canvas Block AOF commands removed)
 //
 // # Design Block
 // block_design_init <page_id> <block_id> <width> <height>

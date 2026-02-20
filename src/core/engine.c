@@ -505,9 +505,6 @@ static bool handle_block_create(Engine *engine, const AofCommand *cmd,
     case BLOCK_TABLE:
       block_table_init(block);
       break;
-    case BLOCK_CANVAS:
-      block_canvas_init(block);
-      break;
     case BLOCK_DESIGN:
       block_design_init(block);
       break;
@@ -833,84 +830,6 @@ static bool handle_block_table_col_formula(Engine *engine,
   return false;
 }
 
-// CANVAS BLOCK COMMANDS
-static bool handle_block_canvas_view(Engine *engine, const AofCommand *cmd,
-                                     const char *command_line) {
-  if (cmd->argc < 6)
-    return false;
-  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
-  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
-  float x = (float)atof(cmd->argv[3]);
-  float y = (float)atof(cmd->argv[4]);
-  float zoom = (float)atof(cmd->argv[5]);
-  Block *block = find_block(engine, page_id, block_id);
-  if (block && block->type == BLOCK_CANVAS) {
-    block_canvas_set_view(block, x, y, zoom);
-    engine_emit_command(engine, command_line);
-    return true;
-  }
-  return false;
-}
-
-static bool handle_block_canvas_node(Engine *engine, const AofCommand *cmd,
-                                     const char *command_line) {
-  if (cmd->argc < 5)
-    return false;
-  uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
-  uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
-  const char *action = cmd->argv[3];
-  Block *block = find_block(engine, page_id, block_id);
-  if (block && block->type == BLOCK_CANVAS) {
-    if (strcmp(action, "create") == 0 && cmd->argc >= 7) {
-      uint32_t node_id = (uint32_t)atoi(cmd->argv[4]);
-      NodeType type = node_type_from_string(cmd->argv[5]);
-      char unescaped[64];
-      unescape_string(cmd->argv[6], unescaped, sizeof(unescaped));
-      if (!block_canvas_find_node(block, node_id)) {
-        Node *node = node_create(node_id, type, unescaped);
-        if (node && block->data.canvas.root) {
-          node_add_child(block->data.canvas.root, node);
-          if (node_id >= block->data.canvas.next_node_id)
-            block->data.canvas.next_node_id = node_id + 1;
-        }
-      }
-    } else if (strcmp(action, "delete") == 0 && cmd->argc >= 5) {
-      block_canvas_delete_node(block, (uint32_t)atoi(cmd->argv[4]));
-    } else if (strcmp(action, "move") == 0 && cmd->argc >= 7) {
-      Node *node = block_canvas_find_node(block, (uint32_t)atoi(cmd->argv[4]));
-      if (node)
-        node_set_position(node, (float)atof(cmd->argv[5]),
-                          (float)atof(cmd->argv[6]));
-    } else if (strcmp(action, "resize") == 0 && cmd->argc >= 7) {
-      Node *node = block_canvas_find_node(block, (uint32_t)atoi(cmd->argv[4]));
-      if (node)
-        node_set_size(node, (float)atof(cmd->argv[5]),
-                      (float)atof(cmd->argv[6]));
-    } else if (strcmp(action, "text") == 0 && cmd->argc >= 6) {
-      Node *node = block_canvas_find_node(block, (uint32_t)atoi(cmd->argv[4]));
-      if (node) {
-        char unescaped[256];
-        unescape_string(cmd->argv[5], unescaped, sizeof(unescaped));
-        node_set_text(node, unescaped);
-      }
-    } else if (strcmp(action, "fill") == 0 && cmd->argc >= 6) {
-      Node *node = block_canvas_find_node(block, (uint32_t)atoi(cmd->argv[4]));
-      if (node)
-        node_set_fill_color(node, (uint32_t)strtoul(cmd->argv[5], NULL, 0));
-    } else if (strcmp(action, "stroke") == 0 && cmd->argc >= 7) {
-      Node *node = block_canvas_find_node(block, (uint32_t)atoi(cmd->argv[4]));
-      if (node)
-        node_set_stroke(node, (uint32_t)strtoul(cmd->argv[5], NULL, 0),
-                        (float)atof(cmd->argv[6]));
-    } else {
-      return false;
-    }
-    engine_emit_command(engine, command_line);
-    return true;
-  }
-  return false;
-}
-
 // DESIGN BLOCK COMMANDS
 static bool handle_block_design_init(Engine *engine, const AofCommand *cmd,
                                      const char *command_line) {
@@ -944,7 +863,7 @@ static bool handle_block_design_bg(Engine *engine, const AofCommand *cmd,
 }
 
 static bool handle_block_design_nolimits(Engine *engine, const AofCommand *cmd,
-                                        const char *command_line) {
+                                         const char *command_line) {
   if (cmd->argc < 4)
     return false;
   uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
@@ -1147,34 +1066,44 @@ static bool handle_block_layout(Engine *engine, const AofCommand *cmd,
 
 // Serialise current document into a heap buffer via open_memstream.
 static char *engine_snapshot_current(Engine *engine, size_t *out_size) {
-  if (!engine || !engine->doc) return NULL;
-  char  *ptr  = NULL;
+  if (!engine || !engine->doc)
+    return NULL;
+  char *ptr = NULL;
   size_t size = 0;
-  FILE  *mem  = open_memstream(&ptr, &size);
-  if (!mem) return NULL;
+  FILE *mem = open_memstream(&ptr, &size);
+  if (!mem)
+    return NULL;
   doc_save_aof(engine->doc, mem);
   fclose(mem);
-  if (out_size) *out_size = size;
+  if (out_size)
+    *out_size = size;
   return ptr;
 }
 
 // Verbs that must NOT trigger an undo snapshot.
 static bool engine_verb_is_non_mutating(const char *verb) {
-  static const char * const skip[] = {
-    "exit", "clear", "doc_save_as", "doc_save_snapshot",
-    "page_activate", "block_canvas_view", "block_design_view",
-    "undo", "redo", NULL
-  };
+  static const char *const skip[] = {"exit",
+                                     "clear",
+                                     "doc_save_as",
+                                     "doc_save_snapshot",
+                                     "page_activate",
+                                     "block_design_view",
+                                     "undo",
+                                     "redo",
+                                     NULL};
   for (int i = 0; skip[i]; i++) {
-    if (strcmp(verb, skip[i]) == 0) return true;
+    if (strcmp(verb, skip[i]) == 0)
+      return true;
   }
   return false;
 }
 
 // Push undo snapshot before a mutating command executes.
 static void engine_push_undo_snapshot(Engine *engine, const char *verb) {
-  if (engine->is_loading) return;
-  if (engine_verb_is_non_mutating(verb)) return;
+  if (engine->is_loading)
+    return;
+  if (engine_verb_is_non_mutating(verb))
+    return;
 
   // Coalescing: skip if same verb within 500ms
   uint32_t now = SDL_GetTicks();
@@ -1185,8 +1114,9 @@ static void engine_push_undo_snapshot(Engine *engine, const char *verb) {
   }
 
   size_t snap_size = 0;
-  char  *snap = engine_snapshot_current(engine, &snap_size);
-  if (!snap) return;
+  char *snap = engine_snapshot_current(engine, &snap_size);
+  if (!snap)
+    return;
 
   // Evict oldest if full
   if (engine->undo_top >= ENGINE_UNDO_MAX) {
@@ -1196,7 +1126,7 @@ static void engine_push_undo_snapshot(Engine *engine, const char *verb) {
     engine->undo_top = ENGINE_UNDO_MAX - 1;
   }
 
-  engine->undo_stack[engine->undo_top].buf  = snap;
+  engine->undo_stack[engine->undo_top].buf = snap;
   engine->undo_stack[engine->undo_top].size = snap_size;
   engine->undo_top++;
 
@@ -1214,8 +1144,8 @@ static void engine_push_undo_snapshot(Engine *engine, const char *verb) {
 }
 
 // Restore document from an AOF snapshot string.
-static void engine_restore_from_snapshot(Engine *engine,
-                                         const char *buf, size_t size) {
+static void engine_restore_from_snapshot(Engine *engine, const char *buf,
+                                         size_t size) {
   (void)size;
 
   doc_destroy(engine->doc);
@@ -1230,11 +1160,13 @@ static void engine_restore_from_snapshot(Engine *engine,
   const char *p = buf;
   while (*p) {
     const char *eol = p;
-    while (*eol && *eol != '\n') eol++;
+    while (*eol && *eol != '\n')
+      eol++;
 
     char line[2048];
     size_t len = (size_t)(eol - p);
-    if (len >= sizeof(line)) len = sizeof(line) - 1;
+    if (len >= sizeof(line))
+      len = sizeof(line) - 1;
     memcpy(line, p, len);
     line[len] = '\0';
 
@@ -1258,14 +1190,15 @@ static bool handle_undo(Engine *engine, const AofCommand *cmd,
   (void)cmd;
   (void)command_line;
 
-  if (engine->undo_top == 0) return false;
+  if (engine->undo_top == 0)
+    return false;
 
   // Push current state onto redo stack
   if (engine->redo_top < ENGINE_UNDO_MAX) {
     size_t now_size = 0;
-    char  *now_snap = engine_snapshot_current(engine, &now_size);
+    char *now_snap = engine_snapshot_current(engine, &now_size);
     if (now_snap) {
-      engine->redo_stack[engine->redo_top].buf  = now_snap;
+      engine->redo_stack[engine->redo_top].buf = now_snap;
       engine->redo_stack[engine->redo_top].size = now_size;
       engine->redo_top++;
     }
@@ -1273,9 +1206,9 @@ static bool handle_undo(Engine *engine, const AofCommand *cmd,
 
   // Pop undo stack
   engine->undo_top--;
-  char  *snap = engine->undo_stack[engine->undo_top].buf;
-  size_t sz   = engine->undo_stack[engine->undo_top].size;
-  engine->undo_stack[engine->undo_top].buf  = NULL;
+  char *snap = engine->undo_stack[engine->undo_top].buf;
+  size_t sz = engine->undo_stack[engine->undo_top].size;
+  engine->undo_stack[engine->undo_top].buf = NULL;
   engine->undo_stack[engine->undo_top].size = 0;
 
   engine_restore_from_snapshot(engine, snap, sz);
@@ -1291,14 +1224,15 @@ static bool handle_redo(Engine *engine, const AofCommand *cmd,
   (void)cmd;
   (void)command_line;
 
-  if (engine->redo_top == 0) return false;
+  if (engine->redo_top == 0)
+    return false;
 
   // Push current state onto undo stack
   if (engine->undo_top < ENGINE_UNDO_MAX) {
     size_t now_size = 0;
-    char  *now_snap = engine_snapshot_current(engine, &now_size);
+    char *now_snap = engine_snapshot_current(engine, &now_size);
     if (now_snap) {
-      engine->undo_stack[engine->undo_top].buf  = now_snap;
+      engine->undo_stack[engine->undo_top].buf = now_snap;
       engine->undo_stack[engine->undo_top].size = now_size;
       engine->undo_top++;
     }
@@ -1306,9 +1240,9 @@ static bool handle_redo(Engine *engine, const AofCommand *cmd,
 
   // Pop redo stack
   engine->redo_top--;
-  char  *snap = engine->redo_stack[engine->redo_top].buf;
-  size_t sz   = engine->redo_stack[engine->redo_top].size;
-  engine->redo_stack[engine->redo_top].buf  = NULL;
+  char *snap = engine->redo_stack[engine->redo_top].buf;
+  size_t sz = engine->redo_stack[engine->redo_top].size;
+  engine->redo_stack[engine->redo_top].buf = NULL;
   engine->redo_stack[engine->redo_top].size = 0;
 
   engine_restore_from_snapshot(engine, snap, sz);
@@ -1350,8 +1284,6 @@ static const CommandEntry k_dispatch_table[] = {
     {"block_table_col_color", handle_block_table_col_color},
     {"block_table_col_info", handle_block_table_col_info},
     {"block_table_col_formula", handle_block_table_col_formula},
-    {"block_canvas_view", handle_block_canvas_view},
-    {"block_canvas_node", handle_block_canvas_node},
     {"block_design_init", handle_block_design_init},
     {"block_design_bg", handle_block_design_bg},
     {"block_design_nolimits", handle_block_design_nolimits},

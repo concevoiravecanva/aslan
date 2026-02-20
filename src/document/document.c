@@ -60,7 +60,7 @@ BlockType block_type_from_string(const char *str) {
   if (strcmp(str, "table") == 0)
     return BLOCK_TABLE;
   if (strcmp(str, "canvas") == 0)
-    return BLOCK_CANVAS;
+    return BLOCK_DESIGN; // Canvas type removed, treat as Design
   if (strcmp(str, "design") == 0)
     return BLOCK_DESIGN;
   if (strcmp(str, "chart") == 0)
@@ -513,9 +513,6 @@ void block_destroy(Block *block) {
   case BLOCK_TABLE:
     block_table_destroy(block);
     break;
-  case BLOCK_CANVAS:
-    block_canvas_destroy(block);
-    break;
   case BLOCK_DESIGN:
     block_design_destroy(block);
     break;
@@ -797,9 +794,6 @@ void block_convert_to(Block *block, BlockType new_type) {
   switch (block->type) {
   case BLOCK_TABLE:
     block_table_destroy(block);
-    break;
-  case BLOCK_CANVAS:
-    block_canvas_destroy(block);
     break;
   case BLOCK_DESIGN:
     block_design_destroy(block);
@@ -1241,40 +1235,7 @@ void node_move_down(Node *node) {
   prev->next_sibling = next;
 }
 
-// -----------------------------------------------------------------------------
-// Canvas Block API
-// -----------------------------------------------------------------------------
-
-void block_canvas_init(Block *block) {
-  if (!block || block->type != BLOCK_CANVAS)
-    return;
-
-  CanvasData *cd = &block->data.canvas;
-
-  cd->root = node_create(0, NODE_TYPE_ROOT, "CanvasRoot");
-  cd->next_node_id = 1;
-  cd->view_x = 0.0f;
-  cd->view_y = 0.0f;
-  cd->zoom = 1.0f;
-  cd->index = NULL; // spatial_index_create(128) if needed
-}
-
-void block_canvas_destroy(Block *block) {
-  if (!block)
-    return;
-
-  CanvasData *cd = &block->data.canvas;
-
-  if (cd->root) {
-    node_destroy_tree(cd->root);
-    cd->root = NULL;
-  }
-
-  if (cd->index) {
-    spatial_index_destroy(cd->index);
-    cd->index = NULL;
-  }
-}
+// (Canvas Block API removed — Canvas block type has been deleted)
 
 static Node *find_node_recursive(Node *node, uint32_t id) {
   if (!node)
@@ -1287,86 +1248,6 @@ static Node *find_node_recursive(Node *node, uint32_t id) {
     return found;
 
   return find_node_recursive(node->next_sibling, id);
-}
-
-Node *block_canvas_create_node(Block *block, NodeType type, const char *name) {
-  if (!block || block->type != BLOCK_CANVAS)
-    return NULL;
-
-  CanvasData *cd = &block->data.canvas;
-  if (!cd->root)
-    return NULL;
-
-  Node *node = node_create(cd->next_node_id++, type, name);
-  if (!node)
-    return NULL;
-
-  node_add_child(cd->root, node);
-  return node;
-}
-
-Node *block_canvas_find_node(Block *block, uint32_t node_id) {
-  if (!block || block->type != BLOCK_CANVAS)
-    return NULL;
-
-  CanvasData *cd = &block->data.canvas;
-  return find_node_recursive(cd->root, node_id);
-}
-
-static Node *find_node_at_recursive(Node *node, float x, float y) {
-  if (!node)
-    return NULL;
-
-  Node *found = find_node_at_recursive(node->next_sibling, x, y);
-  if (found)
-    return found;
-
-  found = find_node_at_recursive(node->first_child, x, y);
-  if (found)
-    return found;
-
-  if (node->type != NODE_TYPE_ROOT && node->visible) {
-    if (x >= node->x && x <= node->x + node->width && y >= node->y &&
-        y <= node->y + node->height) {
-      return node;
-    }
-  }
-
-  return NULL;
-}
-
-Node *block_canvas_find_node_at(Block *block, float x, float y) {
-  if (!block || block->type != BLOCK_CANVAS)
-    return NULL;
-
-  CanvasData *cd = &block->data.canvas;
-  if (!cd->root)
-    return NULL;
-
-  return find_node_at_recursive(cd->root->first_child, x, y);
-}
-
-bool block_canvas_delete_node(Block *block, uint32_t node_id) {
-  if (!block || block->type != BLOCK_CANVAS)
-    return false;
-
-  Node *node = block_canvas_find_node(block, node_id);
-  if (!node || node->type == NODE_TYPE_ROOT)
-    return false;
-
-  node_remove_from_parent(node);
-  node_destroy_tree(node);
-  return true;
-}
-
-void block_canvas_set_view(Block *block, float x, float y, float zoom) {
-  if (!block || block->type != BLOCK_CANVAS)
-    return;
-
-  CanvasData *cd = &block->data.canvas;
-  cd->view_x = x;
-  cd->view_y = y;
-  cd->zoom = zoom;
 }
 
 // -----------------------------------------------------------------------------
@@ -1783,17 +1664,6 @@ void doc_save_aof(const Document *doc, FILE *fp) {
                 fprintf(fp, "\n");
               }
             }
-          }
-        }
-        break;
-      }
-      case BLOCK_CANVAS: {
-        const CanvasData *cd = &b->data.canvas;
-        fprintf(fp, "block_canvas_view %u %u %.2f %.2f %.2f\n", page->id, b->id,
-                cd->view_x, cd->view_y, cd->zoom);
-        if (cd->root) {
-          for (Node *n = cd->root->first_child; n; n = n->next_sibling) {
-            save_node_recursive(fp, page->id, b->id, "block_canvas", n);
           }
         }
         break;

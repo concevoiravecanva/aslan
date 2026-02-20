@@ -264,33 +264,7 @@ void renderer_draw_selection(Renderer *r, const Document *doc,
   }
 }
 
-// -----------------------------------------------------------------------------
-// Canvas/Design Block Rendering (for direct SDL rendering)
-// -----------------------------------------------------------------------------
-
-void renderer_draw_canvas_block(Renderer *r, const Block *block, float x,
-                                float y, float w, float h) {
-  if (!r || !block || block->type != BLOCK_CANVAS)
-    return;
-
-  const CanvasData *cd = &block->data.canvas;
-
-  // Background
-  SDL_Rect bounds = {(int)x, (int)y, (int)w, (int)h};
-  SDL_SetRenderDrawColor(r->sdl_renderer, 40, 42, 46, 255);
-  SDL_RenderFillRect(r->sdl_renderer, &bounds);
-
-  // Border
-  SDL_SetRenderDrawColor(r->sdl_renderer, 60, 62, 66, 255);
-  SDL_RenderDrawRect(r->sdl_renderer, &bounds);
-
-  // Draw nodes
-  if (cd->root) {
-    float ox = x - cd->view_x * cd->zoom;
-    float oy = y - cd->view_y * cd->zoom;
-    draw_node_tree(r, cd->root, ox, oy, cd->zoom);
-  }
-}
+// (renderer_draw_canvas_block removed — Canvas block type has been deleted)\n
 
 void renderer_draw_design_block(Renderer *r, const Block *block, float x,
                                 float y, float w, float h) {

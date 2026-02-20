@@ -328,9 +328,6 @@ static int l_create_block(lua_State *L) {
     case BLOCK_TABLE:
       block_table_init(block);
       break;
-    case BLOCK_CANVAS:
-      block_canvas_init(block);
-      break;
     case BLOCK_DESIGN:
       block_design_init(block);
       break;
@@ -463,88 +460,7 @@ static int l_table_get_cell(lua_State *L) {
   return 0;
 }
 
-// =============================================================================
-// Lua Bindings: Canvas Blocks
-// =============================================================================
-
-// lua: aslan.canvas_create_node(page_id, block_id, type, name) -> node_id
-static int l_canvas_create_node(lua_State *L) {
-  uint32_t page_id = (uint32_t)luaL_checkinteger(L, 1);
-  uint32_t block_id = (uint32_t)luaL_checkinteger(L, 2);
-  const char *type_str = luaL_checkstring(L, 3);
-  const char *name = luaL_checkstring(L, 4);
-
-  if (!g_current_doc) {
-    lua_pushinteger(L, 0);
-    return 1;
-  }
-
-  Page *page = doc_page_get(g_current_doc, page_id);
-  if (!page) {
-    lua_pushinteger(L, 0);
-    return 1;
-  }
-
-  Block *block = page_find_block_by_id(page, block_id);
-  if (block && block->type == BLOCK_CANVAS) {
-    NodeType type = node_type_from_string(type_str);
-    Node *node = block_canvas_create_node(block, type, name);
-    lua_pushinteger(L, node ? node->id : 0);
-  } else {
-    lua_pushinteger(L, 0);
-  }
-  return 1;
-}
-
-// lua: aslan.canvas_set_node_pos(page_id, block_id, node_id, x, y)
-static int l_canvas_set_node_pos(lua_State *L) {
-  uint32_t page_id = (uint32_t)luaL_checkinteger(L, 1);
-  uint32_t block_id = (uint32_t)luaL_checkinteger(L, 2);
-  uint32_t node_id = (uint32_t)luaL_checkinteger(L, 3);
-  float x = (float)luaL_checknumber(L, 4);
-  float y = (float)luaL_checknumber(L, 5);
-
-  if (!g_current_doc)
-    return 0;
-
-  Page *page = doc_page_get(g_current_doc, page_id);
-  if (!page)
-    return 0;
-
-  Block *block = page_find_block_by_id(page, block_id);
-  if (block && block->type == BLOCK_CANVAS) {
-    Node *node = block_canvas_find_node(block, node_id);
-    if (node) {
-      node_set_position(node, x, y);
-    }
-  }
-  return 0;
-}
-
-// lua: aslan.canvas_set_node_size(page_id, block_id, node_id, w, h)
-static int l_canvas_set_node_size(lua_State *L) {
-  uint32_t page_id = (uint32_t)luaL_checkinteger(L, 1);
-  uint32_t block_id = (uint32_t)luaL_checkinteger(L, 2);
-  uint32_t node_id = (uint32_t)luaL_checkinteger(L, 3);
-  float w = (float)luaL_checknumber(L, 4);
-  float h = (float)luaL_checknumber(L, 5);
-
-  if (!g_current_doc)
-    return 0;
-
-  Page *page = doc_page_get(g_current_doc, page_id);
-  if (!page)
-    return 0;
-
-  Block *block = page_find_block_by_id(page, block_id);
-  if (block && block->type == BLOCK_CANVAS) {
-    Node *node = block_canvas_find_node(block, node_id);
-    if (node) {
-      node_set_size(node, w, h);
-    }
-  }
-  return 0;
-}
+// (Canvas Lua bindings removed — Canvas block type has been deleted)
 
 // =============================================================================
 // Lua Bindings: Globals
@@ -686,11 +602,6 @@ static const luaL_Reg aslan_funcs[] = {
     // Table blocks
     {"table_set_cell", l_table_set_cell},
     {"table_get_cell", l_table_get_cell},
-
-    // Canvas blocks
-    {"canvas_create_node", l_canvas_create_node},
-    {"canvas_set_node_pos", l_canvas_set_node_pos},
-    {"canvas_set_node_size", l_canvas_set_node_size},
 
     // Globals
     {"set_global", l_set_global},

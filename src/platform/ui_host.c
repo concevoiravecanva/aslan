@@ -168,9 +168,7 @@ void ui_host_copy_node(UIHost *ui, Engine *engine) {
     ui->clipboard_node.has_data = 1;
     ui->clipboard_node.type = src->type;
     // Determine if the node comes from a canvas block (vs design block)
-    ui->clipboard_node.from_canvas =
-        (ui->canvas_state.active_block &&
-         ui->canvas_state.active_block->type == BLOCK_CANVAS);
+    ui->clipboard_node.from_canvas = 0; // Canvas block removed
     strncpy(ui->clipboard_node.name, src->name,
             sizeof(ui->clipboard_node.name) - 1);
     ui->clipboard_node.x = src->x;
@@ -249,32 +247,19 @@ void ui_host_paste_node(UIHost *ui, Engine *engine) {
     return;
   }
 
-  // Find an appropriate target block (prefer canvas/design matching clipboard)
+  // Find an appropriate design block for paste target
   Block *target = NULL;
-  int is_canvas = 0;
   for (Block *b = page->first_block; b; b = b->next) {
-    if (b->type == BLOCK_CANVAS && ui->clipboard_node.from_canvas) {
+    if (b->type == BLOCK_DESIGN) {
       target = b;
-      is_canvas = 1;
-      break;
-    }
-    if (b->type == BLOCK_DESIGN && !ui->clipboard_node.from_canvas) {
-      target = b;
-      is_canvas = 0;
       break;
     }
   }
-  // Fall back to any canvas or design block
+  // Fall back to any design block
   if (!target) {
     for (Block *b = page->first_block; b; b = b->next) {
-      if (b->type == BLOCK_CANVAS) {
-        target = b;
-        is_canvas = 1;
-        break;
-      }
       if (b->type == BLOCK_DESIGN) {
         target = b;
-        is_canvas = 0;
         break;
       }
     }
@@ -283,20 +268,18 @@ void ui_host_paste_node(UIHost *ui, Engine *engine) {
     return;
 
   // Reserve node ID
-  uint32_t new_id = is_canvas ? target->data.canvas.next_node_id
-                              : target->data.design.next_node_id;
+  uint32_t new_id = target->data.design.next_node_id;
 
   // Issue create command — triggers undo snapshot via engine
   char cmd_buf[256];
-  snprintf(cmd_buf, sizeof(cmd_buf), "%s_node %u %u create %u %s \"%s\"",
-           is_canvas ? "block_canvas" : "block_design", page->id, target->id,
+  snprintf(cmd_buf, sizeof(cmd_buf),
+           "block_design_node %u %u create %u %s \"%s\"", page->id, target->id,
            new_id, node_type_to_string(ui->clipboard_node.type),
            ui->clipboard_node.name);
   engine_execute_command(engine, cmd_buf);
 
   // Find the freshly created node and patch all properties
-  Node *pasted = is_canvas ? block_canvas_find_node(target, new_id)
-                           : block_design_find_node(target, new_id);
+  Node *pasted = block_design_find_node(target, new_id);
   if (!pasted)
     return;
 
@@ -641,14 +624,14 @@ void ui_host_handle_file_drop(UIHost *ui, const char *file_path, int mx,
   if (mx >= cs->bounds_x && mx < cs->bounds_x + cs->bounds_w &&
       my >= cs->bounds_y && my < cs->bounds_y + cs->bounds_h) {
     ASLAN_DEBUG("Mouse is in canvas bounds");
-    if (cs->active_block && cs->active_block->type == BLOCK_CANVAS) {
-      ASLAN_DEBUG("Active canvas block found");
-      CanvasData *cd = &cs->active_block->data.canvas;
+    if (cs->active_block && cs->active_block->type == BLOCK_DESIGN) {
+      ASLAN_DEBUG("Active design block found");
+      DesignData *dd = &cs->active_block->data.design;
       float wx = cs->cam_x + (mx - cs->bounds_x) / cs->zoom;
       float wy = cs->cam_y + (my - cs->bounds_y) / cs->zoom;
       ASLAN_DEBUG("World coords: wx=%.1f wy=%.1f (cam: %.1f,%.1f zoom: %.2f)",
                   wx, wy, cs->cam_x, cs->cam_y, cs->zoom);
-      Node *hit = canvas_find_node_at(cd, wx, wy);
+      Node *hit = design_find_node_at(dd, wx, wy);
       if (hit) {
         ASLAN_DEBUG("Hit node found, is_container=%d", hit->is_container);
         if (hit->is_container) {
@@ -1109,9 +1092,7 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     if ((key == SDLK_DELETE || key == SDLK_BACKSPACE) && ui->selected_node &&
         active_block) {
       uint32_t node_id = ui->selected_node->id;
-      if (is_canvas)
-        block_canvas_delete_node(active_block, node_id);
-      else if (is_design)
+      if (is_design)
         block_design_delete_node(active_block, node_id);
       ui->selected_node = NULL;
       return;
@@ -1151,10 +1132,7 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       Node *src = ui->selected_node;
       Node *dup = NULL;
 
-      if (is_canvas) {
-        dup = node_create(active_block->data.canvas.next_node_id++, src->type,
-                          src->name);
-      } else if (is_design) {
+      if (is_design) {
         dup = node_create(active_block->data.design.next_node_id++, src->type,
                           src->name);
       }
@@ -1181,9 +1159,7 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 
         // Add to tree
         Node *root = NULL;
-        if (is_canvas)
-          root = active_block->data.canvas.root;
-        else if (is_design)
+        if (is_design)
           root = active_block->data.design.root;
 
         if (root) {
@@ -1282,11 +1258,10 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
 
   int show_trash = 1; // Allow deleting any block, including H1
   int allow_export =
-      (block->type == BLOCK_TABLE || block->type == BLOCK_CANVAS ||
-       block->type == BLOCK_DESIGN);
+      (block->type == BLOCK_TABLE || block->type == BLOCK_DESIGN);
   int allow_resize =
-      (block->type == BLOCK_TABLE || block->type == BLOCK_CANVAS ||
-       block->type == BLOCK_DESIGN || block->type == BLOCK_CHART);
+      (block->type == BLOCK_TABLE || block->type == BLOCK_DESIGN ||
+       block->type == BLOCK_CHART);
 
   // Count buttons
   int n = 1; // hand always
@@ -1752,9 +1727,6 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
   case BLOCK_TABLE:
     ui_render_block_table(ui, engine, ctx, block, width);
     break;
-  case BLOCK_CANVAS:
-    ui_render_block_canvas(ui, engine, ctx, block, width);
-    break;
   case BLOCK_DESIGN:
     ui_render_block_design(ui, engine, ctx, block, width);
     break;
@@ -1907,9 +1879,6 @@ float ui_measure_block_height(UIHost *ui, Block *block, float width) {
     return h * vs;
   }
 
-  case BLOCK_CANVAS:
-    return 400.0f * vs;
-
   case BLOCK_DESIGN: {
     // Design renders at aspect ratio, max 400.0f + 52.0f toolbar
     float aspect_h = 400.0f;
@@ -1948,7 +1917,8 @@ static Block *page_find_first_block_of_type(Page *page, BlockType type) {
 // panel_id: "L" or "R" for unique Nuklear IDs
 static void ui_render_view_tabs(UIHost *ui, struct nk_context *ctx, float width,
                                 int *active_view_ptr, const char *panel_id) {
-  const char *tab_labels[] = {"Table", "Design", "Kanban", "Calendar", "Charts"};
+  const char *tab_labels[] = {"Table", "Design", "Kanban", "Calendar",
+                              "Charts"};
   const char *tab_icons[] = {ICON_TABLE, ICON_DESIGN, ICON_KANBAN,
                              ICON_CALENDAR, ICON_CHART};
   int tab_count = 5;
@@ -1965,8 +1935,9 @@ static void ui_render_view_tabs(UIHost *ui, struct nk_context *ctx, float width,
     tab_w = 120.0f;
 
   float tabs_total_w = (float)tab_count * tab_w;
-  float spacer_w     = width - tabs_total_w - settings_btn_w;
-  if (spacer_w < 0.0f) spacer_w = 0.0f;
+  float spacer_w = width - tabs_total_w - settings_btn_w;
+  if (spacer_w < 0.0f)
+    spacer_w = 0.0f;
 
   nk_layout_row_begin(ctx, NK_STATIC, 32, tab_count + 2);
   for (int i = 0; i < tab_count; i++) {
@@ -2014,14 +1985,14 @@ static void ui_render_view_tabs(UIHost *ui, struct nk_context *ctx, float width,
   if (ui->font_icons)
     nk_style_set_font(ctx, &ui->font_icons->handle);
   struct nk_style_button sb_style = ctx->style.button;
-  sb_style.normal   = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-  sb_style.hover    = nk_style_item_color(
+  sb_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+  sb_style.hover = nk_style_item_color(
       ui->dark_mode ? nk_rgba(255, 255, 255, 10) : nk_rgba(0, 0, 0, 8));
-  sb_style.active   = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-  sb_style.border   = 0;
+  sb_style.active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+  sb_style.border = 0;
   sb_style.rounding = 0;
   sb_style.text_normal = inactive_col;
-  sb_style.text_hover  = active_col;
+  sb_style.text_hover = active_col;
   sb_style.text_active = active_col;
   if (nk_button_label_styled(ctx, &sb_style, ICON_VIEW_SETTINGS)) {
     int this_view = *active_view_ptr;
@@ -2029,10 +2000,10 @@ static void ui_render_view_tabs(UIHost *ui, struct nk_context *ctx, float width,
         ui->view_settings.active_view == this_view) {
       ui->view_settings.show_popup = 0;
     } else {
-      ui->view_settings.show_popup  = 1;
+      ui->view_settings.show_popup = 1;
       ui->view_settings.active_view = this_view;
-      ui->view_settings.btn_x       = sbr.x;
-      ui->view_settings.btn_y       = sbr.y;
+      ui->view_settings.btn_x = sbr.x;
+      ui->view_settings.btn_y = sbr.y;
     }
   }
   if (ui->font_inter)
@@ -2174,7 +2145,7 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
 
   // Find first SELECT column for kanban grouping
   int select_col = -1;
-  int title_col  = -1;
+  int title_col = -1;
   for (size_t c = 0; c < tbl->column_count; c++) {
     if (tbl->columns[c].type == ASLAN_COL_SELECT && select_col < 0)
       select_col = (int)c;
@@ -2209,10 +2180,10 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
 
   size_t row_count = aslan_table_view_count(tbl);
 
-  float gap   = 8.0f;
+  float gap = 8.0f;
   float col_w = n_visible > 0
-      ? (width - (float)(n_visible + 1) * gap) / (float)n_visible
-      : 160.0f;
+                    ? (width - (float)(n_visible + 1) * gap) / (float)n_visible
+                    : 160.0f;
   if (col_w < 140.0f)
     col_w = 140.0f;
 
@@ -2225,9 +2196,10 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
   // ---- Swimlane columns ----
   if (n_visible > 0) {
     float layout_cols[KANBAN_MAX_VISIBLE * 2];
-    int   n_layout = 0;
+    int n_layout = 0;
     for (int vi = 0; vi < n_visible; vi++) {
-      if (vi > 0) layout_cols[n_layout++] = gap;
+      if (vi > 0)
+        layout_cols[n_layout++] = gap;
       layout_cols[n_layout++] = col_w;
     }
     nk_layout_row(ctx, NK_STATIC, swimlane_h, n_layout, layout_cols);
@@ -2305,13 +2277,13 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
             card_bg = ui->dark_mode ? nk_rgba(48, 50, 58, 80)
                                     : nk_rgba(200, 200, 200, 80);
           else
-            card_bg = ui->dark_mode ? nk_rgb(48, 50, 58)
-                                    : nk_rgb(255, 255, 255);
+            card_bg =
+                ui->dark_mode ? nk_rgb(48, 50, 58) : nk_rgb(255, 255, 255);
 
           nk_fill_rect(cv,
-              nk_rect(card_rect.x + 1, card_rect.y + 2,
-                      card_rect.w, card_rect.h),
-              6.0f, nk_rgba(0, 0, 0, ui->dark_mode ? 20 : 10));
+                       nk_rect(card_rect.x + 1, card_rect.y + 2, card_rect.w,
+                               card_rect.h),
+                       6.0f, nk_rgba(0, 0, 0, ui->dark_mode ? 20 : 10));
           nk_fill_rect(cv, card_rect, 6.0f, card_bg);
 
           int is_selected = (ui->split_view.selected_row == (int)r);
@@ -2331,7 +2303,8 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
               ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(40, 40, 50);
           if (is_dragged_card)
             txt_col = nk_rgba(txt_col.r, txt_col.g, txt_col.b, 80);
-          nk_draw_text(cv,
+          nk_draw_text(
+              cv,
               nk_rect(card_rect.x + 10, card_rect.y + 8, card_rect.w - 20, 20),
               title, strlen(title), &ui->font_inter->handle,
               nk_rgba(0, 0, 0, 0), txt_col);
@@ -2343,13 +2316,13 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
               my >= card_rect.y && my < card_rect.y + card_rect.h) {
             ui->split_view.selected_row = (int)r;
             if (!ui->kanban_drag.is_active) {
-              ui->kanban_drag.is_active       = 1;
-              ui->kanban_drag.threshold_met   = 0;
-              ui->kanban_drag.dragged_row_id  = row_id;
-              ui->kanban_drag.source_opt      = opt;
-              ui->kanban_drag.block_id        = table_block->id;
-              ui->kanban_drag.start_x         = mx;
-              ui->kanban_drag.start_y         = my;
+              ui->kanban_drag.is_active = 1;
+              ui->kanban_drag.threshold_met = 0;
+              ui->kanban_drag.dragged_row_id = row_id;
+              ui->kanban_drag.source_opt = opt;
+              ui->kanban_drag.block_id = table_block->id;
+              ui->kanban_drag.start_x = mx;
+              ui->kanban_drag.start_y = my;
               ui->kanban_drag.drop_target_opt = -1;
             }
           }
@@ -2386,13 +2359,12 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
         struct nk_rect sb = swimlane_bounds[vi];
         if (sb.w <= 0)
           continue;
-        if (mx >= sb.x && mx < sb.x + sb.w &&
-            my >= sb.y && my < sb.y + sb.h) {
+        if (mx >= sb.x && mx < sb.x + sb.w && my >= sb.y && my < sb.y + sb.h) {
           ui->kanban_drag.drop_target_opt = visible_opts[vi];
           best_dist = 0;
           break;
         }
-        float cx   = sb.x + sb.w * 0.5f;
+        float cx = sb.x + sb.w * 0.5f;
         float dist = (mx - cx) * (mx - cx);
         if (dist < best_dist && my >= sb.y && my < sb.y + sb.h) {
           best_dist = dist;
@@ -2426,8 +2398,8 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
           }
         }
       }
-      ui->kanban_drag.is_active       = 0;
-      ui->kanban_drag.threshold_met   = 0;
+      ui->kanban_drag.is_active = 0;
+      ui->kanban_drag.threshold_met = 0;
       ui->kanban_drag.drop_target_opt = -1;
       ui_request_redraw(ui);
     }
@@ -2446,17 +2418,16 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
       nk_stroke_rect(gcv, ghost, 6.0f, 1.5f, nk_rgba(55, 120, 235, 180));
       char ghost_title[128] = "Card";
       if (title_col >= 0) {
-        const char *gt = aslan_table_get_text(
-            tbl, title_col, ui->kanban_drag.dragged_row_id);
+        const char *gt = aslan_table_get_text(tbl, title_col,
+                                              ui->kanban_drag.dragged_row_id);
         if (gt)
           snprintf(ghost_title, sizeof(ghost_title), "%s", gt);
       }
       struct nk_color gt_col =
           ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(40, 40, 50);
-      nk_draw_text(gcv,
-          nk_rect(ghost.x + 10, ghost.y + 8, ghost.w - 20, 20),
-          ghost_title, strlen(ghost_title), &ui->font_inter->handle,
-          nk_rgba(0, 0, 0, 0), gt_col);
+      nk_draw_text(gcv, nk_rect(ghost.x + 10, ghost.y + 8, ghost.w - 20, 20),
+                   ghost_title, strlen(ghost_title), &ui->font_inter->handle,
+                   nk_rgba(0, 0, 0, 0), gt_col);
       ui_request_redraw(ui);
     }
   }
@@ -2510,7 +2481,8 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
   static const char *month_names_cal[] = {
       "January", "February", "March",     "April",   "May",      "June",
       "July",    "August",   "September", "October", "November", "December"};
-  static const char *dow_short[] = {"Mon","Tue","Wed","Thu","Fri","Sat","Sun"};
+  static const char *dow_short[] = {"Mon", "Tue", "Wed", "Thu",
+                                    "Fri", "Sat", "Sun"};
 
   struct nk_style_button nav_btn = ctx->style.button;
   nav_btn.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
@@ -2529,8 +2501,8 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
     struct tm now_tm_s = *localtime(&now_t);
     struct tm mon_tm = now_tm_s;
     int wd = mon_tm.tm_wday;
-    mon_tm.tm_mday += (wd == 0 ? -6 : 1 - wd) +
-                      ui->calendar_state.week_offset * 7;
+    mon_tm.tm_mday +=
+        (wd == 0 ? -6 : 1 - wd) + ui->calendar_state.week_offset * 7;
     mon_tm.tm_isdst = -1;
     mktime(&mon_tm);
 
@@ -2556,9 +2528,9 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
       dh.tm_mday += d;
       dh.tm_isdst = -1;
       mktime(&dh);
-      int is_today = (dh.tm_year == now_tm_s.tm_year &&
-                      dh.tm_mon  == now_tm_s.tm_mon  &&
-                      dh.tm_mday == now_tm_s.tm_mday);
+      int is_today =
+          (dh.tm_year == now_tm_s.tm_year && dh.tm_mon == now_tm_s.tm_mon &&
+           dh.tm_mday == now_tm_s.tm_mday);
       char dh_str[12];
       snprintf(dh_str, sizeof(dh_str), "%s %d", dow_short[d], dh.tm_mday);
       nk_label_colored(ctx, dh_str, NK_TEXT_CENTERED,
@@ -2567,7 +2539,8 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
 
     // Day columns
     float col_h = height - 58.0f;
-    if (col_h < 60.0f) col_h = 60.0f;
+    if (col_h < 60.0f)
+      col_h = 60.0f;
     nk_layout_row_dynamic(ctx, col_h, 7);
     struct nk_command_buffer *wcv = nk_window_get_canvas(ctx);
 
@@ -2581,57 +2554,57 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
       nk_spacing(ctx, 1);
 
       int is_today = (day_tm.tm_year == now_tm_s.tm_year &&
-                      day_tm.tm_mon  == now_tm_s.tm_mon  &&
+                      day_tm.tm_mon == now_tm_s.tm_mon &&
                       day_tm.tm_mday == now_tm_s.tm_mday);
-      struct nk_color col_bg_c = is_today
-          ? (ui->dark_mode ? nk_rgba(55, 120, 235, 18)
-                           : nk_rgba(55, 120, 235, 12))
-          : (ui->dark_mode ? nk_rgba(42, 44, 50, 140)
-                           : nk_rgba(255, 255, 255, 180));
-      nk_fill_rect(wcv,
-          nk_rect(col_rect.x + 1, col_rect.y, col_rect.w - 2, col_rect.h),
+      struct nk_color col_bg_c =
+          is_today ? (ui->dark_mode ? nk_rgba(55, 120, 235, 18)
+                                    : nk_rgba(55, 120, 235, 12))
+                   : (ui->dark_mode ? nk_rgba(42, 44, 50, 140)
+                                    : nk_rgba(255, 255, 255, 180));
+      nk_fill_rect(
+          wcv, nk_rect(col_rect.x + 1, col_rect.y, col_rect.w - 2, col_rect.h),
           0, col_bg_c);
-      nk_fill_rect(wcv,
-          nk_rect(col_rect.x + col_rect.w - 1, col_rect.y, 1, col_rect.h),
+      nk_fill_rect(
+          wcv, nk_rect(col_rect.x + col_rect.w - 1, col_rect.y, 1, col_rect.h),
           0, ui->dark_mode ? nk_rgb(50, 52, 60) : nk_rgb(225, 225, 230));
 
       float ev_y = col_rect.y + 4.0f;
-      for (size_t r = 0;
-           r < wv_row_count && ev_y < col_rect.y + col_h - 4.0f; r++) {
+      for (size_t r = 0; r < wv_row_count && ev_y < col_rect.y + col_h - 4.0f;
+           r++) {
         uint64_t row_id = aslan_table_view_row_id(tbl, r);
-        int64_t  ts     = aslan_table_get_date(tbl, date_col, row_id);
-        if (ts <= 0) continue;
+        int64_t ts = aslan_table_get_date(tbl, date_col, row_id);
+        if (ts <= 0)
+          continue;
         time_t t_ev = (time_t)(ts / 1000);
         struct tm *etm = localtime(&t_ev);
-        if (etm->tm_mday != day_tm.tm_mday ||
-            etm->tm_mon  != day_tm.tm_mon  ||
+        if (etm->tm_mday != day_tm.tm_mday || etm->tm_mon != day_tm.tm_mon ||
             etm->tm_year != day_tm.tm_year)
           continue;
 
         char ev_label[64] = "";
         if (title_col >= 0) {
           const char *txt = aslan_table_get_text(tbl, title_col, row_id);
-          if (txt) snprintf(ev_label, sizeof(ev_label), "%s", txt);
+          if (txt)
+            snprintf(ev_label, sizeof(ev_label), "%s", txt);
         }
         if (ev_label[0] == '\0')
           snprintf(ev_label, sizeof(ev_label), "Event");
 
         int is_sel = (ui->split_view.selected_row == (int)r);
-        struct nk_color pill_bg = is_sel ? nk_rgba(55, 120, 235, 140)
-                                         : nk_rgba(55, 120, 235, 45);
+        struct nk_color pill_bg =
+            is_sel ? nk_rgba(55, 120, 235, 140) : nk_rgba(55, 120, 235, 45);
         struct nk_color pill_tc = is_sel ? nk_rgb(255, 255, 255) : accent;
-        struct nk_rect  pill    = nk_rect(col_rect.x + 2, ev_y,
-                                          col_rect.w - 4, 18);
+        struct nk_rect pill = nk_rect(col_rect.x + 2, ev_y, col_rect.w - 4, 18);
         nk_fill_rect(wcv, pill, 3.0f, pill_bg);
         nk_draw_text(wcv,
-            nk_rect(col_rect.x + 5, ev_y + 2, col_rect.w - 10, 14),
-            ev_label, strlen(ev_label),
-            &ui->font_inter->handle, nk_rgba(0, 0, 0, 0), pill_tc);
+                     nk_rect(col_rect.x + 5, ev_y + 2, col_rect.w - 10, 14),
+                     ev_label, strlen(ev_label), &ui->font_inter->handle,
+                     nk_rgba(0, 0, 0, 0), pill_tc);
 
         float mx = ctx->input.mouse.pos.x, my = ctx->input.mouse.pos.y;
         if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
-            mx >= pill.x && mx < pill.x + pill.w &&
-            my >= pill.y && my < pill.y + pill.h)
+            mx >= pill.x && mx < pill.x + pill.w && my >= pill.y &&
+            my < pill.y + pill.h)
           ui->split_view.selected_row = (int)r;
 
         ev_y += 20.0f;
@@ -3080,7 +3053,8 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
     // Fade-to-white when panel gets too narrow (< 20% → progressively white)
     if (ratio < 0.20f) {
       float t = (0.20f - ratio) / 0.15f;
-      if (t > 1.0f) t = 1.0f;
+      if (t > 1.0f)
+        t = 1.0f;
       struct nk_rect gr = nk_window_get_content_region(ctx);
       nk_fill_rect(nk_window_get_canvas(ctx),
                    nk_rect(gr.x - 4, gr.y - 4, gr.w + 8, gr.h + 8), 0,
@@ -3129,7 +3103,8 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
     float right_ratio = 1.0f - ratio;
     if (right_ratio < 0.20f) {
       float t = (0.20f - right_ratio) / 0.15f;
-      if (t > 1.0f) t = 1.0f;
+      if (t > 1.0f)
+        t = 1.0f;
       struct nk_rect gr = nk_window_get_content_region(ctx);
       nk_fill_rect(nk_window_get_canvas(ctx),
                    nk_rect(gr.x - 4, gr.y - 4, gr.w + 8, gr.h + 8), 0,
@@ -3153,7 +3128,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
         AslanTable *kta = kt->data.table.columnar;
         for (size_t c = 0; c < kta->column_count; c++) {
           if (kta->columns[c].type == ASLAN_COL_SELECT) {
-            ks_sel_col   = &kta->columns[c];
+            ks_sel_col = &kta->columns[c];
             ks_opt_count = ks_sel_col->option_count;
             break;
           }
@@ -3165,13 +3140,16 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
     // Each row: 32px height + 4px item-spacing = 36px.
     // Window padding top+bottom: 8px. Border: 2px. Total overhead: ~18px.
     int n_items = 1; // dark / light always
-    if (av == 3) n_items += 1;              // calendar: week view
-    if (av == 2 && ks_opt_count > 0) n_items += ks_opt_count; // kanban cols
+    if (av == 3)
+      n_items += 1; // calendar: week view
+    if (av == 2 && ks_opt_count > 0)
+      n_items += ks_opt_count; // kanban cols
 
     float popup_w = 210.0f;
     float popup_h = (float)n_items * 38.0f + 18.0f;
     // Cap height; items beyond cap remain accessible via scrollbar
-    if (popup_h > 320.0f) popup_h = 320.0f;
+    if (popup_h > 320.0f)
+      popup_h = 320.0f;
 
     float px = ui->view_settings.btn_x - popup_w + 32.0f;
     float py = ui->view_settings.btn_y + 34.0f;
@@ -3203,9 +3181,10 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
                           mx <= ui->view_settings.btn_x + 32.0f &&
                           my >= ui->view_settings.btn_y &&
                           my <= ui->view_settings.btn_y + 32.0f);
-            int in_popup = (mx >= px && mx <= px + popup_w &&
-                            my >= py && my <= py + popup_h);
-            if (!on_btn && !in_popup) do_close = 1;
+            int in_popup = (mx >= px && mx <= px + popup_w && my >= py &&
+                            my <= py + popup_h);
+            if (!on_btn && !in_popup)
+              do_close = 1;
           }
         }
 
@@ -3215,7 +3194,8 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
         } else {
           // ---- Dark / Light mode (all views) ----
           nk_layout_row_dynamic(ctx, 32, 1);
-          if (nk_button_label(ctx, ui->dark_mode ? "Light mode" : "Dark mode")) {
+          if (nk_button_label(ctx,
+                              ui->dark_mode ? "Light mode" : "Dark mode")) {
             ui->dark_mode = !ui->dark_mode;
             ui_apply_theme(ui);
           }
@@ -3224,71 +3204,78 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
           if (av == 3) {
             nk_layout_row_dynamic(ctx, 32, 1);
             if (nk_button_label(ctx, ui->calendar_state.show_week
-                                         ? "Month view" : "Week view")) {
+                                         ? "Month view"
+                                         : "Week view")) {
               ui->calendar_state.show_week = !ui->calendar_state.show_week;
               nk_popup_close(ctx);
               ui->view_settings.show_popup = 0;
             }
           }
 
-        // ---- Kanban: column visibility ----
-        if (av == 2 && ks_sel_col && ks_opt_count > 0) {
-          int kn_vis = 0;
-          for (int i = 0; i < ks_opt_count && i < 32; i++)
-            if (!ui->kanban_state.col_hidden[i]) kn_vis++;
+          // ---- Kanban: column visibility ----
+          if (av == 2 && ks_sel_col && ks_opt_count > 0) {
+            int kn_vis = 0;
+            for (int i = 0; i < ks_opt_count && i < 32; i++)
+              if (!ui->kanban_state.col_hidden[i])
+                kn_vis++;
 
-          float cws[2] = { 28.0f, popup_w - 28.0f - 20.0f };
-          for (int i = 0; i < ks_opt_count && i < 32; i++) {
-            int hidden   = ui->kanban_state.col_hidden[i];
-            int can_show = !hidden || (kn_vis < 6);
+            float cws[2] = {28.0f, popup_w - 28.0f - 20.0f};
+            for (int i = 0; i < ks_opt_count && i < 32; i++) {
+              int hidden = ui->kanban_state.col_hidden[i];
+              int can_show = !hidden || (kn_vis < 6);
 
-            nk_layout_row(ctx, NK_STATIC, 32, 2, cws);
+              nk_layout_row(ctx, NK_STATIC, 32, 2, cws);
 
-            // Eye toggle icon
-            if (ui->font_icons)
-              nk_style_set_font(ctx, &ui->font_icons->handle);
-            struct nk_style_button ib = ctx->style.button;
-            ib.normal   = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-            ib.hover    = nk_style_item_color(nk_rgba(0, 0, 0, 15));
-            ib.active   = nk_style_item_color(nk_rgba(0, 0, 0, 25));
-            ib.border   = 0;
-            ib.rounding = 4.0f;
-            ib.text_normal = hidden
-                ? (ui->dark_mode ? nk_rgb(90, 90, 100) : nk_rgb(190, 190, 200))
-                : (ui->dark_mode ? nk_rgb(80, 140, 230) : nk_rgb(60, 120, 210));
-            ib.text_hover  = ib.text_normal;
-            ib.text_active = ib.text_normal;
-            if (nk_button_label_styled(ctx, &ib,
-                hidden ? ICON_KANBAN_COL_HIDE : ICON_KANBAN_COL_SHOW)) {
-              if (!hidden)
-                ui->kanban_state.col_hidden[i] = 1;
-              else if (can_show)
-                ui->kanban_state.col_hidden[i] = 0;
+              // Eye toggle icon
+              if (ui->font_icons)
+                nk_style_set_font(ctx, &ui->font_icons->handle);
+              struct nk_style_button ib = ctx->style.button;
+              ib.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+              ib.hover = nk_style_item_color(nk_rgba(0, 0, 0, 15));
+              ib.active = nk_style_item_color(nk_rgba(0, 0, 0, 25));
+              ib.border = 0;
+              ib.rounding = 4.0f;
+              ib.text_normal = hidden ? (ui->dark_mode ? nk_rgb(90, 90, 100)
+                                                       : nk_rgb(190, 190, 200))
+                                      : (ui->dark_mode ? nk_rgb(80, 140, 230)
+                                                       : nk_rgb(60, 120, 210));
+              ib.text_hover = ib.text_normal;
+              ib.text_active = ib.text_normal;
+              if (nk_button_label_styled(ctx, &ib,
+                                         hidden ? ICON_KANBAN_COL_HIDE
+                                                : ICON_KANBAN_COL_SHOW)) {
+                if (!hidden)
+                  ui->kanban_state.col_hidden[i] = 1;
+                else if (can_show)
+                  ui->kanban_state.col_hidden[i] = 0;
+              }
+              if (ui->font_inter)
+                nk_style_set_font(ctx, &ui->font_inter->handle);
+
+              // Colored dot + label
+              struct nk_rect lr = nk_widget_bounds(ctx);
+              nk_spacing(ctx, 1);
+              struct nk_command_buffer *pcv = nk_window_get_canvas(ctx);
+              uint32_t oc = ks_sel_col->options[i].color;
+              struct nk_color dot_col = nk_rgba(
+                  (oc >> 24) & 0xFF, (oc >> 16) & 0xFF, (oc >> 8) & 0xFF, 255);
+              nk_fill_circle(
+                  pcv, nk_rect(lr.x + 2, lr.y + (lr.h - 12) * 0.5f, 12, 12),
+                  dot_col);
+              struct nk_color lbl_col =
+                  hidden ? (ui->dark_mode ? nk_rgb(110, 110, 120)
+                                          : nk_rgb(175, 175, 185))
+                         : (ui->dark_mode ? nk_rgb(220, 220, 225)
+                                          : nk_rgb(40, 40, 50));
+              nk_draw_text(pcv,
+                           nk_rect(lr.x + 18, lr.y + (lr.h - 14) * 0.5f,
+                                   lr.w - 20.0f, 14.0f),
+                           ks_sel_col->options[i].label,
+                           (int)strlen(ks_sel_col->options[i].label),
+                           &ui->font_inter->handle, nk_rgba(0, 0, 0, 0),
+                           lbl_col);
             }
-            if (ui->font_inter)
-              nk_style_set_font(ctx, &ui->font_inter->handle);
-
-            // Colored dot + label
-            struct nk_rect lr = nk_widget_bounds(ctx);
-            nk_spacing(ctx, 1);
-            struct nk_command_buffer *pcv = nk_window_get_canvas(ctx);
-            uint32_t oc = ks_sel_col->options[i].color;
-            struct nk_color dot_col = nk_rgba(
-                (oc >> 24) & 0xFF, (oc >> 16) & 0xFF, (oc >> 8) & 0xFF, 255);
-            nk_fill_circle(pcv,
-                nk_rect(lr.x + 2, lr.y + (lr.h - 12) * 0.5f, 12, 12),
-                dot_col);
-            struct nk_color lbl_col = hidden
-                ? (ui->dark_mode ? nk_rgb(110,110,120) : nk_rgb(175,175,185))
-                : (ui->dark_mode ? nk_rgb(220,220,225) : nk_rgb(40,40,50));
-            nk_draw_text(pcv,
-                nk_rect(lr.x + 18, lr.y + (lr.h - 14) * 0.5f,
-                        lr.w - 20.0f, 14.0f),
-                ks_sel_col->options[i].label,
-                (int)strlen(ks_sel_col->options[i].label),
-                &ui->font_inter->handle, nk_rgba(0, 0, 0, 0), lbl_col);
-          }
-        } // end kanban section
+          } // end kanban section
 
         } // end else (do_close)
 
