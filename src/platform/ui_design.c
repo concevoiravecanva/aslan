@@ -1509,9 +1509,10 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
 
       // Check mouse in design area
-      int mouse_in_design =
-          (ui->mouse_x >= bounds.x && ui->mouse_x < bounds.x + bounds.w &&
-           ui->mouse_y >= bounds.y && ui->mouse_y < bounds.y + bounds.h);
+      int mouse_in_design = (ui->mouse_x >= bounds_raw.x &&
+                             ui->mouse_x < bounds_raw.x + bounds_raw.w &&
+                             ui->mouse_y >= bounds_raw.y &&
+                             ui->mouse_y < bounds_raw.y + bounds_raw.h);
 
       // Explicitly exclude sidebar area in fullscreen
       if (is_fullscreen && ui->mouse_x > nk_window_get_width(ctx) - 250.0f) {
