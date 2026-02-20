@@ -1783,10 +1783,10 @@ void doc_save_aof(const Document *doc, FILE *fp) {
           fprintf(fp, "block_table_init %u %u %zu %zu\n", page->id, b->id, rows,
                   cols);
           fprintf(fp, "block_table_view %u %u %s\n", page->id, b->id,
-                  td->view_mode == TABLE_VIEW_LIST        ? "list"
-                  : td->view_mode == TABLE_VIEW_BOARD     ? "board"
-                  : td->view_mode == TABLE_VIEW_CALENDAR  ? "calendar"
-                                                          : "table");
+                  td->view_mode == TABLE_VIEW_LIST       ? "list"
+                  : td->view_mode == TABLE_VIEW_BOARD    ? "board"
+                  : td->view_mode == TABLE_VIEW_CALENDAR ? "calendar"
+                                                         : "table");
           // Save column info (type + name) for non-default columns
           for (size_t ci = 0; ci < cols; ci++) {
             AslanColumn *acol = &td->columnar->columns[ci];
@@ -1795,9 +1795,8 @@ void doc_save_aof(const Document *doc, FILE *fp) {
             escape_string(fp, acol->name);
             fprintf(fp, "\n");
             // Save formula expression
-            if ((acol->type == ASLAN_COL_FORMULA ||
-                 acol->type == ASLAN_COL_FORMULA_LUA) &&
-                acol->formula && acol->formula[0]) {
+            if (acol->type == ASLAN_COL_FORMULA && acol->formula &&
+                acol->formula[0]) {
               fprintf(fp, "block_table_col_formula %u %u %zu ", page->id, b->id,
                       ci);
               escape_string(fp, acol->formula);
@@ -1857,8 +1856,8 @@ void doc_save_aof(const Document *doc, FILE *fp) {
                 dd->bg_color);
         if (dd->no_limits) {
           fprintf(fp, "block_design_nolimits %u %u 1\n", page->id, b->id);
-          fprintf(fp, "block_design_view %u %u %.2f %.2f %.2f\n",
-                  page->id, b->id, dd->view_x, dd->view_y, dd->zoom);
+          fprintf(fp, "block_design_view %u %u %.2f %.2f %.2f\n", page->id,
+                  b->id, dd->view_x, dd->view_y, dd->zoom);
         }
         if (dd->root) {
           for (Node *n = dd->root->first_child; n; n = n->next_sibling) {
@@ -1933,11 +1932,12 @@ static void svg_write_node(FILE *fp, const Node *node) {
   switch (node->type) {
   case NODE_TYPE_RECT:
   case NODE_TYPE_FRAME:
-    fprintf(fp,
-            "  <rect x=\"%.1f\" y=\"%.1f\" width=\"%.1f\" height=\"%.1f\""
-            " rx=\"%.1f\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
-            node->x, node->y, node->width, node->height, node->corner_radius,
-            fill, stroke, node->stroke_width, transform);
+    fprintf(
+        fp,
+        "  <rect x=\"%.1f\" y=\"%.1f\" width=\"%.1f\" height=\"%.1f\""
+        " rx=\"%.1f\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
+        node->x, node->y, node->width, node->height, node->corner_radius, fill,
+        stroke, node->stroke_width, transform);
     break;
 
   case NODE_TYPE_ELLIPSE: {
@@ -1984,8 +1984,8 @@ static void svg_write_node(FILE *fp, const Node *node) {
     fprintf(fp,
             "  <line x1=\"%.1f\" y1=\"%.1f\" x2=\"%.1f\" y2=\"%.1f\""
             " stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
-            node->x, node->y, node->x + node->width,
-            node->y + node->height, stroke, node->stroke_width, transform);
+            node->x, node->y, node->x + node->width, node->y + node->height,
+            stroke, node->stroke_width, transform);
     break;
 
   case NODE_TYPE_TRIANGLE: {
@@ -2072,10 +2072,9 @@ static void svg_write_node(FILE *fp, const Node *node) {
         NodePathPoint *pt = &node->path_points[i];
         if (pt->type == 1) {
           NodePathPoint *prev = &node->path_points[i - 1];
-          fprintf(fp, " C%.1f,%.1f %.1f,%.1f %.1f,%.1f",
-                  node->x + prev->cp2x, node->y + prev->cp2y,
-                  node->x + pt->cp1x, node->y + pt->cp1y, node->x + pt->x,
-                  node->y + pt->y);
+          fprintf(fp, " C%.1f,%.1f %.1f,%.1f %.1f,%.1f", node->x + prev->cp2x,
+                  node->y + prev->cp2y, node->x + pt->cp1x, node->y + pt->cp1y,
+                  node->x + pt->x, node->y + pt->y);
         } else {
           fprintf(fp, " L%.1f,%.1f", node->x + pt->x, node->y + pt->y);
         }
@@ -2093,8 +2092,9 @@ static void svg_write_node(FILE *fp, const Node *node) {
         for (int i = 0; i < s->count; i++) {
           fprintf(fp, "%.1f,%.1f ", s->points[i].x, s->points[i].y);
         }
-        fprintf(fp, "\" fill=\"none\" stroke=\"%s\" stroke-width=\"%.1f\""
-                     " stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n",
+        fprintf(fp,
+                "\" fill=\"none\" stroke=\"%s\" stroke-width=\"%.1f\""
+                " stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n",
                 stroke, node->stroke_width > 0 ? node->stroke_width : 2.0f);
       }
     }
@@ -2134,8 +2134,9 @@ bool block_design_export_svg(const Block *block, const char *filepath) {
   svg_color(bg_color, bg, sizeof(bg));
 
   fprintf(fp, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-  fprintf(fp, "<svg xmlns=\"http://www.w3.org/2000/svg\" "
-              "width=\"%d\" height=\"%d\" viewBox=\"0 0 %d %d\">\n",
+  fprintf(fp,
+          "<svg xmlns=\"http://www.w3.org/2000/svg\" "
+          "width=\"%d\" height=\"%d\" viewBox=\"0 0 %d %d\">\n",
           w, h, w, h);
   fprintf(fp, "  <rect width=\"%d\" height=\"%d\" fill=\"%s\"/>\n", w, h, bg);
 

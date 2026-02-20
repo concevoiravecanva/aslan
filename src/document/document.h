@@ -219,7 +219,7 @@ typedef struct {
   uint32_t bg_color; // Default background color for new pages
 
   // Canvas mode toggle
-  int no_limits;       // 0 = fixed artboard (default), 1 = infinite canvas mode
+  int no_limits; // 0 = fixed artboard (default), 1 = infinite canvas mode
   float view_x, view_y; // Pan offset (used when no_limits=1)
 
   // Legacy: single root for backwards compatibility (points to current page's
@@ -276,7 +276,7 @@ typedef struct Block {
 
   // Multi-column layout (drag-and-drop)
   uint16_t layout_row; // Row group index (same value = same visual row)
-  uint8_t  layout_col; // Column position within row (0..4)
+  uint8_t layout_col;  // Column position within row (0..4)
 
   // Doubly-linked list
   struct Block *prev;
@@ -543,12 +543,6 @@ NodeType node_type_from_string(const char *str);
 // block_design_node <page_id> <block_id> ... (same as canvas_node)
 //
 //
-//
-// # Callout Block
-// block_callout_theme <page_id> <block_id> info|alert|star|check|idea
-//
-// # Checklist Block
-// block_checklist_toggle <page_id> <block_id>
 //
 // =============================================================================
 

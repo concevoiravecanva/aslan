@@ -228,7 +228,6 @@ static void ui_render_formula_bar(UIHost *ui, struct nk_context *ctx,
 
     // Re-evaluate all formulas immediately
     aslan_table_eval_formulas(tbl);
-    tbl->data_generation++;
     ui->table_state.is_editing_formula = 0;
     ui_request_redraw(ui);
   }
@@ -1416,33 +1415,6 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             }
             break;
           }
-          case ASLAN_COL_FORMULA_LUA: {
-            // Legacy: render cached result as read-only label
-            const char *result =
-                aslan_table_eval_lua_formula(tbl, (int)c, row_id, ui->L);
-            char lua_buf[256];
-            strncpy(lua_buf, result ? result : "", sizeof(lua_buf) - 1);
-            lua_buf[sizeof(lua_buf) - 1] = '\0';
-
-            struct nk_style_item transp =
-                nk_style_item_color(nk_rgba(0, 0, 0, 0));
-            struct nk_style_item sv_n = ctx->style.edit.normal;
-            struct nk_style_item sv_h = ctx->style.edit.hover;
-            struct nk_style_item sv_a = ctx->style.edit.active;
-            float sv_brd = ctx->style.edit.border;
-            ctx->style.edit.normal = transp;
-            ctx->style.edit.hover = transp;
-            ctx->style.edit.active = transp;
-            ctx->style.edit.border = 0;
-            nk_edit_string_zero_terminated(
-                ctx, NK_EDIT_FIELD | NK_EDIT_READ_ONLY, lua_buf,
-                sizeof(lua_buf) - 1, nk_filter_default);
-            ctx->style.edit.normal = sv_n;
-            ctx->style.edit.hover = sv_h;
-            ctx->style.edit.active = sv_a;
-            ctx->style.edit.border = sv_brd;
-            break;
-          }
           default: {
             char buf[256];
             aslan_table_get_cell_display(tbl, (int)c, row_id, buf, sizeof(buf));
@@ -1951,7 +1923,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           }
         }
 
-        // --- Formula editor (for FORMULA / FORMULA_LUA columns) ---
+        // --- Formula editor (for FORMULA columns) ---
         if (col->type == ASLAN_COL_FORMULA) {
           nk_spacing(ctx, 1);
           nk_label(ctx, "Formula:", NK_TEXT_LEFT);
@@ -1991,8 +1963,6 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
           if (nk_button_label_styled(ctx, &popup_btn, "Apply Formula")) {
             aslan_table_set_formula(tbl, c, ui->table_state.formula_buffer);
-            tbl->data_generation++;
-            tbl->lua_eval_generation = 0;
 
             // Persist formula to AOF
             Page *pg = doc_page_get_active(engine->doc);

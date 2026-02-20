@@ -1,9 +1,6 @@
 #include "aslan_table.h"
 #include "../platform/ui_shared.h"
 #include "../vendor/tinyexpr.h"
-#include <lauxlib.h>
-#include <lua.h>
-#include <lualib.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -95,8 +92,6 @@ static size_t column_element_size(AslanColumnType type) {
     return sizeof(uint64_t);
   case ASLAN_COL_FORMULA:
     return sizeof(double); // Cached result (C parser)
-  case ASLAN_COL_FORMULA_LUA:
-    return sizeof(char *); // Cached result strings (Lua)
   default:
     return sizeof(double);
   }
@@ -165,14 +160,6 @@ void aslan_table_destroy(AslanTable *table) {
           free(strings[r]);
         }
       }
-    }
-
-    // Free Lua cache
-    if (col->lua_cache) {
-      for (size_t r = 0; r < col->capacity; r++) {
-        free(col->lua_cache[r]);
-      }
-      free(col->lua_cache);
     }
 
     // Free formula expression
@@ -245,7 +232,6 @@ int aslan_table_add_column(AslanTable *table, const char *name,
   col->relation_table_id = 0;
   col->relation_display_col = -1;
   col->formula = NULL;
-  col->lua_cache = NULL;
 
   // If table already has rows, allocate space
   if (table->row_count > 0) {
@@ -264,11 +250,6 @@ int aslan_table_add_column(AslanTable *table, const char *name,
       for (size_t i = 0; i < capacity; i++) {
         sel[i] = -1;
       }
-    }
-
-    // Allocate Lua cache for FORMULA_LUA columns
-    if (type == ASLAN_COL_FORMULA_LUA) {
-      col->lua_cache = (char **)calloc(capacity, sizeof(char *));
     }
 
     col->count = table->row_count;
@@ -292,14 +273,6 @@ bool aslan_table_remove_column(AslanTable *table, int col_idx) {
         free(strings[r]);
       }
     }
-  }
-  // Free Lua cache strings
-  if (col->lua_cache) {
-    for (size_t r = 0; r < col->capacity; r++) {
-      free(col->lua_cache[r]);
-    }
-    free(col->lua_cache);
-    col->lua_cache = NULL;
   }
   free(col->formula);
   aligned_free_safe(col->data);
@@ -334,7 +307,6 @@ bool aslan_table_swap_columns(AslanTable *table, int col_a, int col_b) {
     table->sort_column = col_a;
   }
 
-  table->data_generation++;
   return true;
 }
 
@@ -424,17 +396,6 @@ static bool ensure_row_capacity(AslanTable *table, size_t needed) {
     }
 
     col->data = new_data;
-
-    // Grow lua_cache for FORMULA_LUA columns
-    if (col->type == ASLAN_COL_FORMULA_LUA) {
-      char **new_cache =
-          (char **)realloc(col->lua_cache, new_capacity * sizeof(char *));
-      if (new_cache) {
-        for (size_t i = col->capacity; i < new_capacity; i++)
-          new_cache[i] = NULL;
-        col->lua_cache = new_cache;
-      }
-    }
 
     col->capacity = new_capacity;
   }
@@ -544,7 +505,7 @@ uint64_t aslan_table_duplicate_row(AslanTable *table, uint64_t source_row_id) {
 
   for (size_t c = 0; c < table->column_count; c++) {
     AslanColumn *col = &table->columns[c];
-    if (col->type == ASLAN_COL_FORMULA || col->type == ASLAN_COL_FORMULA_LUA)
+    if (col->type == ASLAN_COL_FORMULA)
       continue; // Computed, skip
     if (col->type == ASLAN_COL_TEXT) {
       char **strings = (char **)col->data;
@@ -610,7 +571,6 @@ bool aslan_table_set_text(AslanTable *table, int col_idx, uint64_t row_id,
              (unsigned long)row_id, col_idx, value ? value : "");
     table->log_callback(cmd, table->log_userdata);
   }
-  table->data_generation++;
   return true;
 }
 
@@ -635,7 +595,6 @@ bool aslan_table_set_number(AslanTable *table, int col_idx, uint64_t row_id,
              (unsigned long)row_id, col_idx, value);
     table->log_callback(cmd, table->log_userdata);
   }
-  table->data_generation++;
   return true;
 }
 
@@ -660,7 +619,6 @@ bool aslan_table_set_checkbox(AslanTable *table, int col_idx, uint64_t row_id,
              (unsigned long)row_id, col_idx, checked ? 1 : 0);
     table->log_callback(cmd, table->log_userdata);
   }
-  table->data_generation++;
   return true;
 }
 
@@ -687,7 +645,6 @@ bool aslan_table_set_select(AslanTable *table, int col_idx, uint64_t row_id,
              (unsigned long)row_id, col_idx, option_idx);
     table->log_callback(cmd, table->log_userdata);
   }
-  table->data_generation++;
   return true;
 }
 
@@ -712,7 +669,6 @@ bool aslan_table_set_date(AslanTable *table, int col_idx, uint64_t row_id,
              (unsigned long)row_id, col_idx, (long long)timestamp_ms);
     table->log_callback(cmd, table->log_userdata);
   }
-  table->data_generation++;
   return true;
 }
 
@@ -737,7 +693,6 @@ bool aslan_table_set_relation(AslanTable *table, int col_idx, uint64_t row_id,
              (unsigned long)row_id, col_idx, (unsigned long)target_row_id);
     table->log_callback(cmd, table->log_userdata);
   }
-  table->data_generation++;
   return true;
 }
 
@@ -774,7 +729,6 @@ bool aslan_table_set_cell(AslanTable *table, int col_idx, uint64_t row_id,
     return aslan_table_set_relation(table, col_idx, row_id, target);
   }
   case ASLAN_COL_FORMULA:
-  case ASLAN_COL_FORMULA_LUA:
     return false; // Formulas are read-only
   default:
     return false;
@@ -975,14 +929,6 @@ const char *aslan_table_get_cell_display(const AslanTable *table, int col_idx,
     snprintf(buf, buf_size, "%.2f", val);
     break;
   }
-  case ASLAN_COL_FORMULA_LUA: {
-    if (col->lua_cache && col->lua_cache[row_idx]) {
-      snprintf(buf, buf_size, "%s", col->lua_cache[row_idx]);
-    } else {
-      snprintf(buf, buf_size, "...");
-    }
-    break;
-  }
   default:
     buf[0] = '\0';
   }
@@ -1083,7 +1029,7 @@ bool aslan_table_update_option_color(AslanTable *table, int col_idx,
     return false;
 
   col->options[option_idx].color = color;
-  table->data_generation++;
+  col->options[option_idx].color = color;
   return true;
 }
 
@@ -1159,28 +1105,19 @@ const char *aslan_table_get_relation_display(const AslanTable *table,
 // Formula Column
 // -----------------------------------------------------------------------------
 
-bool aslan_table_set_formula(AslanTable *table, int col_idx,
-                             const char *lua_expr) {
+bool aslan_table_set_formula(AslanTable *table, int col_idx, const char *expr) {
   if (!table || col_idx < 0 || col_idx >= (int)table->column_count) {
     return false;
   }
 
   AslanColumn *col = &table->columns[col_idx];
-  if (col->type != ASLAN_COL_FORMULA && col->type != ASLAN_COL_FORMULA_LUA) {
+  if (col->type != ASLAN_COL_FORMULA) {
     return false;
   }
 
   free(col->formula);
-  col->formula = lua_expr ? strdup(lua_expr) : NULL;
+  col->formula = expr ? strdup(expr) : NULL;
 
-  // Invalidate Lua cache when formula changes
-  if (col->type == ASLAN_COL_FORMULA_LUA && col->lua_cache) {
-    for (size_t r = 0; r < col->capacity; r++) {
-      free(col->lua_cache[r]);
-      col->lua_cache[r] = NULL;
-    }
-  }
-  table->data_generation++;
   return true;
 }
 
@@ -1189,7 +1126,7 @@ const char *aslan_table_get_formula(const AslanTable *table, int col_idx) {
     return NULL;
 
   const AslanColumn *col = &table->columns[col_idx];
-  if (col->type != ASLAN_COL_FORMULA && col->type != ASLAN_COL_FORMULA_LUA)
+  if (col->type != ASLAN_COL_FORMULA)
     return NULL;
 
   return col->formula;
@@ -1351,150 +1288,6 @@ void aslan_table_eval_formulas(AslanTable *table) {
       }
     }
   }
-}
-
-// -----------------------------------------------------------------------------
-// Lua Formula Evaluation (Advanced formulas with row context + cache)
-// -----------------------------------------------------------------------------
-
-void aslan_table_mark_dirty(AslanTable *table) {
-  if (table)
-    table->data_generation++;
-}
-
-// Evaluate a single Lua formula cell. Builds a `row` table with all column
-// values, runs the formula code, and caches the result as a string.
-const char *aslan_table_eval_lua_formula(AslanTable *table, int col_idx,
-                                         uint64_t row_id, void *lua_state) {
-  if (!table || !lua_state || col_idx < 0 ||
-      col_idx >= (int)table->column_count)
-    return "ERR";
-
-  lua_State *L = (lua_State *)lua_state;
-  AslanColumn *col = &table->columns[col_idx];
-  if (col->type != ASLAN_COL_FORMULA_LUA || !col->formula)
-    return "";
-
-  int row_idx = aslan_table_row_index(table, row_id);
-  if (row_idx < 0)
-    return "ERR";
-
-  // Allocate lua_cache if needed
-  if (!col->lua_cache) {
-    col->lua_cache = (char **)calloc(col->capacity, sizeof(char *));
-    if (!col->lua_cache)
-      return "ERR";
-  }
-
-  // Build the `row` table on the Lua stack
-  lua_newtable(L);
-  for (size_t c = 0; c < table->column_count; c++) {
-    const AslanColumn *src = &table->columns[c];
-    if (src->type == ASLAN_COL_FORMULA_LUA)
-      continue; // Skip Lua formula columns to avoid recursion
-
-    lua_pushstring(L, src->name);
-    switch (src->type) {
-    case ASLAN_COL_TEXT: {
-      const char *s = ((char **)src->data)[row_idx];
-      lua_pushstring(L, s ? s : "");
-      break;
-    }
-    case ASLAN_COL_NUMBER:
-    case ASLAN_COL_FORMULA: {
-      double v = ((double *)src->data)[row_idx];
-      lua_pushnumber(L, v);
-      break;
-    }
-    case ASLAN_COL_CHECKBOX: {
-      uint8_t v = ((uint8_t *)src->data)[row_idx];
-      lua_pushboolean(L, v);
-      break;
-    }
-    case ASLAN_COL_SELECT: {
-      int32_t idx = ((int32_t *)src->data)[row_idx];
-      if (idx >= 0 && idx < src->option_count)
-        lua_pushstring(L, src->options[idx].label);
-      else
-        lua_pushnil(L);
-      break;
-    }
-    case ASLAN_COL_DATE: {
-      int64_t ts = ((int64_t *)src->data)[row_idx];
-      lua_pushnumber(L, (double)ts);
-      break;
-    }
-    default:
-      lua_pushnil(L);
-      break;
-    }
-    lua_settable(L, -3);
-  }
-  lua_setglobal(L, "row");
-
-  // Build and execute: "return <formula>"
-  char code[2048];
-  snprintf(code, sizeof(code), "return %s", col->formula);
-
-  const char *result = "";
-  if (luaL_dostring(L, code) == LUA_OK) {
-    // Get the return value
-    if (lua_isstring(L, -1)) {
-      result = lua_tostring(L, -1);
-    } else if (lua_isnumber(L, -1)) {
-      double v = lua_tonumber(L, -1);
-      static char num_buf[64];
-      if (v == (int64_t)v)
-        snprintf(num_buf, sizeof(num_buf), "%lld", (long long)v);
-      else
-        snprintf(num_buf, sizeof(num_buf), "%.2f", v);
-      result = num_buf;
-    } else if (lua_isboolean(L, -1)) {
-      result = lua_toboolean(L, -1) ? "true" : "false";
-    } else if (lua_isnil(L, -1)) {
-      result = "";
-    }
-
-    // Cache the result
-    free(col->lua_cache[row_idx]);
-    col->lua_cache[row_idx] = strdup(result);
-
-    lua_pop(L, 1);
-  } else {
-    // Error — cache the error message
-    const char *err = lua_tostring(L, -1);
-    free(col->lua_cache[row_idx]);
-    col->lua_cache[row_idx] = strdup(err ? err : "ERR");
-    lua_pop(L, 1);
-  }
-
-  return col->lua_cache[row_idx] ? col->lua_cache[row_idx] : "";
-}
-
-// Batch-evaluate all dirty Lua formula columns (generation-based caching)
-void aslan_table_eval_lua_formulas(AslanTable *table, void *lua_state) {
-  if (!table || !lua_state)
-    return;
-
-  // Skip if nothing changed since last evaluation
-  if (table->lua_eval_generation == table->data_generation)
-    return;
-
-  for (size_t c = 0; c < table->column_count; c++) {
-    if (table->columns[c].type != ASLAN_COL_FORMULA_LUA)
-      continue;
-    if (!table->columns[c].formula)
-      continue;
-
-    for (size_t r = 0; r < table->row_count; r++) {
-      if (bitmask_get(table->active_mask, r)) {
-        uint64_t rid = table->row_ids[r];
-        aslan_table_eval_lua_formula(table, (int)c, rid, lua_state);
-      }
-    }
-  }
-
-  table->lua_eval_generation = table->data_generation;
 }
 
 // -----------------------------------------------------------------------------
@@ -2106,7 +1899,8 @@ void aslan_table_mem_stats(const AslanTable *table, AslanTableMemStats *stats) {
 
 // Write a CSV field, quoting if it contains comma, quote, or newline.
 static void csv_write_field(FILE *fp, const char *val) {
-  if (!val || val[0] == '\0') return;
+  if (!val || val[0] == '\0')
+    return;
   int need_quote = 0;
   for (const char *p = val; *p; p++) {
     if (*p == ',' || *p == '"' || *p == '\n' || *p == '\r') {
@@ -2117,7 +1911,8 @@ static void csv_write_field(FILE *fp, const char *val) {
   if (need_quote) {
     fputc('"', fp);
     for (const char *p = val; *p; p++) {
-      if (*p == '"') fputc('"', fp);
+      if (*p == '"')
+        fputc('"', fp);
       fputc(*p, fp);
     }
     fputc('"', fp);
@@ -2127,13 +1922,16 @@ static void csv_write_field(FILE *fp, const char *val) {
 }
 
 bool aslan_table_export_csv(const AslanTable *table, const char *filepath) {
-  if (!table || !filepath) return false;
+  if (!table || !filepath)
+    return false;
   FILE *fp = fopen(filepath, "w");
-  if (!fp) return false;
+  if (!fp)
+    return false;
 
   // Header row
   for (size_t c = 0; c < table->column_count; c++) {
-    if (c > 0) fputc(',', fp);
+    if (c > 0)
+      fputc(',', fp);
     csv_write_field(fp, table->columns[c].name);
   }
   fputc('\n', fp);
@@ -2143,10 +1941,11 @@ bool aslan_table_export_csv(const AslanTable *table, const char *filepath) {
   for (size_t r = 0; r < row_count; r++) {
     uint64_t row_id = aslan_table_view_row_id(table, r);
     for (size_t c = 0; c < table->column_count; c++) {
-      if (c > 0) fputc(',', fp);
+      if (c > 0)
+        fputc(',', fp);
       char buf[512];
-      const char *val = aslan_table_get_cell_display(table, (int)c, row_id,
-                                                     buf, sizeof(buf));
+      const char *val =
+          aslan_table_get_cell_display(table, (int)c, row_id, buf, sizeof(buf));
       csv_write_field(fp, val);
     }
     fputc('\n', fp);
@@ -2186,13 +1985,19 @@ static int csv_parse_line(char *line, char *fields[], int max_fields) {
         }
       }
       *dst = '\0';
-      if (*p == ',') p++;
+      if (*p == ',')
+        p++;
     } else {
       // Unquoted field
       fields[count] = p;
-      while (*p && *p != ',' && *p != '\n' && *p != '\r') p++;
-      if (*p == ',') { *p = '\0'; p++; }
-      else { *p = '\0'; }
+      while (*p && *p != ',' && *p != '\n' && *p != '\r')
+        p++;
+      if (*p == ',') {
+        *p = '\0';
+        p++;
+      } else {
+        *p = '\0';
+      }
     }
     count++;
   }
@@ -2200,9 +2005,11 @@ static int csv_parse_line(char *line, char *fields[], int max_fields) {
 }
 
 bool aslan_table_import_csv(AslanTable *table, const char *filepath) {
-  if (!table || !filepath) return false;
+  if (!table || !filepath)
+    return false;
   FILE *fp = fopen(filepath, "r");
-  if (!fp) return false;
+  if (!fp)
+    return false;
 
   char line[8192];
 
@@ -2233,7 +2040,8 @@ bool aslan_table_import_csv(AslanTable *table, const char *filepath) {
     len = strlen(line);
     while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r'))
       line[--len] = '\0';
-    if (len == 0) continue;
+    if (len == 0)
+      continue;
 
     char *fields[64];
     int field_count = csv_parse_line(line, fields, 64);
@@ -2249,4 +2057,3 @@ bool aslan_table_import_csv(AslanTable *table, const char *filepath) {
   fclose(fp);
   return true;
 }
-

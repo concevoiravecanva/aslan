@@ -311,8 +311,8 @@ typedef struct UIHost {
 
   // Block drag-and-drop
   struct {
-    int is_active;       // 1 = mouse held on handle, waiting or dragging
-    int threshold_met;   // 1 = moved past dead zone, actually dragging
+    int is_active;     // 1 = mouse held on handle, waiting or dragging
+    int threshold_met; // 1 = moved past dead zone, actually dragging
     uint32_t dragged_block_id;
     float start_x, start_y; // Where drag started
     float mouse_x, mouse_y; // Current mouse during drag
@@ -323,70 +323,70 @@ typedef struct UIHost {
 
   // Kanban card drag-and-drop
   struct {
-    int      is_active;        // 1 = drag in progress or threshold not yet met
-    int      threshold_met;    // 1 = moved past 5px dead zone
-    uint64_t dragged_row_id;   // AslanTable persistent row ID
-    int      source_opt;       // SELECT option index the card came from
-    uint32_t block_id;         // Table block ID being dragged from
-    float    start_x, start_y; // Screen coords where drag began
-    int      drop_target_opt;  // Swimlane option index mouse hovers (-1=none)
+    int is_active;           // 1 = drag in progress or threshold not yet met
+    int threshold_met;       // 1 = moved past 5px dead zone
+    uint64_t dragged_row_id; // AslanTable persistent row ID
+    int source_opt;          // SELECT option index the card came from
+    uint32_t block_id;       // Table block ID being dragged from
+    float start_x, start_y;  // Screen coords where drag began
+    int drop_target_opt;     // Swimlane option index mouse hovers (-1=none)
   } kanban_drag;
 
   // Kanban column visibility state
   struct {
-    uint32_t block_id;       // Reset state when block changes
-    uint8_t  col_hidden[32]; // col_hidden[i]=1 → option i is hidden
+    uint32_t block_id;      // Reset state when block changes
+    uint8_t col_hidden[32]; // col_hidden[i]=1 → option i is hidden
   } kanban_state;
 
   // View settings popup (shared across all views)
   struct {
-    int   show_popup;   // 1 = popup visible
-    int   active_view;  // which view's settings (0-4)
+    int show_popup;     // 1 = popup visible
+    int active_view;    // which view's settings (0-4)
     float btn_x, btn_y; // settings button screen position (popup anchor)
   } view_settings;
 
   // Calendar view state
   struct {
-    int show_week;    // 0 = month view, 1 = week view
-    int week_offset;  // weeks from current week (0 = this week)
+    int show_week;   // 0 = month view, 1 = week view
+    int week_offset; // weeks from current week (0 = this week)
   } calendar_state;
 
   // Calendar event drag-and-drop
   struct {
-    int      is_active;
-    int      threshold_met;
+    int is_active;
+    int threshold_met;
     uint64_t dragged_row_id;
     uint32_t block_id;
-    int      date_col;         // Column index of the DATE column
-    int      title_col;        // Column index of the TEXT column (for ghost label)
-    int      source_day;       // Day the event came from (1-31)
-    float    start_x, start_y;
-    int      drop_target_day;  // Day the mouse is hovering over (-1=none)
+    int date_col;   // Column index of the DATE column
+    int title_col;  // Column index of the TEXT column (for ghost label)
+    int source_day; // Day the event came from (1-31)
+    float start_x, start_y;
+    int drop_target_day; // Day the mouse is hovering over (-1=none)
   } calendar_drag;
 
   // Node clipboard (Cmd+C / Cmd+V)
   struct {
-    int      has_data;
+    int has_data;
     NodeType type;
-    char     name[64];
-    float    x, y, width, height;
-    float    rotation, corner_radius;
+    char name[64];
+    float x, y, width, height;
+    float rotation, corner_radius;
     uint32_t fill_color, stroke_color;
-    float    stroke_width;
-    char     text[256];
-    float    font_size;
-    int      font_type;
-    int      line_start_style, line_end_style;
-    char     image_path[256];
-    int      from_canvas; // 1=canvas block, 0=design block
+    float stroke_width;
+    char text[256];
+    float font_size;
+    int font_type;
+    int line_start_style, line_end_style;
+    char image_path[256];
+    int from_canvas; // 1=canvas block, 0=design block
   } clipboard_node;
 
   // Block clipboard (Cmd+C / Cmd+V on text/heading blocks)
   struct {
-    int       has_data;
+    int has_data;
     BlockType type;
-    char      text[4096];
-    int       heading_level; // For BLOCK_HEADING
+    char text[4096];
+    int heading_level; // For BLOCK_HEADING
   } clipboard_block;
 
   // Canvas node text editing
@@ -449,7 +449,7 @@ typedef struct UIHost {
     float resize_start_w;           // Column width at resize start
     char filter_buffer[128];        // Search/filter text input
     char formula_buffer[512];       // Formula expression editor (for FORMULA /
-                                    // FORMULA_LUA)
+                                    // FORMULA)
     int is_editing_formula;         // 1 if formula bar is active (for
                                     // click-to-reference)
     int show_formula_help;          // Show formula help popup
@@ -458,13 +458,13 @@ typedef struct UIHost {
     float drag_col_start_x;         // Mouse X at drag start
     int active_color_picker_option; // Option index for color picker (-1 = none)
     // Date picker popup state
-    int show_date_picker;           // 1 = date picker popup is open
-    int date_picker_year;           // Currently viewed year
-    int date_picker_month;          // Currently viewed month (0-11)
-    uint64_t date_picker_row;       // Row ID for the date being edited
-    int date_picker_col;            // Column index for the date being edited
-    float date_picker_x;            // Popup X position
-    float date_picker_y;            // Popup Y position
+    int show_date_picker;     // 1 = date picker popup is open
+    int date_picker_year;     // Currently viewed year
+    int date_picker_month;    // Currently viewed month (0-11)
+    uint64_t date_picker_row; // Row ID for the date being edited
+    int date_picker_col;      // Column index for the date being edited
+    float date_picker_x;      // Popup X position
+    float date_picker_y;      // Popup Y position
   } table_state;
 
   // Sidebar state: 0=Properties/Layers, 1=Shape Selection
@@ -599,18 +599,18 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_SETTINGS "\xEE\xBD\x92"        // ri-settings-3-line
 #define ICON_KANBAN_COL_SHOW "\xEE\xB2\xB5" // U+ECB5  column visible
 #define ICON_KANBAN_COL_HIDE "\xEE\xB2\xB7" // U+ECB7  column hidden
-#define ICON_VIEW_SETTINGS   "\xEE\xB8\xA8" // U+EE28  view settings gear
+#define ICON_VIEW_SETTINGS "\xEE\xB8\xA8"   // U+EE28  view settings gear
 
 // Canvas tools icons
-#define ICON_CURSOR "\xEE\xAA\x8A"    // ri-cursor-line (select tool)
-#define ICON_SHAPE "\xEF\x83\xB0"     // ri-shape-2-line
-#define ICON_BRUSH "\xEF\x81\x89"     // ri-quill-pen-fill
-#define ICON_MARKER "\xEE\xBD\x9D"    // ri-pen-nib-fill
-#define ICON_TEXT_TOOL "\xEE\x87\x98" // ri-text (text tool)
-#define ICON_STICKY "\xEF\x83\xBC"    // ri-sticky-note-line (sticky note)
-#define ICON_HAND "\xEE\xB1\xA0"      // \uec60
-#define ICON_IMAGE "\xEE\xB9\x85"     // ri-image-2-line
-#define ICON_MAGIC "\xEE\xBF\x9E"     // ri-pen-nib-line
+#define ICON_CURSOR "\xEE\xAA\x8A"      // ri-cursor-line (select tool)
+#define ICON_SHAPE "\xEF\x83\xB0"       // ri-shape-2-line
+#define ICON_BRUSH "\xEF\x81\x89"       // ri-quill-pen-fill
+#define ICON_MARKER "\xEE\xBD\x9D"      // ri-pen-nib-fill
+#define ICON_TEXT_TOOL "\xEE\x87\x98"   // ri-text (text tool)
+#define ICON_STICKY "\xEF\x83\xBC"      // ri-sticky-note-line (sticky note)
+#define ICON_HAND "\xEE\xB1\xA0"        // \uec60
+#define ICON_IMAGE "\xEE\xB9\x85"       // ri-image-2-line
+#define ICON_MAGIC "\xEE\xBF\x9E"       // ri-pen-nib-line
 #define ICON_LINKED_TEXT "\xEE\xBA\xB2" // \uEEB2 (linked/data text)
 
 // Table column type icons
@@ -636,9 +636,9 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_ADD_LINE "\xEE\xA8\x8E"          // ri-add-line
 
 // Split view icons
-#define ICON_SPLIT "\xEE\xBD\x9A"             // ri-layout-column-line
-#define ICON_KANBAN "\xEE\xB8\xBC"            // ri-layout-masonry-line
-#define ICON_CALENDAR "\xEE\xAC\xA7"          // ri-calendar-line (same as date)
-#define ICON_DASHBOARD "\xEE\xAA\xB4"         // ri-dashboard-line
+#define ICON_SPLIT "\xEE\xBD\x9A"     // ri-layout-column-line
+#define ICON_KANBAN "\xEE\xB8\xBC"    // ri-layout-masonry-line
+#define ICON_CALENDAR "\xEE\xAC\xA7"  // ri-calendar-line (same as date)
+#define ICON_DASHBOARD "\xEE\xAA\xB4" // ri-dashboard-line
 
 #endif // UI_HOST_H
