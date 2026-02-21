@@ -1929,13 +1929,19 @@ static void ui_render_view_tabs(UIHost *ui, struct nk_context *ctx, float width,
       ui->dark_mode ? nk_rgb(140, 142, 150) : nk_rgb(130, 130, 138);
   struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
 
+  float spacing_x = ctx->style.window.spacing.x;
+  float total_spacing = (tab_count + 1) * spacing_x;
+  float available_w = width - total_spacing;
+  if (available_w < 0.0f)
+    available_w = 0.0f;
+
   float settings_btn_w = 32.0f;
-  float tab_w = (width - settings_btn_w) / (float)tab_count;
+  float tab_w = (available_w - settings_btn_w) / (float)tab_count;
   if (tab_w > 120.0f)
     tab_w = 120.0f;
 
   float tabs_total_w = (float)tab_count * tab_w;
-  float spacer_w = width - tabs_total_w - settings_btn_w;
+  float spacer_w = available_w - tabs_total_w - settings_btn_w;
   if (spacer_w < 0.0f)
     spacer_w = 0.0f;
 
