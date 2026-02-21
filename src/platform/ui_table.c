@@ -1454,116 +1454,127 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           }
           case ASLAN_COL_LINK: {
             const char *val = aslan_table_get_text(tbl, (int)c, row_id);
-            char raw[1024];
-            strncpy(raw, val ? val : "", sizeof(raw) - 1);
-            raw[sizeof(raw) - 1] = '\0';
+            int is_empty = (!val || val[0] == '\0');
 
-            // Parse Label|URL
-            char label[512] = "";
-            char url[512] = "";
-            char *sep = strchr(raw, '|');
-            if (sep) {
-              size_t lbl_len = sep - raw;
-              if (lbl_len >= sizeof(label))
-                lbl_len = sizeof(label) - 1;
-              strncpy(label, raw, lbl_len);
-              label[lbl_len] = '\0';
-              strncpy(url, sep + 1, sizeof(url) - 1);
-            } else {
-              strncpy(label, raw, sizeof(label) - 1);
-              strncpy(url, raw, sizeof(url) - 1);
-            }
+            // Is THIS specific cell the one currently being edited?
+            int is_this_active = (ui->table_state.active_block_id == block->id &&
+                                 ui->table_state.active_row_idx == (int)v &&
+                                 ui->table_state.active_col_idx == (int)c &&
+                                 ui->table_state.is_editing_cell);
 
-            int is_empty = (raw[0] == '\0');
             struct nk_color link_blue =
                 ui->dark_mode ? nk_rgb(100, 160, 255) : nk_rgb(45, 127, 249);
             struct nk_color muted_link =
                 ui->dark_mode ? nk_rgb(150, 150, 160) : nk_rgb(140, 140, 150);
 
-            struct nk_style_button btn = ctx->style.button;
-            btn.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-            btn.hover =
-                nk_style_item_color(ui->dark_mode ? nk_rgba(255, 255, 255, 10)
-                                                  : nk_rgba(0, 0, 0, 10));
-            btn.active =
-                nk_style_item_color(ui->dark_mode ? nk_rgba(255, 255, 255, 20)
-                                                  : nk_rgba(0, 0, 0, 20));
-            btn.border = 0;
-            btn.text_alignment = NK_TEXT_LEFT;
-            btn.text_normal = is_empty ? muted_link : link_blue;
+            if (is_empty && is_this_active) {
+              // ---- This cell was clicked: show the ONLY edit field ----
+              char buf[1024] = "";
 
-            if (is_empty) {
-              if (nk_button_label_styled(ctx, &btn, "Add link...")) {
-                ui->table_state.link_popup_row = row_id;
-                ui->table_state.link_popup_col = (int)c;
-                ui->table_state.link_popup_x = cell_bounds.x;
-                ui->table_state.link_popup_y = cell_bounds.y + cell_bounds.h;
-                ui->table_state.link_label_buffer[0] = '\0';
-                ui->table_state.link_url_buffer[0] = '\0';
-                ui->table_state.show_link_popup = 1;
-                ui->table_state.active_block_id = block->id;
-                ui->active_block_id = block->id;
+              struct nk_style_edit sv_e = ctx->style.edit;
+              ctx->style.edit.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+              ctx->style.edit.hover  = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+              ctx->style.edit.active = nk_style_item_color(
+                  ui->dark_mode ? nk_rgba(255, 255, 255, 8) : nk_rgba(0, 0, 0, 6));
+              ctx->style.edit.border = 0;
+              ctx->style.edit.text_normal = muted_link;
+              ctx->style.edit.text_hover  = muted_link;
+              ctx->style.edit.text_active =
+                  ui->dark_mode ? nk_rgb(220, 225, 235) : nk_rgb(30, 30, 40);
+
+              nk_flags res = nk_edit_string_zero_terminated(
+                  ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT | NK_EDIT_SIG_ENTER,
+                  buf, sizeof(buf) - 1, nk_filter_default);
+
+              if (res & NK_EDIT_COMMITED || res & NK_EDIT_DEACTIVATED) {
+                ui->table_state.is_editing_cell = 0;
               }
-            } else {
+
+              if (buf[0] != '\0') {
+                aslan_table_set_cell(tbl, (int)c, row_id, buf);
+                ui->table_state.is_editing_cell = 0;
+              }
+              ctx->style.edit = sv_e;
+
+            } else if (is_empty) {
+              // ---- Empty cell, NOT being edited: static clickable placeholder ----
               struct nk_rect bounds;
               nk_widget(&bounds, ctx);
-              struct nk_rect main_btn = bounds;
-              main_btn.w -= 28;
-              struct nk_rect edit_btn = bounds;
-              edit_btn.x += bounds.w - 28;
-              edit_btn.w = 28;
 
-              int mh = nk_input_is_mouse_hovering_rect(&ctx->input, main_btn);
-              int eh = nk_input_is_mouse_hovering_rect(&ctx->input, edit_btn);
-              int clicked =
-                  nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT);
+              int hovered = nk_input_is_mouse_hovering_rect(&ctx->input, bounds);
+              int clicked = nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT);
 
-              if (mh && clicked) {
-                if (url[0] != '\0') {
-                  char cmd[1200];
-                  if (strstr(url, "://") || strncmp(url, "mailto:", 7) == 0 ||
-                      strncmp(url, "tel:", 4) == 0)
-                    snprintf(cmd, sizeof(cmd), "open \"%s\"", url);
-                  else
-                    snprintf(cmd, sizeof(cmd), "open \"https://%s\"", url);
-                  system(cmd);
-                }
-              }
-              if (eh && clicked) {
-                ui->table_state.link_popup_row = row_id;
-                ui->table_state.link_popup_col = (int)c;
-                ui->table_state.link_popup_x = bounds.x;
-                ui->table_state.link_popup_y = bounds.y + bounds.h;
-                strncpy(ui->table_state.link_label_buffer, label,
-                        sizeof(ui->table_state.link_label_buffer) - 1);
-                strncpy(ui->table_state.link_url_buffer, url,
-                        sizeof(ui->table_state.link_url_buffer) - 1);
-                ui->table_state.show_link_popup = 1;
+              if (hovered && clicked) {
                 ui->table_state.active_block_id = block->id;
                 ui->active_block_id = block->id;
+                ui->table_state.active_row_idx = (int)v;
+                ui->table_state.active_col_idx = (int)c;
+                ui->table_state.is_editing_cell = 1;
+                ui_request_redraw(ui);
+              }
+
+              if (hovered) {
+                struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+                float font_h = ui->font_inter ? ui->font_inter->handle.height : 14.0f;
+                float ty = bounds.y + (bounds.h - font_h) * 0.5f;
+                nk_draw_text(canvas,
+                             nk_rect(bounds.x + 8, ty, bounds.w - 16, font_h),
+                             "Paste link...", 13, &ui->font_inter->handle,
+                             nk_rgba(0, 0, 0, 0), muted_link);
+              }
+
+            } else {
+              // ---- Non-empty: clickable blue link + "x" to clear ----
+              struct nk_rect bounds;
+              nk_widget(&bounds, ctx);
+
+              struct nk_rect link_area = bounds;
+              link_area.w -= 24;
+              struct nk_rect clear_area = bounds;
+              clear_area.x += bounds.w - 24;
+              clear_area.w = 24;
+
+              int link_hover = nk_input_is_mouse_hovering_rect(&ctx->input, link_area);
+              int clear_hover = nk_input_is_mouse_hovering_rect(&ctx->input, clear_area);
+              int clicked = nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT);
+
+              if (link_hover && clicked && val[0]) {
+                char cmd[1200];
+                if (strstr(val, "://") || strncmp(val, "mailto:", 7) == 0 ||
+                    strncmp(val, "tel:", 4) == 0)
+                  snprintf(cmd, sizeof(cmd), "open \"%s\"", val);
+                else
+                  snprintf(cmd, sizeof(cmd), "open \"https://%s\"", val);
+                system(cmd);
+              }
+
+              if (clear_hover && clicked) {
+                aslan_table_set_cell(tbl, (int)c, row_id, "");
+                ui_request_redraw(ui);
               }
 
               struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-              if (mh)
-                nk_fill_rect(canvas, main_btn, 4.0f,
+              if (link_hover)
+                nk_fill_rect(canvas, link_area, 4.0f,
                              nk_rgba(0, 0, 0, ui->dark_mode ? 20 : 10));
-              if (eh)
-                nk_fill_rect(canvas, edit_btn, 4.0f,
-                             nk_rgba(0, 0, 0, ui->dark_mode ? 20 : 10));
+              if (clear_hover)
+                nk_fill_rect(canvas, clear_area, 4.0f, nk_rgba(220, 60, 60, 40));
 
-              float font_h =
-                  ui->font_inter ? ui->font_inter->handle.height : 14.0f;
-              float ty = main_btn.y + (main_btn.h - font_h) * 0.5f;
-              const char *disp = label[0] ? label : url;
+              float font_h = ui->font_inter ? ui->font_inter->handle.height : 14.0f;
+              float ty = link_area.y + (link_area.h - font_h) * 0.5f;
               nk_draw_text(canvas,
-                           nk_rect(main_btn.x + 8, ty, main_btn.w - 16, font_h),
-                           disp, strlen(disp), &ui->font_inter->handle,
+                           nk_rect(link_area.x + 8, ty, link_area.w - 16, font_h),
+                           val, strlen(val), &ui->font_inter->handle,
                            nk_rgba(0, 0, 0, 0), link_blue);
-              float ety = edit_btn.y + (edit_btn.h - font_h) * 0.5f;
-              nk_draw_text(canvas,
-                           nk_rect(edit_btn.x + 6, ety, edit_btn.w, font_h),
-                           "...", 3, &ui->font_inter->handle,
-                           nk_rgba(0, 0, 0, 0), muted_link);
+
+              if (link_hover || clear_hover) {
+                float cty = clear_area.y + (clear_area.h - font_h) * 0.5f;
+                nk_draw_text(canvas,
+                             nk_rect(clear_area.x + 7, cty, clear_area.w, font_h),
+                             "x", 1, &ui->font_inter->handle,
+                             nk_rgba(0, 0, 0, 0),
+                             clear_hover ? nk_rgb(220, 60, 60) : muted_link);
+              }
             }
           } break;
           case ASLAN_COL_DATE: {
