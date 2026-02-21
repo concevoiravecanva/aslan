@@ -3273,11 +3273,11 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
     if (av == 0)
       n_items += 2; // table: import/export CSV
 
-    float popup_w = 210.0f;
+    float popup_w = 260.0f;
     float popup_h = (float)n_items * 22.0f + 4.0f;
     // Cap height; items beyond cap remain accessible via scrollbar
-    if (popup_h > 320.0f)
-      popup_h = 320.0f;
+    if (popup_h > 500.0f)
+      popup_h = 500.0f;
 
     float px = ui->view_settings.btn_x - popup_w + 32.0f;
     float py = ui->view_settings.btn_y + 34.0f;
