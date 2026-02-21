@@ -745,3 +745,19 @@ block_table_cell 1 104 1 2 "0"
 -- Session started --
 -- Session started --
 block_table_cell 1 104 3 2 "0"
+-- Session started --
+block_chart_init 1 106 pie 104 0 1
+block_chart_init 1 106 pie 104 0 1
+block_chart_init 1 106 pie 104 1 1
+block_chart_init 1 106 pie 104 0 1
+block_chart_init 1 106 pie 104 1 1
+block_chart_init 1 106 pie 104 0 1
+block_chart_init 1 106 pie 104 1 1
+block_chart_init 1 106 pie 104 1 1
+block_chart_init 1 106 pie 104 0 1
+-- Session started --
+block_design_link 1 105 104
+-- Session started --
+-- Session started --
+-- Session started --
+-- Session started --

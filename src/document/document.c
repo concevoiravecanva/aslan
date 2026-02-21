@@ -1679,6 +1679,10 @@ void doc_save_aof(const Document *doc, FILE *fp) {
           fprintf(fp, "block_design_view %u %u %.2f %.2f %.2f\n", page->id,
                   b->id, dd->view_x, dd->view_y, dd->zoom);
         }
+        if (dd->linked_table_id) {
+          fprintf(fp, "block_design_link %u %u %u\n", page->id, b->id,
+                  dd->linked_table_id);
+        }
         if (dd->root) {
           for (Node *n = dd->root->first_child; n; n = n->next_sibling) {
             save_node_recursive(fp, page->id, b->id, "block_design", n);
@@ -1732,7 +1736,9 @@ static void svg_color(uint32_t rgba, char *buf, size_t len) {
 }
 
 // Write SVG for a single node (recursive for children)
-static void svg_write_node(FILE *fp, const Node *node) {
+static void svg_write_node(FILE *fp, const Node *node,
+                           struct AslanTable *linked_tbl,
+                           uint64_t linked_row_id) {
   if (!node || !node->visible)
     return;
 
@@ -1771,14 +1777,28 @@ static void svg_write_node(FILE *fp, const Node *node) {
     break;
   }
 
-  case NODE_TYPE_TEXT:
+  case NODE_TYPE_TEXT: {
     fprintf(fp,
             "  <text x=\"%.1f\" y=\"%.1f\" font-size=\"%.1f\""
             " fill=\"%s\"%s>",
             node->x, node->y + node->font_size, node->font_size, fill,
             transform);
+    const char *display_text = node->text;
+    char linked_val_buf[256];
+    if (node->linked_col_name[0] && linked_tbl) {
+      for (int lk = 0; lk < (int)linked_tbl->column_count; lk++) {
+        if (strcmp(linked_tbl->columns[lk].name, node->linked_col_name) == 0) {
+          const char *val = aslan_table_get_cell_display(
+              linked_tbl, lk, linked_row_id, linked_val_buf,
+              sizeof(linked_val_buf));
+          if (val && val[0])
+            display_text = val;
+          break;
+        }
+      }
+    }
     // Escape XML entities in text
-    for (const char *p = node->text; *p; p++) {
+    for (const char *p = display_text; *p; p++) {
       switch (*p) {
       case '<':
         fputs("&lt;", fp);
@@ -1799,6 +1819,7 @@ static void svg_write_node(FILE *fp, const Node *node) {
     }
     fprintf(fp, "</text>\n");
     break;
+  }
 
   case NODE_TYPE_LINE:
     fprintf(fp,
@@ -1927,11 +1948,13 @@ static void svg_write_node(FILE *fp, const Node *node) {
 
   // Recurse into children (for FRAME, GROUP, ROOT)
   for (Node *child = node->first_child; child; child = child->next_sibling) {
-    svg_write_node(fp, child);
+    svg_write_node(fp, child, linked_tbl, linked_row_id);
   }
 }
 
-bool block_design_export_svg(const Block *block, const char *filepath) {
+bool block_design_export_svg(const Block *block, const char *filepath,
+                             struct AslanTable *linked_tbl,
+                             uint64_t linked_row_id) {
   if (!block || block->type != BLOCK_DESIGN || !filepath)
     return false;
 
@@ -1962,7 +1985,7 @@ bool block_design_export_svg(const Block *block, const char *filepath) {
 
   // Export all nodes in current page
   for (Node *node = page->root->first_child; node; node = node->next_sibling) {
-    svg_write_node(fp, node);
+    svg_write_node(fp, node, linked_tbl, linked_row_id);
   }
 
   fprintf(fp, "</svg>\n");

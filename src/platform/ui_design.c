@@ -29,18 +29,6 @@ void render_node_context_menu(UIHost *ui, struct nk_context *ctx,
 // DESIGN SIDEBAR — Properties | Layers | Page
 // =============================================================================
 
-// Returns true if any text node in the tree has a linked column set
-static bool design_has_linked_nodes(Node *node) {
-  if (!node)
-    return false;
-  if (node->type == NODE_TYPE_TEXT && node->linked_col_name[0])
-    return true;
-  for (Node *c = node->first_child; c; c = c->next_sibling)
-    if (design_has_linked_nodes(c))
-      return true;
-  return false;
-}
-
 // ── Section header: gap + tinted label + hairline ───────────────────────────
 static void ds_section(struct nk_context *ctx, const char *label) {
   nk_layout_row_dynamic(ctx, 8, 1);
@@ -134,8 +122,13 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
   // =========================================================================
   // TAB 0 — PROPERTIES
   // =========================================================================
+  char gp_props[64], gp_layers[64], gp_page[64];
+  snprintf(gp_props, sizeof(gp_props), "ds_props_%u", block->id);
+  snprintf(gp_layers, sizeof(gp_layers), "ds_layers_%u", block->id);
+  snprintf(gp_page, sizeof(gp_page), "ds_page_%u", block->id);
+
   if (ui->design_bottom_tab == 0) {
-    if (nk_group_begin(ctx, "ds_props", NK_WINDOW_BORDER)) {
+    if (nk_group_begin(ctx, gp_props, NK_WINDOW_BORDER)) {
       if (!ui->selected_node) {
         nk_layout_row_dynamic(ctx, 50, 1);
         nk_label_colored(ctx, "No element selected", NK_TEXT_CENTERED,
@@ -183,19 +176,25 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
 
           // Link to column
           Block *tbl_block = NULL;
-          for (Block *b = page ? page->first_block : NULL; b; b = b->next) {
-            if (b->type == BLOCK_TABLE && b->data.table.columnar) {
-              tbl_block = b;
-              break;
+          if (dd->linked_table_id && engine && engine->doc) {
+            for (int i = 0; i < 32; i++) {
+              Page *p = &engine->doc->pages[i];
+              if (!p->in_use)
+                continue;
+              tbl_block = page_find_block_by_id(p, dd->linked_table_id);
+              if (tbl_block)
+                break;
             }
           }
           if (tbl_block) {
             ds_section(ctx, "LINKED TEXT");
             AslanTable *tbl = tbl_block->data.table.columnar;
             int col_count = (int)tbl->column_count;
+            if (col_count > 32)
+              col_count = 32; // PREVENT OVERFLOW
             const char *col_names[33];
             col_names[0] = "None";
-            for (int k = 0; k < col_count && k < 32; k++)
+            for (int k = 0; k < col_count; k++)
               col_names[k + 1] = tbl->columns[k].name;
             int cur_sel = 0;
             for (int k = 0; k < col_count; k++) {
@@ -247,7 +246,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
   // TAB 1 — LAYERS
   // =========================================================================
   if (ui->design_bottom_tab == 1) {
-    if (nk_group_begin(ctx, "ds_layers", NK_WINDOW_BORDER)) {
+    if (nk_group_begin(ctx, gp_layers, NK_WINDOW_BORDER)) {
       ui_render_sidebar_layers(ui, ctx, block);
       nk_group_end(ctx);
     }
@@ -257,7 +256,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
   // TAB 2 — PAGE
   // =========================================================================
   if (ui->design_bottom_tab == 2) {
-    if (nk_group_begin(ctx, "ds_page", NK_WINDOW_BORDER)) {
+    if (nk_group_begin(ctx, gp_page, NK_WINDOW_BORDER)) {
       if (page) {
         // ── CANVAS SIZE ──────────────────────────────────────────────────
         ds_section(ctx, "CANVAS SIZE");
@@ -370,15 +369,54 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         }
 
         // ── LINKED DATA ──────────────────────────────────────────────────
-        if (dd->root && design_has_linked_nodes(dd->root)) {
-          ds_section(ctx, "LINKED DATA");
-          int total_rows = 0;
-          for (Block *b = page->first_block; b; b = b->next) {
+        ds_section(ctx, "DATA SOURCE");
+
+        // Find all table blocks in the document (or current page)
+        Block *tables[32];
+        const char *table_names[33];
+        table_names[0] = "None";
+        int table_count = 0;
+
+        for (int i = 0; i < engine->doc->page_count; i++) {
+          Page *p = &engine->doc->pages[i];
+          if (!p->in_use)
+            continue;
+          for (Block *b = p->first_block; b; b = b->next) {
             if (b->type == BLOCK_TABLE && b->data.table.columnar) {
-              total_rows = (int)b->data.table.columnar->active_count;
-              break;
+              if (table_count < 32) {
+                tables[table_count] = b;
+                table_names[table_count + 1] = b->data.table.columnar->name;
+                table_count++;
+              }
             }
           }
+        }
+
+        int cur_table_sel = 0;
+        AslanTable *linked_tbl = NULL;
+        for (int i = 0; i < table_count; i++) {
+          if (tables[i]->id == dd->linked_table_id) {
+            cur_table_sel = i + 1;
+            linked_tbl = tables[i]->data.table.columnar;
+            break;
+          }
+        }
+
+        nk_layout_row_dynamic(ctx, 24, 1);
+        int new_table_sel = nk_combo(ctx, table_names, table_count + 1,
+                                     cur_table_sel, 24, nk_vec2(220, 200));
+        if (new_table_sel != cur_table_sel) {
+          uint32_t new_id =
+              (new_table_sel == 0) ? 0 : tables[new_table_sel - 1]->id;
+          char cmd[128];
+          snprintf(cmd, sizeof(cmd), "block_design_link %u %u %u", page->id,
+                   block->id, new_id);
+          engine_execute_command(engine, cmd);
+          ui->design_linked_row_idx = 0;
+        }
+
+        if (linked_tbl) {
+          int total_rows = (int)linked_tbl->active_count;
           if (total_rows > 0) {
             if (ui->design_linked_row_idx >= total_rows)
               ui->design_linked_row_idx = total_rows - 1;
@@ -396,6 +434,11 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
             if (nk_button_label(ctx, ">") &&
                 ui->design_linked_row_idx < total_rows - 1)
               ui->design_linked_row_idx++;
+          }
+
+          nk_layout_row_dynamic(ctx, 24, 1);
+          if (nk_button_label(ctx, "Export All SVGs")) {
+            ui_host_export_svg_merge(ui, engine, linked_tbl);
           }
         }
       }
@@ -450,8 +493,10 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
   float sidebar_w = 260.0f;
 
   float row_h = nk_window_get_content_region(ctx).h;
-  if (row_h < 200.0f)
-    row_h = 200.0f;
+  if (row_h < 600.0f) // Changed minimum height from 200 to 600 for better
+                      // sidebar visibility
+    row_h = 600.0f;
+  ASLAN_DEBUG("Design block layout row_h = %f", row_h);
 
   float display_h = row_h - toolbar_h;
   if (display_h < 100.0f)
@@ -474,8 +519,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
   ASLAN_DEBUG("Design Block %u: width=%.1f height=%.1f display_h=%.1f",
               block->id, width, (float)dd->height, display_h);
 
-  if (nk_group_begin(ctx, "design_content_group",
-                     NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER)) {
+  char ws_gp[64];
+  snprintf(ws_gp, sizeof(ws_gp), "design_content_group_%u", block->id);
+  if (nk_group_begin(ctx, ws_gp, NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER)) {
     struct nk_rect ws_bounds = nk_window_get_content_region(ctx);
     struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
     DesignInteraction *ds = &ui->design_state;
@@ -1369,27 +1415,33 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
             int is_editing = (ui->editing_node == node);
             // Substitute linked column value when not editing
             if (!is_editing && node->linked_col_name[0]) {
-              Page *lpage = doc_page_get_active(engine->doc);
-              for (Block *b = lpage ? lpage->first_block : NULL; b;
-                   b = b->next) {
-                if (b->type == BLOCK_TABLE && b->data.table.columnar) {
-                  AslanTable *tbl = b->data.table.columnar;
-                  for (int lk = 0; lk < (int)tbl->column_count; lk++) {
-                    if (strcmp(tbl->columns[lk].name, node->linked_col_name) ==
-                        0) {
-                      int ridx = ui->design_linked_row_idx;
-                      if (ridx < (int)tbl->active_count) {
-                        uint64_t rid = aslan_table_view_row_id(tbl, ridx);
-                        const char *val = aslan_table_get_cell_display(
-                            tbl, lk, rid, linked_val_buf,
-                            sizeof(linked_val_buf));
-                        if (val && val[0])
-                          display_text = val;
+              if (dd->linked_table_id && engine && engine->doc) {
+                for (int i = 0; i < 32; i++) {
+                  Page *p = &engine->doc->pages[i];
+                  if (!p->in_use)
+                    continue;
+                  Block *tb = page_find_block_by_id(p, dd->linked_table_id);
+                  if (tb && tb->type == BLOCK_TABLE &&
+                      tb->data.table.columnar) {
+                    AslanTable *tbl = tb->data.table.columnar;
+                    for (int lk = 0; lk < (int)tbl->column_count; lk++) {
+                      if (strcmp(tbl->columns[lk].name,
+                                 node->linked_col_name) == 0) {
+                        int ridx = ui->design_linked_row_idx;
+                        if (ridx < (int)tbl->active_count) {
+                          uint64_t rid = aslan_table_view_row_id(tbl, ridx);
+                          const char *val = aslan_table_get_cell_display(
+                              tbl, lk, rid, linked_val_buf,
+                              sizeof(linked_val_buf));
+                          if (val && val[0]) {
+                            display_text = val;
+                          }
+                        }
+                        break;
                       }
-                      break;
                     }
+                    break;
                   }
-                  break;
                 }
               }
             }
@@ -2053,11 +2105,12 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     // Close Workspace group (Column 1)
     nk_group_end(ctx);
-  } // design_content_group
+  } // design_conte  nk_group_end(ctx); // Ends the workspace group
 
-  // --- Right sidebar: Properties | Layers | Page ---
-  if (nk_group_begin(ctx, "design_sidebar",
-                     NK_WINDOW_BORDER | NK_WINDOW_NO_SCROLLBAR)) {
+  // --- Rendering Sidebar ---
+  char sb_gp[64];
+  snprintf(sb_gp, sizeof(sb_gp), "design_sidebar_group_%u", block->id);
+  if (nk_group_begin(ctx, sb_gp, NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER)) {
     design_render_sidebar(ui, engine, ctx, block);
     nk_group_end(ctx);
   }

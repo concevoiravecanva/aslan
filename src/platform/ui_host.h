@@ -528,6 +528,8 @@ void ui_host_handle_file_drop(UIHost *ui, const char *file_path, int mx,
                               int my);
 void ui_host_import_csv(UIHost *ui, Engine *engine);
 void ui_host_export_svg(UIHost *ui, Engine *engine);
+void ui_host_export_svg_merge(UIHost *ui, Engine *engine,
+                              struct AslanTable *linked_tbl);
 void ui_host_copy_node(UIHost *ui, Engine *engine);
 void ui_host_paste_node(UIHost *ui, Engine *engine);
 void ui_update(UIHost *ui, Engine *engine);

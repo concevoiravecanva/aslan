@@ -327,8 +327,62 @@ void ui_host_export_svg(UIHost *ui, Engine *engine) {
   char default_name[128];
   snprintf(default_name, sizeof(default_name), "%s.svg", page->name);
   if (save_svg_file_dialog(filename, sizeof(filename), default_name)) {
-    if (block_design_export_svg(design_block, filename)) {
+    if (block_design_export_svg(design_block, filename, NULL, 0)) {
       ASLAN_DEBUG("Exported SVG to: %s", filename);
+    }
+  }
+}
+
+void ui_host_export_svg_merge(UIHost *ui, Engine *engine,
+                              struct AslanTable *linked_tbl) {
+  (void)ui;
+  Page *page = doc_page_get_active(engine->doc);
+  if (!page || !linked_tbl || linked_tbl->active_count == 0)
+    return;
+
+  // Find the first design block on this page
+  Block *design_block = NULL;
+  for (Block *b = page->first_block; b; b = b->next) {
+    if (b->type == BLOCK_DESIGN) {
+      if (b->data.design.linked_table_id == linked_tbl->id) {
+        design_block = b;
+        break;
+      }
+    }
+  }
+  // Fallback
+  if (!design_block) {
+    for (Block *b = page->first_block; b; b = b->next) {
+      if (b->type == BLOCK_DESIGN) {
+        design_block = b;
+        break;
+      }
+    }
+  }
+
+  if (!design_block)
+    return;
+
+  char base_filename[512];
+  char default_name[128];
+  snprintf(default_name, sizeof(default_name), "%s_Merge.svg", page->name);
+  if (save_svg_file_dialog(base_filename, sizeof(base_filename),
+                           default_name)) {
+    // Strip .svg to get base prefix
+    char prefix[512];
+    strncpy(prefix, base_filename, sizeof(prefix) - 1);
+    prefix[sizeof(prefix) - 1] = '\0';
+    char *ext = strstr(prefix, ".svg");
+    if (ext)
+      *ext = '\0';
+
+    for (int i = 0; i < (int)linked_tbl->active_count; i++) {
+      char out_file[512];
+      snprintf(out_file, sizeof(out_file), "%s_%d.svg", prefix, i + 1);
+      uint64_t row_id = aslan_table_view_row_id(linked_tbl, i);
+      if (block_design_export_svg(design_block, out_file, linked_tbl, row_id)) {
+        ASLAN_DEBUG("Exported SVG merge row %d to: %s", i + 1, out_file);
+      }
     }
   }
 }

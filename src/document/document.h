@@ -212,6 +212,9 @@ typedef struct {
   int no_limits; // 0 = fixed artboard (default), 1 = infinite canvas mode
   float view_x, view_y; // Pan offset (used when no_limits=1)
 
+  // Linked data source table (Data-Merger functionality)
+  uint32_t linked_table_id;
+
   // Legacy: single root for backwards compatibility (points to current page's
   // root)
   Node *root;
@@ -460,7 +463,9 @@ void doc_save_aof(const Document *doc, FILE *fp);
 void doc_save_snapshot(const Document *doc, const char *filepath);
 
 // SVG Export (Design block → SVG file)
-bool block_design_export_svg(const Block *block, const char *filepath);
+bool block_design_export_svg(const Block *block, const char *filepath,
+                             struct AslanTable *linked_tbl,
+                             uint64_t linked_row_id);
 
 // =============================================================================
 // UTILITY
