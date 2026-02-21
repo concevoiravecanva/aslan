@@ -2363,7 +2363,9 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
       swimlane_bounds[vi] = nk_widget_bounds(ctx);
 
       float saved_sy = ctx->style.window.spacing.y;
-      ctx->style.window.spacing.y = 2.0f; // Minimal gap between cards
+      struct nk_vec2 saved_gp = ctx->style.window.group_padding;
+      ctx->style.window.spacing.y = 1.0f; // Minimal gap between cards
+      ctx->style.window.group_padding = nk_vec2(0, 0);
 
       if (nk_group_begin(ctx, grp_name, NK_WINDOW_BORDER)) {
         if (is_drop_target) {
@@ -2454,6 +2456,7 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
         nk_group_end(ctx);
       }
       ctx->style.window.spacing.y = saved_sy;
+      ctx->style.window.group_padding = saved_gp;
       ctx->style.window.fixed_background = saved_bg;
     }
   } else {
@@ -3271,7 +3274,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
       n_items += 2; // table: import/export CSV
 
     float popup_w = 210.0f;
-    float popup_h = (float)n_items * 28.0f + 12.0f;
+    float popup_h = (float)n_items * 22.0f + 4.0f;
     // Cap height; items beyond cap remain accessible via scrollbar
     if (popup_h > 320.0f)
       popup_h = 320.0f;
@@ -3296,7 +3299,11 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
         nk_popup_open = 1;
 
         float saved_spacing_y = ctx->style.window.spacing.y;
+        struct nk_vec2 saved_win_padding = ctx->style.window.padding;
+        struct nk_vec2 saved_grp_padding = ctx->style.window.group_padding;
         ctx->style.window.spacing.y = 0;
+        ctx->style.window.padding = nk_vec2(saved_win_padding.x, 0);
+        ctx->style.window.group_padding = nk_vec2(0, 0);
 
         // Should we close this frame?
         // Case A: button toggle already set show_popup=0 on this same frame
@@ -3321,7 +3328,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
           ui->view_settings.show_popup = 0;
         } else {
           // ---- Dark / Light mode (all views) ----
-          nk_layout_row_dynamic(ctx, 28, 1);
+          nk_layout_row_dynamic(ctx, 24, 1);
           if (nk_button_label(ctx,
                               ui->dark_mode ? "Light mode" : "Dark mode")) {
             ui->dark_mode = !ui->dark_mode;
@@ -3332,7 +3339,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
           if (av == 0) {
             Block *t_block = page_find_first_block_of_type(page, BLOCK_TABLE);
             if (t_block && t_block->data.table.columnar) {
-              nk_layout_row_dynamic(ctx, 28, 1);
+              nk_layout_row_dynamic(ctx, 20, 1);
               if (nk_button_label(ctx, "Import CSV")) {
                 char filename[1024];
                 if (open_csv_file_dialog(filename, sizeof(filename))) {
@@ -3344,7 +3351,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
                 nk_popup_close(ctx);
                 ui->view_settings.show_popup = 0;
               }
-              nk_layout_row_dynamic(ctx, 28, 1);
+              nk_layout_row_dynamic(ctx, 20, 1);
               if (nk_button_label(ctx, "Export CSV")) {
                 char filename[1024];
                 char default_name[256];
@@ -3364,7 +3371,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
 
           // ---- Calendar: week / month view toggle ----
           if (av == 3) {
-            nk_layout_row_dynamic(ctx, 28, 1);
+            nk_layout_row_dynamic(ctx, 24, 1);
             if (nk_button_label(ctx, ui->calendar_state.show_week
                                          ? "Month view"
                                          : "Week view")) {
@@ -3381,12 +3388,12 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
               if (!ui->kanban_state.col_hidden[i])
                 kn_vis++;
 
-            float cws[2] = {28.0f, popup_w - 28.0f - 20.0f};
+            float cws[2] = {24.0f, popup_w - 24.0f - 20.0f};
             for (int i = 0; i < ks_opt_count && i < 32; i++) {
               int hidden = ui->kanban_state.col_hidden[i];
               int can_show = !hidden || (kn_vis < 6);
 
-              nk_layout_row(ctx, NK_STATIC, 28, 2, cws);
+              nk_layout_row(ctx, NK_STATIC, 20, 2, cws);
 
               // Eye toggle icon
               if (ui->font_icons)
@@ -3397,6 +3404,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
               ib.active = nk_style_item_color(nk_rgba(0, 0, 0, 25));
               ib.border = 0;
               ib.rounding = 4.0f;
+              ib.padding = nk_vec2(0, 0);
               ib.text_normal = hidden ? (ui->dark_mode ? nk_rgb(90, 90, 100)
                                                        : nk_rgb(190, 190, 200))
                                       : (ui->dark_mode ? nk_rgb(80, 140, 230)
@@ -3416,7 +3424,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
 
               // Colored dot + label
               struct nk_rect lr = nk_widget_bounds(ctx);
-              nk_spacing(ctx, 1);
+              // nk_spacing removed
               struct nk_command_buffer *pcv = nk_window_get_canvas(ctx);
               uint32_t oc = ks_sel_col->options[i].color;
               struct nk_color dot_col = nk_rgba(
@@ -3442,6 +3450,8 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
         } // end else (do_close)
 
         ctx->style.window.spacing.y = saved_spacing_y;
+        ctx->style.window.padding = saved_win_padding;
+        ctx->style.window.group_padding = saved_grp_padding;
         nk_popup_end(ctx);
       } else {
         // nk_popup_begin returned false: Nuklear has cleaned up the popup
