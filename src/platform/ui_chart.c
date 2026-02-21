@@ -67,18 +67,28 @@ static int chart_collect_data(AslanTable *tbl, int label_col, int value_col,
     if (row_id == 0)
       continue;
 
-    values[count] = aslan_table_get_number(tbl, value_col, row_id);
+    double val = aslan_table_get_number(tbl, value_col, row_id);
 
+    // Get label
+    char buf[64] = {0};
+    const char *lbl = "";
     if (label_col >= 0 && label_col < (int)tbl->column_count) {
-      char buf[64];
-      const char *lbl = aslan_table_get_cell_display(tbl, label_col, row_id,
-                                                     buf, sizeof(buf));
-      if (lbl && lbl[0]) {
-        strncpy(labels[count], lbl, 63);
-        labels[count][63] = '\0';
-      } else {
-        snprintf(labels[count], 64, "%d", count + 1);
-      }
+      const char *cell_text = aslan_table_get_cell_display(
+          tbl, label_col, row_id, buf, sizeof(buf));
+      if (cell_text)
+        lbl = cell_text;
+    }
+
+    // Skip entirely empty/uninitialized default rows to prevent phantom data
+    if (val == 0.0 && lbl[0] == '\0') {
+      continue;
+    }
+
+    values[count] = val;
+
+    if (lbl[0] != '\0') {
+      strncpy(labels[count], lbl, 63);
+      labels[count][63] = '\0';
     } else {
       snprintf(labels[count], 64, "%d", count + 1);
     }
@@ -216,8 +226,10 @@ static void chart_draw_lines(struct nk_command_buffer *canvas,
       float tw = font->width(font->userdata, font->height, labels[i], lbl_len);
       // Clamp so first/last labels stay within chart bounds
       float lx = px - tw / 2;
-      if (lx < area.x) lx = area.x;
-      if (lx + tw > area.x + area.w) lx = area.x + area.w - tw;
+      if (lx < area.x)
+        lx = area.x;
+      if (lx + tw > area.x + area.w)
+        lx = area.x + area.w - tw;
       nk_draw_text(canvas, nk_rect(lx, chart_y + chart_h + 3, tw, 14),
                    labels[i], lbl_len, font, nk_rgba(0, 0, 0, 0),
                    nk_rgba(120, 120, 120, 255));
@@ -415,7 +427,7 @@ static void chart_render_config_bar(UIHost *ui, Engine *engine,
   nk_layout_row_template_begin(ctx, 26.0f);
   nk_layout_row_template_push_static(ctx, 100.0f); // Label column
   nk_layout_row_template_push_static(ctx, 100.0f); // Value column
-  nk_layout_row_template_push_dynamic(ctx);         // Spacer
+  nk_layout_row_template_push_dynamic(ctx);        // Spacer
   nk_layout_row_template_end(ctx);
 
   AslanTable *tbl = chart_find_source_table(page, cd->source_table_id);
