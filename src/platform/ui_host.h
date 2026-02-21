@@ -243,7 +243,6 @@ typedef struct UIHost {
 
   // Fonts
   struct nk_font *font_inter; // Default UI font
-  struct nk_font *font_mono;  // Monospace for text blocks
   struct nk_font *font_title; // Page Title (Extra Bold)
   struct nk_font *font_h1;    // Heading 1 (28pt Bold)
   struct nk_font *font_icons; // Remix Icons

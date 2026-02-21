@@ -1407,8 +1407,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                   ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
 
               // Select font based on type and size
-              if (node->font_type == 4 && ui->font_mono) { // Mono
-                font = &ui->font_mono->handle;
+              if (node->font_type == 4 && ui->font_inter) { // Mono -> Inter
+                font = &ui->font_inter->handle;
               } else { // Inter variants (Body, H1, H2, H3)
                 // Find closest size in font_inter_sizes
                 float target_size = node->font_size;

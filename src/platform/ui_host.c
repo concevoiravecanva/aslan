@@ -479,8 +479,6 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
   const char *inter_path = "assets/fonts/Inter-Regular.ttf";
   const char *inter_bold_path = "assets/fonts/Inter_28pt-Bold.ttf";
   const char *inter_extrabold_path = "assets/fonts/Inter_28pt-ExtraBold.ttf";
-  const char *mono_path =
-      "assets/fonts/JetBrains_Mono/JetBrainsMono-VariableFont_wght.ttf";
   const char *icons_path = "assets/remixicon.ttf";
 
   // Load Inter font for UI
@@ -488,13 +486,6 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
       nk_font_atlas_add_from_file(ui->atlas, inter_path, 16.0f, NULL);
   if (!ui->font_inter) {
     ui->font_inter = nk_font_atlas_add_default(ui->atlas, 16.0f, NULL);
-  }
-
-  // Load JetBrains Mono for text blocks
-  ui->font_mono =
-      nk_font_atlas_add_from_file(ui->atlas, mono_path, 15.0f, NULL);
-  if (!ui->font_mono) {
-    ui->font_mono = nk_font_atlas_add_default(ui->atlas, 15.0f, NULL);
   }
 
   // Load heading fonts (Inter Bold and Extra Bold)
@@ -526,8 +517,8 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
   icons_cfg.merge_mode = nk_false;
   ui->font_icons =
       nk_font_atlas_add_from_file(ui->atlas, icons_path, 20.0f, &icons_cfg);
+  ASLAN_INFO("Fonts loaded:");
   ASLAN_INFO("Font Inter: %p", (void *)ui->font_inter);
-  ASLAN_INFO("Font Mono: %p", (void *)ui->font_mono);
   ASLAN_INFO("Font Icons: %p (path: %s)", (void *)ui->font_icons, icons_path);
   if (!ui->font_icons) {
     ASLAN_ERROR("Failed to load icons font!");
@@ -1569,7 +1560,7 @@ void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
     float text_x = bounds.x; // Flush with margin (was +8)
     float text_y = bounds.y + (bounds.h - line_h) / 2 + 4;
     const struct nk_user_font *ph_font =
-        ui->font_inter ? &ui->font_inter->handle : &ui->font_mono->handle;
+        ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
     nk_draw_text(canvas, nk_rect(text_x, text_y, bounds.w - 16, line_h),
                  placeholder, strlen(placeholder), ph_font, nk_rgba(0, 0, 0, 0),
                  placeholder_color);
