@@ -161,14 +161,17 @@ static void ui_render_formula_bar(UIHost *ui, struct nk_context *ctx,
   // Consume the dynamic row widget
   nk_label(ctx, "", NK_TEXT_LEFT);
 
-  // Bar layout: spacer for fx + input field
-  nk_layout_row_begin(ctx, NK_STATIC, 30, 2);
+  // Bar layout: fx icon + input field + help button
+  nk_layout_row_begin(ctx, NK_STATIC, 30, 3);
   nk_layout_row_push(ctx, 34); // space for fx icon
   nk_label(ctx, "", NK_TEXT_LEFT);
 
-  // Input field
-  float width = nk_window_get_content_region(ctx).w - 44;
-  nk_layout_row_push(ctx, width > 10 ? width : 300);
+  // Help Button at the end
+  float help_btn_w = 80.0f;
+  float input_width =
+      nk_window_get_content_region(ctx).w - 34 - help_btn_w - 20;
+
+  nk_layout_row_push(ctx, input_width > 10 ? input_width : 300);
 
   // Initial population: load formula or show "="
   if (ui->table_state.formula_buffer[0] == '\0' &&
@@ -202,8 +205,15 @@ static void ui_render_formula_bar(UIHost *ui, struct nk_context *ctx,
 
   // Track if formula bar is being edited (for click-to-reference)
   // Keep is_editing_formula active even when bar loses focus briefly
-  if (res & NK_EDIT_ACTIVE) {
-    ui->table_state.is_editing_formula = 1;
+  // Help Button
+  nk_layout_row_push(ctx, help_btn_w);
+  struct nk_style_button help_style = ctx->style.button;
+  help_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+  help_style.hover = nk_style_item_color(nk_rgba(45, 127, 249, 30));
+  help_style.text_normal = accent;
+  help_style.text_hover = accent;
+  if (nk_button_label_styled(ctx, &help_style, "? Help")) {
+    ui->table_state.show_formula_help = 1;
   }
 
   nk_layout_row_end(ctx);
@@ -250,55 +260,82 @@ static void ui_render_formula_help_popup(UIHost *ui, struct nk_context *ctx) {
 
   struct nk_rect s = {0, 0, (float)ui->win_width, (float)ui->win_height};
   if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Formula Help",
-                     NK_WINDOW_CLOSABLE | NK_WINDOW_TITLE | NK_WINDOW_BORDER,
-                     nk_rect(s.w / 2 - 250, s.h / 2 - 225, 500, 450))) {
+                     NK_WINDOW_CLOSABLE | NK_WINDOW_TITLE | NK_WINDOW_BORDER |
+                         NK_WINDOW_SCROLL_AUTO_HIDE,
+                     nk_rect(s.w / 2 - 260, s.h / 2 - 280, 520, 560))) {
 
     nk_layout_row_dynamic(ctx, 20, 1);
     nk_label(ctx, "Formula Syntax", NK_TEXT_LEFT);
-
     nk_layout_row_dynamic(ctx, 15, 1);
-    nk_label(ctx, "• Start with = sign", NK_TEXT_LEFT);
-    nk_label(ctx, "• Reference columns with [ColumnName]", NK_TEXT_LEFT);
-    nk_label(ctx, "• Click column headers while editing to insert reference",
+    nk_label(ctx, "  Start with = sign", NK_TEXT_LEFT);
+    nk_label(ctx, "  Reference columns with [ColumnName]", NK_TEXT_LEFT);
+    nk_label(ctx, "  Click column headers while editing to insert ref",
              NK_TEXT_LEFT);
 
-    nk_layout_row_dynamic(ctx, 10, 1); // spacer
-    nk_label(ctx, "", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 8, 1);
+    nk_spacing(ctx, 1);
 
     nk_layout_row_dynamic(ctx, 20, 1);
     nk_label(ctx, "Operators", NK_TEXT_LEFT);
     nk_layout_row_dynamic(ctx, 15, 1);
-    nk_label(ctx, "+ - * / ^  (add, subtract, multiply, divide, power)",
-             NK_TEXT_LEFT);
+    nk_label(ctx, "  +  -  *  /  %  ^", NK_TEXT_LEFT);
 
-    nk_layout_row_dynamic(ctx, 10, 1); // spacer
-    nk_label(ctx, "", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 8, 1);
+    nk_spacing(ctx, 1);
 
     nk_layout_row_dynamic(ctx, 20, 1);
-    nk_label(ctx, "Functions", NK_TEXT_LEFT);
+    nk_label(ctx, "Math", NK_TEXT_LEFT);
     nk_layout_row_dynamic(ctx, 15, 1);
-    nk_label(ctx, "abs(x)      - Absolute value", NK_TEXT_LEFT);
-    nk_label(ctx, "sqrt(x)     - Square root", NK_TEXT_LEFT);
-    nk_label(ctx, "pow(x,y)    - x to the power of y", NK_TEXT_LEFT);
-    nk_label(ctx, "sin(x)      - Sine", NK_TEXT_LEFT);
-    nk_label(ctx, "cos(x)      - Cosine", NK_TEXT_LEFT);
-    nk_label(ctx, "tan(x)      - Tangent", NK_TEXT_LEFT);
-    nk_label(ctx, "ln(x)       - Natural logarithm", NK_TEXT_LEFT);
-    nk_label(ctx, "log10(x)    - Base-10 logarithm", NK_TEXT_LEFT);
-    nk_label(ctx, "exp(x)      - e to the power of x", NK_TEXT_LEFT);
-    nk_label(ctx, "floor(x)    - Round down", NK_TEXT_LEFT);
-    nk_label(ctx, "ceil(x)     - Round up", NK_TEXT_LEFT);
+    nk_label(ctx, "  abs(x)        Absolute value", NK_TEXT_LEFT);
+    nk_label(ctx, "  sqrt(x)       Square root", NK_TEXT_LEFT);
+    nk_label(ctx, "  pow(x,y)      x to the power of y", NK_TEXT_LEFT);
+    nk_label(ctx, "  exp(x)        e^x", NK_TEXT_LEFT);
+    nk_label(ctx, "  ln(x)         Natural logarithm", NK_TEXT_LEFT);
+    nk_label(ctx, "  log(x)        Natural logarithm", NK_TEXT_LEFT);
+    nk_label(ctx, "  log10(x)      Base-10 logarithm", NK_TEXT_LEFT);
+    nk_label(ctx, "  floor(x)      Round down", NK_TEXT_LEFT);
+    nk_label(ctx, "  ceil(x)       Round up", NK_TEXT_LEFT);
+    nk_label(ctx, "  fac(x)        Factorial (x!)", NK_TEXT_LEFT);
 
-    nk_layout_row_dynamic(ctx, 10, 1); // spacer
-    nk_label(ctx, "", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 8, 1);
+    nk_spacing(ctx, 1);
+
+    nk_layout_row_dynamic(ctx, 20, 1);
+    nk_label(ctx, "Trigonometry", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 15, 1);
+    nk_label(ctx, "  sin(x)  cos(x)  tan(x)", NK_TEXT_LEFT);
+    nk_label(ctx, "  asin(x)  acos(x)  atan(x)  atan2(y,x)", NK_TEXT_LEFT);
+    nk_label(ctx, "  sinh(x)  cosh(x)  tanh(x)", NK_TEXT_LEFT);
+
+    nk_layout_row_dynamic(ctx, 8, 1);
+    nk_spacing(ctx, 1);
+
+    nk_layout_row_dynamic(ctx, 20, 1);
+    nk_label(ctx, "Combinatorics", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 15, 1);
+    nk_label(ctx, "  ncr(n,r)      Combinations C(n,r)", NK_TEXT_LEFT);
+    nk_label(ctx, "  npr(n,r)      Permutations P(n,r)", NK_TEXT_LEFT);
+
+    nk_layout_row_dynamic(ctx, 8, 1);
+    nk_spacing(ctx, 1);
+
+    nk_layout_row_dynamic(ctx, 20, 1);
+    nk_label(ctx, "Constants", NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 15, 1);
+    nk_label(ctx, "  pi            3.14159...", NK_TEXT_LEFT);
+    nk_label(ctx, "  e             2.71828...", NK_TEXT_LEFT);
+
+    nk_layout_row_dynamic(ctx, 8, 1);
+    nk_spacing(ctx, 1);
 
     nk_layout_row_dynamic(ctx, 20, 1);
     nk_label(ctx, "Examples", NK_TEXT_LEFT);
     nk_layout_row_dynamic(ctx, 15, 1);
-    nk_label(ctx, "=[Price] * 1.2", NK_TEXT_LEFT);
-    nk_label(ctx, "=[Quantity] * [Price]", NK_TEXT_LEFT);
-    nk_label(ctx, "=sqrt([Value])", NK_TEXT_LEFT);
-    nk_label(ctx, "=([A] + [B]) / 2", NK_TEXT_LEFT);
+    nk_label(ctx, "  =[Price] * 1.2", NK_TEXT_LEFT);
+    nk_label(ctx, "  =[Quantity] * [Price]", NK_TEXT_LEFT);
+    nk_label(ctx, "  =sqrt([Value])", NK_TEXT_LEFT);
+    nk_label(ctx, "  =([A] + [B]) / 2", NK_TEXT_LEFT);
+    nk_label(ctx, "  =floor([Total] * 100) / 100", NK_TEXT_LEFT);
 
     nk_popup_end(ctx);
   } else {
@@ -745,7 +782,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           } else {
             // --- New interaction model ---
 
-            // A) Click on ICON → Sort + Select column (show X)
+            // A) Click on ICON → Sort
             if (clicked_icon) {
               // Toggle sort: ASC → DESC → OFF
               if (tbl->sort_column == (int)c) {
@@ -757,12 +794,12 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                 aslan_table_sort(tbl, (int)c, true);
               }
               ui->table_state.selected_col_idx = (int)c;
-              ui->table_state.renaming_col_idx = -1; // not renaming
+              ui->table_state.renaming_col_idx = -1;
               ui->table_state.active_block_id = block->id;
               ui_request_redraw(ui);
             }
 
-            // B) Click on NAME → Inline rename + Select column (show X)
+            // B) Click on NAME → Inline rename
             if (clicked_text) {
               ui->table_state.selected_col_idx = (int)c;
               ui->table_state.renaming_col_idx = (int)c;
@@ -772,6 +809,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                   .rename_buffer[sizeof(ui->table_state.rename_buffer) - 1] =
                   '\0';
               ui->table_state.active_block_id = block->id;
+              ui->active_block_id = block->id;
               ui_request_redraw(ui);
             }
           }
@@ -1457,10 +1495,11 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             int is_empty = (!val || val[0] == '\0');
 
             // Is THIS specific cell the one currently being edited?
-            int is_this_active = (ui->table_state.active_block_id == block->id &&
-                                 ui->table_state.active_row_idx == (int)v &&
-                                 ui->table_state.active_col_idx == (int)c &&
-                                 ui->table_state.is_editing_cell);
+            int is_this_active =
+                (ui->table_state.active_block_id == block->id &&
+                 ui->table_state.active_row_idx == (int)v &&
+                 ui->table_state.active_col_idx == (int)c &&
+                 ui->table_state.is_editing_cell);
 
             struct nk_color link_blue =
                 ui->dark_mode ? nk_rgb(100, 160, 255) : nk_rgb(45, 127, 249);
@@ -1473,12 +1512,13 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
               struct nk_style_edit sv_e = ctx->style.edit;
               ctx->style.edit.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-              ctx->style.edit.hover  = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-              ctx->style.edit.active = nk_style_item_color(
-                  ui->dark_mode ? nk_rgba(255, 255, 255, 8) : nk_rgba(0, 0, 0, 6));
+              ctx->style.edit.hover = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+              ctx->style.edit.active =
+                  nk_style_item_color(ui->dark_mode ? nk_rgba(255, 255, 255, 8)
+                                                    : nk_rgba(0, 0, 0, 6));
               ctx->style.edit.border = 0;
               ctx->style.edit.text_normal = muted_link;
-              ctx->style.edit.text_hover  = muted_link;
+              ctx->style.edit.text_hover = muted_link;
               ctx->style.edit.text_active =
                   ui->dark_mode ? nk_rgb(220, 225, 235) : nk_rgb(30, 30, 40);
 
@@ -1497,12 +1537,15 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               ctx->style.edit = sv_e;
 
             } else if (is_empty) {
-              // ---- Empty cell, NOT being edited: static clickable placeholder ----
+              // ---- Empty cell, NOT being edited: static clickable placeholder
+              // ----
               struct nk_rect bounds;
               nk_widget(&bounds, ctx);
 
-              int hovered = nk_input_is_mouse_hovering_rect(&ctx->input, bounds);
-              int clicked = nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT);
+              int hovered =
+                  nk_input_is_mouse_hovering_rect(&ctx->input, bounds);
+              int clicked =
+                  nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT);
 
               if (hovered && clicked) {
                 ui->table_state.active_block_id = block->id;
@@ -1515,7 +1558,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
               if (hovered) {
                 struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-                float font_h = ui->font_inter ? ui->font_inter->handle.height : 14.0f;
+                float font_h =
+                    ui->font_inter ? ui->font_inter->handle.height : 14.0f;
                 float ty = bounds.y + (bounds.h - font_h) * 0.5f;
                 nk_draw_text(canvas,
                              nk_rect(bounds.x + 8, ty, bounds.w - 16, font_h),
@@ -1534,9 +1578,12 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               clear_area.x += bounds.w - 24;
               clear_area.w = 24;
 
-              int link_hover = nk_input_is_mouse_hovering_rect(&ctx->input, link_area);
-              int clear_hover = nk_input_is_mouse_hovering_rect(&ctx->input, clear_area);
-              int clicked = nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT);
+              int link_hover =
+                  nk_input_is_mouse_hovering_rect(&ctx->input, link_area);
+              int clear_hover =
+                  nk_input_is_mouse_hovering_rect(&ctx->input, clear_area);
+              int clicked =
+                  nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT);
 
               if (link_hover && clicked && val[0]) {
                 char cmd[1200];
@@ -1558,22 +1605,25 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                 nk_fill_rect(canvas, link_area, 4.0f,
                              nk_rgba(0, 0, 0, ui->dark_mode ? 20 : 10));
               if (clear_hover)
-                nk_fill_rect(canvas, clear_area, 4.0f, nk_rgba(220, 60, 60, 40));
+                nk_fill_rect(canvas, clear_area, 4.0f,
+                             nk_rgba(220, 60, 60, 40));
 
-              float font_h = ui->font_inter ? ui->font_inter->handle.height : 14.0f;
+              float font_h =
+                  ui->font_inter ? ui->font_inter->handle.height : 14.0f;
               float ty = link_area.y + (link_area.h - font_h) * 0.5f;
-              nk_draw_text(canvas,
-                           nk_rect(link_area.x + 8, ty, link_area.w - 16, font_h),
-                           val, strlen(val), &ui->font_inter->handle,
-                           nk_rgba(0, 0, 0, 0), link_blue);
+              nk_draw_text(
+                  canvas,
+                  nk_rect(link_area.x + 8, ty, link_area.w - 16, font_h), val,
+                  strlen(val), &ui->font_inter->handle, nk_rgba(0, 0, 0, 0),
+                  link_blue);
 
               if (link_hover || clear_hover) {
                 float cty = clear_area.y + (clear_area.h - font_h) * 0.5f;
-                nk_draw_text(canvas,
-                             nk_rect(clear_area.x + 7, cty, clear_area.w, font_h),
-                             "x", 1, &ui->font_inter->handle,
-                             nk_rgba(0, 0, 0, 0),
-                             clear_hover ? nk_rgb(220, 60, 60) : muted_link);
+                nk_draw_text(
+                    canvas,
+                    nk_rect(clear_area.x + 7, cty, clear_area.w, font_h), "x",
+                    1, &ui->font_inter->handle, nk_rgba(0, 0, 0, 0),
+                    clear_hover ? nk_rgb(220, 60, 60) : muted_link);
               }
             }
           } break;
@@ -2190,235 +2240,6 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         ui->table_state.show_footer_menu = 0;
       }
       nk_style_pop_style_item(ctx);
-    }
-
-    if (ui->table_state.show_col_settings &&
-        ui->table_state.active_col_idx >= 0 &&
-        ui->table_state.active_col_idx < (int)tbl->column_count) {
-      int c = ui->table_state.active_col_idx;
-      AslanColumn *col = &tbl->columns[c];
-
-      // Calculate popup height based on column type
-      float popup_h = 300.0f;
-      if (col->type == ASLAN_COL_SELECT)
-        popup_h += 80.0f + (col->option_count * 24);
-      if (col->type == ASLAN_COL_FORMULA)
-        popup_h += 170.0f;
-      if (popup_h > 600)
-        popup_h = 600;
-
-      // Smart placement
-      struct nk_rect popup_rect =
-          table_smart_popup_rect(ui, ui->table_state.menu_pos_x,
-                                 ui->table_state.menu_pos_y + 32, 240, popup_h);
-      if (ui->table_state.menu_pos_y > ui->win_height - popup_h - 40) {
-        popup_rect.y = ui->table_state.menu_pos_y - popup_h;
-      }
-
-      if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Column Settings",
-                         NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER,
-                         popup_rect)) {
-        char col_title[80];
-        snprintf(col_title, sizeof(col_title), "Column: %s", col->name);
-        if (table_popup_header(ui, ctx, col_title)) {
-          ui->table_state.show_col_settings = 0;
-          nk_popup_close(ctx);
-        }
-        // --- Column Name ---
-        nk_layout_row_dynamic(ctx, 24, 1);
-        nk_label(ctx, "Column Name:", NK_TEXT_LEFT);
-        nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD,
-                                       ui->table_state.rename_buffer, 63,
-                                       nk_filter_default);
-
-        struct nk_style_button popup_btn = ctx->style.button;
-        popup_btn.rounding = 4.0f;
-        popup_btn.padding = nk_vec2(4, 4);
-
-        if (nk_button_label_styled(ctx, &popup_btn, "Apply Name")) {
-          strncpy(tbl->columns[c].name, ui->table_state.rename_buffer, 63);
-          tbl->columns[c].name[63] = '\0';
-          ui->table_state.show_col_settings = 0;
-          nk_popup_close(ctx);
-        }
-
-        // --- Column Background Color ---
-        nk_spacing(ctx, 1);
-        nk_label(ctx, "Background Color:", NK_TEXT_LEFT);
-        {
-          uint32_t bg_presets[] = {
-              0x00000000, // None (transparent)
-              0x2383E230, // Blue
-              0xE2235330, // Red
-              0x23E25330, // Green
-              0xE2B82330, // Yellow
-              0x8E23E230, // Purple
-              0xE26A2330, // Orange
-              0xE2A0B830, // Pink
-          };
-          int preset_count = 8;
-          nk_layout_row_static(ctx, 24, 24, preset_count);
-          for (int i = 0; i < preset_count; i++) {
-            uint32_t pc = bg_presets[i];
-            struct nk_color swatch;
-            if (pc == 0)
-              swatch =
-                  ui->dark_mode ? nk_rgb(40, 40, 44) : nk_rgb(240, 240, 238);
-            else
-              swatch = nk_rgba((pc >> 24) & 0xFF, (pc >> 16) & 0xFF,
-                               (pc >> 8) & 0xFF, 180);
-
-            struct nk_rect sw_bounds = nk_widget_bounds(ctx);
-            int is_selected = (col->bg_color == pc);
-            if (nk_button_color(ctx, swatch)) {
-              col->bg_color = pc;
-            }
-            if (is_selected) {
-              struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-              nk_stroke_rect(canvas, sw_bounds, 3.0f, 2.0f, COLOR_ACCENT);
-            }
-          }
-          nk_layout_row_dynamic(ctx, 24, 1);
-        }
-
-        // --- Select Options (for SELECT columns) ---
-        if (col->type == ASLAN_COL_SELECT) {
-          nk_spacing(ctx, 1);
-          nk_label(ctx, "--- Select Options ---", NK_TEXT_CENTERED);
-
-          for (int i = 0; i < col->option_count && i < ASLAN_MAX_SELECT_OPTIONS;
-               i++) {
-            nk_layout_row_template_begin(ctx, 24.0f);
-            nk_layout_row_template_push_static(ctx, 20.0f);
-            nk_layout_row_template_push_dynamic(ctx);
-            nk_layout_row_template_push_static(ctx, 20.0f);
-            nk_layout_row_template_end(ctx);
-
-            uint32_t c_rgba = col->options[i].color;
-            struct nk_color c_color =
-                nk_rgba((c_rgba >> 24) & 0xFF, (c_rgba >> 16) & 0xFF,
-                        (c_rgba >> 8) & 0xFF, 255);
-            uint32_t presets[] = {0x2383E2FF, 0xE22353FF, 0x23E253FF,
-                                  0xE2B823FF, 0x8E23E2FF, 0xE26A23FF};
-
-            if (nk_button_color(ctx, c_color)) {
-              int preset_idx = 0;
-              for (int p = 0; p < 6; p++) {
-                if (presets[p] == c_rgba) {
-                  preset_idx = (p + 1) % 6;
-                  break;
-                }
-              }
-              aslan_table_set_option_color(tbl, c, i, presets[preset_idx]);
-            }
-
-            nk_label(ctx, col->options[i].label, NK_TEXT_LEFT);
-
-            if (nk_button_label_styled(ctx, &popup_btn, "x")) {
-              aslan_table_remove_option(tbl, c, i);
-            }
-          }
-
-          if (col->option_count == 0) {
-            nk_label(ctx, "(No options yet)", NK_TEXT_LEFT);
-          }
-
-          nk_spacing(ctx, 1);
-          nk_label(ctx, "Add Option:", NK_TEXT_LEFT);
-          nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD,
-                                         ui->table_state.option_buffer, 63,
-                                         nk_filter_default);
-
-          uint32_t presets[] = {0x2383E2FF, 0xE22353FF, 0x23E253FF,
-                                0xE2B823FF, 0x8E23E2FF, 0xE26A23FF};
-          uint32_t next_color = presets[col->option_count % 6];
-
-          if (nk_button_label_styled(ctx, &popup_btn, "+ Add Option")) {
-            if (ui->table_state.option_buffer[0] != '\0') {
-              aslan_table_add_option(tbl, c, ui->table_state.option_buffer,
-                                     next_color);
-              ui->table_state.option_buffer[0] = '\0';
-            }
-          }
-        }
-
-        // --- Formula editor (for FORMULA columns) ---
-        if (col->type == ASLAN_COL_FORMULA) {
-          nk_spacing(ctx, 1);
-          nk_label(ctx, "Formula:", NK_TEXT_LEFT);
-
-          {
-            struct nk_color hint_col = nk_rgb(120, 120, 130);
-            nk_label_colored(ctx, "[Col] * [Col] (Excel syntax)", NK_TEXT_LEFT,
-                             hint_col);
-
-            // Add Column Reference Buttons
-            nk_label(ctx, "Add Reference:", NK_TEXT_LEFT);
-            nk_layout_row_dynamic(ctx, 24, 3);
-            for (size_t ref_c = 0; ref_c < tbl->column_count; ref_c++) {
-              if ((int)ref_c == c)
-                continue; // Skip self
-              const char *ref_name = tbl->columns[ref_c].name;
-              char btn_label[80];
-              snprintf(btn_label, sizeof(btn_label), "[%s]", ref_name);
-              if (nk_button_label(ctx, btn_label)) {
-                size_t len = strlen(ui->table_state.formula_buffer);
-                size_t btn_len = strlen(btn_label);
-                if (len + btn_len <
-                    sizeof(ui->table_state.formula_buffer) - 1) {
-                  // Append to buffer
-                  strcat(ui->table_state.formula_buffer, btn_label);
-                }
-              }
-            }
-          }
-
-          nk_layout_row_dynamic(ctx, 60, 1);
-          nk_edit_string_zero_terminated(
-              ctx, NK_EDIT_BOX | NK_EDIT_MULTILINE,
-              ui->table_state.formula_buffer,
-              sizeof(ui->table_state.formula_buffer) - 1, nk_filter_default);
-          nk_layout_row_dynamic(ctx, 24, 1);
-
-          if (nk_button_label_styled(ctx, &popup_btn, "Apply Formula")) {
-            aslan_table_set_formula(tbl, c, ui->table_state.formula_buffer);
-
-            // Persist formula to AOF
-            Page *pg = doc_page_get_active(engine->doc);
-            if (pg) {
-              char cmd_buf[1200];
-              snprintf(cmd_buf, sizeof(cmd_buf),
-                       "block_table_col_formula %u %u %d \"%s\"", pg->id,
-                       block->id, c, ui->table_state.formula_buffer);
-              engine_execute_command(engine, cmd_buf);
-            }
-
-            ui->table_state.show_col_settings = 0;
-            nk_popup_close(ctx);
-          }
-
-          if (nk_button_label_styled(ctx, &popup_btn, "? Formula Help")) {
-            ui->table_state.show_formula_help = 1;
-          }
-        }
-
-        nk_spacing(ctx, 1);
-        struct nk_style_button del_btn = popup_btn;
-        del_btn.normal = nk_style_item_color(nk_rgba(200, 50, 50, 20));
-        del_btn.hover = nk_style_item_color(nk_rgba(200, 50, 50, 40));
-        del_btn.active = nk_style_item_color(nk_rgba(200, 50, 50, 60));
-        del_btn.text_normal = nk_rgb(200, 50, 50);
-        del_btn.text_hover = nk_rgb(255, 100, 100);
-
-        if (nk_button_label_styled(ctx, &del_btn, "Delete Column")) {
-          aslan_table_remove_column(tbl, c);
-          ui->table_state.show_col_settings = 0;
-          nk_popup_close(ctx);
-        }
-        nk_popup_end(ctx);
-      } else {
-        ui->table_state.show_col_settings = 0;
-      }
     }
 
     // =========================================================================
