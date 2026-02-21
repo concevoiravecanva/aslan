@@ -152,13 +152,13 @@ void ui_apply_theme(UIHost *ui) {
     s->window.border_color = border;
     s->window.border = 1.0f;
     s->window.rounding = 8.0f;
-    s->window.spacing = nk_vec2(4, 4);
-    s->window.padding = nk_vec2(8, 8);
+    s->window.spacing = nk_vec2(4, 2);
+    s->window.padding = nk_vec2(8, 4);
     s->window.group_border_color = nk_rgba(60, 60, 68, 80);
     s->window.group_border = 0.0f;
     s->window.popup_border = 1.0f;
     s->window.popup_border_color = border;
-    s->window.popup_padding = nk_vec2(12, 12);
+    s->window.popup_padding = nk_vec2(8, 6);
 
     s->button.normal = nk_style_item_color(button);
     s->button.hover = nk_style_item_color(button_hover);
@@ -198,13 +198,13 @@ void ui_apply_theme(UIHost *ui) {
     s->window.border_color = border;
     s->window.border = 1.0f;
     s->window.rounding = 8.0f;
-    s->window.spacing = nk_vec2(4, 4);
-    s->window.padding = nk_vec2(8, 8);
+    s->window.spacing = nk_vec2(4, 2);
+    s->window.padding = nk_vec2(8, 4);
     s->window.group_border_color = nk_rgba(230, 230, 233, 100);
     s->window.group_border = 0.0f;
     s->window.popup_border = 1.0f;
     s->window.popup_border_color = border;
-    s->window.popup_padding = nk_vec2(12, 12);
+    s->window.popup_padding = nk_vec2(8, 6);
 
     s->button.normal = nk_style_item_color(button);
     s->button.hover = nk_style_item_color(button_hover);

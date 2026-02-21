@@ -730,3 +730,13 @@ block_table_col_width 1 104 2 100
 block_table_col_width 1 104 2 100
 block_table_col_width 1 104 1 141
 -- Session started --
+-- Session started --
+block_table_cell 1 104 3 2 "1"
+block_table_cell 1 104 5 2 "1"
+-- Session started --
+block_table_cell 1 104 1 2 "1"
+-- Session started --
+-- Session started --
+block_table_cell 1 104 2 2 "1"
+block_table_cell 1 104 3 2 "0"
+block_table_cell 1 104 1 2 "0"

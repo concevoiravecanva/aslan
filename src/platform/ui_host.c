@@ -2362,6 +2362,9 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
 
       swimlane_bounds[vi] = nk_widget_bounds(ctx);
 
+      float saved_sy = ctx->style.window.spacing.y;
+      ctx->style.window.spacing.y = 2.0f; // Minimal gap between cards
+
       if (nk_group_begin(ctx, grp_name, NK_WINDOW_BORDER)) {
         if (is_drop_target) {
           struct nk_command_buffer *dcv = nk_window_get_canvas(ctx);
@@ -2373,14 +2376,10 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
         nk_layout_row_dynamic(ctx, 3, 1);
         struct nk_rect accent_rect = nk_widget_bounds(ctx);
         nk_fill_rect(nk_window_get_canvas(ctx), accent_rect, 0, header_col);
-        nk_spacing(ctx, 1);
 
         // Column title
         nk_layout_row_dynamic(ctx, 22, 1);
         nk_label(ctx, sel_col->options[opt].label, NK_TEXT_CENTERED);
-
-        nk_layout_row_dynamic(ctx, 4, 1);
-        nk_spacing(ctx, 1);
 
         // Cards for rows matching this option
         for (size_t r = 0; r < row_count; r++) {
@@ -2451,11 +2450,10 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
               ui->kanban_drag.drop_target_opt = -1;
             }
           }
-
-          nk_spacing(ctx, 1);
         }
         nk_group_end(ctx);
       }
+      ctx->style.window.spacing.y = saved_sy;
       ctx->style.window.fixed_background = saved_bg;
     }
   } else {
@@ -3273,7 +3271,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
       n_items += 2; // table: import/export CSV
 
     float popup_w = 210.0f;
-    float popup_h = (float)n_items * 38.0f + 18.0f;
+    float popup_h = (float)n_items * 28.0f + 12.0f;
     // Cap height; items beyond cap remain accessible via scrollbar
     if (popup_h > 320.0f)
       popup_h = 320.0f;
@@ -3296,6 +3294,9 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
                          NK_WINDOW_SCROLL_AUTO_HIDE,
                          nk_rect(px, py, popup_w, popup_h))) {
         nk_popup_open = 1;
+
+        float saved_spacing_y = ctx->style.window.spacing.y;
+        ctx->style.window.spacing.y = 0;
 
         // Should we close this frame?
         // Case A: button toggle already set show_popup=0 on this same frame
@@ -3320,7 +3321,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
           ui->view_settings.show_popup = 0;
         } else {
           // ---- Dark / Light mode (all views) ----
-          nk_layout_row_dynamic(ctx, 32, 1);
+          nk_layout_row_dynamic(ctx, 28, 1);
           if (nk_button_label(ctx,
                               ui->dark_mode ? "Light mode" : "Dark mode")) {
             ui->dark_mode = !ui->dark_mode;
@@ -3331,7 +3332,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
           if (av == 0) {
             Block *t_block = page_find_first_block_of_type(page, BLOCK_TABLE);
             if (t_block && t_block->data.table.columnar) {
-              nk_layout_row_dynamic(ctx, 32, 1);
+              nk_layout_row_dynamic(ctx, 28, 1);
               if (nk_button_label(ctx, "Import CSV")) {
                 char filename[1024];
                 if (open_csv_file_dialog(filename, sizeof(filename))) {
@@ -3343,7 +3344,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
                 nk_popup_close(ctx);
                 ui->view_settings.show_popup = 0;
               }
-              nk_layout_row_dynamic(ctx, 32, 1);
+              nk_layout_row_dynamic(ctx, 28, 1);
               if (nk_button_label(ctx, "Export CSV")) {
                 char filename[1024];
                 char default_name[256];
@@ -3363,7 +3364,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
 
           // ---- Calendar: week / month view toggle ----
           if (av == 3) {
-            nk_layout_row_dynamic(ctx, 32, 1);
+            nk_layout_row_dynamic(ctx, 28, 1);
             if (nk_button_label(ctx, ui->calendar_state.show_week
                                          ? "Month view"
                                          : "Week view")) {
@@ -3385,7 +3386,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
               int hidden = ui->kanban_state.col_hidden[i];
               int can_show = !hidden || (kn_vis < 6);
 
-              nk_layout_row(ctx, NK_STATIC, 32, 2, cws);
+              nk_layout_row(ctx, NK_STATIC, 28, 2, cws);
 
               // Eye toggle icon
               if (ui->font_icons)
@@ -3440,6 +3441,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
 
         } // end else (do_close)
 
+        ctx->style.window.spacing.y = saved_spacing_y;
         nk_popup_end(ctx);
       } else {
         // nk_popup_begin returned false: Nuklear has cleaned up the popup
