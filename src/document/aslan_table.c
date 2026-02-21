@@ -92,6 +92,9 @@ static size_t column_element_size(AslanColumnType type) {
     return sizeof(uint64_t);
   case ASLAN_COL_FORMULA:
     return sizeof(double); // Cached result (C parser)
+  case ASLAN_COL_FILE:
+  case ASLAN_COL_LINK:
+    return sizeof(char *); // Heap-allocated string
   default:
     return sizeof(double);
   }
@@ -153,7 +156,8 @@ void aslan_table_destroy(AslanTable *table) {
     AslanColumn *col = &table->columns[c];
 
     // Free string data for TEXT columns
-    if (col->type == ASLAN_COL_TEXT) {
+    if (col->type == ASLAN_COL_TEXT || col->type == ASLAN_COL_FILE ||
+        col->type == ASLAN_COL_LINK) {
       char **strings = (char **)col->data;
       if (strings) {
         for (size_t r = 0; r < col->count; r++) {
@@ -180,7 +184,8 @@ void aslan_table_clear(AslanTable *table) {
 
   for (size_t c = 0; c < table->column_count; c++) {
     AslanColumn *col = &table->columns[c];
-    if (col->type == ASLAN_COL_TEXT) {
+    if (col->type == ASLAN_COL_TEXT || col->type == ASLAN_COL_FILE ||
+        col->type == ASLAN_COL_LINK) {
       char **strings = (char **)col->data;
       if (strings) {
         for (size_t r = 0; r < col->count; r++) {
@@ -266,7 +271,8 @@ bool aslan_table_remove_column(AslanTable *table, int col_idx) {
 
   AslanColumn *col = &table->columns[col_idx];
 
-  if (col->type == ASLAN_COL_TEXT) {
+  if (col->type == ASLAN_COL_TEXT || col->type == ASLAN_COL_FILE ||
+      col->type == ASLAN_COL_LINK) {
     char **strings = (char **)col->data;
     if (strings) {
       for (size_t r = 0; r < col->count; r++) {
@@ -307,6 +313,38 @@ bool aslan_table_swap_columns(AslanTable *table, int col_a, int col_b) {
     table->sort_column = col_a;
   }
 
+  return true;
+}
+
+bool aslan_table_move_column(AslanTable *table, int from_idx, int to_idx) {
+  if (!table || from_idx < 0 || to_idx < 0 ||
+      from_idx >= (int)table->column_count ||
+      to_idx >= (int)table->column_count || from_idx == to_idx)
+    return false;
+
+  AslanColumn tmp = table->columns[from_idx];
+  if (from_idx < to_idx) {
+    memmove(&table->columns[from_idx], &table->columns[from_idx + 1],
+            (to_idx - from_idx) * sizeof(AslanColumn));
+  } else {
+    memmove(&table->columns[to_idx + 1], &table->columns[to_idx],
+            (from_idx - to_idx) * sizeof(AslanColumn));
+  }
+  table->columns[to_idx] = tmp;
+
+  if (table->sort_column == from_idx) {
+    table->sort_column = to_idx;
+  } else {
+    if (from_idx < to_idx && table->sort_column > from_idx &&
+        table->sort_column <= to_idx) {
+      table->sort_column--;
+    } else if (from_idx > to_idx && table->sort_column >= to_idx &&
+               table->sort_column < from_idx) {
+      table->sort_column++;
+    }
+  }
+
+  table->view_dirty = true;
   return true;
 }
 
@@ -452,6 +490,67 @@ uint64_t aslan_table_row_id_at(const AslanTable *table, int index) {
   return table->row_ids[index];
 }
 
+bool aslan_table_move_row(AslanTable *table, int from_idx, int to_idx) {
+  if (!table || from_idx < 0 || to_idx < 0 ||
+      from_idx >= (int)table->row_count || to_idx >= (int)table->row_count ||
+      from_idx == to_idx)
+    return false;
+
+  uint64_t from_id = table->row_ids[from_idx];
+  bool from_active = bitmask_get(table->active_mask, from_idx);
+
+  if (from_idx < to_idx) {
+    memmove(&table->row_ids[from_idx], &table->row_ids[from_idx + 1],
+            (to_idx - from_idx) * sizeof(uint64_t));
+    for (int i = from_idx; i < to_idx; i++) {
+      if (bitmask_get(table->active_mask, i + 1))
+        bitmask_set(table->active_mask, i);
+      else
+        bitmask_clear(table->active_mask, i);
+    }
+  } else {
+    memmove(&table->row_ids[to_idx + 1], &table->row_ids[to_idx],
+            (from_idx - to_idx) * sizeof(uint64_t));
+    for (int i = from_idx; i > to_idx; i--) {
+      if (bitmask_get(table->active_mask, i - 1))
+        bitmask_set(table->active_mask, i);
+      else
+        bitmask_clear(table->active_mask, i);
+    }
+  }
+
+  table->row_ids[to_idx] = from_id;
+  if (from_active)
+    bitmask_set(table->active_mask, to_idx);
+  else
+    bitmask_clear(table->active_mask, to_idx);
+
+  for (size_t c = 0; c < table->column_count; c++) {
+    AslanColumn *col = &table->columns[c];
+    if (col->type == ASLAN_COL_FORMULA)
+      continue;
+    size_t elem = column_element_size(col->type);
+    if (elem > 256)
+      continue;
+
+    char temp[256];
+    memcpy(temp, (char *)col->data + from_idx * elem, elem);
+
+    if (from_idx < to_idx) {
+      memmove((char *)col->data + from_idx * elem,
+              (char *)col->data + (from_idx + 1) * elem,
+              (to_idx - from_idx) * elem);
+    } else {
+      memmove((char *)col->data + (to_idx + 1) * elem,
+              (char *)col->data + to_idx * elem, (from_idx - to_idx) * elem);
+    }
+    memcpy((char *)col->data + to_idx * elem, temp, elem);
+  }
+
+  table->view_dirty = true;
+  return true;
+}
+
 bool aslan_table_delete_row(AslanTable *table, uint64_t row_id) {
   if (!table)
     return false;
@@ -507,7 +606,8 @@ uint64_t aslan_table_duplicate_row(AslanTable *table, uint64_t source_row_id) {
     AslanColumn *col = &table->columns[c];
     if (col->type == ASLAN_COL_FORMULA)
       continue; // Computed, skip
-    if (col->type == ASLAN_COL_TEXT) {
+    if (col->type == ASLAN_COL_TEXT || col->type == ASLAN_COL_FILE ||
+        col->type == ASLAN_COL_LINK) {
       char **strings = (char **)col->data;
       if (strings[src_idx] && strings[src_idx][0]) {
         free(strings[dst_idx]);
@@ -546,7 +646,8 @@ bool aslan_table_set_text(AslanTable *table, int col_idx, uint64_t row_id,
     return false;
 
   AslanColumn *col = &table->columns[col_idx];
-  if (col->type != ASLAN_COL_TEXT)
+  if (col->type != ASLAN_COL_TEXT && col->type != ASLAN_COL_FILE &&
+      col->type != ASLAN_COL_LINK)
     return false;
 
   char **strings = (char **)col->data;
@@ -705,6 +806,8 @@ bool aslan_table_set_cell(AslanTable *table, int col_idx, uint64_t row_id,
 
   switch (col->type) {
   case ASLAN_COL_TEXT:
+  case ASLAN_COL_FILE:
+  case ASLAN_COL_LINK:
     return aslan_table_set_text(table, col_idx, row_id, value_str);
   case ASLAN_COL_NUMBER: {
     double val = value_str ? strtod(value_str, NULL) : 0.0;
@@ -748,7 +851,8 @@ const char *aslan_table_get_text(const AslanTable *table, int col_idx,
     return NULL;
 
   const AslanColumn *col = &table->columns[col_idx];
-  if (col->type != ASLAN_COL_TEXT)
+  if (col->type != ASLAN_COL_TEXT && col->type != ASLAN_COL_FILE &&
+      col->type != ASLAN_COL_LINK)
     return NULL;
 
   const char **strings = (const char **)col->data;
@@ -876,7 +980,9 @@ const char *aslan_table_get_cell_display(const AslanTable *table, int col_idx,
   const AslanColumn *col = &table->columns[col_idx];
 
   switch (col->type) {
-  case ASLAN_COL_TEXT: {
+  case ASLAN_COL_TEXT:
+  case ASLAN_COL_FILE:
+  case ASLAN_COL_LINK: {
     const char *str = ((char **)col->data)[row_idx];
     snprintf(buf, buf_size, "%s", str ? str : "");
     break;
@@ -1396,6 +1502,8 @@ void aslan_table_sort(AslanTable *table, int col_idx, bool ascending) {
             compare_wrapper_number);
     break;
   case ASLAN_COL_TEXT:
+  case ASLAN_COL_FILE:
+  case ASLAN_COL_LINK:
     qsort_r(table->view_index, view_count, sizeof(size_t), &ctx,
             compare_wrapper_text);
     break;
@@ -1423,6 +1531,8 @@ void aslan_table_sort(AslanTable *table, int col_idx, bool ascending) {
             &ctx);
     break;
   case ASLAN_COL_TEXT:
+  case ASLAN_COL_FILE:
+  case ASLAN_COL_LINK:
     qsort_r(table->view_index, view_count, sizeof(size_t), compare_text, &ctx);
     break;
   case ASLAN_COL_DATE:

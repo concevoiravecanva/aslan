@@ -4,9 +4,6 @@
 #include "../core/engine.h"
 #include "recents.h"
 #include <SDL.h>
-#include <lauxlib.h>
-#include <lua.h>
-#include <lualib.h>
 #include <string.h>
 
 // =============================================================================
@@ -236,7 +233,6 @@ typedef struct UIHost {
   // Nuklear context
   struct nk_context *ctx;
   SDL_Renderer *renderer;
-  lua_State *L;
 
   // Thumbnail Cache for Images/Videos
   struct nk_font_atlas *atlas;
@@ -434,6 +430,14 @@ typedef struct UIHost {
     int active_col_idx;
     int active_row_idx;  // Keyboard navigation
     int is_editing_cell; // Prevent nav while typing
+
+    // Multi-cell selection
+    int is_selecting;
+    int sel_start_col_idx;
+    int sel_start_row_idx;
+    int sel_end_col_idx;
+    int sel_end_row_idx;
+
     float menu_pos_x, menu_pos_y;
     char rename_buffer[64];
     char option_buffer[64];         // Buffer for adding new Select options
@@ -453,6 +457,9 @@ typedef struct UIHost {
     int dragging_col;               // Column being dragged (-1 = none)
     int drop_target_col;            // Column drop target (-1 = none)
     float drag_col_start_x;         // Mouse X at drag start
+    int dragging_row;               // Row being dragged (-1 = none)
+    int drop_target_row;            // Row drop target (-1 = none)
+    float drag_row_start_y;         // Mouse Y at drag start
     int active_color_picker_option; // Option index for color picker (-1 = none)
     // Date picker popup state
     int show_date_picker;     // 1 = date picker popup is open
@@ -462,6 +469,14 @@ typedef struct UIHost {
     int date_picker_col;      // Column index for the date being edited
     float date_picker_x;      // Popup X position
     float date_picker_y;      // Popup Y position
+    // Link editor popup state
+    int show_link_popup;         // 1 = link edit popup open
+    uint64_t link_popup_row;     // Row being edited
+    int link_popup_col;          // Column being edited
+    float link_popup_x;          // Popup X
+    float link_popup_y;          // Popup Y
+    char link_label_buffer[256]; // Editable label
+    char link_url_buffer[1024];  // Editable URL
   } table_state;
 
   // Sidebar state: 0=Properties/Layers, 1=Shape Selection
@@ -482,7 +497,7 @@ typedef struct UIHost {
 // UI Lifecycle
 // -----------------------------------------------------------------------------
 
-UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L);
+UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer);
 void ui_shutdown(UIHost *ui);
 void ui_request_redraw(UIHost *ui); // Mark UI as needing redraw
 
@@ -619,6 +634,8 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_COL_DATE "\xEE\xAC\xA7"     // \ueb27
 #define ICON_COL_RELATION "\xEE\xB0\xB5" // ri-links-line
 #define ICON_COL_FORMULA "\xEF\x93\x9C"  // \uf4dc
+#define ICON_COL_FILE "\xEF\x84\x95"     // ri-file-line
+#define ICON_COL_LINK "\xEF\x81\xA1"     // ri-link
 
 // Sort icons
 #define ICON_SORT_ASC "\xEE\xA9\xB8"  // ri-arrow-up-s-line

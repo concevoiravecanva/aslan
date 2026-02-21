@@ -38,6 +38,8 @@ typedef enum {
   ASLAN_COL_DATE,     // int64_t - Unix timestamp (for timeline linking)
   ASLAN_COL_RELATION, // uint64_t - Row ID reference (same or other table)
   ASLAN_COL_FORMULA,  // double - C shunting-yard parser (simple math)
+  ASLAN_COL_FILE,     // char* - Path to a local file
+  ASLAN_COL_LINK,     // char* - URL/Link (Label|URL)
   ASLAN_COL_TYPE_COUNT
 } AslanColumnType;
 
@@ -180,6 +182,7 @@ int aslan_table_add_column(AslanTable *table, const char *name,
 // Remove a column by index
 bool aslan_table_remove_column(AslanTable *table, int col_idx);
 bool aslan_table_swap_columns(AslanTable *table, int col_a, int col_b);
+bool aslan_table_move_column(AslanTable *table, int from_idx, int to_idx);
 
 // Find column index by name (returns -1 if not found)
 int aslan_table_find_column(const AslanTable *table, const char *name);
@@ -212,6 +215,9 @@ bool aslan_table_row_active(const AslanTable *table, uint64_t row_id);
 
 // Get internal index from row_id (returns -1 if not found)
 int aslan_table_row_index(const AslanTable *table, uint64_t row_id);
+
+// Move a row from one index to another
+bool aslan_table_move_row(AslanTable *table, int from_idx, int to_idx);
 
 // Get row_id from internal index
 uint64_t aslan_table_row_id_at(const AslanTable *table, int index);

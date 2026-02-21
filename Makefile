@@ -1,59 +1,47 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c99 -I./src -I./include
 
-# Paths for Lua (Adjusted for Homebrew)
-LUA_INC = -I/opt/homebrew/include/lua5.4
-LUA_LIB = -L/opt/homebrew/lib -llua
+# Paths for Lua (macOS Homebrew)
+LUA_INC = 
+LUA_LIB = 
 
 # Paths for SDL2 (macOS Homebrew)
 SDL_INC = -I/opt/homebrew/include/SDL2
 SDL_LIB = -L/opt/homebrew/lib -lSDL2
-FRAMEWORKS = -framework Cocoa -framework CoreGraphics -framework ImageIO
 
-CORE_SRC = src/vendor/tinyexpr.c \
-           src/document/document.c \
-           src/document/spatial_index.c \
-           src/document/aslan_table.c \
-           src/scripting/lua_host.c \
-           src/scripting/lua_nk.c \
-           src/platform/platform.c \
-           src/platform/renderer.c \
-           src/platform/ui_table.c \
-           src/platform/ui_canvas.c \
-           src/platform/ui_design.c \
-           src/platform/ui_chart.c \
-           src/platform/ui_core.c \
-           src/platform/ui_host.c \
-           src/platform/recents.c \
-           src/platform/image_loader.c \
-           src/core/engine.c
+# Core, Document & Platform sources
+CORE_OBJS = src/core/engine.o
+DOC_OBJS = src/document/document.o \
+           src/document/spatial_index.o \
+           src/document/aslan_table.o
+PLATFORM_OBJS = src/platform/platform.o \
+           src/platform/renderer.o \
+           src/platform/ui_table.o \
+           src/platform/ui_canvas.o \
+           src/platform/ui_design.o \
+           src/platform/ui_chart.o \
+           src/platform/ui_core.o \
+           src/platform/ui_host.o \
+           src/platform/recents.o \
+           src/platform/image_loader.o \
+           src/platform/mac_image.o
 
-# macOS-specific Objective-C sources (CoreGraphics image loading)
-OBJC_SRC = src/platform/mac_image.m
-
-
-SRC = src/main.c \
-      $(CORE_SRC)
-
-OBJ = $(SRC:.c=.o) $(OBJC_SRC:.m=.o)
-CORE_OBJ = $(CORE_SRC:.c=.o) $(OBJC_SRC:.m=.o)
+OBJS = src/main.o src/vendor/tinyexpr.o $(CORE_OBJS) $(DOC_OBJS) $(PLATFORM_OBJS)
 
 TARGET = aslan
-TEST_TARGET = aslan_tests
-TEST_SRC = src/tests/engine_smoke_test.c
-TEST_OBJ = $(TEST_SRC:.c=.o)
+LDFLAGS = -framework Cocoa -framework CoreGraphics -framework ImageIO -lm
 
 all: $(TARGET)
 
-$(TARGET): $(OBJ)
-	$(CC) $(OBJ) -o $(TARGET) $(LUA_LIB) $(SDL_LIB) $(FRAMEWORKS) -lm
+$(TARGET): $(OBJS)
+	$(CC) $(OBJS) -o $(TARGET) $(LDFLAGS) $(SDL_LIB)
 
 no_lua: CFLAGS += -DNO_LUA
-no_lua: $(OBJ)
-	$(CC) $(OBJ) -o $(TARGET) $(SDL_LIB) $(FRAMEWORKS)
+no_lua: $(OBJS)
+	$(CC) $(OBJS) -o $(TARGET) $(SDL_LIB) $(LDFLAGS)
 
-$(TEST_TARGET): $(CORE_OBJ) $(TEST_OBJ)
-	$(CC) $(CORE_OBJ) $(TEST_OBJ) -o $(TEST_TARGET) $(LUA_LIB) $(SDL_LIB) $(FRAMEWORKS) -lm
+$(TEST_TARGET): $(CORE_OBJS) $(TEST_OBJ)
+	$(CC) $(CORE_OBJS) $(TEST_OBJ) -o $(TEST_TARGET) $(SDL_LIB) $(LDFLAGS)
 
 test: $(TEST_TARGET)
 	./$(TEST_TARGET)
@@ -65,7 +53,7 @@ test: $(TEST_TARGET)
 	$(CC) $(CFLAGS) $(LUA_INC) $(SDL_INC) -c $< -o $@
 
 clean:
-	rm -f $(OBJ) $(CORE_OBJ) $(TEST_OBJ) $(TARGET) $(TEST_TARGET)
+	rm -f $(OBJS) $(CORE_OBJS) $(TEST_OBJ) $(TARGET) $(TEST_TARGET)
 
 run: $(TARGET)
 	./$(TARGET)

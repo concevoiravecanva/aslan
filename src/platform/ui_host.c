@@ -7,9 +7,6 @@
 #include "ui_host.h"
 #include "../document/aslan_table.h"
 
-#include "../scripting/lua_host.h"
-// mac_image.h removed
-
 #include "ui_canvas.h"
 #include "ui_core.h"
 #include "ui_design.h"
@@ -449,12 +446,11 @@ static struct nk_color COLOR_HIGHLIGHT_GREEN = {100, 220, 140, 60};
 // UI Initialization
 // -----------------------------------------------------------------------------
 
-UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer, lua_State *L) {
+UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer) {
   UIHost *ui = (UIHost *)calloc(1, sizeof(UIHost));
   if (!ui)
     return NULL;
 
-  ui->L = L;
   ui->screen = 1; // Start in Editor (Skip Dashboard)
   ui->font_size_px = 16.0f;
   ui->sidebar_mode = 0; // Standard sidebar (Properties/Layers)
@@ -1112,10 +1108,142 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
           ui->selected_node->y = 0;
         if (ui->selected_node->x + ui->selected_node->width > dd->width)
           ui->selected_node->x = dd->width - ui->selected_node->width;
-        if (ui->selected_node->y + ui->selected_node->height > dd->height)
-          ui->selected_node->y = dd->height - ui->selected_node->height;
       }
       return;
+    }
+
+    // --- Table Copy/Paste logic (Cmd+C / Cmd+V) ---
+    if (cmd_held && (key == SDLK_c || key == SDLK_v) &&
+        ui->table_state.active_block_id != 0) {
+      // Find the active table block
+      Block *tbl_block = NULL;
+      if (active_block && active_block->id == ui->table_state.active_block_id) {
+        tbl_block = active_block;
+      }
+      // If we couldn't find the table block directly, check the active ones
+      // again
+      if (!tbl_block) {
+        Page *active_page = doc_page_get_active(ui->engine->doc);
+        if (active_page) {
+          Block *curr = active_page->first_block;
+          while (curr) {
+            if (curr->id == ui->table_state.active_block_id) {
+              tbl_block = curr;
+              break;
+            }
+            curr = curr->next;
+          }
+        }
+      }
+
+      if (tbl_block && tbl_block->type == BLOCK_TABLE &&
+          tbl_block->data.table.columnar) {
+        AslanTable *tbl = tbl_block->data.table.columnar;
+
+        int r1 = ui->table_state.sel_start_row_idx;
+        int r2 = ui->table_state.sel_end_row_idx;
+        int min_r = r1 < r2 ? r1 : r2;
+        int max_r = r1 > r2 ? r1 : r2;
+
+        int c1 = ui->table_state.sel_start_col_idx;
+        int c2 = ui->table_state.sel_end_col_idx;
+        int min_c = c1 < c2 ? c1 : c2;
+        int max_c = c1 > c2 ? c1 : c2;
+
+        if (key == SDLK_c) {
+          // --- COPY ---
+          // Serialize selection region to TSV
+          size_t buf_cap = 4096;
+          char *tsv_buf = (char *)malloc(buf_cap);
+          if (tsv_buf) {
+            tsv_buf[0] = '\0';
+            size_t buf_len = 0;
+            for (int r = min_r; r <= max_r; r++) {
+              uint64_t row_id = aslan_table_row_id_at(tbl, r);
+              for (int c = min_c; c <= max_c; c++) {
+                char cell_str[512] = {0};
+                aslan_table_get_cell_display(tbl, c, row_id, cell_str,
+                                             sizeof(cell_str));
+
+                size_t slen = strlen(cell_str);
+                if (buf_len + slen + 2 > buf_cap) {
+                  buf_cap *= 2;
+                  tsv_buf = (char *)realloc(tsv_buf, buf_cap);
+                }
+                strcat(tsv_buf, cell_str);
+                buf_len += slen;
+                if (c < max_c) {
+                  strcat(tsv_buf, "\t");
+                  buf_len++;
+                }
+              }
+              if (r < max_r) {
+                strcat(tsv_buf, "\n");
+                buf_len++;
+              }
+            }
+            SDL_SetClipboardText(tsv_buf);
+            free(tsv_buf);
+            ASLAN_DEBUG("Copied table cells to clipboard (%d rows, %d cols)",
+                        (max_r - min_r + 1), (max_c - min_c + 1));
+          }
+        } else if (key == SDLK_v) {
+          // --- PASTE ---
+          if (SDL_HasClipboardText()) {
+            char *text = SDL_GetClipboardText();
+            if (text) {
+              // Paste starts at the active/selected cell (min_c, min_r)
+              int start_r =
+                  (min_r >= 0) ? min_r : ui->table_state.active_row_idx;
+              int start_c =
+                  (min_c >= 0) ? min_c : ui->table_state.active_col_idx;
+
+              if (start_r >= 0 && start_c >= 0) {
+                int cur_r = start_r;
+                char *line_saveptr = NULL;
+                char *cell_saveptr = NULL;
+
+                // strtok modifies original string, so copy it
+                char *text_copy = strdup(text);
+                char *line = strtok_r(text_copy, "\n\r", &line_saveptr);
+
+                while (line) {
+                  uint64_t row_id = aslan_table_row_id_at(tbl, cur_r);
+                  // If row doesn't exist, we could add new rows, but for
+                  // now just drop
+                  if (row_id == 0) {
+                    // Note: We could use aslan_table_add_row(tbl)
+                    // dynamically here if we want to expand the table on
+                    // paste
+                    break;
+                  }
+
+                  int cur_c = start_c;
+                  char *cell_val = strtok_r(line, "\t", &cell_saveptr);
+                  while (cell_val) {
+                    if (cur_c < (int)tbl->column_count) {
+                      // Some types might not like raw strings, but our cell
+                      // setter handles most
+                      aslan_table_set_cell(tbl, cur_c, row_id, cell_val);
+                    }
+                    cur_c++;
+                    cell_val = strtok_r(NULL, "\t", &cell_saveptr);
+                  }
+
+                  cur_r++;
+                  line = strtok_r(NULL, "\n\r", &line_saveptr);
+                }
+                free(text_copy);
+                aslan_table_eval_formulas(tbl);
+                ui_request_redraw(ui);
+                ASLAN_DEBUG("Pasted text into table cells");
+              }
+              SDL_free(text);
+            }
+          }
+        }
+      }
+      return; // Handled
     }
 
     // --- Cmd+D: duplicate selected node ---
@@ -3141,6 +3269,8 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
       n_items += 1; // calendar: week view
     if (av == 2 && ks_opt_count > 0)
       n_items += ks_opt_count; // kanban cols
+    if (av == 0)
+      n_items += 2; // table: import/export CSV
 
     float popup_w = 210.0f;
     float popup_h = (float)n_items * 38.0f + 18.0f;
@@ -3195,6 +3325,40 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
                               ui->dark_mode ? "Light mode" : "Dark mode")) {
             ui->dark_mode = !ui->dark_mode;
             ui_apply_theme(ui);
+          }
+
+          // ---- Table: CSV Import / Export ----
+          if (av == 0) {
+            Block *t_block = page_find_first_block_of_type(page, BLOCK_TABLE);
+            if (t_block && t_block->data.table.columnar) {
+              nk_layout_row_dynamic(ctx, 32, 1);
+              if (nk_button_label(ctx, "Import CSV")) {
+                char filename[1024];
+                if (open_csv_file_dialog(filename, sizeof(filename))) {
+                  aslan_table_import_csv(t_block->data.table.columnar,
+                                         filename);
+                  ASLAN_DEBUG("Imported CSV from: %s", filename);
+                  ui_request_redraw(ui);
+                }
+                nk_popup_close(ctx);
+                ui->view_settings.show_popup = 0;
+              }
+              nk_layout_row_dynamic(ctx, 32, 1);
+              if (nk_button_label(ctx, "Export CSV")) {
+                char filename[1024];
+                char default_name[256];
+                snprintf(default_name, sizeof(default_name), "%s.csv",
+                         t_block->data.table.columnar->name);
+                if (save_csv_file_dialog(filename, sizeof(filename),
+                                         default_name)) {
+                  aslan_table_export_csv(t_block->data.table.columnar,
+                                         filename);
+                  ASLAN_DEBUG("Exported CSV to: %s", filename);
+                }
+                nk_popup_close(ctx);
+                ui->view_settings.show_popup = 0;
+              }
+            }
           }
 
           // ---- Calendar: week / month view toggle ----

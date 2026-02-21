@@ -27,6 +27,10 @@ const char *table_col_type_icon(AslanColumnType type) {
     return ICON_COL_RELATION;
   case ASLAN_COL_FORMULA:
     return ICON_COL_FORMULA;
+  case ASLAN_COL_FILE:
+    return ICON_COL_FILE;
+  case ASLAN_COL_LINK:
+    return ICON_COL_LINK;
   default:
     return ICON_COL_TEXT;
   }
@@ -49,6 +53,10 @@ const char *table_col_type_name(AslanColumnType type) {
     return "Relation";
   case ASLAN_COL_FORMULA:
     return "Formula";
+  case ASLAN_COL_FILE:
+    return "File";
+  case ASLAN_COL_LINK:
+    return "Link";
   default:
     return "Text";
   }
@@ -895,9 +903,19 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           // Mouse released — perform drop
           if (is_dragging_active && ui->table_state.drop_target_col >= 0 &&
               ui->table_state.drop_target_col != ui->table_state.dragging_col) {
-            aslan_table_swap_columns(tbl, ui->table_state.dragging_col,
-                                     ui->table_state.drop_target_col);
+            aslan_table_move_column(tbl, ui->table_state.dragging_col,
+                                    ui->table_state.drop_target_col);
             ui->table_state.active_col_idx = ui->table_state.drop_target_col;
+
+            // Generate persistence command
+            Page *pg = doc_page_get_active(engine->doc);
+            if (pg) {
+              char cmd[128];
+              snprintf(cmd, sizeof(cmd), "block_table_move_col %u %u %d %d",
+                       pg->id, block->id, ui->table_state.dragging_col,
+                       ui->table_state.drop_target_col);
+              engine_execute_command(engine, cmd);
+            }
           }
           ui->table_state.dragging_col = -1;
           ui->table_state.drop_target_col = -1;
@@ -906,21 +924,64 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           // Track which column mouse is over
           ui->table_state.drop_target_col = -1;
           // Recalculate column positions for drop target
-          float acc_x = 0;
+
+          // Where does the column header start?
+          // We need to measure from the beginning of the headers array
+          // Since we are after row_num_w...
+          // But wait, the exact X coordinate can be computed if we know the
+          // start. Let X start from the right edge of the row_num header. We
+          // can just use the hdr_bounds from before.
+
+          float acc_x = 0; // Relative to columns
           for (int dc = 0; dc < (int)tbl->column_count; dc++) {
             float cw = col_widths[dc];
-            float cx = acc_x;
-            if (mx >= cx && mx < cx + cw) {
-              ui->table_state.drop_target_col = dc;
-              break;
+            if (dc == ui->table_state.dragging_col) {
+              // The dragged column is still physically there during interaction
+              // we can just treat the mouse hovering around these bins
             }
+            float cx = acc_x; // Relative inside table columns
+            // Actually, we need to know the global X of the table start
+            // It's not easily accessible here without saving it earlier.
+            // Let's just track the drop column based on relative movement
             acc_x += cw;
           }
 
+          // Better logic: calculate global start X of columns by subtracting
+          // total width of the last column from its right bound? We know
+          // `hdr_bounds` is the `add col` button bounds. So the `add col`
+          // button's X is the end of the columns. But we can just sum up the
+          // widths backwards.
+          float cols_total_w = 0;
+          for (int dc = 0; dc < (int)tbl->column_count; dc++)
+            cols_total_w += col_widths[dc];
+          float cols_start_x = hdr_bounds.x - cols_total_w;
+
+          float current_x = cols_start_x;
+          for (int dc = 0; dc < (int)tbl->column_count; dc++) {
+            float cw = col_widths[dc];
+            if (mx >= current_x && mx < current_x + cw) {
+              // If mouse is on the right half of the column, drop target is dc
+              // + 1
+              if (mx > current_x + cw * 0.5f) {
+                ui->table_state.drop_target_col = dc + 1;
+              } else {
+                ui->table_state.drop_target_col = dc;
+              }
+              break;
+            }
+            current_x += cw;
+          }
+          // Clamp drop target
+          if (ui->table_state.drop_target_col > (int)tbl->column_count - 1)
+            ui->table_state.drop_target_col = (int)tbl->column_count - 1;
+
           // Draw drop indicator line
           if (ui->table_state.drop_target_col >= 0 &&
-              ui->table_state.drop_target_col != ui->table_state.dragging_col) {
-            float ind_x = 0;
+              ui->table_state.drop_target_col != ui->table_state.dragging_col &&
+              ui->table_state.drop_target_col !=
+                  ui->table_state.dragging_col + 1) {
+
+            float ind_x = cols_start_x;
             for (int dc = 0; dc < ui->table_state.drop_target_col; dc++) {
               ind_x += col_widths[dc];
             }
@@ -947,6 +1008,12 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                         : nk_rgb(246, 248, 252); // Warm blueish hover
       struct nk_color active_cell_outline =
           nk_rgb(45, 127, 249); // Airtable blue
+
+      float first_row_y = -1.0f;
+      float table_left_x = 0.0f;
+      float table_full_w = row_num_w + add_col_w;
+      for (size_t c = 0; c < col_count; c++)
+        table_full_w += col_widths[c];
 
       for (size_t v = 0; v < (size_t)max_rows; v++) {
         // Deselect column header when user interacts with data cells
@@ -989,6 +1056,23 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         nk_stroke_line(canvas, cell_bounds.x, cell_bounds.y + cell_bounds.h - 1,
                        cell_bounds.x + cell_bounds.w,
                        cell_bounds.y + cell_bounds.h - 1, 0.5f, notion_border);
+
+        if (v == 0) {
+          first_row_y = cell_bounds.y;
+          table_left_x = cell_bounds.x;
+        }
+
+        // --- Row Drag-and-Drop Initiation ---
+        int is_hovering_row_handle =
+            nk_input_is_mouse_hovering_rect(&ctx->input, cell_bounds);
+        if (ui->table_state.dragging_row < 0 &&
+            ui->table_state.dragging_col < 0 && is_hovering_row_handle &&
+            nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+          ui->table_state.dragging_row = (int)v;
+          ui->table_state.drag_row_start_y = ctx->input.mouse.pos.y;
+          ui->table_state.drop_target_row = -1;
+          ui->table_state.active_block_id = block->id;
+        }
 
         // Left accent stripe on hover
         if (is_row_hovered) {
@@ -1037,7 +1121,28 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             ui->table_state.active_col_idx = (int)c;
             ui->table_state.is_editing_cell =
                 0; // Select but don't edit by default
+
+            // Start multi-selection
+            ui->table_state.is_selecting = 1;
+            ui->table_state.sel_start_row_idx = (int)v;
+            ui->table_state.sel_start_col_idx = (int)c;
+            ui->table_state.sel_end_row_idx = (int)v;
+            ui->table_state.sel_end_col_idx = (int)c;
+
             ui_request_redraw(ui);
+          } else if (ui->table_state.is_selecting &&
+                     nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+            // Dragging to select
+            if (nk_input_is_mouse_hovering_rect(&ctx->input, cell_bounds)) {
+              if (ui->table_state.sel_end_row_idx != (int)v ||
+                  ui->table_state.sel_end_col_idx != (int)c) {
+                ui->table_state.sel_end_row_idx = (int)v;
+                ui->table_state.sel_end_col_idx = (int)c;
+                ui_request_redraw(ui);
+              }
+            }
+          } else if (nk_input_is_mouse_released(&ctx->input, NK_BUTTON_LEFT)) {
+            ui->table_state.is_selecting = 0;
           }
 
           // Background (with optional column tint)
@@ -1077,6 +1182,36 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           AslanColumnType type = tbl->columns[c].type;
           int is_active = (ui->table_state.active_row_idx == (int)v &&
                            ui->table_state.active_col_idx == (int)c);
+
+          // Multi-selection bounds check
+          int min_r = ui->table_state.sel_start_row_idx <
+                              ui->table_state.sel_end_row_idx
+                          ? ui->table_state.sel_start_row_idx
+                          : ui->table_state.sel_end_row_idx;
+          int max_r = ui->table_state.sel_start_row_idx >
+                              ui->table_state.sel_end_row_idx
+                          ? ui->table_state.sel_start_row_idx
+                          : ui->table_state.sel_end_row_idx;
+          int min_c = ui->table_state.sel_start_col_idx <
+                              ui->table_state.sel_end_col_idx
+                          ? ui->table_state.sel_start_col_idx
+                          : ui->table_state.sel_end_col_idx;
+          int max_c = ui->table_state.sel_start_col_idx >
+                              ui->table_state.sel_end_col_idx
+                          ? ui->table_state.sel_start_col_idx
+                          : ui->table_state.sel_end_col_idx;
+
+          int is_selected =
+              (ui->table_state.sel_start_row_idx >= 0 && (int)v >= min_r &&
+               (int)v <= max_r && (int)c >= min_c && (int)c <= max_c);
+
+          if (is_selected && (min_r != max_r || min_c != max_c)) {
+            // Light blue translucent fill for selected area
+            nk_fill_rect(canvas,
+                         nk_rect(cell_bounds.x, cell_bounds.y, cell_bounds.w,
+                                 cell_bounds.h),
+                         0, nk_rgba(45, 127, 249, 40));
+          }
 
           if (is_active) {
             // Blue outline for active cell (Airtable-style focus ring)
@@ -1219,6 +1354,218 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             }
             break;
           }
+          case ASLAN_COL_FILE: {
+            const char *val = aslan_table_get_text(tbl, (int)c, row_id);
+            const char *display_name = "Choose file...";
+            int is_empty = (!val || val[0] == '\0');
+
+            if (!is_empty) {
+              const char *last_slash = strrchr(val, '/');
+              if (!last_slash)
+                last_slash = strrchr(val, '\\');
+              if (last_slash) {
+                display_name = last_slash + 1;
+              } else {
+                display_name = val;
+              }
+            }
+
+            struct nk_style_button btn = ctx->style.button;
+            btn.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+            btn.hover =
+                nk_style_item_color(ui->dark_mode ? nk_rgba(255, 255, 255, 10)
+                                                  : nk_rgba(0, 0, 0, 10));
+            btn.active =
+                nk_style_item_color(ui->dark_mode ? nk_rgba(255, 255, 255, 20)
+                                                  : nk_rgba(0, 0, 0, 20));
+            btn.border = 0;
+            btn.text_alignment = NK_TEXT_LEFT;
+            btn.text_normal =
+                is_empty ? (ui->dark_mode ? nk_rgb(150, 150, 160)
+                                          : nk_rgb(140, 140, 150))
+                         : (ui->dark_mode ? COLOR_TEXT : COLOR_TEXT_DARK);
+            btn.text_hover = btn.text_normal;
+            btn.text_active = btn.text_normal;
+
+            if (is_empty) {
+              if (nk_button_label_styled(ctx, &btn, display_name)) {
+                char path[1024];
+                if (open_image_file_dialog(path, sizeof(path))) {
+                  aslan_table_set_cell(tbl, (int)c, row_id, path);
+                  ui_request_redraw(ui);
+                }
+              }
+            } else {
+              struct nk_rect bounds;
+              nk_widget(&bounds, ctx); // Consume layout slot
+
+              struct nk_rect main_btn = bounds;
+              main_btn.w -= 28;
+              struct nk_rect edit_btn = bounds;
+              edit_btn.x += bounds.w - 28;
+              edit_btn.w = 28;
+
+              int main_hovered =
+                  nk_input_is_mouse_hovering_rect(&ctx->input, main_btn);
+              int edit_hovered =
+                  nk_input_is_mouse_hovering_rect(&ctx->input, edit_btn);
+              int clicked =
+                  nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT);
+
+              if (main_hovered && clicked) {
+                char cmd[1024];
+                snprintf(cmd, sizeof(cmd), "open \"%s\"", val);
+                system(cmd);
+              }
+              if (edit_hovered && clicked) {
+                char path[1024];
+                if (open_image_file_dialog(path, sizeof(path))) {
+                  aslan_table_set_cell(tbl, (int)c, row_id, path);
+                  ui_request_redraw(ui);
+                }
+              }
+
+              struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+              if (main_hovered) {
+                nk_fill_rect(canvas, main_btn, 4.0f,
+                             nk_rgba(0, 0, 0, ui->dark_mode ? 20 : 10));
+              }
+              if (edit_hovered) {
+                nk_fill_rect(canvas, edit_btn, 4.0f,
+                             nk_rgba(0, 0, 0, ui->dark_mode ? 20 : 10));
+              }
+
+              // Draw text manually (vertically centered)
+              float font_h =
+                  ui->font_inter ? ui->font_inter->handle.height : 14.0f;
+              float ty = main_btn.y + (main_btn.h - font_h) * 0.5f;
+              nk_draw_text(
+                  canvas, nk_rect(main_btn.x + 8, ty, main_btn.w - 16, font_h),
+                  display_name, strlen(display_name), &ui->font_inter->handle,
+                  nk_rgba(0, 0, 0, 0), btn.text_normal);
+              float ety = edit_btn.y + (edit_btn.h - font_h) * 0.5f;
+              nk_draw_text(
+                  canvas, nk_rect(edit_btn.x + 6, ety, edit_btn.w, font_h),
+                  "...", 3, &ui->font_inter->handle, nk_rgba(0, 0, 0, 0),
+                  ui->dark_mode ? nk_rgb(150, 150, 160)
+                                : nk_rgb(140, 140, 150));
+            }
+            break;
+          }
+          case ASLAN_COL_LINK: {
+            const char *val = aslan_table_get_text(tbl, (int)c, row_id);
+            char raw[1024];
+            strncpy(raw, val ? val : "", sizeof(raw) - 1);
+            raw[sizeof(raw) - 1] = '\0';
+
+            // Parse Label|URL
+            char label[512] = "";
+            char url[512] = "";
+            char *sep = strchr(raw, '|');
+            if (sep) {
+              size_t lbl_len = sep - raw;
+              if (lbl_len >= sizeof(label))
+                lbl_len = sizeof(label) - 1;
+              strncpy(label, raw, lbl_len);
+              label[lbl_len] = '\0';
+              strncpy(url, sep + 1, sizeof(url) - 1);
+            } else {
+              strncpy(label, raw, sizeof(label) - 1);
+              strncpy(url, raw, sizeof(url) - 1);
+            }
+
+            int is_empty = (raw[0] == '\0');
+            struct nk_color link_blue =
+                ui->dark_mode ? nk_rgb(100, 160, 255) : nk_rgb(45, 127, 249);
+            struct nk_color muted_link =
+                ui->dark_mode ? nk_rgb(150, 150, 160) : nk_rgb(140, 140, 150);
+
+            struct nk_style_button btn = ctx->style.button;
+            btn.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+            btn.hover =
+                nk_style_item_color(ui->dark_mode ? nk_rgba(255, 255, 255, 10)
+                                                  : nk_rgba(0, 0, 0, 10));
+            btn.active =
+                nk_style_item_color(ui->dark_mode ? nk_rgba(255, 255, 255, 20)
+                                                  : nk_rgba(0, 0, 0, 20));
+            btn.border = 0;
+            btn.text_alignment = NK_TEXT_LEFT;
+            btn.text_normal = is_empty ? muted_link : link_blue;
+
+            if (is_empty) {
+              if (nk_button_label_styled(ctx, &btn, "Add link...")) {
+                ui->table_state.link_popup_row = row_id;
+                ui->table_state.link_popup_col = (int)c;
+                ui->table_state.link_popup_x = cell_bounds.x;
+                ui->table_state.link_popup_y = cell_bounds.y + cell_bounds.h;
+                ui->table_state.link_label_buffer[0] = '\0';
+                ui->table_state.link_url_buffer[0] = '\0';
+                ui->table_state.show_link_popup = 1;
+                ui->table_state.active_block_id = block->id;
+                ui->active_block_id = block->id;
+              }
+            } else {
+              struct nk_rect bounds;
+              nk_widget(&bounds, ctx);
+              struct nk_rect main_btn = bounds;
+              main_btn.w -= 28;
+              struct nk_rect edit_btn = bounds;
+              edit_btn.x += bounds.w - 28;
+              edit_btn.w = 28;
+
+              int mh = nk_input_is_mouse_hovering_rect(&ctx->input, main_btn);
+              int eh = nk_input_is_mouse_hovering_rect(&ctx->input, edit_btn);
+              int clicked =
+                  nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT);
+
+              if (mh && clicked) {
+                if (url[0] != '\0') {
+                  char cmd[1200];
+                  if (strstr(url, "://") || strncmp(url, "mailto:", 7) == 0 ||
+                      strncmp(url, "tel:", 4) == 0)
+                    snprintf(cmd, sizeof(cmd), "open \"%s\"", url);
+                  else
+                    snprintf(cmd, sizeof(cmd), "open \"https://%s\"", url);
+                  system(cmd);
+                }
+              }
+              if (eh && clicked) {
+                ui->table_state.link_popup_row = row_id;
+                ui->table_state.link_popup_col = (int)c;
+                ui->table_state.link_popup_x = bounds.x;
+                ui->table_state.link_popup_y = bounds.y + bounds.h;
+                strncpy(ui->table_state.link_label_buffer, label,
+                        sizeof(ui->table_state.link_label_buffer) - 1);
+                strncpy(ui->table_state.link_url_buffer, url,
+                        sizeof(ui->table_state.link_url_buffer) - 1);
+                ui->table_state.show_link_popup = 1;
+                ui->table_state.active_block_id = block->id;
+                ui->active_block_id = block->id;
+              }
+
+              struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+              if (mh)
+                nk_fill_rect(canvas, main_btn, 4.0f,
+                             nk_rgba(0, 0, 0, ui->dark_mode ? 20 : 10));
+              if (eh)
+                nk_fill_rect(canvas, edit_btn, 4.0f,
+                             nk_rgba(0, 0, 0, ui->dark_mode ? 20 : 10));
+
+              float font_h =
+                  ui->font_inter ? ui->font_inter->handle.height : 14.0f;
+              float ty = main_btn.y + (main_btn.h - font_h) * 0.5f;
+              const char *disp = label[0] ? label : url;
+              nk_draw_text(canvas,
+                           nk_rect(main_btn.x + 8, ty, main_btn.w - 16, font_h),
+                           disp, strlen(disp), &ui->font_inter->handle,
+                           nk_rgba(0, 0, 0, 0), link_blue);
+              float ety = edit_btn.y + (edit_btn.h - font_h) * 0.5f;
+              nk_draw_text(canvas,
+                           nk_rect(edit_btn.x + 6, ety, edit_btn.w, font_h),
+                           "...", 3, &ui->font_inter->handle,
+                           nk_rgba(0, 0, 0, 0), muted_link);
+            }
+          } break;
           case ASLAN_COL_DATE: {
             int64_t ts = aslan_table_get_date(tbl, (int)c, row_id);
 
@@ -1441,6 +1788,70 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         nk_layout_row_end(ctx);
       }
 
+      // --- Row Drag-and-Drop tracking & visual indicator ---
+      if (ui->table_state.dragging_row >= 0 &&
+          ui->table_state.active_block_id == block->id && first_row_y > 0.0f) {
+        float my = ctx->input.mouse.pos.y;
+        float dy = my - ui->table_state.drag_row_start_y;
+        int is_dragging_active = (dy > 5.0f || dy < -5.0f);
+
+        if (!nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+          // Mouse released — perform drop
+          if (is_dragging_active && ui->table_state.drop_target_row >= 0 &&
+              ui->table_state.drop_target_row != ui->table_state.dragging_row) {
+            aslan_table_move_row(tbl, ui->table_state.dragging_row,
+                                 ui->table_state.drop_target_row);
+            ui->table_state.active_row_idx = ui->table_state.drop_target_row;
+
+            // Generate persistence command
+            Page *pg = doc_page_get_active(engine->doc);
+            if (pg) {
+              char cmd[128];
+              snprintf(cmd, sizeof(cmd), "block_table_move_row %u %u %d %d",
+                       pg->id, block->id, ui->table_state.dragging_row,
+                       ui->table_state.drop_target_row);
+              engine_execute_command(engine, cmd);
+            }
+          }
+          ui->table_state.dragging_row = -1;
+          ui->table_state.drop_target_row = -1;
+          ui_request_redraw(ui);
+        } else if (is_dragging_active) {
+          // Track which row mouse is over
+          ui->table_state.drop_target_row = -1;
+          float current_y = first_row_y;
+
+          for (size_t vr = 0; vr < (size_t)max_rows; vr++) {
+            if (my >= current_y && my < current_y + row_h) {
+              if (my > current_y + row_h * 0.5f) {
+                ui->table_state.drop_target_row = (int)vr + 1;
+              } else {
+                ui->table_state.drop_target_row = (int)vr;
+              }
+              break;
+            }
+            current_y += row_h;
+          }
+          // Clamp drop target
+          if (ui->table_state.drop_target_row > (int)max_rows - 1)
+            ui->table_state.drop_target_row = (int)max_rows - 1;
+
+          // Draw drop indicator line
+          if (ui->table_state.drop_target_row >= 0 &&
+              ui->table_state.drop_target_row != ui->table_state.dragging_row &&
+              ui->table_state.drop_target_row !=
+                  ui->table_state.dragging_row + 1) {
+
+            float ind_y = first_row_y + ui->table_state.drop_target_row * row_h;
+            struct nk_command_buffer *dd_canvas = nk_window_get_canvas(ctx);
+            nk_stroke_line(dd_canvas, table_left_x, ind_y,
+                           table_left_x + table_full_w, ind_y, 3.0f,
+                           COLOR_ACCENT);
+          }
+          ui_request_redraw(ui);
+        }
+      }
+
       // -----------------------------------------------------------------------
       // FOOTER ROW (Aggregations)
       // -----------------------------------------------------------------------
@@ -1617,7 +2028,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                nk_style_item_color(menu_bg));
       struct nk_rect popup_rect =
           table_smart_popup_rect(ui, ui->table_state.menu_pos_x - 100,
-                                 ui->table_state.menu_pos_y + 4, 180, 290);
+                                 ui->table_state.menu_pos_y + 4, 180, 340);
       if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Add Column",
                          NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER,
                          popup_rect)) {
@@ -1626,12 +2037,13 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           nk_popup_close(ctx);
         }
         nk_layout_row_dynamic(ctx, 28, 1);
-        const char *types[] = {"Text",   "Number", "Checkbox",
-                               "Select", "Date",   "Formula"};
+        const char *types[] = {"Text", "Number", "Checkbox", "Select",
+                               "Date", "File",   "Link",     "Formula"};
         AslanColumnType type_vals[] = {ASLAN_COL_TEXT,     ASLAN_COL_NUMBER,
                                        ASLAN_COL_CHECKBOX, ASLAN_COL_SELECT,
-                                       ASLAN_COL_DATE,     ASLAN_COL_FORMULA};
-        for (int i = 0; i < 6; i++) {
+                                       ASLAN_COL_DATE,     ASLAN_COL_FILE,
+                                       ASLAN_COL_LINK,     ASLAN_COL_FORMULA};
+        for (int i = 0; i < 8; i++) {
           struct nk_rect item_rect = nk_widget_bounds(ctx);
           if (nk_button_label_styled(ctx, &menu_btn, "")) {
             if (tbl) {
@@ -2258,6 +2670,74 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       } else {
         ui->table_state.show_select_popup = 0;
       }
+    }
+
+    // -----------------------------------------------------------------
+    // LINK EDITOR POPUP (Label + URL)
+    // -----------------------------------------------------------------
+    if (ui->table_state.show_link_popup &&
+        ui->table_state.active_block_id == block->id && // Only for this block
+        ui->table_state.link_popup_col >= 0 &&
+        ui->table_state.link_popup_col < (int)tbl->column_count) {
+
+      struct nk_color lp_bg =
+          ui->dark_mode ? nk_rgb(38, 40, 46) : nk_rgb(255, 255, 255);
+      nk_style_push_style_item(ctx, &ctx->style.window.fixed_background,
+                               nk_style_item_color(lp_bg));
+
+      struct nk_rect lp_rect =
+          table_smart_popup_rect(ui, ui->table_state.link_popup_x,
+                                 ui->table_state.link_popup_y + 2, 280, 175);
+
+      if (nk_popup_begin(ctx, NK_POPUP_STATIC, "Link Editor",
+                         NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER, lp_rect)) {
+        if (table_popup_header(ui, ctx, "Edit Link")) {
+          ui->table_state.show_link_popup = 0;
+          nk_popup_close(ctx);
+        }
+
+        struct nk_style_button pop_btn = ctx->style.button;
+        pop_btn.rounding = 4.0f;
+
+        nk_layout_row_dynamic(ctx, 22, 1);
+        nk_label(ctx, "Label:", NK_TEXT_LEFT);
+        nk_layout_row_dynamic(ctx, 28, 1);
+        nk_edit_string_zero_terminated(
+            ctx, NK_EDIT_FIELD | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD,
+            ui->table_state.link_label_buffer,
+            sizeof(ui->table_state.link_label_buffer) - 1, nk_filter_default);
+        nk_layout_row_dynamic(ctx, 22, 1);
+        nk_label(ctx, "URL:", NK_TEXT_LEFT);
+        nk_layout_row_dynamic(ctx, 28, 1);
+        nk_edit_string_zero_terminated(
+            ctx, NK_EDIT_FIELD | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD,
+            ui->table_state.link_url_buffer,
+            sizeof(ui->table_state.link_url_buffer) - 1, nk_filter_default);
+
+        nk_layout_row_dynamic(ctx, 8, 1);
+        nk_spacing(ctx, 1);
+        nk_layout_row_dynamic(ctx, 28, 1);
+        if (nk_button_label_styled(ctx, &pop_btn, "Apply")) {
+          // Compose Label|URL
+          char combined[1280];
+          const char *lbl = ui->table_state.link_label_buffer;
+          const char *url = ui->table_state.link_url_buffer;
+          if (lbl[0] && url[0])
+            snprintf(combined, sizeof(combined), "%s|%s", lbl, url);
+          else if (url[0])
+            snprintf(combined, sizeof(combined), "%s", url);
+          else
+            combined[0] = '\0';
+          aslan_table_set_cell(tbl, ui->table_state.link_popup_col,
+                               ui->table_state.link_popup_row, combined);
+          ui->table_state.show_link_popup = 0;
+          nk_popup_close(ctx);
+        }
+        nk_popup_end(ctx);
+      } else {
+        ui->table_state.show_link_popup = 0;
+      }
+      nk_style_pop_style_item(ctx);
     }
 
     // -----------------------------------------------------------------

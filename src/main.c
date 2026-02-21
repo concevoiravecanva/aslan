@@ -4,7 +4,7 @@
 #include "platform/renderer.h"
 #include "platform/ui_host.h"
 #include "platform/ui_shared.h"
-#include "scripting/lua_host.h"
+#include <SDL.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -76,8 +76,6 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
           ASLAN_DEBUG("SDL_DROPFILE event detected in event loop");
         }
 
-        scripting_set_key_mods(SDL_GetModState());
-
         // Quit event
         if (e.type == SDL_QUIT) {
           engine->is_running = false;
@@ -100,10 +98,10 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
         // Global keyboard shortcuts (Cmd = macOS, Ctrl = Linux/Windows)
         if (e.type == SDL_KEYDOWN && !nk_item_is_any_active(ui->ctx)) {
           SDL_Keymod mods = SDL_GetModState();
-          bool cmd   = (mods & KMOD_GUI) != 0;
-          bool ctrl  = (mods & KMOD_CTRL) != 0;
+          bool cmd = (mods & KMOD_GUI) != 0;
+          bool ctrl = (mods & KMOD_CTRL) != 0;
           bool shift = (mods & KMOD_SHIFT) != 0;
-          bool mod   = cmd || ctrl;
+          bool mod = cmd || ctrl;
 
           // Cmd+Z / Cmd+Shift+Z — Undo / Redo
           if (mod && e.key.keysym.sym == SDLK_z) {
@@ -136,21 +134,20 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
             Page *page = doc_page_get_active(engine->doc);
             if (page) {
               char cmd_buf[128];
-              snprintf(cmd_buf, sizeof(cmd_buf),
-                       "block_create %u 0 table", page->id);
+              snprintf(cmd_buf, sizeof(cmd_buf), "block_create %u 0 table",
+                       page->id);
               engine_execute_command(engine, cmd_buf);
             }
           }
           // Delete / Backspace — Delete active block (only if no node selected)
           if ((e.key.keysym.sym == SDLK_DELETE ||
                e.key.keysym.sym == SDLK_BACKSPACE) &&
-              !mod && ui->active_block_id != 0 &&
-              ui->selected_node == NULL) {
+              !mod && ui->active_block_id != 0 && ui->selected_node == NULL) {
             Page *page = doc_page_get_active(engine->doc);
             if (page) {
               char cmd_buf[128];
-              snprintf(cmd_buf, sizeof(cmd_buf),
-                       "block_delete %u %u", page->id, ui->active_block_id);
+              snprintf(cmd_buf, sizeof(cmd_buf), "block_delete %u %u", page->id,
+                       ui->active_block_id);
               engine_execute_command(engine, cmd_buf);
               ui->active_block_id = 0;
             }
@@ -168,9 +165,6 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
           SDL_GetMouseState(&imx, &imy);
           float mx = (float)imx;
           float my = (float)imy;
-
-          // Expose mouse position to Lua
-          scripting_set_mouse_screen(mx, my);
 
           float world_x = mx;
           float world_y = my;
@@ -194,23 +188,6 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
                 last_click_world_y = world_y;
               }
             }
-
-            scripting_call_event(ui->L, "on_mouse_down", world_x, world_y);
-
-          } else if (e.type == SDL_MOUSEBUTTONUP) {
-            scripting_call_event(ui->L, "on_mouse_up", world_x, world_y);
-
-          } else if (e.type == SDL_MOUSEMOTION) {
-            scripting_call_event(ui->L, "on_mouse_move", world_x, world_y);
-
-          } else if (e.type == SDL_MOUSEWHEEL) {
-            float delta = (float)e.wheel.y;
-            scripting_call_event(ui->L, "on_mouse_wheel", delta, mx);
-
-          } else if (e.type == SDL_KEYDOWN) {
-            SDL_Keymod mods = SDL_GetModState();
-            scripting_call_key_event(ui->L, "on_key_down",
-                                     (int)e.key.keysym.sym, (int)mods);
           }
         }
 
@@ -285,28 +262,14 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // 3. Initialize Scripting (Lua)
-  lua_State *L = scripting_init(engine);
-
-  // Resolve binary directory for script loading
-  if (argv && argv[0]) {
-    char exe_path[PATH_MAX];
-    strncpy(exe_path, argv[0], sizeof(exe_path) - 1);
-    exe_path[sizeof(exe_path) - 1] = 0;
-    char *dir = dirname(exe_path);
-    if (dir) {
-      scripting_set_base_dir(dir);
-    }
-  }
-
-  // 4. Initialize UI (Nuklear)
-  UIHost *ui = ui_init(renderer->window, renderer->sdl_renderer, L);
+  // 3. Initialize UI (Nuklear)
+  UIHost *ui = ui_init(renderer->window, renderer->sdl_renderer);
   engine->ui_host = ui;
 
-  // 5. Replay history (AOF)
+  // 4. Replay history (AOF)
   engine_load_from_history(engine);
 
-  // 6. Create default content only on first launch
+  // 5. Create default content only on first launch
   if (engine->doc->page_count == 0) {
     engine_execute_command(engine, "page_create 1 \"New Note\"");
     engine_execute_command(engine, "block_create 1 1 h1");
@@ -319,13 +282,10 @@ int main(int argc, char **argv) {
     }
   }
 
-  // 7. Load plugins
-  scripting_load_plugins(L);
-
-  // 8. Run visual mode
+  // 6. Run visual mode
   run_visual_mode(engine, renderer, ui);
 
-  // 9. Cleanup
+  // 7. Cleanup
   ui_shutdown(ui);
   renderer_destroy(renderer);
   engine_destroy(engine);

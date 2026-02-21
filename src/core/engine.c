@@ -12,9 +12,6 @@
 // ASLAN ENGINE v3 - Block-Based AOF Command Processor
 // =============================================================================
 
-// Notify scripting host of document changes
-void scripting_set_document(Document *doc);
-
 // -----------------------------------------------------------------------------
 // AOF Tokenizer
 // -----------------------------------------------------------------------------
@@ -318,7 +315,6 @@ static bool handle_clear(Engine *engine, const AofCommand *cmd,
   if (engine->ui_host) {
     engine->ui_host->selected_node = NULL;
   }
-  scripting_set_document(engine->doc);
 
   // Clear undo/redo stacks (document changed radically)
   for (int i = 0; i < engine->undo_top; i++) {
@@ -1153,7 +1149,6 @@ static void engine_restore_from_snapshot(Engine *engine, const char *buf,
   if (engine->ui_host) {
     engine->ui_host->selected_node = NULL;
   }
-  scripting_set_document(engine->doc);
 
   engine->is_loading = true;
 
