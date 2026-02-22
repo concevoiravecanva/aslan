@@ -392,6 +392,7 @@ typedef struct UIHost {
 
   // Linked text row navigator: which table row to display in design (0-based)
   int design_linked_row_idx;
+  int design_smart_layout_sel;
 
   // Canvas/Design interaction
   float drag_start_x, drag_start_y;
