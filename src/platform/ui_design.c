@@ -797,63 +797,73 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
       if (page) {
         // ── CANVAS SIZE ──────────────────────────────────────────────────
         ds_section(ctx, "CANVAS SIZE");
-        static const struct {
-          const char *l;
-          int w, h;
-        } presets[] = {
-            {"A4", 794, 1123},    {"A3", 1123, 1587},    {"HD", 1920, 1080},
-            {"4K", 3840, 2160},   {"Sq.", 1080, 1080},   {"Story", 1080, 1920},
-            {"Post", 1080, 1350}, {"Banner", 1920, 480},
-        };
-        nk_layout_row_dynamic(ctx, 26, 4);
-        for (int i = 0; i < 8; i++) {
-          if (nk_button_label(ctx, presets[i].l)) {
+        {
+          int no_limits = dd->no_limits;
+          nk_layout_row_dynamic(ctx, 24, 1);
+          if (nk_checkbox_label(ctx, "Infinite canvas (No Limits)",
+                                &no_limits) &&
+              no_limits != dd->no_limits) {
+            dd->no_limits = no_limits;
+            if (dd->no_limits && dd->zoom < 0.01f)
+              dd->zoom = 1.0f;
             char cmd[128];
-            snprintf(cmd, sizeof(cmd), "block_design_resize %u %u %d %d 0",
-                     page->id, block->id, presets[i].w, presets[i].h);
+            snprintf(cmd, sizeof(cmd), "block_design_nolimits %u %u %d",
+                     page->id, block->id, dd->no_limits);
             engine_execute_command(engine, cmd);
           }
-        }
-        nk_layout_row_dynamic(ctx, 24, 2);
-        float val_w = (float)dd->width;
-        float val_h = (float)dd->height;
-        nk_property_float(ctx, "W:", 100.f, &val_w, 5000.f, 1.f, 1.f);
-        nk_property_float(ctx, "H:", 100.f, &val_h, 5000.f, 1.f, 1.f);
-        if ((int)val_w != dd->width || (int)val_h != dd->height) {
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_design_resize %u %u %d %d 0",
-                   page->id, block->id, (int)val_w, (int)val_h);
-          engine_execute_command(engine, cmd);
-        }
 
-        // ── BACKGROUND ───────────────────────────────────────────────────
-        ds_section(ctx, "BACKGROUND");
-        const char *bg_types[] = {"Solid", "Gradient (V)", "Radial (Center)"};
-        nk_layout_row_dynamic(ctx, 24, 1);
-        dd->pages[dd->current_page].bg_type =
-            nk_combo(ctx, bg_types, 3, dd->pages[dd->current_page].bg_type, 24,
-                     nk_vec2(220, 200));
+          if (!dd->no_limits) {
+            static const struct {
+              const char *l;
+              int w, h;
+            } presets[] = {
+                {"A4", 794, 1123},    {"A3", 1123, 1587},
+                {"HD", 1920, 1080},   {"4K", 3840, 2160},
+                {"Sq.", 1080, 1080},  {"Story", 1080, 1920},
+                {"Post", 1080, 1350}, {"Banner", 1920, 480},
+            };
+            nk_layout_row_dynamic(ctx, 22, 4);
+            for (int i = 0; i < 8; i++) {
+              if (nk_button_label(ctx, presets[i].l)) {
+                char cmd[128];
+                snprintf(cmd, sizeof(cmd), "block_design_resize %u %u %d %d 0",
+                         page->id, block->id, presets[i].w, presets[i].h);
+                engine_execute_command(engine, cmd);
+              }
+            }
+            nk_layout_row_dynamic(ctx, 4, 1); // Spacing after presets
+            nk_spacing(ctx, 1);
 
-        if (dd->pages[dd->current_page].bg_type == 0) {
-          ds_color(ctx, "Color", &dd->pages[dd->current_page].bg_color);
-        } else {
-          ds_color(ctx, "Color 1", &dd->pages[dd->current_page].bg_color);
-          ds_color(ctx, "Color 2", &dd->pages[dd->current_page].bg_color_2);
-        }
+            // Unit Selection
+            static const char *unit_names[] = {"PX", "CM", "IN"};
+            nk_layout_row_dynamic(ctx, 24, 2);
+            nk_label(ctx, "Units:", NK_TEXT_LEFT);
+            dd->units =
+                nk_combo(ctx, unit_names, 3, dd->units, 24, nk_vec2(80, 100));
 
-        // ── MODE ─────────────────────────────────────────────────────────
-        ds_section(ctx, "MODE");
-        nk_layout_row_dynamic(ctx, 24, 1);
-        int no_limits = dd->no_limits;
-        if (nk_checkbox_label(ctx, "Infinite canvas", &no_limits) &&
-            no_limits != dd->no_limits) {
-          dd->no_limits = no_limits;
-          if (dd->no_limits && dd->zoom < 0.01f)
-            dd->zoom = 1.0f;
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_design_nolimits %u %u %d", page->id,
-                   block->id, dd->no_limits);
-          engine_execute_command(engine, cmd);
+            float to_px = 1.0f;
+            if (dd->units == 1)
+              to_px = 37.795f;
+            else if (dd->units == 2)
+              to_px = 96.0f;
+
+            float val_w = (float)dd->width / to_px;
+            float val_h = (float)dd->height / to_px;
+
+            nk_layout_row_dynamic(ctx, 24, 2);
+            nk_property_float(ctx, "W:", 1.0f, &val_w, 5000.f, 1.f, 0.1f);
+            nk_property_float(ctx, "H:", 1.0f, &val_h, 5000.f, 1.f, 0.1f);
+
+            int new_w = (int)(val_w * to_px);
+            int new_h = (int)(val_h * to_px);
+
+            if (new_w != dd->width || new_h != dd->height) {
+              char cmd[128];
+              snprintf(cmd, sizeof(cmd), "block_design_resize %u %u %d %d 0",
+                       page->id, block->id, new_w, new_h);
+              engine_execute_command(engine, cmd);
+            }
+          }
         }
 
         // ── PAGES ────────────────────────────────────────────────────────
@@ -955,81 +965,12 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
               NULL; // Reset selection to avoid dangling pointers
         }
 
-        // ── LINKED DATA ──────────────────────────────────────────────────
-        ds_section(ctx, "DATA SOURCE");
-
-        // Find all table blocks in the document (or current page)
-        Block *tables[32];
-        const char *table_names[33];
-        table_names[0] = "None";
-        int table_count = 0;
-
-        for (int i = 0; i < engine->doc->page_count; i++) {
-          Page *p = &engine->doc->pages[i];
-          if (!p->in_use)
-            continue;
-          for (Block *b = p->first_block; b; b = b->next) {
-            if (b->type == BLOCK_TABLE && b->data.table.columnar) {
-              if (table_count < 32) {
-                tables[table_count] = b;
-                table_names[table_count + 1] = b->data.table.columnar->name;
-                table_count++;
-              }
-            }
-          }
-        }
-
-        int cur_table_sel = 0;
-        AslanTable *linked_tbl = NULL;
-        for (int i = 0; i < table_count; i++) {
-          if (tables[i]->id == dd->linked_table_id) {
-            cur_table_sel = i + 1;
-            linked_tbl = tables[i]->data.table.columnar;
-            break;
-          }
-        }
-
-        nk_layout_row_dynamic(ctx, 24, 1);
-        int new_table_sel = nk_combo(ctx, table_names, table_count + 1,
-                                     cur_table_sel, 24, nk_vec2(220, 200));
-        if (new_table_sel != cur_table_sel) {
-          uint32_t new_id =
-              (new_table_sel == 0) ? 0 : tables[new_table_sel - 1]->id;
-          char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_design_link %u %u %u", page->id,
-                   block->id, new_id);
-          engine_execute_command(engine, cmd);
-          ui->design_linked_row_idx = 0;
-        }
-
-        if (linked_tbl) {
-          int total_rows = (int)linked_tbl->active_count;
-          if (total_rows > 0) {
-            if (ui->design_linked_row_idx >= total_rows)
-              ui->design_linked_row_idx = total_rows - 1;
-            nk_layout_row_template_begin(ctx, 26);
-            nk_layout_row_template_push_static(ctx, 26);
-            nk_layout_row_template_push_dynamic(ctx);
-            nk_layout_row_template_push_static(ctx, 26);
-            nk_layout_row_template_end(ctx);
-            if (nk_button_label(ctx, "<") && ui->design_linked_row_idx > 0)
-              ui->design_linked_row_idx--;
-            char rl[32];
-            snprintf(rl, sizeof(rl), "Row %d / %d",
-                     ui->design_linked_row_idx + 1, total_rows);
-            nk_label(ctx, rl, NK_TEXT_CENTERED);
-            if (nk_button_label(ctx, ">") &&
-                ui->design_linked_row_idx < total_rows - 1)
-              ui->design_linked_row_idx++;
-          }
-
-          // Removed individual SVG button
-        }
-
-        // ── GRID ─────────────────────────────────────────────────────────
-        ds_section(ctx, "GRID");
+        // ── LAYOUT AIDS ──────────────────────────────────────────────────
+        ds_section(ctx, "LAYOUT AIDS");
         {
           DesignPage *dp = &dd->pages[dd->current_page];
+          nk_layout_row_dynamic(ctx, 22, 1);
+          nk_label(ctx, "Grid:", NK_TEXT_LEFT);
           static const char *grid_labels[] = {"None",    "Dots", "Lines",
                                               "Columns", "Iso",  "Custom"};
           nk_layout_row_dynamic(ctx, 24, 1);
@@ -1040,12 +981,14 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
             nk_property_float(ctx, "Spacing", 10.0f, &dp->grid_spacing, 200.0f,
                               5.0f, 1.0f);
           }
-        }
 
-        // ── GUIDES ──────────────────────────────────────────────────────
-        ds_section(ctx, "GUIDES");
-        {
-          DesignPage *dp = &dd->pages[dd->current_page];
+          nk_spacing(ctx, 1);
+          nk_layout_row_dynamic(ctx, 22, 1);
+          nk_checkbox_label(ctx, "Show Rulers", &dp->show_rulers);
+
+          nk_spacing(ctx, 1);
+          nk_layout_row_dynamic(ctx, 22, 1);
+          nk_label(ctx, "Guides:", NK_TEXT_LEFT);
           nk_layout_row_dynamic(ctx, 22, 2);
           if (nk_button_label(ctx, "+ H Guide") && dp->h_guide_count < 16) {
             dp->h_guides[dp->h_guide_count++] = (float)dd->height / 2.0f;
@@ -1053,7 +996,6 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           if (nk_button_label(ctx, "+ V Guide") && dp->v_guide_count < 16) {
             dp->v_guides[dp->v_guide_count++] = (float)dd->width / 2.0f;
           }
-          // List horizontal guides
           for (int gi = 0; gi < dp->h_guide_count; gi++) {
             nk_layout_row_begin(ctx, NK_DYNAMIC, 20, 3);
             nk_layout_row_push(ctx, 0.25f);
@@ -1070,7 +1012,6 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
             }
             nk_layout_row_end(ctx);
           }
-          // List vertical guides
           for (int gi = 0; gi < dp->v_guide_count; gi++) {
             nk_layout_row_begin(ctx, NK_DYNAMIC, 20, 3);
             nk_layout_row_push(ctx, 0.25f);
@@ -1089,18 +1030,25 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           }
         }
 
-        // ── RULERS ──────────────────────────────────────────────────────
-        ds_section(ctx, "RULERS");
-        {
-          DesignPage *dp = &dd->pages[dd->current_page];
-          nk_layout_row_dynamic(ctx, 22, 1);
-          nk_checkbox_label(ctx, "Show Rulers", &dp->show_rulers);
-        }
-
         // ── EXPORT ───────────────────────────────────────────────────────
         ds_section(ctx, "EXPORT");
         nk_layout_row_dynamic(ctx, 24, 4);
         if (nk_button_label(ctx, "SVG")) {
+          // Check for linked table manually find first available
+          AslanTable *linked_tbl = NULL;
+          for (int i = 0; i < engine->doc->page_count; i++) {
+            Page *p = &engine->doc->pages[i];
+            if (!p->in_use)
+              continue;
+            for (Block *b = p->first_block; b; b = b->next) {
+              if (b->type == BLOCK_TABLE && b->data.table.columnar) {
+                linked_tbl = b->data.table.columnar;
+                break;
+              }
+            }
+            if (linked_tbl)
+              break;
+          }
           if (linked_tbl) {
             ui_host_export_svg_merge(ui, engine, linked_tbl);
           } else {
