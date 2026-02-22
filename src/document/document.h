@@ -107,6 +107,22 @@ typedef struct Node {
   float opacity;  // 0.0 to 1.0
   int lock_ratio; // Boolean
 
+  // Advanced Appearance
+  int has_shadow;
+  float shadow_offset_x;
+  float shadow_offset_y;
+  float shadow_blur;
+  uint32_t shadow_color; // RGBA
+
+  int fill_type;         // 0 = Solid, 1 = Linear Gradient
+  uint32_t fill_color_2; // Secondary color for gradients
+  float gradient_angle;  // In degrees
+
+  // Smart Container properties
+  int clip_content;     // Hide children outside bounds
+  int layout_type;      // 0 = None, 1 = Vertical Stack, 2 = Horizontal Stack
+  float layout_padding; // Spacing between children
+
   // Text content (for NODE_TYPE_TEXT)
   char text[256];
   float font_size; // Default 20.0f

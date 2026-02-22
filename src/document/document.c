@@ -971,6 +971,20 @@ Node *node_create(uint32_t id, NodeType type, const char *name) {
   node->opacity = 1.0f;
   node->lock_ratio = 0;
 
+  node->has_shadow = 0;
+  node->shadow_offset_x = 0.0f;
+  node->shadow_offset_y = 10.0f;
+  node->shadow_blur = 5.0f;
+  node->shadow_color = 0x00000040; // 25% black
+
+  node->fill_type = 0;
+  node->fill_color_2 = 0xFFFFFFFF;
+  node->gradient_angle = 90.0f;
+
+  node->clip_content = 0;
+  node->layout_type = 0;
+  node->layout_padding = 10.0f;
+
   if (name) {
     safe_strcpy(node->name, name, sizeof(node->name));
   }

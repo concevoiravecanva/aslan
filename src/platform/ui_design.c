@@ -315,6 +315,28 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
                           0.5f);
         nk_checkbox_label(ctx, "Lock Ratio", &node->lock_ratio);
 
+        // Alignment Buttons
+        nk_layout_row_dynamic(ctx, 24, 3);
+        if (nk_button_label(ctx, "L-Align")) {
+          node->x = 0;
+        }
+        if (nk_button_label(ctx, "C-Align")) {
+          node->x = (800.0f - node->width) / 2.0f; // Approx artboard width
+        }
+        if (nk_button_label(ctx, "R-Align")) {
+          node->x = 800.0f - node->width;
+        }
+        nk_layout_row_dynamic(ctx, 24, 3);
+        if (nk_button_label(ctx, "T-Align")) {
+          node->y = 0;
+        }
+        if (nk_button_label(ctx, "M-Align")) {
+          node->y = (600.0f - node->height) / 2.0f; // Approx artboard height
+        }
+        if (nk_button_label(ctx, "B-Align")) {
+          node->y = 600.0f - node->height;
+        }
+
         // ── APPEARANCE ───────────────────────────────────────────────────
         ds_section(ctx, "APPEARANCE");
 
@@ -347,18 +369,66 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         nk_layout_row_dynamic(ctx, 24, 1);
         nk_property_float(ctx, "Stroke width:", 0.f, &node->stroke_width, 100.f,
                           0.5f, 0.25f);
+
         if (node->type != NODE_TYPE_TEXT && node->type != NODE_TYPE_LINE) {
           nk_layout_row_dynamic(ctx, 24, 1);
           nk_property_float(ctx, "Corner radius:", 0.f, &node->corner_radius,
                             200.f, 1.f, 0.5f);
         }
 
+        // Gradient Options
+        nk_layout_row_dynamic(ctx, 24, 2);
+        const char *fill_types[] = {"Solid", "Gradient"};
+        node->fill_type = nk_combo(ctx, fill_types, 2, node->fill_type, 24,
+                                   nk_vec2(150, 200));
+
+        if (node->fill_type == 1) {
+          ds_color(ctx, "Gradient To", &node->fill_color_2);
+          nk_layout_row_dynamic(ctx, 24, 1);
+          nk_property_float(ctx, "Angle:", 0.f, &node->gradient_angle, 360.f,
+                            1.f, 0.5f);
+        }
+
         nk_layout_row_dynamic(ctx, 24, 1);
         nk_property_float(ctx, "Opacity %:", 0.f, &node->opacity, 1.0f, 0.01f,
                           0.005f);
 
+        // ── SHADOW ───────────────────────────────────────────────────────
+        ds_section(ctx, "SHADOW");
         nk_layout_row_dynamic(ctx, 24, 1);
-        nk_checkbox_label(ctx, "Use as Container", &node->is_container);
+        nk_checkbox_label(ctx, "Drop Shadow", &node->has_shadow);
+        if (node->has_shadow) {
+          ds_color(ctx, "Shadow Color", &node->shadow_color);
+          nk_layout_row_dynamic(ctx, 24, 2);
+          nk_property_float(ctx, "Offset X:", -50.f, &node->shadow_offset_x,
+                            50.f, 1.f, 0.5f);
+          nk_property_float(ctx, "Offset Y:", -50.f, &node->shadow_offset_y,
+                            50.f, 1.f, 0.5f);
+          nk_layout_row_dynamic(ctx, 24, 1);
+          nk_property_float(ctx, "Blur:", 0.f, &node->shadow_blur, 100.f, 1.f,
+                            0.5f);
+        }
+
+        // ── CONTAINER ────────────────────────────────────────────────────
+        ds_section(ctx, "CONTAINER");
+        nk_layout_row_dynamic(ctx, 24, 1);
+        nk_checkbox_label(ctx, "Is Container", &node->is_container);
+        if (node->is_container) {
+          nk_layout_row_dynamic(ctx, 24, 1);
+          nk_checkbox_label(ctx, "Clip Content", &node->clip_content);
+
+          const char *layout_modes[] = {"None", "V-Stack", "H-Stack"};
+          nk_layout_row_dynamic(ctx, 24, 2);
+          nk_label(ctx, "Auto Layout:", NK_TEXT_LEFT);
+          node->layout_type = nk_combo(ctx, layout_modes, 3, node->layout_type,
+                                       24, nk_vec2(150, 200));
+
+          if (node->layout_type > 0) {
+            nk_layout_row_dynamic(ctx, 24, 1);
+            nk_property_float(ctx, "Spacing:", 0.f, &node->layout_padding,
+                              200.f, 1.f, 0.5f);
+          }
+        }
 
         // ── LAYERS ───────────────────────────────────────────────────────
         ds_section(ctx, "ORDER");
@@ -651,6 +721,786 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
       }
       nk_group_end(ctx);
     }
+  }
+}
+
+static void ui_render_node_tree(UIHost *ui, struct nk_context *ctx,
+                                Engine *engine, Block *block, DesignData *dd,
+                                struct nk_command_buffer *canvas_buf,
+                                Node *node, struct nk_rect bounds, float scale,
+                                float parent_x, float parent_y) {
+  if (!node || !node->visible)
+    return;
+
+  // Auto-layout
+  if (node->is_container && node->layout_type > 0 && node->first_child) {
+    float current_offset = 0;
+    for (Node *child = node->first_child; child; child = child->next_sibling) {
+      if (!child->visible)
+        continue;
+      if (node->layout_type == 1) { // V-Stack
+        child->x = 0;
+        child->y = current_offset;
+        current_offset += child->height + node->layout_padding;
+      } else if (node->layout_type == 2) { // H-Stack
+        child->x = current_offset;
+        child->y = 0;
+        current_offset += child->width + node->layout_padding;
+      }
+    }
+  }
+
+  float sx = parent_x + node->x * scale;
+  float sy = parent_y + node->y * scale;
+  float sw = node->width * scale;
+  float sh = node->height * scale;
+  struct nk_rect nr = nk_rect(sx, sy, sw, sh);
+
+  if (node->is_container && node->clip_content) {
+    nk_push_scissor(canvas_buf, nr);
+  }
+
+  // --- Inject Shadow ---
+  uint32_t f32 = node->fill_color;
+  uint32_t s32 = node->stroke_color;
+  float opacity = node->opacity;
+  if (node->has_shadow && node->type != NODE_TYPE_LINE &&
+      node->type != NODE_TYPE_STROKE && node->type != NODE_TYPE_CHART) {
+    struct nk_color sh_col = nk_rgba(
+        (node->shadow_color >> 24) & 0xFF, (node->shadow_color >> 16) & 0xFF,
+        (node->shadow_color >> 8) & 0xFF,
+        (int)((node->shadow_color & 0xFF) * opacity));
+    float sh_x = nr.x + node->shadow_offset_x * scale;
+    float sh_y = nr.y + node->shadow_offset_y * scale;
+    struct nk_rect sr = nk_rect(sh_x, sh_y, nr.w, nr.h);
+    float b = node->shadow_blur * scale;
+    if (b > 0) {
+      struct nk_rect srb =
+          nk_rect(sh_x - b / 2, sh_y - b / 2, nr.w + b, nr.h + b);
+      nk_fill_rect(canvas_buf, srb, (node->corner_radius + b / 2) * scale,
+                   nk_rgba(sh_col.r, sh_col.g, sh_col.b, sh_col.a / 2));
+    }
+    nk_fill_rect(canvas_buf, sr, node->corner_radius * scale, sh_col);
+  }
+  struct nk_color fill =
+      nk_rgba((f32 >> 24) & 0xFF, (f32 >> 16) & 0xFF, (f32 >> 8) & 0xFF,
+              (int)((f32 & 0xFF) * opacity));
+  struct nk_color stroke =
+      nk_rgba((s32 >> 24) & 0xFF, (s32 >> 16) & 0xFF, (s32 >> 8) & 0xFF,
+              (int)((s32 & 0xFF) * opacity));
+
+  int drawn_image = 0;
+  int has_fill = (node->fill_color & 0xFF) > 10;
+
+  // Container with image: render shape-masked image
+  if (node->is_container && node->image_path[0]) {
+    SDL_Texture *tex = get_masked_image_texture(ui, node->image_path, node);
+    if (tex) {
+      struct nk_image img = nk_image_ptr(tex);
+      nk_draw_image(canvas_buf, nr, &img, nk_rgb(255, 255, 255));
+      drawn_image = 1;
+    }
+  }
+
+  if (node->type == NODE_TYPE_CHART && node->chart_data) {
+    Page *curr_page = doc_page_get_active(engine->doc);
+    ui_render_chart_node(ui, ctx, node, nr, curr_page);
+
+    // Rendering configuration bar if selected
+    if (ui->selected_node == node) {
+      ui_render_chart_node_config_bar(ui, engine, ctx, node, nr, curr_page);
+    }
+  } else if (node->type == NODE_TYPE_STROKE && node->stroke_data) {
+    Stroke *s = node->stroke_data;
+    if (s->count >= 2) {
+      struct nk_color st_col =
+          nk_rgba((s->color >> 24) & 0xFF, (s->color >> 16) & 0xFF,
+                  (s->color >> 8) & 0xFF, s->color & 0xFF);
+
+      struct nk_vec2 *pts =
+          (struct nk_vec2 *)malloc(s->count * sizeof(struct nk_vec2));
+      if (pts) {
+        for (int k = 0; k < s->count; k++) {
+          pts[k].x = bounds.x + s->points[k].x * scale;
+          pts[k].y = bounds.y + s->points[k].y * scale;
+        }
+        nk_stroke_polyline(canvas_buf, (float *)pts, s->count,
+                           s->thickness * scale, st_col);
+
+        // Render Endings for Strokes (Consistency with Canvas)
+        if (node->line_start_style || node->line_end_style) {
+          float size =
+              (s->thickness * scale > 2.0f ? s->thickness * scale : 2.0f) *
+              4.0f;
+
+          // Start Style
+          if (node->line_start_style > 0) {
+            float start_x = pts[0].x;
+            float start_y = pts[0].y;
+            float dx = pts[1].x - start_x;
+            float dy = pts[1].y - start_y;
+            float angle = atan2f(dy, dx);
+
+            if (node->line_start_style == 1) { // Circle
+              nk_fill_circle(
+                  canvas_buf,
+                  nk_rect(start_x - size / 2, start_y - size / 2, size, size),
+                  st_col);
+            } else if (node->line_start_style == 2) { // Arrow
+              float arrow_angle = angle + 3.14159f;
+              float tip_x = start_x;
+              float tip_y = start_y;
+              float base_angle1 = arrow_angle + 0.5f;
+              float base_angle2 = arrow_angle - 0.5f;
+              float p1x = tip_x + size * cosf(base_angle1);
+              float p1y = tip_y + size * sinf(base_angle1);
+              float p2x = tip_x + size * cosf(base_angle2);
+              float p2y = tip_y + size * sinf(base_angle2);
+              nk_fill_triangle(canvas_buf, tip_x, tip_y, p1x, p1y, p2x, p2y,
+                               st_col);
+            }
+          }
+
+          // End Style
+          if (node->line_end_style > 0) {
+            float end_x = pts[s->count - 1].x;
+            float end_y = pts[s->count - 1].y;
+            float dx = end_x - pts[s->count - 2].x;
+            float dy = end_y - pts[s->count - 2].y;
+            float angle = atan2f(dy, dx);
+
+            if (node->line_end_style == 1) { // Circle
+              nk_fill_circle(
+                  canvas_buf,
+                  nk_rect(end_x - size / 2, end_y - size / 2, size, size),
+                  st_col);
+            } else if (node->line_end_style == 2) { // Arrow
+              float tip_x = end_x;
+              float tip_y = end_y;
+              // Arrow tip at end, base points away
+              // standard arrow at end points OUTWARD usually.
+              // ui_canvas.c logic: base_angle = angle + PI +/- 0.5.
+              // Wait, ui_canvas.c had angle (dy,dx).
+              // If line goes right (0 rad), arrow should point right.
+              // Tip at end. Base to left.
+              // So angle + PI is correct for base calculation relative
+              // to tip.
+              float effective_angle = angle;
+              float base_angle_a = effective_angle + 3.14159f + 0.5f;
+              float base_angle_b = effective_angle + 3.14159f - 0.5f;
+
+              float p1x = tip_x + size * cosf(base_angle_a);
+              float p1y = tip_y + size * sinf(base_angle_a);
+              float p2x = tip_x + size * cosf(base_angle_b);
+              float p2y = tip_y + size * sinf(base_angle_b);
+              nk_fill_triangle(canvas_buf, tip_x, tip_y, p1x, p1y, p2x, p2y,
+                               st_col);
+            }
+          }
+        }
+
+        free(pts);
+      }
+    }
+  }
+
+  if (node->type == NODE_TYPE_IMAGE) {
+    int drawn = 0;
+    if (node->image_path[0]) {
+      SDL_Texture *tex = get_image_texture(ui, node->image_path);
+      if (tex) {
+        struct nk_image img = nk_image_ptr(tex);
+        nk_draw_image(canvas_buf, nr, &img, nk_rgb(255, 255, 255));
+        drawn = 1;
+      }
+    }
+    if (!drawn) {
+      nk_fill_rect(canvas_buf, nr, 0, nk_rgb(200, 200, 200));
+    }
+    if (node->stroke_width > 0)
+      nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale,
+                     node->stroke_width * scale, stroke);
+  } else if (node->type == NODE_TYPE_RECT) {
+    if (node->is_container && !node->image_path[0]) {
+      struct nk_color cbg = nk_rgba(66, 133, 244, 40);
+      struct nk_color cst = nk_rgba(66, 133, 244, 255);
+      nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, cbg);
+      nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale, 1.0f, cst);
+      if (ui->font_icons) {
+        struct nk_rect ir =
+            nk_rect(nr.x + nr.w / 2 - 10, nr.y + nr.h / 2 - 10, 20, 20);
+        nk_draw_text(canvas_buf, ir, ICON_ADD, strlen(ICON_ADD),
+                     &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), cst);
+      }
+      drawn_image = 1;
+    }
+    if (!drawn_image && has_fill) {
+      if (node->rotation != 0.0f && node->type == NODE_TYPE_RECT) {
+        fill_rotated_rounded_rect(canvas_buf, nr.x + nr.w / 2, nr.y + nr.h / 2,
+                                  nr.w, nr.h,
+                                  node->rotation * 3.14159f / 180.0f,
+                                  node->corner_radius * scale, fill, 0, 0);
+      } else {
+
+        if (node->fill_type == 1) { // Gradient
+          struct nk_color fill2 =
+              nk_rgba((node->fill_color_2 >> 24) & 0xFF,
+                      (node->fill_color_2 >> 16) & 0xFF,
+                      (node->fill_color_2 >> 8) & 0xFF,
+                      (int)((node->fill_color_2 & 0xFF) * opacity));
+          nk_fill_rect_multi_color(canvas_buf, nr, fill, fill, fill2,
+                                   fill2); // simplistic projection
+        } else {
+          nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, fill);
+        }
+      }
+    }
+    if (node->stroke_width > 0) {
+      if (node->rotation != 0.0f && node->type == NODE_TYPE_RECT) {
+        fill_rotated_rounded_rect(
+            canvas_buf, nr.x + nr.w / 2, nr.y + nr.h / 2, nr.w, nr.h,
+            node->rotation * 3.14159f / 180.0f, node->corner_radius * scale,
+            stroke, 1, node->stroke_width * scale);
+      } else {
+        nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale,
+                       node->stroke_width, stroke);
+      }
+    }
+
+    // Line Endings (Start/End Styles)
+    // Only apply if it looks like a line (thin)
+    if (node->height < 8.0f || node->width < 8.0f) {
+      float cx = sx + sw / 2.0f;
+      float cy = sy + sh / 2.0f;
+      float rad = node->rotation * 3.14159f / 180.0f;
+      float c = cosf(rad);
+      float s = sinf(rad);
+
+      // Calculate geometric start/end relative to center, rotated
+      // Assume standard line is horizontal (width > height)
+      float half_w = sw / 2.0f;
+
+      // Start point (left)
+      float start_x = cx - half_w * c;
+      float start_y = cy - half_w * s;
+
+      // End point (right)
+      float end_x = cx + half_w * c;
+      float end_y = cy + half_w * s;
+
+      float size = (node->stroke_width > 2.0f ? node->stroke_width : 2.0f) *
+                   4.0f * scale;
+
+      // Render Start Style
+      if (node->line_start_style == 1) { // Circle
+        nk_fill_circle(
+            canvas_buf,
+            nk_rect(start_x - size / 2, start_y - size / 2, size, size),
+            stroke);
+      } else if (node->line_start_style == 2) { // Arrow (pointing left/outward)
+        // Rotate arrow points
+        // Tip at start_x, start_y. Base towards center.
+        float angle = rad + 3.14159f; // Pointing away from center (left)
+        float tip_x = start_x;        // Tip exactly at geometric start
+        float tip_y = start_y;
+
+        // Base points
+        float base_angle1 = angle + 2.5f; // ~145 deg
+        float base_angle2 = angle - 2.5f;
+
+        float p1x = tip_x + size * cosf(base_angle1);
+        float p1y = tip_y + size * sinf(base_angle1);
+        float p2x = tip_x + size * cosf(base_angle2);
+        float p2y = tip_y + size * sinf(base_angle2);
+
+        nk_fill_triangle(canvas_buf, tip_x, tip_y, p1x, p1y, p2x, p2y, stroke);
+      }
+
+      // Render End Style
+      if (node->line_end_style == 1) { // Circle
+        nk_fill_circle(canvas_buf,
+                       nk_rect(end_x - size / 2, end_y - size / 2, size, size),
+                       stroke);
+      } else if (node->line_end_style ==
+                 2) {        // Arrow (pointing right/outward)
+                             // Tip at end_x, end_y. Base towards center.
+        float angle = rad;   // Pointing away from center (right)
+        float tip_x = end_x; // Tip exactly at geometric end
+        float tip_y = end_y;
+
+        // Base points
+        float base_angle1 = angle + 2.5f;
+        float base_angle2 = angle - 2.5f;
+
+        float p1x = tip_x + size * cosf(base_angle1);
+        float p1y = tip_y + size * sinf(base_angle1);
+        float p2x = tip_x + size * cosf(base_angle2);
+        float p2y = tip_y + size * sinf(base_angle2);
+
+        nk_fill_triangle(canvas_buf, tip_x, tip_y, p1x, p1y, p2x, p2y, stroke);
+      }
+    }
+  } else if (node->type == NODE_TYPE_LINE) {
+    // Render explicit LINE type as a horizontal stroke through the
+    // center of its bounds
+    float line_y = nr.y + nr.h / 2.0f;
+    float line_w = (node->stroke_width > 0 ? node->stroke_width : 2.0f) * scale;
+    struct nk_color line_col = stroke;
+
+    // Draw the main line
+    nk_stroke_line(canvas_buf, nr.x, line_y, nr.x + nr.w, line_y, line_w,
+                   line_col);
+
+    // Line Endings
+    float size = (line_w > 2.0f ? line_w : 2.0f) * 4.0f;
+
+    // Start Style (Left)
+    if (node->line_start_style > 0) {
+      if (node->line_start_style == 1) { // Circle
+        nk_fill_circle(canvas_buf,
+                       nk_rect(nr.x - size / 2, line_y - size / 2, size, size),
+                       line_col);
+      } else if (node->line_start_style == 2) { // Arrow (Left <--)
+        nk_fill_triangle(canvas_buf, nr.x, line_y, nr.x + size,
+                         line_y - size / 2, nr.x + size, line_y + size / 2,
+                         line_col);
+      }
+    }
+
+    // End Style (Right)
+    if (node->line_end_style > 0) {
+      if (node->line_end_style == 1) { // Circle
+        nk_fill_circle(
+            canvas_buf,
+            nk_rect(nr.x + nr.w - size / 2, line_y - size / 2, size, size),
+            line_col);
+      } else if (node->line_end_style == 2) { // Arrow (Right -->)
+        nk_fill_triangle(canvas_buf, nr.x + nr.w, line_y, nr.x + nr.w - size,
+                         line_y - size / 2, nr.x + nr.w - size,
+                         line_y + size / 2, line_col);
+      }
+    }
+
+  } else if (node->type == NODE_TYPE_PATH && node->path_points &&
+             node->path_point_count > 1) {
+    if (node->is_container && !node->image_path[0]) {
+      // Empty container placeholder for PATH shape
+      struct nk_color cbg = nk_rgba(66, 133, 244, 40);
+      struct nk_color cst = nk_rgba(66, 133, 244, 255);
+      float poly_pts[512 * 2];
+      int poly_count =
+          node_get_path_polygon(node, poly_pts, 512, sx, sy, scale);
+      if (poly_count > 2) {
+        nk_fill_polygon(canvas_buf, poly_pts, poly_count, cbg);
+        nk_stroke_polygon(canvas_buf, poly_pts, poly_count, 1.0f, cst);
+      }
+      if (ui->font_icons) {
+        struct nk_rect ir =
+            nk_rect(nr.x + nr.w / 2 - 10, nr.y + nr.h / 2 - 10, 20, 20);
+        nk_draw_text(canvas_buf, ir, ICON_ADD, strlen(ICON_ADD),
+                     &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), cst);
+      }
+      drawn_image = 1;
+    }
+
+    // Fill path
+    if (!drawn_image && fill.a > 0) {
+      float poly_pts[512 * 2];
+      int poly_count =
+          node_get_path_polygon(node, poly_pts, 512, sx, sy, scale);
+      if (poly_count > 2) {
+        nk_fill_polygon(canvas_buf, poly_pts, poly_count, fill);
+      }
+    }
+
+    // Stroke path
+    for (int k = 0; k < node->path_point_count; k++) {
+      int nxt = (k + 1) % node->path_point_count;
+      NodePathPoint p1 = node->path_points[k], p2 = node->path_points[nxt];
+      if (p1.type == 1) // Cubic Bezier
+        nk_stroke_curve(canvas_buf, sx + p1.x * scale, sy + p1.y * scale,
+                        sx + p1.cp2x * scale, sy + p1.cp2y * scale,
+                        sx + p2.cp1x * scale, sy + p2.cp1y * scale,
+                        sx + p2.x * scale, sy + p2.y * scale,
+                        node->stroke_width * scale, stroke);
+      else
+        nk_stroke_line(canvas_buf, sx + p1.x * scale, sy + p1.y * scale,
+                       sx + p2.x * scale, sy + p2.y * scale,
+                       node->stroke_width * scale, stroke);
+    }
+
+    // Line Endings for Paths (only if 2 points)
+    if (node->path_point_count == 2) {
+      NodePathPoint p1 = node->path_points[0];
+      NodePathPoint p2 = node->path_points[1];
+      float start_x = sx + p1.x * scale;
+      float start_y = sy + p1.y * scale;
+      float end_x = sx + p2.x * scale;
+      float end_y = sy + p2.y * scale;
+
+      float dx = end_x - start_x;
+      float dy = end_y - start_y;
+      float angle = atan2f(dy, dx);
+      float size = (node->stroke_width > 2.0f ? node->stroke_width : 2.0f) *
+                   4.0f * scale;
+
+      // Start Style
+      if (node->line_start_style == 1) { // Circle
+        nk_fill_circle(
+            canvas_buf,
+            nk_rect(start_x - size / 2, start_y - size / 2, size, size),
+            stroke);
+      } else if (node->line_start_style ==
+                 2) { // Arrow (pointing away from line)
+        // Tip at start_x, start_y. Pointing away means angle + PI.
+        float arrow_angle = angle + 3.14159f;
+        float tip_x = start_x; // Tip is exactly at start point
+        float tip_y = start_y;
+
+        // Move tip slightly out so it doesn't overlap line end exactly?
+        // No, exact is fine. Actually, if we want the arrow tip to be
+        // at start_x, we compute base from there.
+
+        float base_angle1 = arrow_angle + 0.5f; // ~28 deg
+        float base_angle2 = arrow_angle - 0.5f;
+
+        float p1x = tip_x + size * cosf(base_angle1);
+        float p1y = tip_y + size * sinf(base_angle1);
+        float p2x = tip_x + size * cosf(base_angle2);
+        float p2y = tip_y + size * sinf(base_angle2);
+
+        nk_fill_triangle(canvas_buf, tip_x, tip_y, p1x, p1y, p2x, p2y, stroke);
+      }
+
+      // End Style
+      if (node->line_end_style == 1) { // Circle
+        nk_fill_circle(canvas_buf,
+                       nk_rect(end_x - size / 2, end_y - size / 2, size, size),
+                       stroke);
+      } else if (node->line_end_style == 2) { // Arrow
+        float tip_x = end_x;
+        float tip_y = end_y;
+
+        float base_angle1 = angle + 3.14159f + 0.5f;
+        float base_angle2 = angle + 3.14159f - 0.5f;
+
+        float p1x = tip_x + size * cosf(base_angle1);
+        float p1y = tip_y + size * sinf(base_angle1);
+        float p2x = tip_x + size * cosf(base_angle2);
+        float p2y = tip_y + size * sinf(base_angle2);
+
+        nk_fill_triangle(canvas_buf, tip_x, tip_y, p1x, p1y, p2x, p2y, stroke);
+      }
+    }
+  } else if (node->type == NODE_TYPE_ELLIPSE) {
+    if (node->is_container && !node->image_path[0]) {
+      struct nk_color cbg = nk_rgba(66, 133, 244, 40);
+      struct nk_color cst = nk_rgba(66, 133, 244, 255);
+      nk_fill_circle(canvas_buf, nr, cbg);
+      nk_stroke_circle(canvas_buf, nr, 1.0f, cst);
+      if (ui->font_icons) {
+        struct nk_rect ir =
+            nk_rect(nr.x + nr.w / 2 - 10, nr.y + nr.h / 2 - 10, 20, 20);
+        nk_draw_text(canvas_buf, ir, ICON_ADD, strlen(ICON_ADD),
+                     &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), cst);
+      }
+      drawn_image = 1;
+    }
+    if (node->rotation != 0.0f) {
+      float rad = node->rotation * 3.14159f / 180.0f;
+      float c = cosf(rad);
+      float s = sinf(rad);
+      float cx = nr.x + nr.w / 2.0f;
+      float cy = nr.y + nr.h / 2.0f;
+      float hw = nr.w / 2.0f;
+      float hh = nr.h / 2.0f;
+      float pts[64];
+      for (int i = 0; i < 32; i++) {
+        float th = i * 2.0f * 3.14159f / 32.0f;
+        float ex = cosf(th) * hw;
+        float ey = sinf(th) * hh;
+        pts[i * 2] = cx + ex * c - ey * s;
+        pts[i * 2 + 1] = cy + ex * s + ey * c;
+      }
+      if (!drawn_image && has_fill)
+        nk_fill_polygon(canvas_buf, pts, 32, fill);
+      if (node->stroke_width > 0)
+        nk_stroke_polygon(canvas_buf, pts, 32, node->stroke_width, stroke);
+    } else {
+      if (!drawn_image && has_fill)
+        nk_fill_circle(canvas_buf, nr, fill);
+      if (node->stroke_width > 0)
+        nk_stroke_circle(canvas_buf, nr, node->stroke_width, stroke);
+    }
+  } else if (node->type == NODE_TYPE_TRIANGLE) {
+    if (node->is_container && !node->image_path[0]) {
+      struct nk_color cbg = nk_rgba(66, 133, 244, 40);
+      struct nk_color cst = nk_rgba(66, 133, 244, 255);
+      float vpts[6] = {sx + sw / 2, sy, sx, sy + sh, sx + sw, sy + sh};
+      nk_fill_polygon(canvas_buf, vpts, 3, cbg);
+      nk_stroke_polygon(canvas_buf, vpts, 3, 1.0f, cst);
+      if (ui->font_icons) {
+        struct nk_rect ir =
+            nk_rect(nr.x + nr.w / 2 - 10, nr.y + nr.h / 2 - 5, 20, 20);
+        nk_draw_text(canvas_buf, ir, ICON_ADD, strlen(ICON_ADD),
+                     &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), cst);
+      }
+      drawn_image = 1;
+    }
+    float cx = sx + sw / 2.0f;
+    float cy = sy + sh / 2.0f;
+    float rad = node->rotation * 3.14159f / 180.0f;
+    float c = cosf(rad), s = sinf(rad);
+    float p0x = 0, p0y = -sh / 2.0f;
+    float p1x = -sw / 2.0f, p1y = sh / 2.0f;
+    float p2x = sw / 2.0f, p2y = sh / 2.0f;
+    struct nk_vec2 pts[3] = {{cx + p0x * c - p0y * s, cy + p0x * s + p0y * c},
+                             {cx + p1x * c - p1y * s, cy + p1x * s + p1y * c},
+                             {cx + p2x * c - p2y * s, cy + p2x * s + p2y * c}};
+    if (!drawn_image && has_fill)
+      fill_rounded_polygon(canvas_buf, pts, 3, node->corner_radius * scale,
+                           fill, 0, 0);
+    if (node->stroke_width > 0)
+      fill_rounded_polygon(canvas_buf, pts, 3, node->corner_radius * scale,
+                           stroke, 1, node->stroke_width);
+  } else if (node->type == NODE_TYPE_PENTAGON) {
+    float cx = sx + sw / 2.0f;
+    float cy = sy + sh / 2.0f;
+    float rad = node->rotation * 3.14159f / 180.0f;
+    float c_rot = cosf(rad), s_rot = sinf(rad);
+    struct nk_vec2 pts[5];
+    for (int i = 0; i < 5; i++) {
+      float angle = (float)i * 2.0f * 3.14159f / 5.0f - 3.14159f / 2.0f;
+      float px = cosf(angle) * sw / 2.0f;
+      float py = sinf(angle) * sh / 2.0f;
+      pts[i].x = cx + px * c_rot - py * s_rot;
+      pts[i].y = cy + px * s_rot + py * c_rot;
+    }
+    if (!drawn_image && has_fill)
+      fill_rounded_polygon(canvas_buf, pts, 5, node->corner_radius * scale,
+                           fill, 0, 0);
+    if (node->stroke_width > 0)
+      fill_rounded_polygon(canvas_buf, pts, 5, node->corner_radius * scale,
+                           stroke, 1, node->stroke_width);
+  } else if (node->type == NODE_TYPE_HEXAGON) {
+    float cx = sx + sw / 2.0f;
+    float cy = sy + sh / 2.0f;
+    float rad = node->rotation * 3.14159f / 180.0f;
+    float c_rot = cosf(rad), s_rot = sinf(rad);
+    struct nk_vec2 pts[6];
+    for (int i = 0; i < 6; i++) {
+      float angle = (float)i * 2.0f * 3.14159f / 6.0f;
+      float px = cosf(angle) * sw / 2.0f;
+      float py = sinf(angle) * sh / 2.0f;
+      pts[i].x = cx + px * c_rot - py * s_rot;
+      pts[i].y = cy + px * s_rot + py * c_rot;
+    }
+    if (!drawn_image && has_fill)
+      fill_rounded_polygon(canvas_buf, pts, 6, node->corner_radius * scale,
+                           fill, 0, 0);
+    if (node->stroke_width > 0)
+      fill_rounded_polygon(canvas_buf, pts, 6, node->corner_radius * scale,
+                           stroke, 1, node->stroke_width);
+  } else if (node->type == NODE_TYPE_OCTAGON) {
+    float cx = sx + sw / 2.0f;
+    float cy = sy + sh / 2.0f;
+    float rad = node->rotation * 3.14159f / 180.0f;
+    float c_rot = cosf(rad), s_rot = sinf(rad);
+    struct nk_vec2 pts[8];
+    for (int i = 0; i < 8; i++) {
+      float angle = (float)i * 2.0f * 3.14159f / 8.0f + 3.14159f / 8.0f;
+      float px = cosf(angle) * sw / 2.0f;
+      float py = sinf(angle) * sh / 2.0f;
+      pts[i].x = cx + px * c_rot - py * s_rot;
+      pts[i].y = cy + px * s_rot + py * c_rot;
+    }
+    if (!drawn_image && has_fill)
+      fill_rounded_polygon(canvas_buf, pts, 8, node->corner_radius * scale,
+                           fill, 0, 0);
+    if (node->stroke_width > 0)
+      fill_rounded_polygon(canvas_buf, pts, 8, node->corner_radius * scale,
+                           stroke, 1, node->stroke_width);
+  } else if (node->type == NODE_TYPE_STAR) {
+    float cx = sx + sw / 2.0f;
+    float cy = sy + sh / 2.0f;
+    float rad = node->rotation * 3.14159f / 180.0f;
+    float c_rot = cosf(rad), s_rot = sinf(rad);
+    struct nk_vec2 pts[10];
+    for (int i = 0; i < 10; i++) {
+      float angle = (float)i * 2.0f * 3.14159f / 10.0f - 3.14159f / 2.0f;
+      float r = (i % 2 == 0) ? (sw / 2.0f) : (sw / 4.0f);
+      float px = cosf(angle) * r;
+      float py = sinf(angle) * r;
+      pts[i].x = cx + px * c_rot - py * s_rot;
+      pts[i].y = cy + px * s_rot + py * c_rot;
+    }
+    if (!drawn_image && has_fill)
+      fill_rounded_polygon(canvas_buf, pts, 10, node->corner_radius * scale,
+                           fill, 0, 0);
+    if (node->stroke_width > 0)
+      fill_rounded_polygon(canvas_buf, pts, 10, node->corner_radius * scale,
+                           stroke, 1, node->stroke_width);
+  } else if (node->type == NODE_TYPE_HEART) {
+    float cx = sx + sw / 2.0f;
+    float cy = sy + sh / 2.0f;
+    float rad = node->rotation * 3.14159f / 180.0f;
+    float c_rot = cosf(rad), s_rot = sinf(rad);
+    const int hcount = 32;
+    struct nk_vec2 hpts[32];
+    for (int i = 0; i < hcount; i++) {
+      float t = (float)i * 2.0f * 3.14159f / (float)hcount;
+      float hx = 16.0f * powf(sinf(t), 3.0f);
+      float hy = -(13.0f * cosf(t) - 5.0f * cosf(2.0f * t) -
+                   2.0f * cosf(3.0f * t) - cosf(4.0f * t));
+      float lx = (hx / 32.0f) * sw;
+      float ly = (hy / 32.0f) * sh + sh * 0.05f;
+      hpts[i].x = cx + lx * c_rot - ly * s_rot;
+      hpts[i].y = cy + lx * s_rot + ly * c_rot;
+    }
+    if (!drawn_image && has_fill)
+      nk_fill_polygon(canvas_buf, (const float *)hpts, hcount, fill);
+    if (node->stroke_width > 0)
+      nk_stroke_polygon(canvas_buf, (const float *)hpts, hcount,
+                        node->stroke_width, stroke);
+  } else if (node->type == NODE_TYPE_TEXT) {
+    // Text node
+
+    // Render background for sticky notes / text with bg
+    if (fill.a > 0)
+
+      if (node->fill_type == 1) { // Gradient
+        struct nk_color fill2 = nk_rgba(
+            (node->fill_color_2 >> 24) & 0xFF,
+            (node->fill_color_2 >> 16) & 0xFF, (node->fill_color_2 >> 8) & 0xFF,
+            (int)((node->fill_color_2 & 0xFF) * opacity));
+        nk_fill_rect_multi_color(canvas_buf, nr, fill, fill, fill2,
+                                 fill2); // simplistic projection
+      } else {
+        nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, fill);
+      }
+
+    const char *display_text = node->text;
+    static char linked_val_buf[256];
+    int is_editing = (ui->editing_node == node);
+    // Substitute linked column value when not editing
+    if (!is_editing && node->linked_col_name[0]) {
+      if (dd->linked_table_id && engine && engine->doc) {
+        for (int i = 0; i < 32; i++) {
+          Page *p = &engine->doc->pages[i];
+          if (!p->in_use)
+            continue;
+          Block *tb = page_find_block_by_id(p, dd->linked_table_id);
+          if (tb && tb->type == BLOCK_TABLE && tb->data.table.columnar) {
+            AslanTable *tbl = tb->data.table.columnar;
+            for (int lk = 0; lk < (int)tbl->column_count; lk++) {
+              if (strcmp(tbl->columns[lk].name, node->linked_col_name) == 0) {
+                int ridx = ui->design_linked_row_idx;
+                if (ridx < (int)tbl->active_count) {
+                  uint64_t rid = aslan_table_view_row_id(tbl, ridx);
+                  const char *val = aslan_table_get_cell_display(
+                      tbl, lk, rid, linked_val_buf, sizeof(linked_val_buf));
+                  if (val && val[0]) {
+                    display_text = val;
+                  }
+                }
+                break;
+              }
+            }
+            break;
+          }
+        }
+      }
+    }
+    if (is_editing) {
+      display_text = ui->edit_buffer;
+      nk_fill_rect(canvas_buf, nk_rect(nr.x - 2, nr.y - 1, nr.w + 4, nr.h + 2),
+                   2.0f, nk_rgba(66, 133, 244, 20));
+      nk_stroke_rect(canvas_buf,
+                     nk_rect(nr.x - 2, nr.y - 1, nr.w + 4, nr.h + 2), 2.0f,
+                     1.0f, nk_rgb(66, 133, 244));
+    }
+    if (display_text && strlen(display_text) > 0) {
+      const struct nk_user_font *font =
+          ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
+
+      // Select font based on type and size
+      if (node->font_type == 4 && ui->font_inter) { // Mono -> Inter
+        font = &ui->font_inter->handle;
+      } else { // Inter variants (Body, H1, H2, H3)
+        // Find closest size in font_inter_sizes
+        float target_size = node->font_size;
+        float best_diff = 1000.0f;
+        int best_idx = -1;
+        float available_sizes[] = {12.0f, 14.0f, 16.0f, 20.0f, 24.0f,
+                                   32.0f, 48.0f, 64.0f, 96.0f};
+
+        for (int i = 0; i < 9; i++) {
+          float diff = fabsf(available_sizes[i] - target_size);
+          if (diff < best_diff) {
+            best_diff = diff;
+            best_idx = i;
+          }
+        }
+
+        if (best_idx >= 0 && ui->font_inter_sizes[best_idx]) {
+          font = &ui->font_inter_sizes[best_idx]->handle;
+        } else if (ui->font_inter) {
+          font = &ui->font_inter->handle;
+        }
+      }
+
+      // Auto-resize text node to fit content
+      if (display_text && strlen(display_text) > 0) {
+        float text_w = font->width(font->userdata, font->height, display_text,
+                                   strlen(display_text));
+        float text_h = font->height;
+
+        // Only update if dimensions differ significantly (prevent
+        // jitter)
+        if (fabsf(node->width - (text_w + 10.0f)) > 1.0f ||
+            fabsf(node->height - (text_h + 10.0f)) > 1.0f) {
+          node->width = text_w + 10.0f; // Add padding
+          node->height = text_h + 10.0f;
+        }
+      }
+
+      struct nk_color txt_color = {
+          (node->stroke_color >> 24) & 0xFF, (node->stroke_color >> 16) & 0xFF,
+          (node->stroke_color >> 8) & 0xFF, node->stroke_color & 0xFF};
+
+      nk_draw_text(canvas_buf, nr, display_text, strlen(display_text), font,
+                   nk_rgba(0, 0, 0, 0), txt_color);
+      if (is_editing) {
+        float tw = font->width(font->userdata, font->height, display_text,
+                               strlen(display_text));
+        int show_cursor = ((int)(SDL_GetTicks() / 500) % 2 == 0);
+        if (show_cursor) {
+          nk_stroke_line(canvas_buf, nr.x + tw + 1, nr.y + 2, nr.x + tw + 1,
+                         nr.y + nr.h - 2, 1.5f, nk_rgb(66, 133, 244));
+        }
+      }
+    }
+  }
+
+  // Container indicator (Add icon in the center if empty container)
+  if (node->is_container && !node->image_path[0] &&
+      node->type != NODE_TYPE_TEXT && node->type != NODE_TYPE_ROOT) {
+    struct nk_color cst = nk_rgba(66, 133, 244, 255);
+    if (ui->font_icons) {
+      struct nk_rect ir =
+          nk_rect(nr.x + nr.w / 2 - 10, nr.y + nr.h / 2 - 10, 20, 20);
+      nk_draw_text(canvas_buf, ir, ICON_ADD, strlen(ICON_ADD),
+                   &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), cst);
+    }
+  }
+
+  for (Node *child = node->first_child; child; child = child->next_sibling) {
+    ui_render_node_tree(ui, ctx, engine, block, dd, canvas_buf, child, bounds,
+                        scale, sx, sy);
+  }
+
+  if (node->is_container && node->clip_content) {
+    nk_push_scissor(canvas_buf, nk_rect(-8192, -8192, 16384, 16384));
   }
 }
 
@@ -1021,779 +1871,48 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       if (dd->root) {
         for (Node *node = dd->root->first_child; node;
              node = node->next_sibling) {
-          if (!node->visible)
-            continue;
+          ui_render_node_tree(ui, ctx, engine, block, dd, canvas_buf, node,
+                              bounds, scale, bounds.x, bounds.y);
+        }
 
+        // Selection highlight over everything
+        if (ui->selected_node && is_active_design && !ds->bezier_mode) {
+          Node *node = ui->selected_node;
           float sx = bounds.x + node->x * scale;
           float sy = bounds.y + node->y * scale;
+          Node *p = node->parent;
+          while (p && p != dd->root) {
+            sx += p->x * scale;
+            sy += p->y * scale;
+            p = p->parent;
+          }
           float sw = node->width * scale;
           float sh = node->height * scale;
           struct nk_rect nr = nk_rect(sx, sy, sw, sh);
 
-          uint32_t f32 = node->fill_color;
-          uint32_t s32 = node->stroke_color;
-          float opacity = node->opacity;
-          struct nk_color fill =
-              nk_rgba((f32 >> 24) & 0xFF, (f32 >> 16) & 0xFF, (f32 >> 8) & 0xFF,
-                      (int)((f32 & 0xFF) * opacity));
-          struct nk_color stroke =
-              nk_rgba((s32 >> 24) & 0xFF, (s32 >> 16) & 0xFF, (s32 >> 8) & 0xFF,
-                      (int)((s32 & 0xFF) * opacity));
+          float sel_off = 2.0f + (node->stroke_width * scale) / 2.0f;
+          float rad = node->rotation * 3.14159f / 180.0f;
+          float cx = sx + sw / 2.0f;
+          float cy = sy + sh / 2.0f;
 
-          int drawn_image = 0;
-          int has_fill = (node->fill_color & 0xFF) > 10;
+          fill_rotated_rounded_rect(canvas_buf, cx, cy, sw + sel_off * 2,
+                                    sh + sel_off * 2, rad, 0,
+                                    nk_rgb(66, 133, 244), 1, 1.0f);
 
-          // Container with image: render shape-masked image
-          if (node->is_container && node->image_path[0]) {
-            SDL_Texture *tex =
-                get_masked_image_texture(ui, node->image_path, node);
-            if (tex) {
-              struct nk_image img = nk_image_ptr(tex);
-              nk_draw_image(canvas_buf, nr, &img, nk_rgb(255, 255, 255));
-              drawn_image = 1;
-            }
-          }
-
-          if (node->type == NODE_TYPE_CHART && node->chart_data) {
-            Page *curr_page = doc_page_get_active(engine->doc);
-            ui_render_chart_node(ui, ctx, node, nr, curr_page);
-
-            // Rendering configuration bar if selected
-            if (ui->selected_node == node) {
-              ui_render_chart_node_config_bar(ui, engine, ctx, node, nr,
-                                              curr_page);
-            }
-          } else if (node->type == NODE_TYPE_STROKE && node->stroke_data) {
-            Stroke *s = node->stroke_data;
-            if (s->count >= 2) {
-              struct nk_color st_col =
-                  nk_rgba((s->color >> 24) & 0xFF, (s->color >> 16) & 0xFF,
-                          (s->color >> 8) & 0xFF, s->color & 0xFF);
-
-              struct nk_vec2 *pts =
-                  (struct nk_vec2 *)malloc(s->count * sizeof(struct nk_vec2));
-              if (pts) {
-                for (int k = 0; k < s->count; k++) {
-                  pts[k].x = bounds.x + s->points[k].x * scale;
-                  pts[k].y = bounds.y + s->points[k].y * scale;
-                }
-                nk_stroke_polyline(canvas_buf, (float *)pts, s->count,
-                                   s->thickness * scale, st_col);
-
-                // Render Endings for Strokes (Consistency with Canvas)
-                if (node->line_start_style || node->line_end_style) {
-                  float size =
-                      (s->thickness * scale > 2.0f ? s->thickness * scale
-                                                   : 2.0f) *
-                      4.0f;
-
-                  // Start Style
-                  if (node->line_start_style > 0) {
-                    float start_x = pts[0].x;
-                    float start_y = pts[0].y;
-                    float dx = pts[1].x - start_x;
-                    float dy = pts[1].y - start_y;
-                    float angle = atan2f(dy, dx);
-
-                    if (node->line_start_style == 1) { // Circle
-                      nk_fill_circle(canvas_buf,
-                                     nk_rect(start_x - size / 2,
-                                             start_y - size / 2, size, size),
-                                     st_col);
-                    } else if (node->line_start_style == 2) { // Arrow
-                      float arrow_angle = angle + 3.14159f;
-                      float tip_x = start_x;
-                      float tip_y = start_y;
-                      float base_angle1 = arrow_angle + 0.5f;
-                      float base_angle2 = arrow_angle - 0.5f;
-                      float p1x = tip_x + size * cosf(base_angle1);
-                      float p1y = tip_y + size * sinf(base_angle1);
-                      float p2x = tip_x + size * cosf(base_angle2);
-                      float p2y = tip_y + size * sinf(base_angle2);
-                      nk_fill_triangle(canvas_buf, tip_x, tip_y, p1x, p1y, p2x,
-                                       p2y, st_col);
-                    }
-                  }
-
-                  // End Style
-                  if (node->line_end_style > 0) {
-                    float end_x = pts[s->count - 1].x;
-                    float end_y = pts[s->count - 1].y;
-                    float dx = end_x - pts[s->count - 2].x;
-                    float dy = end_y - pts[s->count - 2].y;
-                    float angle = atan2f(dy, dx);
-
-                    if (node->line_end_style == 1) { // Circle
-                      nk_fill_circle(canvas_buf,
-                                     nk_rect(end_x - size / 2, end_y - size / 2,
-                                             size, size),
-                                     st_col);
-                    } else if (node->line_end_style == 2) { // Arrow
-                      float tip_x = end_x;
-                      float tip_y = end_y;
-                      // Arrow tip at end, base points away
-                      // standard arrow at end points OUTWARD usually.
-                      // ui_canvas.c logic: base_angle = angle + PI +/- 0.5.
-                      // Wait, ui_canvas.c had angle (dy,dx).
-                      // If line goes right (0 rad), arrow should point right.
-                      // Tip at end. Base to left.
-                      // So angle + PI is correct for base calculation relative
-                      // to tip.
-                      float effective_angle = angle;
-                      float base_angle_a = effective_angle + 3.14159f + 0.5f;
-                      float base_angle_b = effective_angle + 3.14159f - 0.5f;
-
-                      float p1x = tip_x + size * cosf(base_angle_a);
-                      float p1y = tip_y + size * sinf(base_angle_a);
-                      float p2x = tip_x + size * cosf(base_angle_b);
-                      float p2y = tip_y + size * sinf(base_angle_b);
-                      nk_fill_triangle(canvas_buf, tip_x, tip_y, p1x, p1y, p2x,
-                                       p2y, st_col);
-                    }
-                  }
-                }
-
-                free(pts);
-              }
-            }
-            continue;
-          }
-
-          if (node->type == NODE_TYPE_IMAGE) {
-            int drawn = 0;
-            if (node->image_path[0]) {
-              SDL_Texture *tex = get_image_texture(ui, node->image_path);
-              if (tex) {
-                struct nk_image img = nk_image_ptr(tex);
-                nk_draw_image(canvas_buf, nr, &img, nk_rgb(255, 255, 255));
-                drawn = 1;
-              }
-            }
-            if (!drawn) {
-              nk_fill_rect(canvas_buf, nr, 0, nk_rgb(200, 200, 200));
-            }
-            if (node->stroke_width > 0)
-              nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale,
-                             node->stroke_width * scale, stroke);
-          } else if (node->type == NODE_TYPE_RECT) {
-            if (node->is_container && !node->image_path[0]) {
-              struct nk_color cbg = nk_rgba(66, 133, 244, 40);
-              struct nk_color cst = nk_rgba(66, 133, 244, 255);
-              nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, cbg);
-              nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale, 1.0f,
-                             cst);
-              if (ui->font_icons) {
-                struct nk_rect ir =
-                    nk_rect(nr.x + nr.w / 2 - 10, nr.y + nr.h / 2 - 10, 20, 20);
-                nk_draw_text(canvas_buf, ir, ICON_ADD, strlen(ICON_ADD),
-                             &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), cst);
-              }
-              drawn_image = 1;
-            }
-            if (!drawn_image && has_fill) {
-              if (node->rotation != 0.0f && node->type == NODE_TYPE_RECT) {
-                fill_rotated_rounded_rect(
-                    canvas_buf, nr.x + nr.w / 2, nr.y + nr.h / 2, nr.w, nr.h,
-                    node->rotation * 3.14159f / 180.0f,
-                    node->corner_radius * scale, fill, 0, 0);
-              } else {
-                nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, fill);
-              }
-            }
-            if (node->stroke_width > 0) {
-              if (node->rotation != 0.0f && node->type == NODE_TYPE_RECT) {
-                fill_rotated_rounded_rect(canvas_buf, nr.x + nr.w / 2,
-                                          nr.y + nr.h / 2, nr.w, nr.h,
-                                          node->rotation * 3.14159f / 180.0f,
-                                          node->corner_radius * scale, stroke,
-                                          1, node->stroke_width * scale);
-              } else {
-                nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale,
-                               node->stroke_width, stroke);
-              }
-            }
-
-            // Line Endings (Start/End Styles)
-            // Only apply if it looks like a line (thin)
-            if (node->height < 8.0f || node->width < 8.0f) {
-              float cx = sx + sw / 2.0f;
-              float cy = sy + sh / 2.0f;
-              float rad = node->rotation * 3.14159f / 180.0f;
-              float c = cosf(rad);
-              float s = sinf(rad);
-
-              // Calculate geometric start/end relative to center, rotated
-              // Assume standard line is horizontal (width > height)
-              float half_w = sw / 2.0f;
-
-              // Start point (left)
-              float start_x = cx - half_w * c;
-              float start_y = cy - half_w * s;
-
-              // End point (right)
-              float end_x = cx + half_w * c;
-              float end_y = cy + half_w * s;
-
-              float size =
-                  (node->stroke_width > 2.0f ? node->stroke_width : 2.0f) *
-                  4.0f * scale;
-
-              // Render Start Style
-              if (node->line_start_style == 1) { // Circle
-                nk_fill_circle(
-                    canvas_buf,
-                    nk_rect(start_x - size / 2, start_y - size / 2, size, size),
-                    stroke);
-              } else if (node->line_start_style ==
-                         2) { // Arrow (pointing left/outward)
-                // Rotate arrow points
-                // Tip at start_x, start_y. Base towards center.
-                float angle =
-                    rad + 3.14159f;    // Pointing away from center (left)
-                float tip_x = start_x; // Tip exactly at geometric start
-                float tip_y = start_y;
-
-                // Base points
-                float base_angle1 = angle + 2.5f; // ~145 deg
-                float base_angle2 = angle - 2.5f;
-
-                float p1x = tip_x + size * cosf(base_angle1);
-                float p1y = tip_y + size * sinf(base_angle1);
-                float p2x = tip_x + size * cosf(base_angle2);
-                float p2y = tip_y + size * sinf(base_angle2);
-
-                nk_fill_triangle(canvas_buf, tip_x, tip_y, p1x, p1y, p2x, p2y,
-                                 stroke);
-              }
-
-              // Render End Style
-              if (node->line_end_style == 1) { // Circle
-                nk_fill_circle(
-                    canvas_buf,
-                    nk_rect(end_x - size / 2, end_y - size / 2, size, size),
-                    stroke);
-              } else if (node->line_end_style ==
-                         2) {      // Arrow (pointing right/outward)
-                                   // Tip at end_x, end_y. Base towards center.
-                float angle = rad; // Pointing away from center (right)
-                float tip_x = end_x; // Tip exactly at geometric end
-                float tip_y = end_y;
-
-                // Base points
-                float base_angle1 = angle + 2.5f;
-                float base_angle2 = angle - 2.5f;
-
-                float p1x = tip_x + size * cosf(base_angle1);
-                float p1y = tip_y + size * sinf(base_angle1);
-                float p2x = tip_x + size * cosf(base_angle2);
-                float p2y = tip_y + size * sinf(base_angle2);
-
-                nk_fill_triangle(canvas_buf, tip_x, tip_y, p1x, p1y, p2x, p2y,
-                                 stroke);
-              }
-            }
-          } else if (node->type == NODE_TYPE_LINE) {
-            // Render explicit LINE type as a horizontal stroke through the
-            // center of its bounds
-            float line_y = nr.y + nr.h / 2.0f;
-            float line_w =
-                (node->stroke_width > 0 ? node->stroke_width : 2.0f) * scale;
-            struct nk_color line_col = stroke;
-
-            // Draw the main line
-            nk_stroke_line(canvas_buf, nr.x, line_y, nr.x + nr.w, line_y,
-                           line_w, line_col);
-
-            // Line Endings
-            float size = (line_w > 2.0f ? line_w : 2.0f) * 4.0f;
-
-            // Start Style (Left)
-            if (node->line_start_style > 0) {
-              if (node->line_start_style == 1) { // Circle
-                nk_fill_circle(
-                    canvas_buf,
-                    nk_rect(nr.x - size / 2, line_y - size / 2, size, size),
-                    line_col);
-              } else if (node->line_start_style == 2) { // Arrow (Left <--)
-                nk_fill_triangle(canvas_buf, nr.x, line_y, nr.x + size,
-                                 line_y - size / 2, nr.x + size,
-                                 line_y + size / 2, line_col);
-              }
-            }
-
-            // End Style (Right)
-            if (node->line_end_style > 0) {
-              if (node->line_end_style == 1) { // Circle
-                nk_fill_circle(canvas_buf,
-                               nk_rect(nr.x + nr.w - size / 2,
-                                       line_y - size / 2, size, size),
-                               line_col);
-              } else if (node->line_end_style == 2) { // Arrow (Right -->)
-                nk_fill_triangle(canvas_buf, nr.x + nr.w, line_y,
-                                 nr.x + nr.w - size, line_y - size / 2,
-                                 nr.x + nr.w - size, line_y + size / 2,
-                                 line_col);
-              }
-            }
-
-          } else if (node->type == NODE_TYPE_PATH && node->path_points &&
-                     node->path_point_count > 1) {
-            if (node->is_container && !node->image_path[0]) {
-              // Empty container placeholder for PATH shape
-              struct nk_color cbg = nk_rgba(66, 133, 244, 40);
-              struct nk_color cst = nk_rgba(66, 133, 244, 255);
-              float poly_pts[512 * 2];
-              int poly_count =
-                  node_get_path_polygon(node, poly_pts, 512, sx, sy, scale);
-              if (poly_count > 2) {
-                nk_fill_polygon(canvas_buf, poly_pts, poly_count, cbg);
-                nk_stroke_polygon(canvas_buf, poly_pts, poly_count, 1.0f, cst);
-              }
-              if (ui->font_icons) {
-                struct nk_rect ir =
-                    nk_rect(nr.x + nr.w / 2 - 10, nr.y + nr.h / 2 - 10, 20, 20);
-                nk_draw_text(canvas_buf, ir, ICON_ADD, strlen(ICON_ADD),
-                             &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), cst);
-              }
-              drawn_image = 1;
-            }
-
-            // Fill path
-            if (!drawn_image && fill.a > 0) {
-              float poly_pts[512 * 2];
-              int poly_count =
-                  node_get_path_polygon(node, poly_pts, 512, sx, sy, scale);
-              if (poly_count > 2) {
-                nk_fill_polygon(canvas_buf, poly_pts, poly_count, fill);
-              }
-            }
-
-            // Stroke path
-            for (int k = 0; k < node->path_point_count; k++) {
-              int nxt = (k + 1) % node->path_point_count;
-              NodePathPoint p1 = node->path_points[k],
-                            p2 = node->path_points[nxt];
-              if (p1.type == 1) // Cubic Bezier
-                nk_stroke_curve(canvas_buf, sx + p1.x * scale,
-                                sy + p1.y * scale, sx + p1.cp2x * scale,
-                                sy + p1.cp2y * scale, sx + p2.cp1x * scale,
-                                sy + p2.cp1y * scale, sx + p2.x * scale,
-                                sy + p2.y * scale, node->stroke_width * scale,
-                                stroke);
-              else
-                nk_stroke_line(canvas_buf, sx + p1.x * scale, sy + p1.y * scale,
-                               sx + p2.x * scale, sy + p2.y * scale,
-                               node->stroke_width * scale, stroke);
-            }
-
-            // Line Endings for Paths (only if 2 points)
-            if (node->path_point_count == 2) {
-              NodePathPoint p1 = node->path_points[0];
-              NodePathPoint p2 = node->path_points[1];
-              float start_x = sx + p1.x * scale;
-              float start_y = sy + p1.y * scale;
-              float end_x = sx + p2.x * scale;
-              float end_y = sy + p2.y * scale;
-
-              float dx = end_x - start_x;
-              float dy = end_y - start_y;
-              float angle = atan2f(dy, dx);
-              float size =
-                  (node->stroke_width > 2.0f ? node->stroke_width : 2.0f) *
-                  4.0f * scale;
-
-              // Start Style
-              if (node->line_start_style == 1) { // Circle
-                nk_fill_circle(
-                    canvas_buf,
-                    nk_rect(start_x - size / 2, start_y - size / 2, size, size),
-                    stroke);
-              } else if (node->line_start_style ==
-                         2) { // Arrow (pointing away from line)
-                // Tip at start_x, start_y. Pointing away means angle + PI.
-                float arrow_angle = angle + 3.14159f;
-                float tip_x = start_x; // Tip is exactly at start point
-                float tip_y = start_y;
-
-                // Move tip slightly out so it doesn't overlap line end exactly?
-                // No, exact is fine. Actually, if we want the arrow tip to be
-                // at start_x, we compute base from there.
-
-                float base_angle1 = arrow_angle + 0.5f; // ~28 deg
-                float base_angle2 = arrow_angle - 0.5f;
-
-                float p1x = tip_x + size * cosf(base_angle1);
-                float p1y = tip_y + size * sinf(base_angle1);
-                float p2x = tip_x + size * cosf(base_angle2);
-                float p2y = tip_y + size * sinf(base_angle2);
-
-                nk_fill_triangle(canvas_buf, tip_x, tip_y, p1x, p1y, p2x, p2y,
-                                 stroke);
-              }
-
-              // End Style
-              if (node->line_end_style == 1) { // Circle
-                nk_fill_circle(
-                    canvas_buf,
-                    nk_rect(end_x - size / 2, end_y - size / 2, size, size),
-                    stroke);
-              } else if (node->line_end_style == 2) { // Arrow
-                float tip_x = end_x;
-                float tip_y = end_y;
-
-                float base_angle1 = angle + 3.14159f + 0.5f;
-                float base_angle2 = angle + 3.14159f - 0.5f;
-
-                float p1x = tip_x + size * cosf(base_angle1);
-                float p1y = tip_y + size * sinf(base_angle1);
-                float p2x = tip_x + size * cosf(base_angle2);
-                float p2y = tip_y + size * sinf(base_angle2);
-
-                nk_fill_triangle(canvas_buf, tip_x, tip_y, p1x, p1y, p2x, p2y,
-                                 stroke);
-              }
-            }
-          } else if (node->type == NODE_TYPE_ELLIPSE) {
-            if (node->is_container && !node->image_path[0]) {
-              struct nk_color cbg = nk_rgba(66, 133, 244, 40);
-              struct nk_color cst = nk_rgba(66, 133, 244, 255);
-              nk_fill_circle(canvas_buf, nr, cbg);
-              nk_stroke_circle(canvas_buf, nr, 1.0f, cst);
-              if (ui->font_icons) {
-                struct nk_rect ir =
-                    nk_rect(nr.x + nr.w / 2 - 10, nr.y + nr.h / 2 - 10, 20, 20);
-                nk_draw_text(canvas_buf, ir, ICON_ADD, strlen(ICON_ADD),
-                             &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), cst);
-              }
-              drawn_image = 1;
-            }
-            if (node->rotation != 0.0f) {
-              float rad = node->rotation * 3.14159f / 180.0f;
-              float c = cosf(rad);
-              float s = sinf(rad);
-              float cx = nr.x + nr.w / 2.0f;
-              float cy = nr.y + nr.h / 2.0f;
-              float hw = nr.w / 2.0f;
-              float hh = nr.h / 2.0f;
-              float pts[64];
-              for (int i = 0; i < 32; i++) {
-                float th = i * 2.0f * 3.14159f / 32.0f;
-                float ex = cosf(th) * hw;
-                float ey = sinf(th) * hh;
-                pts[i * 2] = cx + ex * c - ey * s;
-                pts[i * 2 + 1] = cy + ex * s + ey * c;
-              }
-              if (!drawn_image && has_fill)
-                nk_fill_polygon(canvas_buf, pts, 32, fill);
-              if (node->stroke_width > 0)
-                nk_stroke_polygon(canvas_buf, pts, 32, node->stroke_width,
-                                  stroke);
-            } else {
-              if (!drawn_image && has_fill)
-                nk_fill_circle(canvas_buf, nr, fill);
-              if (node->stroke_width > 0)
-                nk_stroke_circle(canvas_buf, nr, node->stroke_width, stroke);
-            }
-          } else if (node->type == NODE_TYPE_TRIANGLE) {
-            if (node->is_container && !node->image_path[0]) {
-              struct nk_color cbg = nk_rgba(66, 133, 244, 40);
-              struct nk_color cst = nk_rgba(66, 133, 244, 255);
-              float vpts[6] = {sx + sw / 2, sy, sx, sy + sh, sx + sw, sy + sh};
-              nk_fill_polygon(canvas_buf, vpts, 3, cbg);
-              nk_stroke_polygon(canvas_buf, vpts, 3, 1.0f, cst);
-              if (ui->font_icons) {
-                struct nk_rect ir =
-                    nk_rect(nr.x + nr.w / 2 - 10, nr.y + nr.h / 2 - 5, 20, 20);
-                nk_draw_text(canvas_buf, ir, ICON_ADD, strlen(ICON_ADD),
-                             &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), cst);
-              }
-              drawn_image = 1;
-            }
-            float cx = sx + sw / 2.0f;
-            float cy = sy + sh / 2.0f;
-            float rad = node->rotation * 3.14159f / 180.0f;
-            float c = cosf(rad), s = sinf(rad);
-            float p0x = 0, p0y = -sh / 2.0f;
-            float p1x = -sw / 2.0f, p1y = sh / 2.0f;
-            float p2x = sw / 2.0f, p2y = sh / 2.0f;
-            struct nk_vec2 pts[3] = {
-                {cx + p0x * c - p0y * s, cy + p0x * s + p0y * c},
-                {cx + p1x * c - p1y * s, cy + p1x * s + p1y * c},
-                {cx + p2x * c - p2y * s, cy + p2x * s + p2y * c}};
-            if (!drawn_image && has_fill)
-              fill_rounded_polygon(canvas_buf, pts, 3,
-                                   node->corner_radius * scale, fill, 0, 0);
-            if (node->stroke_width > 0)
-              fill_rounded_polygon(canvas_buf, pts, 3,
-                                   node->corner_radius * scale, stroke, 1,
-                                   node->stroke_width);
-          } else if (node->type == NODE_TYPE_PENTAGON) {
-            float cx = sx + sw / 2.0f;
-            float cy = sy + sh / 2.0f;
-            float rad = node->rotation * 3.14159f / 180.0f;
-            float c_rot = cosf(rad), s_rot = sinf(rad);
-            struct nk_vec2 pts[5];
-            for (int i = 0; i < 5; i++) {
-              float angle = (float)i * 2.0f * 3.14159f / 5.0f - 3.14159f / 2.0f;
-              float px = cosf(angle) * sw / 2.0f;
-              float py = sinf(angle) * sh / 2.0f;
-              pts[i].x = cx + px * c_rot - py * s_rot;
-              pts[i].y = cy + px * s_rot + py * c_rot;
-            }
-            if (!drawn_image && has_fill)
-              fill_rounded_polygon(canvas_buf, pts, 5,
-                                   node->corner_radius * scale, fill, 0, 0);
-            if (node->stroke_width > 0)
-              fill_rounded_polygon(canvas_buf, pts, 5,
-                                   node->corner_radius * scale, stroke, 1,
-                                   node->stroke_width);
-          } else if (node->type == NODE_TYPE_HEXAGON) {
-            float cx = sx + sw / 2.0f;
-            float cy = sy + sh / 2.0f;
-            float rad = node->rotation * 3.14159f / 180.0f;
-            float c_rot = cosf(rad), s_rot = sinf(rad);
-            struct nk_vec2 pts[6];
-            for (int i = 0; i < 6; i++) {
-              float angle = (float)i * 2.0f * 3.14159f / 6.0f;
-              float px = cosf(angle) * sw / 2.0f;
-              float py = sinf(angle) * sh / 2.0f;
-              pts[i].x = cx + px * c_rot - py * s_rot;
-              pts[i].y = cy + px * s_rot + py * c_rot;
-            }
-            if (!drawn_image && has_fill)
-              fill_rounded_polygon(canvas_buf, pts, 6,
-                                   node->corner_radius * scale, fill, 0, 0);
-            if (node->stroke_width > 0)
-              fill_rounded_polygon(canvas_buf, pts, 6,
-                                   node->corner_radius * scale, stroke, 1,
-                                   node->stroke_width);
-          } else if (node->type == NODE_TYPE_OCTAGON) {
-            float cx = sx + sw / 2.0f;
-            float cy = sy + sh / 2.0f;
-            float rad = node->rotation * 3.14159f / 180.0f;
-            float c_rot = cosf(rad), s_rot = sinf(rad);
-            struct nk_vec2 pts[8];
-            for (int i = 0; i < 8; i++) {
-              float angle = (float)i * 2.0f * 3.14159f / 8.0f + 3.14159f / 8.0f;
-              float px = cosf(angle) * sw / 2.0f;
-              float py = sinf(angle) * sh / 2.0f;
-              pts[i].x = cx + px * c_rot - py * s_rot;
-              pts[i].y = cy + px * s_rot + py * c_rot;
-            }
-            if (!drawn_image && has_fill)
-              fill_rounded_polygon(canvas_buf, pts, 8,
-                                   node->corner_radius * scale, fill, 0, 0);
-            if (node->stroke_width > 0)
-              fill_rounded_polygon(canvas_buf, pts, 8,
-                                   node->corner_radius * scale, stroke, 1,
-                                   node->stroke_width);
-          } else if (node->type == NODE_TYPE_STAR) {
-            float cx = sx + sw / 2.0f;
-            float cy = sy + sh / 2.0f;
-            float rad = node->rotation * 3.14159f / 180.0f;
-            float c_rot = cosf(rad), s_rot = sinf(rad);
-            struct nk_vec2 pts[10];
-            for (int i = 0; i < 10; i++) {
-              float angle =
-                  (float)i * 2.0f * 3.14159f / 10.0f - 3.14159f / 2.0f;
-              float r = (i % 2 == 0) ? (sw / 2.0f) : (sw / 4.0f);
-              float px = cosf(angle) * r;
-              float py = sinf(angle) * r;
-              pts[i].x = cx + px * c_rot - py * s_rot;
-              pts[i].y = cy + px * s_rot + py * c_rot;
-            }
-            if (!drawn_image && has_fill)
-              fill_rounded_polygon(canvas_buf, pts, 10,
-                                   node->corner_radius * scale, fill, 0, 0);
-            if (node->stroke_width > 0)
-              fill_rounded_polygon(canvas_buf, pts, 10,
-                                   node->corner_radius * scale, stroke, 1,
-                                   node->stroke_width);
-          } else if (node->type == NODE_TYPE_HEART) {
-            float cx = sx + sw / 2.0f;
-            float cy = sy + sh / 2.0f;
-            float rad = node->rotation * 3.14159f / 180.0f;
-            float c_rot = cosf(rad), s_rot = sinf(rad);
-            const int hcount = 32;
-            struct nk_vec2 hpts[32];
-            for (int i = 0; i < hcount; i++) {
-              float t = (float)i * 2.0f * 3.14159f / (float)hcount;
-              float hx = 16.0f * powf(sinf(t), 3.0f);
-              float hy = -(13.0f * cosf(t) - 5.0f * cosf(2.0f * t) -
-                           2.0f * cosf(3.0f * t) - cosf(4.0f * t));
-              float lx = (hx / 32.0f) * sw;
-              float ly = (hy / 32.0f) * sh + sh * 0.05f;
-              hpts[i].x = cx + lx * c_rot - ly * s_rot;
-              hpts[i].y = cy + lx * s_rot + ly * c_rot;
-            }
-            if (!drawn_image && has_fill)
-              nk_fill_polygon(canvas_buf, (const float *)hpts, hcount, fill);
-            if (node->stroke_width > 0)
-              nk_stroke_polygon(canvas_buf, (const float *)hpts, hcount,
-                                node->stroke_width, stroke);
-          } else if (node->type == NODE_TYPE_TEXT) {
-            // Text node
-
-            // Render background for sticky notes / text with bg
-            if (fill.a > 0)
-              nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, fill);
-
-            const char *display_text = node->text;
-            static char linked_val_buf[256];
-            int is_editing = (ui->editing_node == node);
-            // Substitute linked column value when not editing
-            if (!is_editing && node->linked_col_name[0]) {
-              if (dd->linked_table_id && engine && engine->doc) {
-                for (int i = 0; i < 32; i++) {
-                  Page *p = &engine->doc->pages[i];
-                  if (!p->in_use)
-                    continue;
-                  Block *tb = page_find_block_by_id(p, dd->linked_table_id);
-                  if (tb && tb->type == BLOCK_TABLE &&
-                      tb->data.table.columnar) {
-                    AslanTable *tbl = tb->data.table.columnar;
-                    for (int lk = 0; lk < (int)tbl->column_count; lk++) {
-                      if (strcmp(tbl->columns[lk].name,
-                                 node->linked_col_name) == 0) {
-                        int ridx = ui->design_linked_row_idx;
-                        if (ridx < (int)tbl->active_count) {
-                          uint64_t rid = aslan_table_view_row_id(tbl, ridx);
-                          const char *val = aslan_table_get_cell_display(
-                              tbl, lk, rid, linked_val_buf,
-                              sizeof(linked_val_buf));
-                          if (val && val[0]) {
-                            display_text = val;
-                          }
-                        }
-                        break;
-                      }
-                    }
-                    break;
-                  }
-                }
-              }
-            }
-            if (is_editing) {
-              display_text = ui->edit_buffer;
-              nk_fill_rect(canvas_buf,
-                           nk_rect(nr.x - 2, nr.y - 1, nr.w + 4, nr.h + 2),
-                           2.0f, nk_rgba(66, 133, 244, 20));
-              nk_stroke_rect(canvas_buf,
-                             nk_rect(nr.x - 2, nr.y - 1, nr.w + 4, nr.h + 2),
-                             2.0f, 1.0f, nk_rgb(66, 133, 244));
-            }
-            if (display_text && strlen(display_text) > 0) {
-              const struct nk_user_font *font =
-                  ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
-
-              // Select font based on type and size
-              if (node->font_type == 4 && ui->font_inter) { // Mono -> Inter
-                font = &ui->font_inter->handle;
-              } else { // Inter variants (Body, H1, H2, H3)
-                // Find closest size in font_inter_sizes
-                float target_size = node->font_size;
-                float best_diff = 1000.0f;
-                int best_idx = -1;
-                float available_sizes[] = {12.0f, 14.0f, 16.0f, 20.0f, 24.0f,
-                                           32.0f, 48.0f, 64.0f, 96.0f};
-
-                for (int i = 0; i < 9; i++) {
-                  float diff = fabsf(available_sizes[i] - target_size);
-                  if (diff < best_diff) {
-                    best_diff = diff;
-                    best_idx = i;
-                  }
-                }
-
-                if (best_idx >= 0 && ui->font_inter_sizes[best_idx]) {
-                  font = &ui->font_inter_sizes[best_idx]->handle;
-                } else if (ui->font_inter) {
-                  font = &ui->font_inter->handle;
-                }
-              }
-
-              // Auto-resize text node to fit content
-              if (display_text && strlen(display_text) > 0) {
-                float text_w = font->width(font->userdata, font->height,
-                                           display_text, strlen(display_text));
-                float text_h = font->height;
-
-                // Only update if dimensions differ significantly (prevent
-                // jitter)
-                if (fabsf(node->width - (text_w + 10.0f)) > 1.0f ||
-                    fabsf(node->height - (text_h + 10.0f)) > 1.0f) {
-                  node->width = text_w + 10.0f; // Add padding
-                  node->height = text_h + 10.0f;
-                }
-              }
-
-              struct nk_color txt_color = {(node->stroke_color >> 24) & 0xFF,
-                                           (node->stroke_color >> 16) & 0xFF,
-                                           (node->stroke_color >> 8) & 0xFF,
-                                           node->stroke_color & 0xFF};
-
-              nk_draw_text(canvas_buf, nr, display_text, strlen(display_text),
-                           font, nk_rgba(0, 0, 0, 0), txt_color);
-              if (is_editing) {
-                float tw = font->width(font->userdata, font->height,
-                                       display_text, strlen(display_text));
-                int show_cursor = ((int)(SDL_GetTicks() / 500) % 2 == 0);
-                if (show_cursor) {
-                  nk_stroke_line(canvas_buf, nr.x + tw + 1, nr.y + 2,
-                                 nr.x + tw + 1, nr.y + nr.h - 2, 1.5f,
-                                 nk_rgb(66, 133, 244));
-                }
-              }
-            }
-          }
-
-          // Container indicator (Add icon in the center if empty container)
-          if (node->is_container && !node->image_path[0] &&
-              node->type != NODE_TYPE_TEXT && node->type != NODE_TYPE_ROOT) {
-            struct nk_color cst = nk_rgba(66, 133, 244, 255);
-            if (ui->font_icons) {
-              struct nk_rect ir =
-                  nk_rect(nr.x + nr.w / 2 - 10, nr.y + nr.h / 2 - 10, 20, 20);
-              nk_draw_text(canvas_buf, ir, ICON_ADD, strlen(ICON_ADD),
-                           &ui->font_icons->handle, nk_rgba(0, 0, 0, 0), cst);
-            }
-          }
-
-          // Selection highlight
-          if (node == ui->selected_node && is_active_design &&
-              !ds->bezier_mode) {
-            float sel_off = 2.0f + (node->stroke_width * scale) / 2.0f;
-            float rad = node->rotation * 3.14159f / 180.0f;
-            float cx = sx + sw / 2.0f;
-            float cy = sy + sh / 2.0f;
-
-            // Render rotated selection frame
-            fill_rotated_rounded_rect(canvas_buf, cx, cy, sw + sel_off * 2,
-                                      sh + sel_off * 2, rad, 0,
-                                      nk_rgb(66, 133, 244), 1, 1.0f);
-
-            // Resize handles
-            float hsz = 8.0f;
-            struct nk_color hc = nk_rgb(66, 133, 244);
-            float c = cosf(rad);
-            float s = sinf(rad);
-            float h_hw = (sw + sel_off * 2) / 2.0f;
-            float h_hh = (sh + sel_off * 2) / 2.0f;
-
-            float handle_pts[4][2] = {
-                {h_hw, h_hh},   // SE
-                {-h_hw, h_hh},  // SW
-                {-h_hw, -h_hh}, // NW
-                {h_hw, -h_hh}   // NE
-            };
-
-            for (int i = 0; i < 4; i++) {
-              float hx = cx + handle_pts[i][0] * c - handle_pts[i][1] * s;
-              float hy = cy + handle_pts[i][0] * s + handle_pts[i][1] * c;
-              nk_fill_rect(canvas_buf,
-                           nk_rect(hx - hsz / 2, hy - hsz / 2, hsz, hsz), 2.0f,
-                           hc);
-            }
+          float hsz = 8.0f;
+          struct nk_color hc = nk_rgb(66, 133, 244);
+          float c = cosf(rad);
+          float s = sinf(rad);
+          float h_hw = (sw + sel_off * 2) / 2.0f;
+          float h_hh = (sh + sel_off * 2) / 2.0f;
+          float handle_pts[4][2] = {
+              {h_hw, h_hh}, {-h_hw, h_hh}, {-h_hw, -h_hh}, {h_hw, -h_hh}};
+          for (int i = 0; i < 4; i++) {
+            float hx = cx + handle_pts[i][0] * c - handle_pts[i][1] * s;
+            float hy = cy + handle_pts[i][0] * s + handle_pts[i][1] * c;
+            nk_fill_rect(canvas_buf,
+                         nk_rect(hx - hsz / 2, hy - hsz / 2, hsz, hsz), 2.0f,
+                         hc);
           }
         }
       }
