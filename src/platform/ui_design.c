@@ -54,10 +54,9 @@ static void ds_section(struct nk_context *ctx, const char *label) {
 // ── Compact color row: [label ........ ■ swatch_combo] ──────────────────────
 static void ds_color(struct nk_context *ctx, const char *label, uint32_t *c32) {
   nk_layout_row_template_begin(ctx, 26);
-  nk_layout_row_template_push_dynamic(ctx);
   nk_layout_row_template_push_static(ctx, 60);
+  nk_layout_row_template_push_dynamic(ctx);
   nk_layout_row_template_end(ctx);
-  nk_label(ctx, label, NK_TEXT_LEFT);
   struct nk_color c = nk_rgba((*c32 >> 24) & 0xFF, (*c32 >> 16) & 0xFF,
                               (*c32 >> 8) & 0xFF, *c32 & 0xFF);
   if (nk_combo_begin_color(ctx, c, nk_vec2(220, 380))) {
@@ -69,6 +68,7 @@ static void ds_color(struct nk_context *ctx, const char *label, uint32_t *c32) {
     *c32 = ((uint32_t)c.r << 24) | ((uint32_t)c.g << 16) |
            ((uint32_t)c.b << 8) | c.a;
   }
+  nk_label(ctx, label, NK_TEXT_LEFT);
 }
 
 // ── Main sidebar ─────────────────────────────────────────────────────────────
@@ -982,11 +982,45 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
               drawn_image = 1;
             }
             if (!drawn_image && has_fill) {
-              nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, fill);
+              if (node->rotation != 0.0f && node->type == NODE_TYPE_RECT) {
+                float rad = node->rotation * 3.14159f / 180.0f;
+                float c = cosf(rad);
+                float s = sinf(rad);
+                float cx = nr.x + nr.w / 2.0f;
+                float cy = nr.y + nr.h / 2.0f;
+                float hw = nr.w / 2.0f;
+                float hh = nr.h / 2.0f;
+                float pts[8] = {
+                    cx + (-hw) * c - (-hh) * s, cy + (-hw) * s + (-hh) * c,
+                    cx + (hw)*c - (-hh) * s,    cy + (hw)*s + (-hh) * c,
+                    cx + (hw)*c - (hh)*s,       cy + (hw)*s + (hh)*c,
+                    cx + (-hw) * c - (hh)*s,    cy + (-hw) * s + (hh)*c};
+                nk_fill_polygon(canvas_buf, pts, 4, fill);
+              } else {
+                nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, fill);
+              }
             }
-            if (node->stroke_width > 0)
-              nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale,
-                             node->stroke_width, stroke);
+            if (node->stroke_width > 0) {
+              if (node->rotation != 0.0f && node->type == NODE_TYPE_RECT) {
+                float rad = node->rotation * 3.14159f / 180.0f;
+                float c = cosf(rad);
+                float s = sinf(rad);
+                float cx = nr.x + nr.w / 2.0f;
+                float cy = nr.y + nr.h / 2.0f;
+                float hw = nr.w / 2.0f;
+                float hh = nr.h / 2.0f;
+                float pts[8] = {
+                    cx + (-hw) * c - (-hh) * s, cy + (-hw) * s + (-hh) * c,
+                    cx + (hw)*c - (-hh) * s,    cy + (hw)*s + (-hh) * c,
+                    cx + (hw)*c - (hh)*s,       cy + (hw)*s + (hh)*c,
+                    cx + (-hw) * c - (hh)*s,    cy + (-hw) * s + (hh)*c};
+                nk_stroke_polygon(canvas_buf, pts, 4, node->stroke_width,
+                                  stroke);
+              } else {
+                nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale,
+                               node->stroke_width, stroke);
+              }
+            }
 
             // Line Endings (Start/End Styles)
             // Only apply if it looks like a line (thin)
@@ -1242,10 +1276,33 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
               }
               drawn_image = 1;
             }
-            if (!drawn_image && has_fill)
-              nk_fill_circle(canvas_buf, nr, fill);
-            if (node->stroke_width > 0)
-              nk_stroke_circle(canvas_buf, nr, node->stroke_width, stroke);
+            if (node->rotation != 0.0f) {
+              float rad = node->rotation * 3.14159f / 180.0f;
+              float c = cosf(rad);
+              float s = sinf(rad);
+              float cx = nr.x + nr.w / 2.0f;
+              float cy = nr.y + nr.h / 2.0f;
+              float hw = nr.w / 2.0f;
+              float hh = nr.h / 2.0f;
+              float pts[64];
+              for (int i = 0; i < 32; i++) {
+                float th = i * 2.0f * 3.14159f / 32.0f;
+                float ex = cosf(th) * hw;
+                float ey = sinf(th) * hh;
+                pts[i * 2] = cx + ex * c - ey * s;
+                pts[i * 2 + 1] = cy + ex * s + ey * c;
+              }
+              if (!drawn_image && has_fill)
+                nk_fill_polygon(canvas_buf, pts, 32, fill);
+              if (node->stroke_width > 0)
+                nk_stroke_polygon(canvas_buf, pts, 32, node->stroke_width,
+                                  stroke);
+            } else {
+              if (!drawn_image && has_fill)
+                nk_fill_circle(canvas_buf, nr, fill);
+              if (node->stroke_width > 0)
+                nk_stroke_circle(canvas_buf, nr, node->stroke_width, stroke);
+            }
           } else if (node->type == NODE_TYPE_TRIANGLE) {
             if (node->is_container && !node->image_path[0]) {
               struct nk_color cbg = nk_rgba(66, 133, 244, 40);
@@ -1261,9 +1318,16 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
               }
               drawn_image = 1;
             }
-            float pts[6] = {sx + sw / 2, sy,       // Top
-                            sx,          sy + sh,  // Bottom-left
-                            sx + sw,     sy + sh}; // Bottom-right
+            float cx = sx + sw / 2.0f;
+            float cy = sy + sh / 2.0f;
+            float rad = node->rotation * 3.14159f / 180.0f;
+            float c = cosf(rad), s = sinf(rad);
+            float p0x = 0, p0y = -sh / 2.0f;
+            float p1x = -sw / 2.0f, p1y = sh / 2.0f;
+            float p2x = sw / 2.0f, p2y = sh / 2.0f;
+            float pts[6] = {cx + p0x * c - p0y * s, cy + p0x * s + p0y * c,
+                            cx + p1x * c - p1y * s, cy + p1x * s + p1y * c,
+                            cx + p2x * c - p2y * s, cy + p2x * s + p2y * c};
             if (!drawn_image && has_fill)
               nk_fill_polygon(canvas_buf, pts, 3, fill);
             if (node->stroke_width > 0)
@@ -1776,15 +1840,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         ui->selected_node->x = design_x - ds->drag_offset_x;
         ui->selected_node->y = design_y - ds->drag_offset_y;
 
-        // Clamp to design bounds (only in artboard mode)
-        if (!dd->no_limits) {
-          ui->selected_node->x =
-              fmaxf(0, fminf(ui->selected_node->x,
-                             dd->width - ui->selected_node->width));
-          ui->selected_node->y =
-              fmaxf(0, fminf(ui->selected_node->y,
-                             dd->height - ui->selected_node->height));
-        }
+        // Clamp removed to allow elements to overlap design bounds
 
         if (ds->mouse_just_released) {
           ds->is_dragging_node = 0;
