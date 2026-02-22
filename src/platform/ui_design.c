@@ -25,6 +25,60 @@ void render_node_context_menu(UIHost *ui, struct nk_context *ctx,
                               struct nk_command_buffer *canvas_buf,
                               Block *block);
 
+// Helper for rotated rounded rect
+static void fill_rotated_rounded_rect(struct nk_command_buffer *canvas,
+                                      float cx, float cy, float w, float h,
+                                      float rad, float radius,
+                                      struct nk_color col, int is_stroke,
+                                      float thickness) {
+  if (radius < 0.1f) {
+    float c = cosf(rad);
+    float s = sinf(rad);
+    float hw = w / 2.0f;
+    float hh = h / 2.0f;
+    float pts[8] = {cx + (-hw) * c - (-hh) * s, cy + (-hw) * s + (-hh) * c,
+                    cx + (hw)*c - (-hh) * s,    cy + (hw)*s + (-hh) * c,
+                    cx + (hw)*c - (hh)*s,       cy + (hw)*s + (hh)*c,
+                    cx + (-hw) * c - (hh)*s,    cy + (-hw) * s + (hh)*c};
+    if (is_stroke)
+      nk_stroke_polygon(canvas, pts, 4, thickness, col);
+    else
+      nk_fill_polygon(canvas, pts, 4, col);
+    return;
+  }
+
+  // Generate rounded vertices
+  float pts[64 * 2];
+  int count = 0;
+  float c = cosf(rad);
+  float s = sinf(rad);
+  float hw = w / 2.0f;
+  float hh = h / 2.0f;
+
+  // 4 corners
+  float offsets[4][2] = {{hw - radius, hh - radius},
+                         {-hw + radius, hh - radius},
+                         {-hw + radius, -hh + radius},
+                         {hw - radius, -hh + radius}};
+  float angles[4] = {0, 3.14159f / 2.0f, 3.14159f, 3.14159f * 1.5f};
+
+  for (int i = 0; i < 4; i++) {
+    for (int j = 0; j <= 8; j++) {
+      float a = angles[i] + (j / 8.0f) * (3.14159f / 2.0f);
+      float px = offsets[i][0] + cosf(a) * radius;
+      float py = offsets[i][1] + sinf(a) * radius;
+      pts[count * 2] = cx + px * c - py * s;
+      pts[count * 2 + 1] = cy + px * s + py * c;
+      count++;
+    }
+  }
+
+  if (is_stroke)
+    nk_stroke_polygon(canvas, pts, count, thickness, col);
+  else
+    nk_fill_polygon(canvas, pts, count, col);
+}
+
 // =============================================================================
 // DESIGN SIDEBAR — Properties | Layers | Page
 // =============================================================================
@@ -983,39 +1037,21 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
             }
             if (!drawn_image && has_fill) {
               if (node->rotation != 0.0f && node->type == NODE_TYPE_RECT) {
-                float rad = node->rotation * 3.14159f / 180.0f;
-                float c = cosf(rad);
-                float s = sinf(rad);
-                float cx = nr.x + nr.w / 2.0f;
-                float cy = nr.y + nr.h / 2.0f;
-                float hw = nr.w / 2.0f;
-                float hh = nr.h / 2.0f;
-                float pts[8] = {
-                    cx + (-hw) * c - (-hh) * s, cy + (-hw) * s + (-hh) * c,
-                    cx + (hw)*c - (-hh) * s,    cy + (hw)*s + (-hh) * c,
-                    cx + (hw)*c - (hh)*s,       cy + (hw)*s + (hh)*c,
-                    cx + (-hw) * c - (hh)*s,    cy + (-hw) * s + (hh)*c};
-                nk_fill_polygon(canvas_buf, pts, 4, fill);
+                fill_rotated_rounded_rect(
+                    canvas_buf, nr.x + nr.w / 2, nr.y + nr.h / 2, nr.w, nr.h,
+                    node->rotation * 3.14159f / 180.0f,
+                    node->corner_radius * scale, fill, 0, 0);
               } else {
                 nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, fill);
               }
             }
             if (node->stroke_width > 0) {
               if (node->rotation != 0.0f && node->type == NODE_TYPE_RECT) {
-                float rad = node->rotation * 3.14159f / 180.0f;
-                float c = cosf(rad);
-                float s = sinf(rad);
-                float cx = nr.x + nr.w / 2.0f;
-                float cy = nr.y + nr.h / 2.0f;
-                float hw = nr.w / 2.0f;
-                float hh = nr.h / 2.0f;
-                float pts[8] = {
-                    cx + (-hw) * c - (-hh) * s, cy + (-hw) * s + (-hh) * c,
-                    cx + (hw)*c - (-hh) * s,    cy + (hw)*s + (-hh) * c,
-                    cx + (hw)*c - (hh)*s,       cy + (hw)*s + (hh)*c,
-                    cx + (-hw) * c - (hh)*s,    cy + (-hw) * s + (hh)*c};
-                nk_stroke_polygon(canvas_buf, pts, 4, node->stroke_width,
-                                  stroke);
+                fill_rotated_rounded_rect(canvas_buf, nr.x + nr.w / 2,
+                                          nr.y + nr.h / 2, nr.w, nr.h,
+                                          node->rotation * 3.14159f / 180.0f,
+                                          node->corner_radius * scale, stroke,
+                                          1, node->stroke_width * scale);
               } else {
                 nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale,
                                node->stroke_width, stroke);
@@ -1587,39 +1623,37 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           if (node == ui->selected_node && is_active_design &&
               !ds->bezier_mode) {
             float sel_off = 2.0f + (node->stroke_width * scale) / 2.0f;
-            nk_stroke_rect(canvas_buf,
-                           nk_rect(sx - sel_off, sy - sel_off, sw + sel_off * 2,
-                                   sh + sel_off * 2),
-                           2.0f, 2.0f, nk_rgb(66, 133, 244));
+            float rad = node->rotation * 3.14159f / 180.0f;
+            float cx = sx + sw / 2.0f;
+            float cy = sy + sh / 2.0f;
+
+            // Render rotated selection frame
+            fill_rotated_rounded_rect(canvas_buf, cx, cy, sw + sel_off * 2,
+                                      sh + sel_off * 2, rad, 0,
+                                      nk_rgb(66, 133, 244), 1, 1.0f);
 
             // Resize handles
             float hsz = 8.0f;
             struct nk_color hc = nk_rgb(66, 133, 244);
+            float c = cosf(rad);
+            float s = sinf(rad);
+            float h_hw = (sw + sel_off * 2) / 2.0f;
+            float h_hh = (sh + sel_off * 2) / 2.0f;
 
-            // Helper for corners accounting for offset
-            float h_left = sx - sel_off;
-            float h_top = sy - sel_off;
-            float h_right = sx + sw + sel_off;
-            float h_bottom = sy + sh + sel_off;
+            float handle_pts[4][2] = {
+                {h_hw, h_hh},   // SE
+                {-h_hw, h_hh},  // SW
+                {-h_hw, -h_hh}, // NW
+                {h_hw, -h_hh}   // NE
+            };
 
-            // SE
-            nk_fill_rect(
-                canvas_buf,
-                nk_rect(h_right - hsz / 2, h_bottom - hsz / 2, hsz, hsz), 2.0f,
-                hc);
-            // SW
-            nk_fill_rect(
-                canvas_buf,
-                nk_rect(h_left - hsz / 2, h_bottom - hsz / 2, hsz, hsz), 2.0f,
-                hc);
-            // NW
-            nk_fill_rect(canvas_buf,
-                         nk_rect(h_left - hsz / 2, h_top - hsz / 2, hsz, hsz),
-                         2.0f, hc);
-            // NE
-            nk_fill_rect(canvas_buf,
-                         nk_rect(h_right - hsz / 2, h_top - hsz / 2, hsz, hsz),
-                         2.0f, hc);
+            for (int i = 0; i < 4; i++) {
+              float hx = cx + handle_pts[i][0] * c - handle_pts[i][1] * s;
+              float hy = cy + handle_pts[i][0] * s + handle_pts[i][1] * c;
+              nk_fill_rect(canvas_buf,
+                           nk_rect(hx - hsz / 2, hy - hsz / 2, hsz, hsz), 2.0f,
+                           hc);
+            }
           }
         }
       }
@@ -1645,39 +1679,33 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         float sy = bounds.y + sel->y * scale;
         float sw = sel->width * scale;
         float sh = sel->height * scale;
-        float hsize = 30.0f;
+        float rad = sel->rotation * 3.14159f / 180.0f;
+        float cx = sx + sw / 2.0f;
+        float cy = sy + sh / 2.0f;
+        float sel_off = 2.0f + (sel->stroke_width * scale) / 2.0f;
+        float h_hw = (sw + sel_off * 2) / 2.0f;
+        float h_hh = (sh + sel_off * 2) / 2.0f;
+        float c = cosf(rad);
+        float s = sinf(rad);
 
-        // SE
-        if (ui->mouse_x >= sx + sw - hsize / 2 &&
-            ui->mouse_x < sx + sw + hsize / 2 &&
-            ui->mouse_y >= sy + sh - hsize / 2 &&
-            ui->mouse_y < sy + sh + hsize / 2) {
-          on_resize_handle = 1;
-          hit_handle_index = 0;
-        }
-        // SW
-        else if (ui->mouse_x >= sx - hsize / 2 &&
-                 ui->mouse_x < sx + hsize / 2 &&
-                 ui->mouse_y >= sy + sh - hsize / 2 &&
-                 ui->mouse_y < sy + sh + hsize / 2) {
-          on_resize_handle = 1;
-          hit_handle_index = 1;
-        }
-        // NW
-        else if (ui->mouse_x >= sx - hsize / 2 &&
-                 ui->mouse_x < sx + hsize / 2 &&
-                 ui->mouse_y >= sy - hsize / 2 &&
-                 ui->mouse_y < sy + hsize / 2) {
-          on_resize_handle = 1;
-          hit_handle_index = 2;
-        }
-        // NE
-        else if (ui->mouse_x >= sx + sw - hsize / 2 &&
-                 ui->mouse_x < sx + sw + hsize / 2 &&
-                 ui->mouse_y >= sy - hsize / 2 &&
-                 ui->mouse_y < sy + hsize / 2) {
-          on_resize_handle = 1;
-          hit_handle_index = 3;
+        float handle_pts[4][2] = {
+            {h_hw, h_hh},   // SE (0)
+            {-h_hw, h_hh},  // SW (1)
+            {-h_hw, -h_hh}, // NW (2)
+            {h_hw, -h_hh}   // NE (3)
+        };
+
+        float hit_dist_sq = 15.0f * 15.0f; // roughly 30x30 effective hit area
+        for (int i = 0; i < 4; i++) {
+          float hx = cx + handle_pts[i][0] * c - handle_pts[i][1] * s;
+          float hy = cy + handle_pts[i][0] * s + handle_pts[i][1] * c;
+          float dx = ui->mouse_x - hx;
+          float dy = ui->mouse_y - hy;
+          if (dx * dx + dy * dy < hit_dist_sq) {
+            on_resize_handle = 1;
+            hit_handle_index = i;
+            break;
+          }
         }
       }
 

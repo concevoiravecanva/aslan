@@ -2061,9 +2061,29 @@ Node *design_find_node_at(DesignData *dd, float x, float y) {
   for (Node *node = dd->root->first_child; node; node = node->next_sibling) {
     if (!node->visible)
       continue;
-    if (x >= node->x && x < node->x + node->width && y >= node->y &&
-        y < node->y + node->height) {
-      hit = node;
+
+    float rad = node->rotation * 3.14159f / 180.0f;
+    if (rad == 0.0f) {
+      if (x >= node->x && x < node->x + node->width && y >= node->y &&
+          y < node->y + node->height) {
+        hit = node;
+      }
+    } else {
+      // Rotated hit test: transform (x,y) to local space
+      float cx = node->x + node->width / 2.0f;
+      float cy = node->y + node->height / 2.0f;
+      float dx = x - cx;
+      float dy = y - cy;
+      float cos_r = cosf(-rad);
+      float sin_r = sinf(-rad);
+      float lx = dx * cos_r - dy * sin_r;
+      float ly = dx * sin_r + dy * cos_r;
+      float hw = node->width / 2.0f;
+      float hh = node->height / 2.0f;
+
+      if (lx >= -hw && lx < hw && ly >= -hh && ly < hh) {
+        hit = node;
+      }
     }
   }
   return hit;
