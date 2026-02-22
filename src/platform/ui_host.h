@@ -481,6 +481,10 @@ typedef struct UIHost {
     char link_url_buffer[1024];  // Editable URL
   } table_state;
 
+  // Layer sidebar state
+  uint32_t renaming_node_id;
+  char node_rename_buffer[64];
+
   // Sidebar state: 0=Properties/Layers, 1=Shape Selection
   int sidebar_mode;
 
@@ -617,8 +621,10 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_CHART "\xEE\xBF\xBA"           // ri-pie-chart-2-line
 #define ICON_FULLSCREEN "\xEE\xB6\x9C"      // ri-fullscreen-line
 #define ICON_FULLSCREEN_EXIT "\xEE\xB6\x9A" // ri-fullscreen-exit-line
-#define ICON_EYE "\xEE\xB5\x9F"             // ri-eye-line
-#define ICON_EYE_OFF "\xEE\xB5\xA3"         // ri-eye-off-line
+#define ICON_EYE "\xEE\xB2\xB5"             // ri-eye-line (U+ECB5)
+#define ICON_EYE_OFF "\xEE\xB2\xB7"         // ri-eye-off-line (U+ECB7)
+#define ICON_LOCK "\xEE\xB7\xD1"            // ri-lock-line
+#define ICON_LOCK_UNLOCK "\xEE\xB7\xD9"     // ri-lock-unlock-line
 #define ICON_MORE "\xEE\xAB\xA3"            // ri-settings-4-line
 #define ICON_SETTINGS "\xEE\xBD\x92"        // ri-settings-3-line
 #define ICON_KANBAN_COL_SHOW "\xEE\xB2\xB5" // U+ECB5  column visible

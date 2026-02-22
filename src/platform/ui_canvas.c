@@ -892,101 +892,98 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
   }
 }
 
-void ui_render_sidebar_layers(UIHost *ui, struct nk_context *ctx,
-                              Block *block) {
-  Node *root = NULL;
-  if (0) // Canvas removed
-    root = block->data.design.root;
-  else if (block->type == BLOCK_DESIGN)
-    root = block->data.design.root;
-
-  if (!root)
+static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx, Node *node,
+                                 int depth) {
+  if (!node)
     return;
 
-  // Collect nodes in reverse order (top layer first in UI)
-  Node *nodes[1024];
-  int count = 0;
-  for (Node *node = root->first_child; node && count < 1024;
-       node = node->next_sibling) {
-    nodes[count++] = node;
-  }
-
-  // Header with element count
-  sidebar_section_header(ctx, "LAYERS");
-  nk_layout_row_dynamic(ctx, 16, 1);
-  char count_label[64];
-  snprintf(count_label, sizeof(count_label), "%d element%s", count,
-           count != 1 ? "s" : "");
-  nk_label_colored(ctx, count_label, NK_TEXT_LEFT, nk_rgb(160, 160, 165));
-
-  nk_layout_row_dynamic(ctx, 4, 1);
-  nk_spacing(ctx, 1);
-
-  struct nk_color row_bg_even = nk_rgba(0, 0, 0, 0);
-  struct nk_color row_bg_odd = nk_rgba(245, 245, 248, 255);
+  int is_selected = (ui->selected_node == node);
+  int is_renaming = (ui->renaming_node_id == node->id);
   struct nk_color selected_bg = nk_rgba(80, 140, 200, 40);
   struct nk_color hidden_text = nk_rgb(180, 180, 185);
 
-  for (int i = count - 1; i >= 0; i--) {
-    Node *node = nodes[i];
-    int is_selected = (ui->selected_node == node);
-    int row_index = count - 1 - i;
-    struct nk_color bg = is_selected       ? selected_bg
-                         : (row_index % 2) ? row_bg_odd
-                                           : row_bg_even;
+  // -- Layer row: [Fold] [Icon] [Name ......] [Vis] [Lock] --
+  nk_layout_row_template_begin(ctx, 40);
+  nk_layout_row_template_push_static(ctx, (float)(14 * depth)); // Indentation
+  nk_layout_row_template_push_static(ctx, 20);                  // Fold arrow
+  nk_layout_row_template_push_static(ctx, 28);                  // Type icon
+  nk_layout_row_template_push_dynamic(ctx);                     // Name / Edit
+  nk_layout_row_template_push_static(ctx, 30);                  // Visibility
+  nk_layout_row_template_push_static(ctx, 30);                  // Lock
+  nk_layout_row_template_end(ctx);
 
-    // Row background highlight
+  // Draw row background if selected
+  if (is_selected) {
     struct nk_rect row_bounds = nk_widget_bounds(ctx);
-    (void)row_bounds;
-
-    // -- Layer row: [Icon] [Name ............] [Vis] [Up] [Dn] --
-    nk_layout_row_template_begin(ctx, 28);
-    nk_layout_row_template_push_static(ctx, 24);   // Type icon
-    nk_layout_row_template_push_variable(ctx, 60); // Name
-    nk_layout_row_template_push_static(ctx, 22);   // Visibility
-    nk_layout_row_template_push_static(ctx, 22);   // Up
-    nk_layout_row_template_push_static(ctx, 22);   // Down
-    nk_layout_row_template_end(ctx);
-
-    // Draw row background
-    row_bounds = nk_widget_bounds(ctx);
     struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
     struct nk_rect full_row =
-        nk_rect(row_bounds.x - 4, row_bounds.y, row_bounds.w + 100, 28);
-    nk_fill_rect(canvas_buf, full_row, 0, bg);
+        nk_rect(row_bounds.x - 4, row_bounds.y, row_bounds.w + 100, 40);
+    nk_fill_rect(canvas_buf, full_row, 0, selected_bg);
+  }
 
-    // Type icon button (clicking selects) — switch to icon font
-    const char *icon = node_type_icon(node);
-    struct nk_style_button icon_style = ctx->style.button;
-    icon_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-    icon_style.hover = nk_style_item_color(nk_rgba(0, 0, 0, 15));
-    icon_style.active = nk_style_item_color(nk_rgba(0, 0, 0, 25));
-    icon_style.border = 0;
-    icon_style.padding = nk_vec2(2, 2);
-    struct nk_color icon_col =
-        node->visible ? nk_rgb(120, 120, 130) : hidden_text;
-    icon_style.text_normal = icon_col;
-    icon_style.text_hover = icon_col;
-    icon_style.text_active = icon_col;
-    if (ui->font_icons)
-      nk_style_set_font(ctx, &ui->font_icons->handle);
-    if (nk_button_label_styled(ctx, &icon_style, icon)) {
-      ui->selected_node = node;
+  nk_spacing(ctx, 1); // Indentation spacer
+
+  // 1. Fold Toggle
+  if (node->is_container && node->first_child) {
+    if (nk_button_label(ctx, node->folded ? ">" : "v")) {
+      node->folded = !node->folded;
     }
-    if (ui->font_inter)
-      nk_style_set_font(ctx, &ui->font_inter->handle);
+  } else {
+    nk_spacing(ctx, 1);
+  }
 
-    // Name button
+  // 2. Type Icon (Selecting)
+  const char *icon = node_type_icon(node);
+  struct nk_style_button icon_style = ctx->style.button;
+  icon_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+  icon_style.hover = nk_style_item_color(nk_rgba(0, 0, 0, 15));
+  icon_style.active = nk_style_item_color(nk_rgba(0, 0, 0, 25));
+  icon_style.border = 0;
+  icon_style.padding = nk_vec2(2, 2);
+  struct nk_color icon_col =
+      node->visible ? nk_rgb(120, 120, 130) : hidden_text;
+  icon_style.text_normal = icon_col;
+  icon_style.text_hover = icon_col;
+  icon_style.text_active = icon_col;
+  if (ui->font_icons)
+    nk_style_set_font(ctx, &ui->font_icons->handle);
+  if (nk_button_label_styled(ctx, &icon_style, icon)) {
+    ui->selected_node = node;
+    ui->renaming_node_id = 0; // Cancel renaming if clicking icon
+  }
+  if (ui->font_inter)
+    nk_style_set_font(ctx, &ui->font_inter->handle);
+
+  // 3. Name or Edit
+  if (is_renaming) {
+    struct nk_style_edit edit_style = ctx->style.edit;
+    edit_style.normal.data.color = nk_rgb(255, 255, 255);
+    edit_style.active.data.color = nk_rgb(255, 255, 255);
+    edit_style.hover.data.color = nk_rgb(255, 255, 255);
+    edit_style.text_normal = nk_rgb(0, 0, 0);
+    edit_style.text_active = nk_rgb(0, 0, 0);
+    edit_style.cursor_normal = nk_rgb(0, 0, 0);
+
+    struct nk_style_edit old_edit = ctx->style.edit;
+    ctx->style.edit = edit_style;
+    nk_flags state = nk_edit_string_zero_terminated(
+        ctx, NK_EDIT_FIELD | NK_EDIT_SIG_ENTER, ui->node_rename_buffer, 63,
+        nk_filter_default);
+    ctx->style.edit = old_edit;
+
+    if (state & NK_EDIT_COMMITED) {
+      strncpy(node->name, ui->node_rename_buffer, 63);
+      ui->renaming_node_id = 0;
+    }
+    // Also handle loss of focus or mouse click outside
+    if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
+        !nk_widget_is_hovered(ctx)) {
+      strncpy(node->name, ui->node_rename_buffer, 63);
+      ui->renaming_node_id = 0;
+    }
+  } else {
     const char *display =
         node->name[0] ? node->name : node_type_display_name(node->type);
-    // For strokes, use specific name
-    if (!node->name[0] && node->type == NODE_TYPE_STROKE) {
-      display =
-          (node->stroke_data && node->stroke_data->type == STROKE_TYPE_MARKER)
-              ? "Marker Stroke"
-              : "Pen Stroke";
-    }
-
     struct nk_style_button name_style = ctx->style.button;
     name_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
     name_style.hover = nk_style_item_color(nk_rgba(0, 0, 0, 10));
@@ -1001,43 +998,81 @@ void ui_render_sidebar_layers(UIHost *ui, struct nk_context *ctx,
     name_style.text_hover = text_col;
     name_style.text_active = text_col;
     if (nk_button_label_styled(ctx, &name_style, display)) {
-      ui->selected_node = node;
+      if (ui->selected_node == node) {
+        ui->renaming_node_id = node->id;
+        const char *initial =
+            node->name[0] ? node->name : node_type_display_name(node->type);
+        strncpy(ui->node_rename_buffer, initial, 63);
+        nk_edit_focus(ctx, NK_EDIT_ALWAYS_INSERT_MODE);
+      } else {
+        ui->selected_node = node;
+        ui->renaming_node_id = 0;
+      }
     }
+  }
 
-    // Visibility toggle — icon font
-    struct nk_style_button vis_style = icon_style;
-    struct nk_color vis_col =
-        node->visible ? nk_rgb(130, 130, 140) : nk_rgb(200, 200, 205);
-    vis_style.text_normal = vis_col;
-    vis_style.text_hover = nk_rgb(80, 140, 200);
-    vis_style.text_active = vis_col;
-    if (ui->font_icons)
-      nk_style_set_font(ctx, &ui->font_icons->handle);
-    if (nk_button_label_styled(ctx, &vis_style,
-                               node->visible ? ICON_EYE : ICON_EYE_OFF)) {
-      node->visible = !node->visible;
-    }
+  // 4. Visibility Toggle
+  if (ui->font_icons)
+    nk_style_set_font(ctx, &ui->font_icons->handle);
+  struct nk_style_button vis_style = icon_style;
+  vis_style.text_normal =
+      node->visible ? nk_rgb(130, 130, 140) : nk_rgb(200, 200, 205);
+  vis_style.text_hover = nk_rgb(80, 140, 200);
+  if (nk_button_label_styled(ctx, &vis_style,
+                             node->visible ? ICON_EYE : ICON_EYE_OFF)) {
+    node->visible = !node->visible;
+  }
 
-    // Reorder Up
-    struct nk_style_button arrow_style = icon_style;
-    arrow_style.text_normal = nk_rgb(160, 160, 165);
-    arrow_style.text_hover = COLOR_ACCENT;
-    arrow_style.text_active = nk_rgb(160, 160, 165);
-    if (nk_button_label_styled(ctx, &arrow_style, ICON_COLLAPSE)) {
-      node_move_up(node);
-    }
+  // 5. Lock Toggle
+  struct nk_style_button lock_style = vis_style;
+  lock_style.text_normal =
+      node->locked ? nk_rgb(200, 80, 80) : nk_rgb(200, 200, 205);
+  if (nk_button_label_styled(ctx, &lock_style,
+                             node->locked ? ICON_LOCK : ICON_LOCK_UNLOCK)) {
+    node->locked = !node->locked;
+  }
+  if (ui->font_inter)
+    nk_style_set_font(ctx, &ui->font_inter->handle);
 
-    // Reorder Down
-    if (nk_button_label_styled(ctx, &arrow_style, ICON_EXPAND)) {
-      node_move_down(node);
+  // Recursive call for children
+  if (node->is_container && !node->folded) {
+    // Reverse for UI (match canvas order)
+    Node *list[128];
+    int c = 0;
+    for (Node *ch = node->first_child; ch && c < 128; ch = ch->next_sibling)
+      list[c++] = ch;
+    for (int i = c - 1; i >= 0; i--) {
+      ui_render_layer_item(ui, ctx, list[i], depth + 1);
     }
-    if (ui->font_inter)
-      nk_style_set_font(ctx, &ui->font_inter->handle);
+  }
+}
+
+void ui_render_sidebar_layers(UIHost *ui, struct nk_context *ctx,
+                              Block *block) {
+  Node *root = NULL;
+  if (block->type == BLOCK_DESIGN)
+    root = block->data.design.root;
+
+  if (!root)
+    return;
+
+  sidebar_section_header(ctx, "LAYERS");
+
+  // Root level children
+  Node *nodes[256];
+  int count = 0;
+  for (Node *node = root->first_child; node && count < 256;
+       node = node->next_sibling) {
+    nodes[count++] = node;
+  }
+
+  for (int i = count - 1; i >= 0; i--) {
+    ui_render_layer_item(ui, ctx, nodes[i], 0);
   }
 
   // Separator before delete zone
   if (ui->selected_node) {
-    nk_layout_row_dynamic(ctx, 6, 1);
+    nk_layout_row_dynamic(ctx, 12, 1);
     nk_spacing(ctx, 1);
 
     nk_layout_row_dynamic(ctx, 28, 1);
@@ -1061,10 +1096,7 @@ void ui_render_sidebar_layers(UIHost *ui, struct nk_context *ctx,
     if (nk_button_label_styled(ctx, &del_style, del_label)) {
       Node *to_del = ui->selected_node;
       ui->selected_node = NULL;
-      if (0) // Canvas removed
-        block_design_delete_node(block, to_del->id);
-      else if (block->type == BLOCK_DESIGN)
-        block_design_delete_node(block, to_del->id);
+      block_design_delete_node(block, to_del->id);
     }
   }
 }

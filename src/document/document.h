@@ -142,6 +142,7 @@ typedef struct Node {
   int visible;
   int locked;
   int is_container;
+  int folded;
 
   // Path data (for NODE_TYPE_PATH)
   NodePathPoint *path_points;
