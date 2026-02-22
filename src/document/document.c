@@ -1347,6 +1347,11 @@ int block_design_add_page(Block *block) {
   dd->pages[idx].bg_color = dd->bg_color;
   dd->pages[idx].bg_type = 0;
   dd->pages[idx].bg_color_2 = 0xFFFFFFFF;
+  dd->pages[idx].grid_type = 0;
+  dd->pages[idx].grid_spacing = 40.0f;
+  dd->pages[idx].h_guide_count = 0;
+  dd->pages[idx].v_guide_count = 0;
+  dd->pages[idx].show_rulers = 0;
   dd->page_count++;
 
   return idx;

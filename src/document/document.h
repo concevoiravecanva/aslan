@@ -215,6 +215,19 @@ typedef struct DesignPage {
   uint32_t bg_color;   // Per-page background color
   int bg_type;         // 0=Solid, 1=Linear, 2=Radial
   uint32_t bg_color_2; // Secondary color for gradients
+
+  // Grid overlay
+  int grid_type; // 0=None, 1=Dots, 2=Lines, 3=Columns, 4=Isometric, 5=Custom
+  float grid_spacing; // Custom grid spacing (default 40px)
+
+  // Guide lines
+  float h_guides[16]; // Y positions of horizontal guides
+  float v_guides[16]; // X positions of vertical guides
+  int h_guide_count;
+  int v_guide_count;
+
+  // Rulers
+  int show_rulers; // 0=off, 1=on
 } DesignPage;
 
 typedef struct {

@@ -1026,6 +1026,77 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           // Removed individual SVG button
         }
 
+        // ── GRID ─────────────────────────────────────────────────────────
+        ds_section(ctx, "GRID");
+        {
+          DesignPage *dp = &dd->pages[dd->current_page];
+          static const char *grid_labels[] = {"None",    "Dots", "Lines",
+                                              "Columns", "Iso",  "Custom"};
+          nk_layout_row_dynamic(ctx, 24, 1);
+          dp->grid_type = nk_combo(ctx, grid_labels, 6, dp->grid_type, 20,
+                                   nk_vec2(nk_widget_width(ctx), 140));
+          if (dp->grid_type == 5) { // Custom
+            nk_layout_row_dynamic(ctx, 20, 1);
+            nk_property_float(ctx, "Spacing", 10.0f, &dp->grid_spacing, 200.0f,
+                              5.0f, 1.0f);
+          }
+        }
+
+        // ── GUIDES ──────────────────────────────────────────────────────
+        ds_section(ctx, "GUIDES");
+        {
+          DesignPage *dp = &dd->pages[dd->current_page];
+          nk_layout_row_dynamic(ctx, 22, 2);
+          if (nk_button_label(ctx, "+ H Guide") && dp->h_guide_count < 16) {
+            dp->h_guides[dp->h_guide_count++] = (float)dd->height / 2.0f;
+          }
+          if (nk_button_label(ctx, "+ V Guide") && dp->v_guide_count < 16) {
+            dp->v_guides[dp->v_guide_count++] = (float)dd->width / 2.0f;
+          }
+          // List horizontal guides
+          for (int gi = 0; gi < dp->h_guide_count; gi++) {
+            nk_layout_row_begin(ctx, NK_DYNAMIC, 20, 3);
+            nk_layout_row_push(ctx, 0.25f);
+            nk_labelf(ctx, NK_TEXT_LEFT, "H%d", gi + 1);
+            nk_layout_row_push(ctx, 0.50f);
+            nk_property_float(ctx, "#", 0, &dp->h_guides[gi], (float)dd->height,
+                              1, 1);
+            nk_layout_row_push(ctx, 0.25f);
+            if (nk_button_label(ctx, "X")) {
+              for (int k = gi; k < dp->h_guide_count - 1; k++)
+                dp->h_guides[k] = dp->h_guides[k + 1];
+              dp->h_guide_count--;
+              gi--;
+            }
+            nk_layout_row_end(ctx);
+          }
+          // List vertical guides
+          for (int gi = 0; gi < dp->v_guide_count; gi++) {
+            nk_layout_row_begin(ctx, NK_DYNAMIC, 20, 3);
+            nk_layout_row_push(ctx, 0.25f);
+            nk_labelf(ctx, NK_TEXT_LEFT, "V%d", gi + 1);
+            nk_layout_row_push(ctx, 0.50f);
+            nk_property_float(ctx, "#", 0, &dp->v_guides[gi], (float)dd->width,
+                              1, 1);
+            nk_layout_row_push(ctx, 0.25f);
+            if (nk_button_label(ctx, "X")) {
+              for (int k = gi; k < dp->v_guide_count - 1; k++)
+                dp->v_guides[k] = dp->v_guides[k + 1];
+              dp->v_guide_count--;
+              gi--;
+            }
+            nk_layout_row_end(ctx);
+          }
+        }
+
+        // ── RULERS ──────────────────────────────────────────────────────
+        ds_section(ctx, "RULERS");
+        {
+          DesignPage *dp = &dd->pages[dd->current_page];
+          nk_layout_row_dynamic(ctx, 22, 1);
+          nk_checkbox_label(ctx, "Show Rulers", &dp->show_rulers);
+        }
+
         // ── EXPORT ───────────────────────────────────────────────────────
         ds_section(ctx, "EXPORT");
         nk_layout_row_dynamic(ctx, 24, 4);
@@ -1831,6 +1902,200 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
   }
 }
 
+// =============================================================================
+// GRID, GUIDES & RULERS RENDERING
+// =============================================================================
+
+static void design_draw_grid(struct nk_command_buffer *buf, struct nk_rect art,
+                             float scale, const DesignPage *dp) {
+  if (!dp || dp->grid_type == 0)
+    return;
+
+  struct nk_color grid_col = nk_rgba(120, 120, 120, 50);
+  struct nk_color dot_col = nk_rgba(80, 82, 86, 255);
+  float spacing =
+      (dp->grid_type == 5 && dp->grid_spacing > 1) ? dp->grid_spacing : 40.0f;
+  float step = spacing * scale;
+  if (step < 8.0f)
+    return; // Too dense — skip to avoid vertex overflow
+
+  // Compute max iterations to stay under Nuklear's 65535 vertex limit
+  // Each circle ~16 verts, each line ~8 verts. Budget ~2000 primitives max.
+  int max_cols = (int)(art.w / step) + 1;
+  int max_rows = (int)(art.h / step) + 1;
+  if (max_cols > 80)
+    max_cols = 80;
+  if (max_rows > 80)
+    max_rows = 80;
+
+  switch (dp->grid_type) {
+  case 1: { // Dots — cap at 50x50 = 2500 circles
+    int dc = max_cols > 50 ? 50 : max_cols;
+    int dr = max_rows > 50 ? 50 : max_rows;
+    for (int iy = 0; iy < dr; iy++) {
+      float sy = art.y + iy * step;
+      for (int ix = 0; ix < dc; ix++) {
+        float sx = art.x + ix * step;
+        nk_fill_circle(buf, nk_rect(sx - 1, sy - 1, 2, 2), dot_col);
+      }
+    }
+    break;
+  }
+  case 2: { // Lines
+    for (int ix = 0; ix < max_cols; ix++) {
+      float sx = art.x + ix * step;
+      nk_stroke_line(buf, sx, art.y, sx, art.y + art.h, 0.5f, grid_col);
+    }
+    for (int iy = 0; iy < max_rows; iy++) {
+      float sy = art.y + iy * step;
+      nk_stroke_line(buf, art.x, sy, art.x + art.w, sy, 0.5f, grid_col);
+    }
+    break;
+  }
+  case 3: { // 12 Columns
+    float col_w = art.w / 12.0f;
+    struct nk_color col_fill = nk_rgba(100, 140, 220, 20);
+    struct nk_color col_stroke = nk_rgba(100, 140, 220, 40);
+    for (int i = 0; i < 12; i++) {
+      float cx = art.x + i * col_w;
+      struct nk_rect cr = nk_rect(cx, art.y, col_w, art.h);
+      nk_fill_rect(buf, cr, 0, col_fill);
+      nk_stroke_rect(buf, cr, 0, 0.5f, col_stroke);
+    }
+    break;
+  }
+  case 4: { // Isometric — cap total lines
+    int iso_max = max_cols + max_rows;
+    if (iso_max > 100)
+      iso_max = 100;
+    for (int i = 0; i < iso_max; i++) {
+      float sx = art.x + i * step;
+      nk_stroke_line(buf, sx, art.y, sx - art.h, art.y + art.h, 0.5f, grid_col);
+      nk_stroke_line(buf, sx - art.w, art.y, sx, art.y + art.h, 0.5f, grid_col);
+    }
+    break;
+  }
+  case 5: { // Custom — same as Lines
+    for (int ix = 0; ix < max_cols; ix++) {
+      float sx = art.x + ix * step;
+      nk_stroke_line(buf, sx, art.y, sx, art.y + art.h, 0.5f, grid_col);
+    }
+    for (int iy = 0; iy < max_rows; iy++) {
+      float sy = art.y + iy * step;
+      nk_stroke_line(buf, art.x, sy, art.x + art.w, sy, 0.5f, grid_col);
+    }
+    break;
+  }
+  default:
+    break;
+  }
+}
+
+static void design_draw_guides(struct nk_command_buffer *buf,
+                               struct nk_rect art, float scale,
+                               const DesignPage *dp) {
+  if (!dp)
+    return;
+  struct nk_color guide_col = nk_rgba(0, 180, 220, 180);
+
+  // Horizontal guides
+  for (int i = 0; i < dp->h_guide_count; i++) {
+    float sy = art.y + dp->h_guides[i] * scale;
+    if (sy >= art.y && sy <= art.y + art.h) {
+      nk_stroke_line(buf, art.x, sy, art.x + art.w, sy, 1.0f, guide_col);
+      // Dashed effect: draw label
+      char lbl[16];
+      snprintf(lbl, sizeof(lbl), "%.0f", dp->h_guides[i]);
+      struct nk_user_font *fnt = (struct nk_user_font *)buf->userdata.ptr;
+      if (fnt) {
+        float tw =
+            fnt->width(fnt->userdata, fnt->height, lbl, (int)strlen(lbl));
+        struct nk_rect lr = nk_rect(art.x + 2, sy - 12, tw + 4, 12);
+        nk_fill_rect(buf, lr, 0, nk_rgba(0, 180, 220, 200));
+        nk_draw_text(buf, lr, lbl, (int)strlen(lbl), fnt, nk_rgba(0, 0, 0, 0),
+                     nk_rgb(255, 255, 255));
+      }
+    }
+  }
+
+  // Vertical guides
+  for (int i = 0; i < dp->v_guide_count; i++) {
+    float sx = art.x + dp->v_guides[i] * scale;
+    if (sx >= art.x && sx <= art.x + art.w) {
+      nk_stroke_line(buf, sx, art.y, sx, art.y + art.h, 1.0f, guide_col);
+      char lbl[16];
+      snprintf(lbl, sizeof(lbl), "%.0f", dp->v_guides[i]);
+      struct nk_user_font *fnt = (struct nk_user_font *)buf->userdata.ptr;
+      if (fnt) {
+        struct nk_rect lr = nk_rect(sx + 2, art.y + 2, 30, 12);
+        nk_fill_rect(buf, lr, 0, nk_rgba(0, 180, 220, 200));
+        nk_draw_text(buf, lr, lbl, (int)strlen(lbl), fnt, nk_rgba(0, 0, 0, 0),
+                     nk_rgb(255, 255, 255));
+      }
+    }
+  }
+}
+
+static void design_draw_rulers(struct nk_command_buffer *buf,
+                               struct nk_rect art, float scale,
+                               const DesignPage *dp, int page_w, int page_h) {
+  if (!dp || !dp->show_rulers)
+    return;
+
+  const float ruler_w = 20.0f;
+  struct nk_color ruler_bg = nk_rgba(50, 50, 55, 220);
+  struct nk_color tick_col = nk_rgba(180, 180, 180, 255);
+  struct nk_color text_col = nk_rgb(200, 200, 200);
+
+  // Top ruler
+  struct nk_rect top_ruler = nk_rect(art.x, art.y - ruler_w, art.w, ruler_w);
+  nk_fill_rect(buf, top_ruler, 0, ruler_bg);
+
+  // Left ruler
+  struct nk_rect left_ruler = nk_rect(art.x - ruler_w, art.y, ruler_w, art.h);
+  nk_fill_rect(buf, left_ruler, 0, ruler_bg);
+
+  // Corner square
+  nk_fill_rect(buf, nk_rect(art.x - ruler_w, art.y - ruler_w, ruler_w, ruler_w),
+               0, ruler_bg);
+
+  struct nk_user_font *fnt = (struct nk_user_font *)buf->userdata.ptr;
+
+  // Top ruler ticks
+  for (int px = 0; px <= page_w; px += 10) {
+    float sx = art.x + (float)px * scale;
+    if (sx < art.x || sx > art.x + art.w)
+      continue;
+    int is_major = (px % 100 == 0);
+    float tick_h = is_major ? ruler_w * 0.6f : ruler_w * 0.3f;
+    nk_stroke_line(buf, sx, art.y - tick_h, sx, art.y, 0.5f, tick_col);
+    if (is_major && fnt) {
+      char lbl[8];
+      snprintf(lbl, sizeof(lbl), "%d", px);
+      struct nk_rect lr = nk_rect(sx + 1, art.y - ruler_w, 30, 10);
+      nk_draw_text(buf, lr, lbl, (int)strlen(lbl), fnt, nk_rgba(0, 0, 0, 0),
+                   text_col);
+    }
+  }
+
+  // Left ruler ticks
+  for (int py = 0; py <= page_h; py += 10) {
+    float sy = art.y + (float)py * scale;
+    if (sy < art.y || sy > art.y + art.h)
+      continue;
+    int is_major = (py % 100 == 0);
+    float tick_w = is_major ? ruler_w * 0.6f : ruler_w * 0.3f;
+    nk_stroke_line(buf, art.x - tick_w, sy, art.x, sy, 0.5f, tick_col);
+    if (is_major && fnt) {
+      char lbl[8];
+      snprintf(lbl, sizeof(lbl), "%d", py);
+      struct nk_rect lr = nk_rect(art.x - ruler_w + 1, sy + 1, ruler_w - 2, 10);
+      nk_draw_text(buf, lr, lbl, (int)strlen(lbl), fnt, nk_rgba(0, 0, 0, 0),
+                   text_col);
+    }
+  }
+}
+
 void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                             Block *block, float width) {
   if (!block || block->type != BLOCK_DESIGN)
@@ -1980,7 +2245,11 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         nk_fill_rect_multi_color(canvas_buf, sc_bounds, c2, c2, c1,
                                  c1); // Reverse for center-ish feel if possible
       }
-      canvas_draw_dot_grid(canvas_buf, sc_bounds, cam_x, cam_y, zoom);
+      DesignPage *cur_dp = &dd->pages[dd->current_page];
+      design_draw_grid(canvas_buf, sc_bounds, zoom, cur_dp);
+      design_draw_guides(canvas_buf, sc_bounds, zoom, cur_dp);
+      design_draw_rulers(canvas_buf, sc_bounds, zoom, cur_dp, dd->width,
+                         dd->height);
       nk_push_scissor(canvas_buf, sc_bounds);
 
       // Use full workspace as coordinate space
@@ -2030,6 +2299,13 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         nk_fill_rect_multi_color(canvas_buf, art_rect, c2, c2, c1, c1);
       }
       nk_stroke_rect(canvas_buf, art_rect, 0, 1.0f, nk_rgb(200, 200, 200));
+      {
+        DesignPage *cur_dp = &dd->pages[dd->current_page];
+        design_draw_grid(canvas_buf, art_rect, scale, cur_dp);
+        design_draw_guides(canvas_buf, art_rect, scale, cur_dp);
+        design_draw_rulers(canvas_buf, art_rect, scale, cur_dp, dd->width,
+                           dd->height);
+      }
 
       nk_layout_space_begin(ctx, NK_STATIC, ws_bounds.h, 1);
       nk_layout_space_push(

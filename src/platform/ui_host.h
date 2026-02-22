@@ -17,6 +17,7 @@ int copy_image_to_assets(const char *src_path, const char *doc_dir,
 int mac_get_image_size(const char *path, int *w, int *h);
 
 // Nuklear configuration
+#define NK_UINT_DRAW_INDEX
 #define NK_INCLUDE_FIXED_TYPES
 #define NK_INCLUDE_STANDARD_IO
 #define NK_INCLUDE_STANDARD_VARARGS

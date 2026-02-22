@@ -189,7 +189,8 @@ NK_API void nk_sdl_render(enum nk_anti_aliasing AA) {
             (const float *)((const nk_byte *)vertices + vp), vs,
             (const SDL_Color *)((const nk_byte *)vertices + vc), vs,
             (const float *)((const nk_byte *)vertices + vt), vs,
-            (vbuf.needed / vs), (void *)offset, cmd->elem_count, 2);
+            (vbuf.needed / vs), (void *)offset, cmd->elem_count,
+            sizeof(nk_draw_index));
 
         offset += cmd->elem_count;
       }
