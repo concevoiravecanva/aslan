@@ -970,20 +970,6 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           // start. Let X start from the right edge of the row_num header. We
           // can just use the hdr_bounds from before.
 
-          float acc_x = 0; // Relative to columns
-          for (int dc = 0; dc < (int)tbl->column_count; dc++) {
-            float cw = col_widths[dc];
-            if (dc == ui->table_state.dragging_col) {
-              // The dragged column is still physically there during interaction
-              // we can just treat the mouse hovering around these bins
-            }
-            float cx = acc_x; // Relative inside table columns
-            // Actually, we need to know the global X of the table start
-            // It's not easily accessible here without saving it earlier.
-            // Let's just track the drop column based on relative movement
-            acc_x += cw;
-          }
-
           // Better logic: calculate global start X of columns by subtracting
           // total width of the last column from its right bound? We know
           // `hdr_bounds` is the `add col` button bounds. So the `add col`

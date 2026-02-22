@@ -1,7 +1,5 @@
 #include "document.h"
 #include "aslan_table.h"
-#include "spatial_index.h"
-#include <ctype.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -970,6 +968,8 @@ Node *node_create(uint32_t id, NodeType type, const char *name) {
   node->height = 100.0f;
   node->font_size = 12.0f;
   node->font_type = 0;
+  node->opacity = 1.0f;
+  node->lock_ratio = 0;
 
   if (name) {
     safe_strcpy(node->name, name, sizeof(node->name));

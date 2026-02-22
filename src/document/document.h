@@ -104,6 +104,8 @@ typedef struct Node {
   uint32_t stroke_color; // RGBA
   float stroke_width;
   float corner_radius;
+  float opacity;  // 0.0 to 1.0
+  int lock_ratio; // Boolean
 
   // Text content (for NODE_TYPE_TEXT)
   char text[256];
