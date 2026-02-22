@@ -13,6 +13,7 @@
 #include <SDL.h>
 // errno.h removed
 
+#include "../vendor/stb_image_write.h"
 #include <math.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -121,17 +122,18 @@ int save_csv_file_dialog(char *out_path, size_t path_size,
   return 0;
 }
 
-// Opens a native file save dialog for SVG
-static int save_svg_file_dialog(char *out_path, size_t path_size,
-                                const char *default_name) {
+// General native file save dialog via AppleScript
+static int save_native_file_dialog(char *out_path, size_t path_size,
+                                   const char *default_name,
+                                   const char *prompt) {
   char script[1024];
-  snprintf(
-      script, sizeof(script),
-      "osascript -e 'set theName to \"%s\"' "
-      "-e 'set theFile to choose file name default name theName default "
-      "location (path to desktop folder) with prompt \"Export Design as SVG\"' "
-      "-e 'POSIX path of theFile' 2>/dev/null",
-      default_name ? default_name : "Design.svg");
+  snprintf(script, sizeof(script),
+           "osascript -e 'set theName to \"%s\"' "
+           "-e 'set theFile to choose file name default name theName default "
+           "location (path to desktop folder) with prompt \"%s\"' "
+           "-e 'POSIX path of theFile' 2>/dev/null",
+           default_name ? default_name : "Export.file",
+           prompt ? prompt : "Export");
   FILE *fp = popen(script, "r");
   if (!fp)
     return 0;
@@ -326,7 +328,8 @@ void ui_host_export_svg(UIHost *ui, Engine *engine) {
   char filename[512];
   char default_name[128];
   snprintf(default_name, sizeof(default_name), "%s.svg", page->name);
-  if (save_svg_file_dialog(filename, sizeof(filename), default_name)) {
+  if (save_native_file_dialog(filename, sizeof(filename), default_name,
+                              "Export Design as SVG")) {
     if (block_design_export_svg(design_block, filename, NULL, 0)) {
       ASLAN_DEBUG("Exported SVG to: %s", filename);
     }
@@ -366,8 +369,8 @@ void ui_host_export_svg_merge(UIHost *ui, Engine *engine,
   char base_filename[512];
   char default_name[128];
   snprintf(default_name, sizeof(default_name), "%s_Merge.svg", page->name);
-  if (save_svg_file_dialog(base_filename, sizeof(base_filename),
-                           default_name)) {
+  if (save_native_file_dialog(base_filename, sizeof(base_filename),
+                              default_name, "Export Design as SVG")) {
     // Strip .svg to get base prefix
     char prefix[512];
     strncpy(prefix, base_filename, sizeof(prefix) - 1);
@@ -383,6 +386,66 @@ void ui_host_export_svg_merge(UIHost *ui, Engine *engine,
       if (block_design_export_svg(design_block, out_file, linked_tbl, row_id)) {
         ASLAN_DEBUG("Exported SVG merge row %d to: %s", i + 1, out_file);
       }
+    }
+  }
+}
+
+void ui_host_export_png_jpeg(UIHost *ui, Engine *engine, int is_jpeg) {
+  Page *page = doc_page_get_active(engine->doc);
+  if (!page)
+    return;
+
+  // Find the first design block on this page
+  Block *design_block = NULL;
+  for (Block *b = page->first_block; b; b = b->next) {
+    if (b->type == BLOCK_DESIGN) {
+      design_block = b;
+      break;
+    }
+  }
+  if (!design_block)
+    return;
+
+  char filename[1024];
+  char default_name[128];
+  snprintf(default_name, sizeof(default_name), "%s.%s", page->name,
+           is_jpeg ? "jpg" : "png");
+
+  if (save_native_file_dialog(filename, sizeof(filename), default_name,
+                              is_jpeg ? "Export Design as JPEG"
+                                      : "Export Design as PNG")) {
+    ui->pending_export = 1;
+    ui->pending_export_format = is_jpeg;
+    ui->pending_export_block_id = design_block->id;
+    strncpy(ui->pending_export_path, filename,
+            sizeof(ui->pending_export_path) - 1);
+    ui_request_redraw(ui);
+  }
+}
+
+void ui_host_export_pdf(UIHost *ui, Engine *engine) {
+  (void)ui;
+  Page *page = doc_page_get_active(engine->doc);
+  if (!page)
+    return;
+
+  Block *design_block = NULL;
+  for (Block *b = page->first_block; b; b = b->next) {
+    if (b->type == BLOCK_DESIGN) {
+      design_block = b;
+      break;
+    }
+  }
+  if (!design_block)
+    return;
+
+  char filename[512];
+  char default_name[128];
+  snprintf(default_name, sizeof(default_name), "%s.pdf", page->name);
+  if (save_native_file_dialog(filename, sizeof(filename), default_name,
+                              "Export Design as PDF")) {
+    if (block_design_export_pdf(design_block, filename, NULL, 0)) {
+      ASLAN_DEBUG("Exported PDF to: %s", filename);
     }
   }
 }
@@ -3523,6 +3586,80 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   ui->win_height = win_h;
   if (!ui || !engine)
     return;
+
+  if (ui->pending_export) {
+    ui->pending_export = 0;
+    Page *page = doc_page_get_active(engine->doc);
+    if (page) {
+      Block *block = page_find_block_by_id(page, ui->pending_export_block_id);
+      if (block && block->type == BLOCK_DESIGN) {
+        DesignData *dd = &block->data.design;
+        int w = dd->width;
+        int h = dd->height;
+        SDL_Texture *tex =
+            SDL_CreateTexture(ui->renderer, SDL_PIXELFORMAT_RGBA32,
+                              SDL_TEXTUREACCESS_TARGET, w, h);
+        if (tex) {
+          SDL_SetRenderTarget(ui->renderer, tex);
+          SDL_SetRenderDrawColor(ui->renderer, 0, 0, 0, 0);
+          SDL_RenderClear(ui->renderer);
+
+          struct nk_context *ctx = ui->ctx;
+          nk_style_push_style_item(ctx, &ctx->style.window.fixed_background,
+                                   nk_style_item_color(nk_rgba(0, 0, 0, 0)));
+
+          if (nk_begin(ctx, "export_canvas", nk_rect(0, 0, w, h),
+                       NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_NO_INPUT)) {
+            struct nk_command_buffer *buf = nk_window_get_canvas(ctx);
+            struct nk_rect art_rect = nk_rect(0, 0, w, h);
+            int p_idx = dd->current_page;
+            struct nk_color c1 =
+                nk_rgba((dd->pages[p_idx].bg_color >> 24) & 0xFF,
+                        (dd->pages[p_idx].bg_color >> 16) & 0xFF,
+                        (dd->pages[p_idx].bg_color >> 8) & 0xFF,
+                        dd->pages[p_idx].bg_color & 0xFF);
+            struct nk_color c2 =
+                nk_rgba((dd->pages[p_idx].bg_color_2 >> 24) & 0xFF,
+                        (dd->pages[p_idx].bg_color_2 >> 16) & 0xFF,
+                        (dd->pages[p_idx].bg_color_2 >> 8) & 0xFF,
+                        dd->pages[p_idx].bg_color_2 & 0xFF);
+
+            if (dd->pages[p_idx].bg_type == 0)
+              nk_fill_rect(buf, art_rect, 0, c1);
+            else if (dd->pages[p_idx].bg_type == 1)
+              nk_fill_rect_multi_color(buf, art_rect, c1, c1, c2, c2);
+            else
+              nk_fill_rect_multi_color(buf, art_rect, c2, c2, c1, c1);
+
+            if (dd->pages[p_idx].root) {
+              ui_render_node_tree(ui, ctx, engine, block, dd, buf,
+                                  dd->pages[p_idx].root, art_rect, 1.0f, 0, 0);
+            }
+          }
+          nk_end(ctx);
+          nk_style_pop_style_item(ctx);
+
+          nk_sdl_render(NK_ANTI_ALIASING_ON);
+
+          int pitch = w * 4;
+          void *pixels = malloc(w * h * 4);
+          if (pixels) {
+            SDL_RenderReadPixels(ui->renderer, NULL, SDL_PIXELFORMAT_RGBA32,
+                                 pixels, pitch);
+            if (ui->pending_export_format == 0) {
+              stbi_write_png(ui->pending_export_path, w, h, 4, pixels, pitch);
+            } else {
+              stbi_write_jpg(ui->pending_export_path, w, h, 4, pixels, 90);
+            }
+            free(pixels);
+            ASLAN_DEBUG("Exported raster to %s", ui->pending_export_path);
+          }
+          SDL_SetRenderTarget(ui->renderer, NULL);
+          SDL_DestroyTexture(tex);
+        }
+      }
+    }
+  }
 
   // Store engine reference for file drop handling
   ui->engine = engine;

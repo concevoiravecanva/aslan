@@ -487,6 +487,11 @@ bool block_design_export_svg(const Block *block, const char *filepath,
                              struct AslanTable *linked_tbl,
                              uint64_t linked_row_id);
 
+// PDF Export (Design block → PDF file via libharu)
+bool block_design_export_pdf(const Block *block, const char *filepath,
+                             struct AslanTable *linked_tbl,
+                             uint64_t linked_row_id);
+
 // =============================================================================
 // UTILITY
 // =============================================================================

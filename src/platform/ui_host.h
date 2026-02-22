@@ -488,6 +488,12 @@ typedef struct UIHost {
   float context_menu_x, context_menu_y;
   Node *context_menu_node;
 
+  // Delayed export
+  int pending_export;
+  int pending_export_format; // 0 = PNG, 1 = JPEG
+  uint32_t pending_export_block_id;
+  char pending_export_path[1024];
+
   // Event-driven rendering: redraw only when needed
   int needs_redraw;         // 1 = re-render needed, 0 = idle
   int has_active_animation; // 1 = cursor blink, transitions, etc.
@@ -531,6 +537,8 @@ void ui_host_import_csv(UIHost *ui, Engine *engine);
 void ui_host_export_svg(UIHost *ui, Engine *engine);
 void ui_host_export_svg_merge(UIHost *ui, Engine *engine,
                               struct AslanTable *linked_tbl);
+void ui_host_export_png_jpeg(UIHost *ui, Engine *engine, int is_jpeg);
+void ui_host_export_pdf(UIHost *ui, Engine *engine);
 void ui_host_copy_node(UIHost *ui, Engine *engine);
 void ui_host_paste_node(UIHost *ui, Engine *engine);
 void ui_update(UIHost *ui, Engine *engine);

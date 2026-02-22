@@ -1023,26 +1023,27 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
               ui->design_linked_row_idx++;
           }
 
-          nk_layout_row_dynamic(ctx, 24, 1);
-          if (nk_button_label(ctx, "Export All SVGs")) {
-            ui_host_export_svg_merge(ui, engine, linked_tbl);
-          }
+          // Removed individual SVG button
         }
 
         // ── EXPORT ───────────────────────────────────────────────────────
         ds_section(ctx, "EXPORT");
-        nk_layout_row_dynamic(ctx, 24, 3);
-        if (nk_button_label(ctx, "PDF")) {
-          snprintf(ui->status, sizeof(ui->status),
-                   "Export to PDF (Coming Soon)");
+        nk_layout_row_dynamic(ctx, 24, 4);
+        if (nk_button_label(ctx, "SVG")) {
+          if (linked_tbl) {
+            ui_host_export_svg_merge(ui, engine, linked_tbl);
+          } else {
+            ui_host_export_svg(ui, engine);
+          }
         }
         if (nk_button_label(ctx, "PNG")) {
-          snprintf(ui->status, sizeof(ui->status),
-                   "Export to PNG (Coming Soon)");
+          ui_host_export_png_jpeg(ui, engine, 0);
         }
         if (nk_button_label(ctx, "JPEG")) {
-          snprintf(ui->status, sizeof(ui->status),
-                   "Export to JPEG (Coming Soon)");
+          ui_host_export_png_jpeg(ui, engine, 1);
+        }
+        if (nk_button_label(ctx, "PDF")) {
+          ui_host_export_pdf(ui, engine);
         }
       }
       nk_group_end(ctx);
@@ -1050,11 +1051,11 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
   }
 }
 
-static void ui_render_node_tree(UIHost *ui, struct nk_context *ctx,
-                                Engine *engine, Block *block, DesignData *dd,
-                                struct nk_command_buffer *canvas_buf,
-                                Node *node, struct nk_rect bounds, float scale,
-                                float parent_x, float parent_y) {
+void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
+                         Block *block, DesignData *dd,
+                         struct nk_command_buffer *canvas_buf, Node *node,
+                         struct nk_rect bounds, float scale, float parent_x,
+                         float parent_y) {
   if (!node || !node->visible)
     return;
 

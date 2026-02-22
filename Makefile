@@ -6,7 +6,7 @@ LUA_INC =
 LUA_LIB = 
 
 # Paths for SDL2 (macOS Homebrew)
-SDL_INC = -I/opt/homebrew/include/SDL2
+SDL_INC = -I/opt/homebrew/include/SDL2 -I/opt/homebrew/include
 SDL_LIB = -L/opt/homebrew/lib -lSDL2
 
 # Core, Document & Platform sources
@@ -26,10 +26,10 @@ PLATFORM_OBJS = src/platform/platform.o \
            src/platform/image_loader.o \
            src/platform/mac_image.o
 
-OBJS = src/main.o src/vendor/tinyexpr.o $(CORE_OBJS) $(DOC_OBJS) $(PLATFORM_OBJS)
+OBJS = src/main.o src/vendor/tinyexpr.o src/vendor/stb_image_write.o $(CORE_OBJS) $(DOC_OBJS) $(PLATFORM_OBJS)
 
 TARGET = aslan
-LDFLAGS = -framework Cocoa -framework CoreGraphics -framework ImageIO -lm
+LDFLAGS = -framework Cocoa -framework CoreGraphics -framework ImageIO -lm -lhpdf -lz -lpng
 
 all: $(TARGET)
 
