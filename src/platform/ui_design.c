@@ -233,7 +233,6 @@ static void design_generate_smart_layout(DesignData *dd, int layout_id,
   // Optional: Clear existing nodes first?
   // For now we just safely append. We can clear children of root:
   dd->root->first_child = NULL;
-  
 
   float w = dd->width > 0 ? dd->width : 800.0f;
   float h = dd->height > 0 ? dd->height : 600.0f;
@@ -1017,6 +1016,22 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           if (nk_button_label(ctx, "Export All SVGs")) {
             ui_host_export_svg_merge(ui, engine, linked_tbl);
           }
+        }
+
+        // ── EXPORT ───────────────────────────────────────────────────────
+        ds_section(ctx, "EXPORT");
+        nk_layout_row_dynamic(ctx, 24, 3);
+        if (nk_button_label(ctx, "PDF")) {
+          snprintf(ui->status, sizeof(ui->status),
+                   "Export to PDF (Coming Soon)");
+        }
+        if (nk_button_label(ctx, "PNG")) {
+          snprintf(ui->status, sizeof(ui->status),
+                   "Export to PNG (Coming Soon)");
+        }
+        if (nk_button_label(ctx, "JPEG")) {
+          snprintf(ui->status, sizeof(ui->status),
+                   "Export to JPEG (Coming Soon)");
         }
       }
       nk_group_end(ctx);
