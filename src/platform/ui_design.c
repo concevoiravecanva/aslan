@@ -828,7 +828,18 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
 
         // ── BACKGROUND ───────────────────────────────────────────────────
         ds_section(ctx, "BACKGROUND");
-        ds_color(ctx, "Color", &dd->pages[dd->current_page].bg_color);
+        const char *bg_types[] = {"Solid", "Gradient (V)", "Radial (Center)"};
+        nk_layout_row_dynamic(ctx, 24, 1);
+        dd->pages[dd->current_page].bg_type =
+            nk_combo(ctx, bg_types, 3, dd->pages[dd->current_page].bg_type, 24,
+                     nk_vec2(220, 200));
+
+        if (dd->pages[dd->current_page].bg_type == 0) {
+          ds_color(ctx, "Color", &dd->pages[dd->current_page].bg_color);
+        } else {
+          ds_color(ctx, "Color 1", &dd->pages[dd->current_page].bg_color);
+          ds_color(ctx, "Color 2", &dd->pages[dd->current_page].bg_color_2);
+        }
 
         // ── MODE ─────────────────────────────────────────────────────────
         ds_section(ctx, "MODE");
@@ -1943,15 +1954,33 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
       scale = zoom;
 
-      // Background: use page bg color + dot grid
-      struct nk_color bg_col =
+      // Use screen-space bounds for background filling
+      struct nk_rect sc_bounds = nk_window_get_bounds(ctx);
+
+      // Background: support solid, linear, radial
+      struct nk_color c1 =
           nk_rgba((dd->pages[dd->current_page].bg_color >> 24) & 0xFF,
                   (dd->pages[dd->current_page].bg_color >> 16) & 0xFF,
                   (dd->pages[dd->current_page].bg_color >> 8) & 0xFF,
                   dd->pages[dd->current_page].bg_color & 0xFF);
-      nk_fill_rect(canvas_buf, ws_bounds, 0, bg_col);
-      canvas_draw_dot_grid(canvas_buf, ws_bounds, cam_x, cam_y, zoom);
-      nk_push_scissor(canvas_buf, ws_bounds);
+      struct nk_color c2 =
+          nk_rgba((dd->pages[dd->current_page].bg_color_2 >> 24) & 0xFF,
+                  (dd->pages[dd->current_page].bg_color_2 >> 16) & 0xFF,
+                  (dd->pages[dd->current_page].bg_color_2 >> 8) & 0xFF,
+                  dd->pages[dd->current_page].bg_color_2 & 0xFF);
+
+      if (dd->pages[dd->current_page].bg_type == 0) { // Solid
+        nk_fill_rect(canvas_buf, sc_bounds, 0, c1);
+      } else if (dd->pages[dd->current_page].bg_type == 1) { // Linear (V)
+        nk_fill_rect_multi_color(canvas_buf, sc_bounds, c1, c1, c2, c2);
+      } else { // Radial (Approximation using multi-color with corners)
+        // For a better radial we'd need a custom shader or many steps.
+        // We'll use multi-color center-edge which is a 4-color linear mix.
+        nk_fill_rect_multi_color(canvas_buf, sc_bounds, c2, c2, c1,
+                                 c1); // Reverse for center-ish feel if possible
+      }
+      canvas_draw_dot_grid(canvas_buf, sc_bounds, cam_x, cam_y, zoom);
+      nk_push_scissor(canvas_buf, sc_bounds);
 
       // Use full workspace as coordinate space
       nk_layout_space_begin(ctx, NK_STATIC, ws_bounds.h, 1);
@@ -1980,11 +2009,25 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       nk_fill_rect(canvas_buf, shadow_rect, 2, nk_rgba(0, 0, 0, 40));
 
       struct nk_rect art_rect = nk_rect(sx, sy, art_w, art_h);
-      nk_fill_rect(canvas_buf, art_rect, 0,
-                   nk_rgba((dd->pages[dd->current_page].bg_color >> 24) & 0xFF,
-                           (dd->pages[dd->current_page].bg_color >> 16) & 0xFF,
-                           (dd->pages[dd->current_page].bg_color >> 8) & 0xFF,
-                           dd->pages[dd->current_page].bg_color & 0xFF));
+      struct nk_color c1 =
+          nk_rgba((dd->pages[dd->current_page].bg_color >> 24) & 0xFF,
+                  (dd->pages[dd->current_page].bg_color >> 16) & 0xFF,
+                  (dd->pages[dd->current_page].bg_color >> 8) & 0xFF,
+                  dd->pages[dd->current_page].bg_color & 0xFF);
+      struct nk_color c2 =
+          nk_rgba((dd->pages[dd->current_page].bg_color_2 >> 24) & 0xFF,
+                  (dd->pages[dd->current_page].bg_color_2 >> 16) & 0xFF,
+                  (dd->pages[dd->current_page].bg_color_2 >> 8) & 0xFF,
+                  dd->pages[dd->current_page].bg_color_2 & 0xFF);
+
+      if (dd->pages[dd->current_page].bg_type == 0) {
+        nk_fill_rect(canvas_buf, art_rect, 0, c1);
+      } else if (dd->pages[dd->current_page].bg_type == 1) {
+        nk_fill_rect_multi_color(canvas_buf, art_rect, c1, c1, c2, c2);
+      } else {
+        // Simple Radial approximation for artboard
+        nk_fill_rect_multi_color(canvas_buf, art_rect, c2, c2, c1, c1);
+      }
       nk_stroke_rect(canvas_buf, art_rect, 0, 1.0f, nk_rgb(200, 200, 200));
 
       nk_layout_space_begin(ctx, NK_STATIC, ws_bounds.h, 1);
@@ -1993,7 +2036,12 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     }
 
     // --- Shared content rendering (both modes) ---
-    if (nk_group_begin(ctx, "design_content", NK_WINDOW_NO_SCROLLBAR)) {
+    nk_style_push_style_item(ctx, &ctx->style.window.fixed_background,
+                             nk_style_item_color(nk_rgba(0, 0, 0, 0)));
+    int group_res =
+        nk_group_begin(ctx, "design_content", NK_WINDOW_NO_SCROLLBAR);
+    nk_style_pop_style_item(ctx);
+    if (group_res) {
       struct nk_rect bounds_raw = nk_window_get_content_region(ctx);
       struct nk_rect bounds;
 

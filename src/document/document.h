@@ -211,8 +211,10 @@ typedef struct Stroke {
 
 // Single design page (slide)
 typedef struct DesignPage {
-  Node *root;        // Node tree root for this page
-  uint32_t bg_color; // Per-page background color
+  Node *root;          // Node tree root for this page
+  uint32_t bg_color;   // Per-page background color
+  int bg_type;         // 0=Solid, 1=Linear, 2=Radial
+  uint32_t bg_color_2; // Secondary color for gradients
 } DesignPage;
 
 typedef struct {

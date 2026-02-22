@@ -1344,6 +1344,8 @@ int block_design_add_page(Block *block) {
   int idx = dd->page_count;
   dd->pages[idx].root = node_create(0, NODE_TYPE_ROOT, "DesignRoot");
   dd->pages[idx].bg_color = dd->bg_color;
+  dd->pages[idx].bg_type = 0;
+  dd->pages[idx].bg_color_2 = 0xFFFFFFFF;
   dd->page_count++;
 
   return idx;
