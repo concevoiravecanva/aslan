@@ -484,6 +484,11 @@ typedef struct UIHost {
   // Layer sidebar state
   uint32_t renaming_node_id;
   char node_rename_buffer[64];
+  int rename_needs_focus;      // 1 = call nk_edit_focus on first frame of edit
+  uint32_t sidebar_drag_node_id;
+  uint32_t sidebar_drop_target_id;
+  uint32_t hovered_node_id;
+  int sidebar_drag_started;
 
   // Sidebar state: 0=Properties/Layers, 1=Shape Selection
   int sidebar_mode;
@@ -576,6 +581,9 @@ void ui_render_chart_node_config_bar(UIHost *ui, Engine *engine,
                                      struct nk_rect bounds, Page *page);
 void ui_render_chart_impl(UIHost *ui, struct nk_context *ctx, ChartData *cd,
                           struct nk_rect bounds, Page *page);
+
+// Layer panel components
+void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx, Block *block);
 
 // Shared UI Helpers
 int ui_icon_button(UIHost *ui, const char *icon);

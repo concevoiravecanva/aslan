@@ -1250,6 +1250,44 @@ void node_move_down(Node *node) {
   prev->next_sibling = next;
 }
 
+void node_insert_before(Node *node, Node *target) {
+  if (!node || !target || node == target || !target->parent)
+    return;
+  // Remove node from its current position
+  node_remove_from_parent(node);
+  node->parent = target->parent;
+
+  Node *parent = target->parent;
+  if (parent->first_child == target) {
+    node->next_sibling = target;
+    parent->first_child = node;
+    return;
+  }
+
+  // Find node before target
+  Node *prev = parent->first_child;
+  while (prev && prev->next_sibling != target) {
+    prev = prev->next_sibling;
+  }
+
+  if (prev) {
+    prev->next_sibling = node;
+    node->next_sibling = target;
+  }
+}
+
+void node_insert_after(Node *node, Node *target) {
+  if (!node || !target || node == target || !target->parent)
+    return;
+  // Remove node from its current position
+  node_remove_from_parent(node);
+  node->parent = target->parent;
+
+  Node *next = target->next_sibling;
+  target->next_sibling = node;
+  node->next_sibling = next;
+}
+
 // (Canvas Block API removed — Canvas block type has been deleted)
 
 static Node *find_node_recursive(Node *node, uint32_t id) {
@@ -1439,6 +1477,39 @@ bool block_design_delete_node(Block *block, uint32_t node_id) {
   node_remove_from_parent(node);
   node_destroy_tree(node);
   return true;
+}
+
+Node *block_design_duplicate_node(Block *block, uint32_t node_id) {
+  if (!block || block->type != BLOCK_DESIGN)
+    return NULL;
+
+  Node *orig = block_design_find_node(block, node_id);
+  if (!orig || orig->type == NODE_TYPE_ROOT || !orig->parent)
+    return NULL;
+
+  DesignData *dd = &block->data.design;
+
+  // Shallow copy of properties (no child tree)
+  Node *dup = (Node *)calloc(1, sizeof(Node));
+  if (!dup)
+    return NULL;
+
+  *dup = *orig;
+  dup->id         = dd->next_node_id++;
+  dup->x         += 12.0f;
+  dup->y         += 12.0f;
+  // Clear hierarchy and non-trivial data pointers (shallow copy)
+  dup->parent      = NULL;
+  dup->first_child = NULL;
+  dup->next_sibling = NULL;
+  dup->chart_data  = NULL;
+  dup->stroke_data = NULL;
+  dup->path_points = NULL;
+  dup->path_point_count = 0;
+
+  // Insert immediately after the original in the parent
+  node_add_child(orig->parent, dup);
+  return dup;
 }
 
 void block_design_set_size(Block *block, int width, int height) {

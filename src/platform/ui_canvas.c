@@ -892,8 +892,8 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
   }
 }
 
-static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx, Node *node,
-                                 int depth) {
+static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
+                                 Block *block, Node *node, int depth) {
   if (!node)
     return;
 
@@ -902,38 +902,97 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx, Node *node,
   struct nk_color selected_bg = nk_rgba(80, 140, 200, 40);
   struct nk_color hidden_text = nk_rgb(180, 180, 185);
 
-  // -- Layer row: [Fold] [Icon] [Name ......] [Vis] [Lock] --
-  nk_layout_row_template_begin(ctx, 40);
-  nk_layout_row_template_push_static(ctx, (float)(14 * depth)); // Indentation
-  nk_layout_row_template_push_static(ctx, 20);                  // Fold arrow
-  nk_layout_row_template_push_static(ctx, 28);                  // Type icon
-  nk_layout_row_template_push_dynamic(ctx);                     // Name / Edit
-  nk_layout_row_template_push_static(ctx, 30);                  // Visibility
-  nk_layout_row_template_push_static(ctx, 30);                  // Lock
+  // -- Layer row: [indent] [Fold] [Icon] [Name flex] [Swatch] [Vis] [Lock] --
+  float indent_w = 4.0f + (float)(depth) * 14.0f;
+  nk_layout_row_template_begin(ctx, 28);
+  nk_layout_row_template_push_static(ctx, indent_w); // indent spacer
+  nk_layout_row_template_push_static(ctx, 18.0f);    // fold toggle
+  nk_layout_row_template_push_static(ctx, 22.0f);    // type icon
+  nk_layout_row_template_push_dynamic(ctx);           // name (flexible)
+  nk_layout_row_template_push_static(ctx, 12.0f);    // fill color swatch
+  nk_layout_row_template_push_static(ctx, 22.0f);    // visibility
+  nk_layout_row_template_push_static(ctx, 22.0f);    // lock
   nk_layout_row_template_end(ctx);
 
-  // Draw row background if selected
-  if (is_selected) {
-    struct nk_rect row_bounds = nk_widget_bounds(ctx);
+  struct nk_rect row_bounds = nk_widget_bounds(ctx);
+  // Full row area for interaction
+  struct nk_rect full_row =
+      nk_rect(row_bounds.x - 4, row_bounds.y, row_bounds.w + 100, 40);
+  int is_hovered_row = nk_input_is_mouse_hovering_rect(&ctx->input, full_row);
+
+  // 1. Hover Sync (Sidebar -> Canvas)
+  if (is_hovered_row) {
+    ui->hovered_node_id = node->id;
+  }
+
+  // 2. Drag & Drop Detection
+  int mouse_down = nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT);
+  int mouse_pressed = nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT);
+  int mouse_released = nk_input_is_mouse_released(&ctx->input, NK_BUTTON_LEFT);
+
+  // Start dragging
+  if (is_hovered_row && mouse_pressed && !is_renaming) {
+    ui->sidebar_drag_node_id = node->id;
+    ui->sidebar_drag_started = 0;
+  }
+
+  // Detect drag threshold (prevent accidental drag on simple click)
+  if (ui->sidebar_drag_node_id == node->id && mouse_down &&
+      !ui->sidebar_drag_started) {
+    float dx = ctx->input.mouse.delta.x;
+    float dy = ctx->input.mouse.delta.y;
+    if (fabsf(dx) > 3 || fabsf(dy) > 3) {
+      ui->sidebar_drag_started = 1;
+    }
+  }
+
+  // Detect drop target
+  if (ui->sidebar_drag_node_id != 0 && ui->sidebar_drag_node_id != node->id &&
+      is_hovered_row) {
+    ui->sidebar_drop_target_id = node->id;
+  }
+
+  // Draw row background if selected or being dragged/targeted or hovered
+  if (is_selected ||
+      (ui->sidebar_drag_node_id == node->id && ui->sidebar_drag_started) ||
+      (is_hovered_row && !ui->sidebar_drag_node_id)) {
     struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
-    struct nk_rect full_row =
-        nk_rect(row_bounds.x - 4, row_bounds.y, row_bounds.w + 100, 40);
-    nk_fill_rect(canvas_buf, full_row, 0, selected_bg);
+    struct nk_color bg =
+        is_selected ? selected_bg
+                    : (ui->sidebar_drag_node_id == node->id
+                           ? nk_rgba(80, 140, 200, 40)
+                           : nk_rgba(255, 255, 255, 10)); // Subtle hover
+    nk_fill_rect(canvas_buf, full_row, 0, bg);
+    // Left accent bar for selected row
+    if (is_selected) {
+      nk_fill_rect(canvas_buf,
+                   nk_rect(full_row.x, full_row.y, 2, full_row.h),
+                   0, nk_rgb(80, 140, 200));
+    }
+  }
+
+  // Draw drop indicator line
+  if (ui->sidebar_drop_target_id == node->id && ui->sidebar_drag_started) {
+    struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
+    float my = ctx->input.mouse.pos.y;
+    float row_mid = full_row.y + full_row.h / 2.0f;
+    if (my < row_mid) {
+      // Drop before (above)
+      nk_fill_rect(canvas_buf,
+                   nk_rect(full_row.x, full_row.y - 2, full_row.w, 4), 0,
+                   nk_rgb(80, 140, 200));
+    } else {
+      // Drop after (below)
+      nk_fill_rect(
+          canvas_buf,
+          nk_rect(full_row.x, full_row.y + full_row.h - 2, full_row.w, 4), 0,
+          nk_rgb(80, 140, 200));
+    }
   }
 
   nk_spacing(ctx, 1); // Indentation spacer
 
-  // 1. Fold Toggle
-  if (node->is_container && node->first_child) {
-    if (nk_button_label(ctx, node->folded ? ">" : "v")) {
-      node->folded = !node->folded;
-    }
-  } else {
-    nk_spacing(ctx, 1);
-  }
-
-  // 2. Type Icon (Selecting)
-  const char *icon = node_type_icon(node);
+  // Shared transparent icon button style (reused for fold, type icon, vis, lock)
   struct nk_style_button icon_style = ctx->style.button;
   icon_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
   icon_style.hover = nk_style_item_color(nk_rgba(0, 0, 0, 15));
@@ -945,6 +1004,27 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx, Node *node,
   icon_style.text_normal = icon_col;
   icon_style.text_hover = icon_col;
   icon_style.text_active = icon_col;
+
+  // 1. Fold Toggle (uses icons font for proper arrow glyphs)
+  if (node->is_container && node->first_child) {
+    if (ui->font_icons)
+      nk_style_set_font(ctx, &ui->font_icons->handle);
+    struct nk_style_button fold_style = icon_style;
+    fold_style.text_normal = nk_rgb(150, 150, 160);
+    fold_style.text_hover  = nk_rgb(80, 140, 200);
+    fold_style.text_active = nk_rgb(60, 110, 180);
+    if (nk_button_label_styled(ctx, &fold_style,
+                               node->folded ? ICON_EXPAND : ICON_COLLAPSE)) {
+      node->folded = !node->folded;
+    }
+    if (ui->font_inter)
+      nk_style_set_font(ctx, &ui->font_inter->handle);
+  } else {
+    nk_spacing(ctx, 1);
+  }
+
+  // 2. Type Icon (Selecting)
+  const char *icon = node_type_icon(node);
   if (ui->font_icons)
     nk_style_set_font(ctx, &ui->font_icons->handle);
   if (nk_button_label_styled(ctx, &icon_style, icon)) {
@@ -971,19 +1051,36 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx, Node *node,
         nk_filter_default);
     ctx->style.edit = old_edit;
 
+    // Focus the edit field on the first frame it actually exists.
+    // Capture flag BEFORE clearing it so the loss-of-focus guard below still
+    // works on this same frame (state is not yet NK_EDIT_ACTIVE on frame 1).
+    int just_focused = ui->rename_needs_focus;
+    if (just_focused) {
+      nk_edit_focus(ctx, NK_EDIT_ALWAYS_INSERT_MODE);
+      ui->rename_needs_focus = 0;
+    }
+
     if (state & NK_EDIT_COMMITED) {
+      // Enter pressed — commit
       strncpy(node->name, ui->node_rename_buffer, 63);
       ui->renaming_node_id = 0;
-    }
-    // Also handle loss of focus or mouse click outside
-    if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
-        !nk_widget_is_hovered(ctx)) {
+    } else if (!(state & NK_EDIT_ACTIVE) && !just_focused) {
+      // Edit field lost focus (click outside, Escape, Tab) — commit
       strncpy(node->name, ui->node_rename_buffer, 63);
       ui->renaming_node_id = 0;
     }
   } else {
-    const char *display =
+    // Build display name; append [M] badge if this node is a mask
+    char display_buf[72];
+    const char *base_name =
         node->name[0] ? node->name : node_type_display_name(node->type);
+    if (node->is_mask) {
+      snprintf(display_buf, sizeof(display_buf), "%s  [M]", base_name);
+    } else {
+      snprintf(display_buf, sizeof(display_buf), "%s", base_name);
+    }
+    const char *display = display_buf;
+
     struct nk_style_button name_style = ctx->style.button;
     name_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
     name_style.hover = nk_style_item_color(nk_rgba(0, 0, 0, 10));
@@ -999,11 +1096,12 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx, Node *node,
     name_style.text_active = text_col;
     if (nk_button_label_styled(ctx, &name_style, display)) {
       if (ui->selected_node == node) {
+        // Already selected — start renaming on next frame
         ui->renaming_node_id = node->id;
         const char *initial =
             node->name[0] ? node->name : node_type_display_name(node->type);
         strncpy(ui->node_rename_buffer, initial, 63);
-        nk_edit_focus(ctx, NK_EDIT_ALWAYS_INSERT_MODE);
+        ui->rename_needs_focus = 1; // Defer focus to next frame when edit exists
       } else {
         ui->selected_node = node;
         ui->renaming_node_id = 0;
@@ -1011,7 +1109,23 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx, Node *node,
     }
   }
 
-  // 4. Visibility Toggle
+  // 4. Fill color swatch (read-only indicator)
+  {
+    struct nk_rect sw = nk_widget_bounds(ctx);
+    nk_spacing(ctx, 1); // consume the slot
+    // Pick the most informative color: stroke nodes show stroke_color
+    uint32_t fc = (node->type == NODE_TYPE_STROKE || node->type == NODE_TYPE_PATH)
+                      ? node->stroke_color
+                      : node->fill_color;
+    uint8_t sr = (fc >> 24) & 0xFF, sg = (fc >> 16) & 0xFF, sb2 = (fc >> 8) & 0xFF;
+    struct nk_command_buffer *cb2 = nk_window_get_canvas(ctx);
+    float s = 8.0f;
+    float sx2 = sw.x + (sw.w - s) * 0.5f, sy2 = sw.y + (sw.h - s) * 0.5f;
+    nk_fill_rect(cb2, nk_rect(sx2, sy2, s, s), 2.0f, nk_rgba(sr, sg, sb2, 255));
+    nk_stroke_rect(cb2, nk_rect(sx2, sy2, s, s), 2.0f, 0.5f, nk_rgba(0, 0, 0, 45));
+  }
+
+  // 5. Visibility Toggle
   if (ui->font_icons)
     nk_style_set_font(ctx, &ui->font_icons->handle);
   struct nk_style_button vis_style = icon_style;
@@ -1023,7 +1137,7 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx, Node *node,
     node->visible = !node->visible;
   }
 
-  // 5. Lock Toggle
+  // 6. Lock Toggle
   struct nk_style_button lock_style = vis_style;
   lock_style.text_normal =
       node->locked ? nk_rgb(200, 80, 80) : nk_rgb(200, 200, 205);
@@ -1042,11 +1156,172 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx, Node *node,
     for (Node *ch = node->first_child; ch && c < 128; ch = ch->next_sibling)
       list[c++] = ch;
     for (int i = c - 1; i >= 0; i--) {
-      ui_render_layer_item(ui, ctx, list[i], depth + 1);
+      ui_render_layer_item(ui, ctx, block, list[i], depth + 1);
     }
   }
 }
 
+// =============================================================================
+// LAYER INSPECTOR — fixed panel shown below the layer tree when a node is
+// selected.  Properties here are quick-access; full editing is in Properties.
+// =============================================================================
+void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
+                               Block *block) {
+  Node *node = ui->selected_node;
+  if (!node || !block)
+    return;
+
+  // ── Row 1: type icon + editable name ──────────────────────────────────────
+  nk_layout_row_template_begin(ctx, 24);
+  nk_layout_row_template_push_static(ctx, 22.0f); // type icon
+  nk_layout_row_template_push_dynamic(ctx);        // name field
+  nk_layout_row_template_end(ctx);
+
+  if (ui->font_icons)
+    nk_style_set_font(ctx, &ui->font_icons->handle);
+  {
+    struct nk_style_button is = ctx->style.button;
+    is.normal = is.hover = is.active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    is.border = 0;
+    is.padding = nk_vec2(2, 2);
+    is.text_normal = is.text_hover = is.text_active = COLOR_ACCENT;
+    nk_button_label_styled(ctx, &is, node_type_icon(node));
+  }
+  if (ui->font_inter)
+    nk_style_set_font(ctx, &ui->font_inter->handle);
+
+  // Edit name directly in node->name (no extra buffer needed)
+  {
+    struct nk_style_edit ne = ctx->style.edit;
+    ne.normal.data.color  = nk_rgba(0, 0, 0, 0);
+    ne.hover.data.color   = nk_rgba(0, 0, 0, 10);
+    ne.active.data.color  = nk_rgba(255, 255, 255, 255);
+    ne.text_normal  = COLOR_TEXT;
+    ne.text_active  = nk_rgb(0, 0, 0);
+    ne.border       = 0.0f;
+    struct nk_style_edit old_ne = ctx->style.edit;
+    ctx->style.edit = ne;
+    nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, node->name, 63,
+                                   nk_filter_default);
+    ctx->style.edit = old_ne;
+    // If the inline rename is active for this node, cancel it — inspector wins
+    if (ui->renaming_node_id == node->id)
+      ui->renaming_node_id = 0;
+  }
+
+  // ── Row 2: opacity slider ──────────────────────────────────────────────────
+  nk_layout_row_dynamic(ctx, 20, 1);
+  nk_property_float(ctx, "Opacity", 0.0f, &node->opacity, 1.0f, 0.05f, 0.01f);
+
+  // ── Row 3: fill swatch | fill label  + stroke swatch | stroke width ────────
+  nk_layout_row_template_begin(ctx, 22);
+  nk_layout_row_template_push_static(ctx, 13.0f);  // fill swatch
+  nk_layout_row_template_push_dynamic(ctx);          // "Fill" label
+  nk_layout_row_template_push_static(ctx, 13.0f);  // stroke swatch
+  nk_layout_row_template_push_static(ctx, 58.0f);  // stroke width
+  nk_layout_row_template_end(ctx);
+
+  struct nk_command_buffer *insp_cb = nk_window_get_canvas(ctx);
+
+  // Fill swatch
+  {
+    struct nk_rect sr = nk_widget_bounds(ctx);
+    nk_spacing(ctx, 1);
+    uint32_t fc = node->fill_color;
+    float s = 9.0f;
+    float fx = sr.x + (sr.w - s) * 0.5f, fy = sr.y + (sr.h - s) * 0.5f;
+    nk_fill_rect(insp_cb, nk_rect(fx, fy, s, s), 2.0f,
+                 nk_rgba((fc >> 24) & 0xFF, (fc >> 16) & 0xFF,
+                         (fc >> 8) & 0xFF, 230));
+    nk_stroke_rect(insp_cb, nk_rect(fx, fy, s, s), 2.0f, 0.5f,
+                   nk_rgba(0, 0, 0, 40));
+  }
+  nk_label_colored(ctx, "Fill", NK_TEXT_LEFT, nk_rgb(120, 120, 135));
+
+  // Stroke swatch
+  {
+    struct nk_rect sr = nk_widget_bounds(ctx);
+    nk_spacing(ctx, 1);
+    uint32_t sc = node->stroke_color;
+    float s = 9.0f;
+    float fx = sr.x + (sr.w - s) * 0.5f, fy = sr.y + (sr.h - s) * 0.5f;
+    nk_fill_rect(insp_cb, nk_rect(fx, fy, s, s), 2.0f,
+                 nk_rgba((sc >> 24) & 0xFF, (sc >> 16) & 0xFF,
+                         (sc >> 8) & 0xFF, 230));
+    nk_stroke_rect(insp_cb, nk_rect(fx, fy, s, s), 2.0f, 0.5f,
+                   nk_rgba(0, 0, 0, 40));
+  }
+  nk_property_float(ctx, "W:", 0.0f, &node->stroke_width, 100.0f, 0.5f, 0.25f);
+
+  // ── Row 4: type-specific property ─────────────────────────────────────────
+  nk_layout_row_dynamic(ctx, 20, 1);
+  if (node->type == NODE_TYPE_TEXT) {
+    nk_property_float(ctx, "Font size:", 6.0f, &node->font_size, 200.0f, 1.0f,
+                      0.5f);
+  } else if (node->is_container) {
+    nk_checkbox_label(ctx, "Clip content", &node->clip_content);
+  } else {
+    nk_property_float(ctx, "Radius:", 0.0f, &node->corner_radius, 200.0f, 1.0f,
+                      0.5f);
+  }
+
+  // ── Row 5: action buttons ─────────────────────────────────────────────────
+  nk_layout_row_dynamic(ctx, 24, 3);
+
+  // Mask toggle
+  {
+    struct nk_style_button mb = ctx->style.button;
+    mb.rounding = 4.0f;
+    mb.border = 1.0f;
+    if (node->is_mask) {
+      mb.normal      = nk_style_item_color(nk_rgba(80, 140, 200, 50));
+      mb.text_normal = nk_rgb(80, 140, 200);
+      mb.border_color = nk_rgb(80, 140, 200);
+    } else {
+      mb.normal       = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+      mb.text_normal  = nk_rgb(100, 100, 115);
+      mb.border_color = nk_rgb(160, 160, 170);
+    }
+    mb.hover = nk_style_item_color(nk_rgba(80, 140, 200, 20));
+    mb.text_hover = mb.text_active = nk_rgb(80, 140, 200);
+    if (nk_button_label_styled(ctx, &mb, "Mask"))
+      node->is_mask = !node->is_mask;
+  }
+
+  // Copy
+  {
+    struct nk_style_button ab = ctx->style.button;
+    ab.rounding = 4.0f;
+    ab.border = 1.0f;
+    ab.normal       = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    ab.hover        = nk_style_item_color(nk_rgba(0, 0, 0, 15));
+    ab.text_normal  = nk_rgb(100, 100, 115);
+    ab.text_hover   = COLOR_TEXT;
+    ab.border_color = nk_rgb(160, 160, 170);
+    if (nk_button_label_styled(ctx, &ab, "Copy"))
+      block_design_duplicate_node(block, node->id);
+  }
+
+  // Delete
+  {
+    struct nk_style_button db = ctx->style.button;
+    db.rounding = 4.0f;
+    db.border = 1.0f;
+    db.normal       = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    db.hover        = nk_style_item_color(nk_rgba(220, 60, 60, 15));
+    db.text_normal  = nk_rgb(200, 70, 70);
+    db.text_hover   = nk_rgb(230, 50, 50);
+    db.border_color = nk_rgb(200, 70, 70);
+    if (nk_button_label_styled(ctx, &db, "Delete")) {
+      ui->selected_node = NULL;
+      block_design_delete_node(block, node->id);
+    }
+  }
+}
+
+// =============================================================================
+// LAYER TREE
+// =============================================================================
 void ui_render_sidebar_layers(UIHost *ui, struct nk_context *ctx,
                               Block *block) {
   Node *root = NULL;
@@ -1056,7 +1331,7 @@ void ui_render_sidebar_layers(UIHost *ui, struct nk_context *ctx,
   if (!root)
     return;
 
-  sidebar_section_header(ctx, "LAYERS");
+  ui->hovered_node_id = 0;
 
   // Root level children
   Node *nodes[256];
@@ -1067,37 +1342,38 @@ void ui_render_sidebar_layers(UIHost *ui, struct nk_context *ctx,
   }
 
   for (int i = count - 1; i >= 0; i--) {
-    ui_render_layer_item(ui, ctx, nodes[i], 0);
+    ui_render_layer_item(ui, ctx, block, nodes[i], 0);
   }
 
-  // Separator before delete zone
-  if (ui->selected_node) {
-    nk_layout_row_dynamic(ctx, 12, 1);
-    nk_spacing(ctx, 1);
+  // --- Finalize Drag & Drop ---
+  if (ui->sidebar_drag_node_id != 0 &&
+      nk_input_is_mouse_released(&ctx->input, NK_BUTTON_LEFT)) {
+    if (ui->sidebar_drag_started && ui->sidebar_drop_target_id != 0) {
+      Node *drag_node = block_design_find_node(block, ui->sidebar_drag_node_id);
+      Node *target_node =
+          block_design_find_node(block, ui->sidebar_drop_target_id);
+      if (drag_node && target_node && drag_node != target_node) {
+        // Find target row mid-point to decide before/after
+        // This is tricky because we don't have the target's rect here easily.
+        // But we know the last hovered row was the target.
+        // For simplicity, we'll use the mouse position vs target mid-point
+        // if we were able to store it, or just a simple 'insert before'.
+        // Since we are in the sidebar list (Last Child first),
+        // dragging 'Up' means moving to a later position in the list.
 
-    nk_layout_row_dynamic(ctx, 28, 1);
-    struct nk_style_button del_style = ctx->style.button;
-    del_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-    del_style.hover = nk_style_item_color(nk_rgba(220, 60, 60, 25));
-    del_style.active = nk_style_item_color(nk_rgba(220, 60, 60, 40));
-    del_style.border = 0;
-    del_style.text_normal = nk_rgb(200, 80, 80);
-    del_style.text_hover = nk_rgb(220, 50, 50);
-    del_style.text_active = nk_rgb(180, 40, 40);
-    del_style.text_alignment = NK_TEXT_LEFT;
-    del_style.padding = nk_vec2(4, 4);
-
-    const char *sel_name =
-        ui->selected_node->name[0]
-            ? ui->selected_node->name
-            : node_type_display_name(ui->selected_node->type);
-    char del_label[128];
-    snprintf(del_label, sizeof(del_label), "Delete %s", sel_name);
-    if (nk_button_label_styled(ctx, &del_style, del_label)) {
-      Node *to_del = ui->selected_node;
-      ui->selected_node = NULL;
-      block_design_delete_node(block, to_del->id);
+        // We'll use a simplified 'insert before' for now as proof of concept
+        node_insert_before(drag_node, target_node);
+        ui_request_redraw(ui);
+      }
     }
+    ui->sidebar_drag_node_id = 0;
+    ui->sidebar_drag_started = 0;
+    ui->sidebar_drop_target_id = 0;
+  }
+
+  // Reset drop target if mouse not down
+  if (!nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+    ui->sidebar_drop_target_id = 0;
   }
 }
 

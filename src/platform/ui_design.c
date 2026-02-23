@@ -528,7 +528,6 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
   float sb_avail = nk_window_get_content_region(ctx).h - 36.0f;
   if (sb_avail < 50.0f)
     sb_avail = 50.0f;
-  nk_layout_row_dynamic(ctx, sb_avail, 1);
 
   // =========================================================================
   // TAB 0 — PROPERTIES
@@ -539,6 +538,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
   snprintf(gp_page, sizeof(gp_page), "ds_page_%u", block->id);
 
   if (ui->design_bottom_tab == 0) {
+    nk_layout_row_dynamic(ctx, sb_avail, 1);
     if (nk_group_begin(ctx, gp_props, NK_WINDOW_BORDER)) {
       if (!ui->selected_node) {
         nk_layout_row_dynamic(ctx, 50, 1);
@@ -780,12 +780,32 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
   }
 
   // =========================================================================
-  // TAB 1 — LAYERS
+  // TAB 1 — LAYERS  (toolbar | scrollable tree | fixed inspector)
   // =========================================================================
   if (ui->design_bottom_tab == 1) {
+    const float inspector_h = 148.0f; // fits 5 rows + group padding
+    float tree_h = sb_avail
+                   - (ui->selected_node ? inspector_h : 0.0f)
+                   - 2.0f; // gap between sections
+    if (tree_h < 40.0f)
+      tree_h = 40.0f;
+
+    // ── Layer tree (scrollable) ───────────────────────────────────────────
+    nk_layout_row_dynamic(ctx, tree_h, 1);
     if (nk_group_begin(ctx, gp_layers, NK_WINDOW_BORDER)) {
       ui_render_sidebar_layers(ui, ctx, block);
       nk_group_end(ctx);
+    }
+
+    // ── Fixed bottom inspector (only when a node is selected) ────────────
+    if (ui->selected_node) {
+      char gp_insp[64];
+      snprintf(gp_insp, sizeof(gp_insp), "ds_insp_%u", block->id);
+      nk_layout_row_dynamic(ctx, inspector_h, 1);
+      if (nk_group_begin(ctx, gp_insp, NK_WINDOW_BORDER)) {
+        ui_render_layer_inspector(ui, ctx, block);
+        nk_group_end(ctx);
+      }
     }
   }
 
@@ -793,6 +813,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
   // TAB 2 — PAGE
   // =========================================================================
   if (ui->design_bottom_tab == 2) {
+    nk_layout_row_dynamic(ctx, sb_avail, 1);
     if (nk_group_begin(ctx, gp_page, NK_WINDOW_BORDER)) {
       if (page) {
         // ── CANVAS SIZE ──────────────────────────────────────────────────
@@ -1101,6 +1122,19 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
   float sw = node->width * scale;
   float sh = node->height * scale;
   struct nk_rect nr = nk_rect(sx, sy, sw, sh);
+
+  // Hover detection (Canvas -> Sidebar)
+  if (nk_input_is_mouse_hovering_rect(&ctx->input, nr) &&
+      !ui->design_state.is_dragging_node && !ui->sidebar_drag_node_id) {
+    ui->hovered_node_id = node->id;
+  }
+
+  // Highlight if hovered (Sidebar -> Canvas or Canvas -> Sidebar)
+  if (ui->hovered_node_id == node->id) {
+    struct nk_color highlight_col = nk_rgba(80, 140, 200, 255);
+    nk_stroke_rect(canvas_buf, nk_rect(nr.x - 1, nr.y - 1, nr.w + 2, nr.h + 2),
+                   node->corner_radius * scale, 2.0f, highlight_col);
+  }
 
   if (node->is_container && node->clip_content) {
     nk_push_scissor(canvas_buf, nr);
@@ -1840,9 +1874,31 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     }
   }
 
+  // Render children.  When a child has is_mask=1 it is NOT drawn as a normal
+  // shape; instead it defines a clipping region for all siblings rendered
+  // AFTER it (i.e. visually above it in the stack — Figma semantics).
+  // Siblings rendered before the mask are unaffected.
+  int mask_clipping = 0;
   for (Node *child = node->first_child; child; child = child->next_sibling) {
+    if (child->is_mask) {
+      float mx = sx + child->x * scale;
+      float my = sy + child->y * scale;
+      float mw = child->width  * scale;
+      float mh = child->height * scale;
+      // Show mask region as a blue dashed border so the designer can see it
+      nk_stroke_rect(canvas_buf, nk_rect(mx, my, mw, mh),
+                     0, 1.0f, nk_rgba(80, 140, 200, 180));
+      // Activate clipping for all subsequent siblings
+      nk_push_scissor(canvas_buf, nk_rect(mx, my, mw, mh));
+      mask_clipping = 1;
+      continue; // Mask node itself is invisible — don't render as a shape
+    }
     ui_render_node_tree(ui, ctx, engine, block, dd, canvas_buf, child, bounds,
                         scale, sx, sy);
+  }
+
+  if (mask_clipping) {
+    nk_push_scissor(canvas_buf, nk_rect(-8192, -8192, 16384, 16384));
   }
 
   if (node->is_container && node->clip_content) {

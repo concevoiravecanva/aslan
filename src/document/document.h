@@ -143,6 +143,7 @@ typedef struct Node {
   int locked;
   int is_container;
   int folded;
+  int is_mask; // Acts as a clipping mask for sibling nodes above it
 
   // Path data (for NODE_TYPE_PATH)
   NodePathPoint *path_points;
@@ -452,6 +453,7 @@ void block_design_destroy(Block *block);
 Node *block_design_create_node(Block *block, NodeType type, const char *name);
 Node *block_design_find_node(Block *block, uint32_t node_id);
 bool block_design_delete_node(Block *block, uint32_t node_id);
+Node *block_design_duplicate_node(Block *block, uint32_t node_id);
 void block_design_set_size(Block *block, int width, int height);
 void block_design_set_bg_color(Block *block, uint32_t color);
 
@@ -485,6 +487,8 @@ void node_bring_to_front(Node *node);
 void node_send_to_back(Node *node);
 void node_move_up(Node *node);
 void node_move_down(Node *node);
+void node_insert_before(Node *node, Node *target);
+void node_insert_after(Node *node, Node *target);
 
 // =============================================================================
 // PERSISTENCE
