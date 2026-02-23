@@ -554,7 +554,7 @@ struct nk_color COLOR_BORDER = {228, 228, 231, 255}; // Subtle border
 struct nk_color COLOR_TEXT = {220, 220, 220, 255};
 struct nk_color COLOR_TEXT_DARK = {36, 36, 39, 255}; // Near-black
 struct nk_color COLOR_TEXT_DIM = {140, 140, 145, 255};
-struct nk_color COLOR_ACCENT = {55, 120, 250, 255};
+struct nk_color COLOR_ACCENT = {110, 110, 130, 255};
 static struct nk_color COLOR_HIGHLIGHT_YELLOW = {255, 240, 100, 60};
 static struct nk_color COLOR_HIGHLIGHT_BLUE = {100, 180, 255, 60};
 static struct nk_color COLOR_HIGHLIGHT_GREEN = {100, 220, 140, 60};
@@ -1794,7 +1794,7 @@ void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
     // Subtle left-accent bar (Notion-style active indicator)
     nk_fill_rect(canvas,
                  nk_rect(bounds.x - 3, bounds.y + 2, 2.5f, bounds.h - 4), 1.0f,
-                 nk_rgba(55, 120, 250, 140));
+                 nk_rgba(110, 110, 130, 140));
   }
 
   // Draw placeholder
@@ -2160,7 +2160,7 @@ static void ui_render_view_tabs(UIHost *ui, struct nk_context *ctx, float width,
   int tab_count = 5;
   (void)panel_id;
 
-  struct nk_color active_col = nk_rgb(55, 120, 235);
+  struct nk_color active_col = COLOR_ACCENT;
   struct nk_color inactive_col =
       ui->dark_mode ? nk_rgb(140, 142, 150) : nk_rgb(130, 130, 138);
   struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
@@ -2488,7 +2488,7 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
         if (is_drop_target) {
           struct nk_command_buffer *dcv = nk_window_get_canvas(ctx);
           nk_stroke_rect(dcv, swimlane_bounds[vi], 0.0f, 2.0f,
-                         nk_rgba(55, 120, 235, 120));
+                         nk_rgba(110, 110, 130, 120));
         }
 
         // Color accent bar
@@ -2531,7 +2531,7 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
 
           int is_selected = (ui->split_view.selected_row == (int)r);
           if (is_selected && !is_dragged_card)
-            nk_stroke_rect(cv, card_rect, 6.0f, 1.5f, nk_rgb(55, 120, 235));
+            nk_stroke_rect(cv, card_rect, 6.0f, 1.5f, COLOR_ACCENT);
 
           char title[128] = "";
           if (title_col >= 0) {
@@ -2658,7 +2658,7 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
       nk_fill_rect(gcv, ghost, 6.0f,
                    ui->dark_mode ? nk_rgba(48, 50, 58, 220)
                                  : nk_rgba(255, 255, 255, 220));
-      nk_stroke_rect(gcv, ghost, 6.0f, 1.5f, nk_rgba(55, 120, 235, 180));
+      nk_stroke_rect(gcv, ghost, 6.0f, 1.5f, nk_rgba(110, 110, 130, 180));
       char ghost_title[128] = "Card";
       if (title_col >= 0) {
         const char *gt = aslan_table_get_text(tbl, title_col,
@@ -2719,7 +2719,7 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
       ui->dark_mode ? nk_rgb(220, 220, 225) : nk_rgb(40, 40, 50);
   struct nk_color dim_col =
       ui->dark_mode ? nk_rgb(100, 102, 110) : nk_rgb(160, 162, 168);
-  struct nk_color accent = nk_rgb(55, 120, 235);
+  struct nk_color accent = COLOR_ACCENT;
 
   static const char *month_names_cal[] = {
       "January", "February", "March",     "April",   "May",      "June",
@@ -2800,8 +2800,8 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
                       day_tm.tm_mon == now_tm_s.tm_mon &&
                       day_tm.tm_mday == now_tm_s.tm_mday);
       struct nk_color col_bg_c =
-          is_today ? (ui->dark_mode ? nk_rgba(55, 120, 235, 18)
-                                    : nk_rgba(55, 120, 235, 12))
+          is_today ? (ui->dark_mode ? nk_rgba(110, 110, 130, 18)
+                                    : nk_rgba(110, 110, 130, 12))
                    : (ui->dark_mode ? nk_rgba(42, 44, 50, 140)
                                     : nk_rgba(255, 255, 255, 180));
       nk_fill_rect(
@@ -2835,7 +2835,7 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
 
         int is_sel = (ui->split_view.selected_row == (int)r);
         struct nk_color pill_bg =
-            is_sel ? nk_rgba(55, 120, 235, 140) : nk_rgba(55, 120, 235, 45);
+            is_sel ? nk_rgba(110, 110, 130, 140) : nk_rgba(110, 110, 130, 45);
         struct nk_color pill_tc = is_sel ? nk_rgb(255, 255, 255) : accent;
         struct nk_rect pill = nk_rect(col_rect.x + 2, ev_y, col_rect.w - 4, 18);
         nk_fill_rect(wcv, pill, 3.0f, pill_bg);
@@ -2969,12 +2969,12 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
                      nk_rect(cell_rect.x + 1, cell_rect.y + 1, cell_rect.w - 2,
                              cell_rect.h - 2),
                      4.0f,
-                     ui->dark_mode ? nk_rgba(55, 120, 235, 30)
-                                   : nk_rgba(55, 120, 235, 20));
+                     ui->dark_mode ? nk_rgba(110, 110, 130, 30)
+                                   : nk_rgba(110, 110, 130, 20));
         nk_stroke_rect(cv,
                        nk_rect(cell_rect.x + 1, cell_rect.y + 1,
                                cell_rect.w - 2, cell_rect.h - 2),
-                       4.0f, 1.5f, nk_rgba(55, 120, 235, 120));
+                       4.0f, 1.5f, nk_rgba(110, 110, 130, 120));
       }
 
       // Update drop target if dragging and mouse is in this cell
@@ -3016,13 +3016,13 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
         struct nk_color pill_bg, pill_txt_col;
         int is_sel = (ui->split_view.selected_row == (int)r);
         if (is_dragged) {
-          pill_bg = nk_rgba(55, 120, 235, 20);
+          pill_bg = nk_rgba(110, 110, 130, 20);
           pill_txt_col = nk_rgba(accent.r, accent.g, accent.b, 60);
         } else if (is_sel) {
-          pill_bg = nk_rgba(55, 120, 235, 120);
+          pill_bg = nk_rgba(110, 110, 130, 120);
           pill_txt_col = nk_rgb(255, 255, 255);
         } else {
-          pill_bg = nk_rgba(55, 120, 235, 40);
+          pill_bg = nk_rgba(110, 110, 130, 40);
           pill_txt_col = accent;
         }
 
@@ -3175,7 +3175,7 @@ static void ui_render_view_calendar(UIHost *ui, Engine *engine,
       float gy = my - 7.0f;
       struct nk_rect ghost = nk_rect(gx, gy, 100.0f, 14.0f);
 
-      nk_fill_rect(gcv, ghost, 3.0f, nk_rgba(55, 120, 235, 180));
+      nk_fill_rect(gcv, ghost, 3.0f, nk_rgba(110, 110, 130, 180));
 
       char ghost_label[64] = "Event";
       if (ui->calendar_drag.title_col >= 0) {

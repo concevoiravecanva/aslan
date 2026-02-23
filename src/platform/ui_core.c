@@ -145,7 +145,7 @@ void ui_apply_theme(UIHost *ui) {
     struct nk_color border = nk_rgb(48, 48, 55);
     struct nk_color button = nk_rgb(42, 42, 48);
     struct nk_color button_hover = nk_rgb(55, 55, 62);
-    struct nk_color accent = nk_rgb(55, 120, 250);
+    struct nk_color accent = COLOR_ACCENT;
 
     s->window.background = bg;
     s->window.fixed_background = nk_style_item_color(bg);
@@ -163,10 +163,10 @@ void ui_apply_theme(UIHost *ui) {
 
     s->button.normal = nk_style_item_color(button);
     s->button.hover = nk_style_item_color(button_hover);
-    s->button.active = nk_style_item_color(accent);
+    s->button.active = nk_style_item_color(button_hover); // No solid blue
     s->button.text_normal = text;
     s->button.text_hover = text;
-    s->button.text_active = nk_rgb(255, 255, 255);
+    s->button.text_active = accent; // Use blue ONLY for text
     s->button.border_color = border;
 
     s->text.color = text;
@@ -192,7 +192,7 @@ void ui_apply_theme(UIHost *ui) {
     struct nk_color border = nk_rgb(228, 228, 231);
     struct nk_color button = nk_rgb(246, 246, 249);
     struct nk_color button_hover = nk_rgb(238, 238, 242);
-    struct nk_color accent = nk_rgb(55, 120, 250);
+    struct nk_color accent = COLOR_ACCENT;
 
     s->window.background = bg;
     s->window.fixed_background = nk_style_item_color(bg);
@@ -232,6 +232,16 @@ void ui_apply_theme(UIHost *ui) {
     s->edit.cursor_text_hover = bg;
     s->edit.border = 0.0f;
     s->edit.padding = nk_vec2(0, 2); // Flush alignment with margin
+
+    // Neutral scrollbars
+    s->scrollv.normal = nk_style_item_color(nk_rgb(245, 245, 248));
+    s->scrollv.hover = nk_style_item_color(nk_rgb(240, 240, 245));
+    s->scrollv.active = nk_style_item_color(nk_rgb(235, 235, 240));
+    s->scrollv.cursor_normal = nk_style_item_color(nk_rgb(200, 200, 210));
+    s->scrollv.cursor_hover = nk_style_item_color(nk_rgb(180, 180, 195));
+    s->scrollv.cursor_active = nk_style_item_color(nk_rgb(160, 160, 180));
+    s->scrollv.border = 0;
+    s->scrollv.rounding = 4.0f;
   }
 }
 

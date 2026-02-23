@@ -239,7 +239,7 @@ void renderer_draw_selection(Renderer *r, const Document *doc,
 
   // Selection highlight (blue border)
   SDL_Rect rect = {(int)sx - 2, (int)sy - 2, (int)sw + 4, (int)sh + 4};
-  SDL_SetRenderDrawColor(r->sdl_renderer, 80, 140, 200, 255);
+  SDL_SetRenderDrawColor(r->sdl_renderer, 110, 110, 130, 255);
   SDL_RenderDrawRect(r->sdl_renderer, &rect);
 
   // Corner handles
@@ -258,7 +258,7 @@ void renderer_draw_selection(Renderer *r, const Document *doc,
   for (int i = 0; i < 4; i++) {
     SDL_RenderFillRect(r->sdl_renderer, &handles[i]);
   }
-  SDL_SetRenderDrawColor(r->sdl_renderer, 80, 140, 200, 255);
+  SDL_SetRenderDrawColor(r->sdl_renderer, 110, 110, 130, 255);
   for (int i = 0; i < 4; i++) {
     SDL_RenderDrawRect(r->sdl_renderer, &handles[i]);
   }
@@ -293,8 +293,8 @@ void renderer_draw_design_block(Renderer *r, const Block *block, float x,
   SDL_SetRenderDrawColor(r->sdl_renderer, br, bg, bb, 255);
   SDL_RenderFillRect(r->sdl_renderer, &bounds);
 
-  // Border (accent)
-  SDL_SetRenderDrawColor(r->sdl_renderer, 80, 140, 200, 255);
+  // Border (neutral)
+  SDL_SetRenderDrawColor(r->sdl_renderer, 110, 110, 130, 255);
   SDL_RenderDrawRect(r->sdl_renderer, &bounds);
 
   // Draw nodes

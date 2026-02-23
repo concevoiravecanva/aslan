@@ -497,15 +497,16 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
   for (int t = 0; t < 3; t++) {
     struct nk_style_button ts = ctx->style.button;
     if (ui->design_bottom_tab == t) {
-      ts.normal = nk_style_item_color(nk_rgb(55, 120, 235));
-      ts.hover = nk_style_item_color(nk_rgb(45, 100, 215));
-      ts.active = nk_style_item_color(nk_rgb(35, 80, 195));
-      ts.text_normal = ts.text_hover = ts.text_active = nk_rgb(255, 255, 255);
+      ts.normal =
+          nk_style_item_color(nk_rgba(0, 0, 0, 15)); // Subtle grey active tab
+      ts.hover = nk_style_item_color(nk_rgba(0, 0, 0, 20));
+      ts.active = nk_style_item_color(nk_rgba(0, 0, 0, 25));
+      ts.text_normal = ts.text_hover = ts.text_active = COLOR_ACCENT;
     } else {
       ts.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
       ts.hover = nk_style_item_color(nk_rgba(0, 0, 0, 10));
       ts.active = nk_style_item_color(nk_rgba(0, 0, 0, 20));
-      ts.text_normal = nk_rgb(110, 110, 130);
+      ts.text_normal = COLOR_ACCENT;
       ts.text_hover = nk_rgb(60, 60, 80);
       ts.text_active = nk_rgb(40, 40, 60);
       ts.border = 0;
@@ -784,15 +785,14 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
   // =========================================================================
   if (ui->design_bottom_tab == 1) {
     const float inspector_h = 148.0f; // fits 5 rows + group padding
-    float tree_h = sb_avail
-                   - (ui->selected_node ? inspector_h : 0.0f)
-                   - 2.0f; // gap between sections
+    float tree_h = sb_avail - (ui->selected_node ? inspector_h : 0.0f) -
+                   2.0f; // gap between sections
     if (tree_h < 40.0f)
       tree_h = 40.0f;
 
     // ── Layer tree (scrollable) ───────────────────────────────────────────
     nk_layout_row_dynamic(ctx, tree_h, 1);
-    if (nk_group_begin(ctx, gp_layers, NK_WINDOW_BORDER)) {
+    if (nk_group_begin(ctx, gp_layers, 0)) {
       ui_render_sidebar_layers(ui, ctx, block);
       nk_group_end(ctx);
     }
@@ -802,7 +802,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
       char gp_insp[64];
       snprintf(gp_insp, sizeof(gp_insp), "ds_insp_%u", block->id);
       nk_layout_row_dynamic(ctx, inspector_h, 1);
-      if (nk_group_begin(ctx, gp_insp, NK_WINDOW_BORDER)) {
+      if (nk_group_begin(ctx, gp_insp, 0)) {
         ui_render_layer_inspector(ui, ctx, block);
         nk_group_end(ctx);
       }
@@ -920,7 +920,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           ui->selected_node = NULL;
         }
         struct nk_style_button add_btn = arr;
-        add_btn.text_normal = nk_rgb(55, 120, 235);
+        add_btn.text_normal = COLOR_ACCENT;
         if (nk_button_label_styled(ctx, &add_btn, "+")) {
           int new_pg = block_design_add_page(block);
           if (new_pg >= 0) {
@@ -961,8 +961,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
                      nk_vec2(220, 300));
 
         struct nk_style_button gen_btn = ctx->style.button;
-        gen_btn.normal = nk_style_item_color(nk_rgb(66, 133, 244));
-        gen_btn.hover = nk_style_item_color(nk_rgb(55, 120, 230));
+        gen_btn.normal = nk_style_item_color(COLOR_ACCENT);
+        gen_btn.hover = nk_style_item_color(COLOR_ACCENT);
         gen_btn.active = nk_style_item_color(nk_rgb(45, 100, 210));
         gen_btn.text_normal = nk_rgb(255, 255, 255);
         if (nk_button_label_styled(ctx, &gen_btn, "Generate Layout")) {
@@ -1131,7 +1131,7 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
 
   // Highlight if hovered (Sidebar -> Canvas or Canvas -> Sidebar)
   if (ui->hovered_node_id == node->id) {
-    struct nk_color highlight_col = nk_rgba(80, 140, 200, 255);
+    struct nk_color highlight_col = nk_rgba(110, 110, 130, 255);
     nk_stroke_rect(canvas_buf, nk_rect(nr.x - 1, nr.y - 1, nr.w + 2, nr.h + 2),
                    node->corner_radius * scale, 2.0f, highlight_col);
   }
@@ -1302,9 +1302,8 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
                      node->stroke_width * scale, stroke);
   } else if (node->type == NODE_TYPE_RECT) {
     if (node->is_container && !node->image_path[0]) {
-      struct nk_color cbg = nk_rgba(66, 133, 244, 40);
-      struct nk_color cst = nk_rgba(66, 133, 244, 255);
-      nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, cbg);
+      struct nk_color cst = nk_rgba(0, 0, 0, 25); // Subtle grey border
+      nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale, 1.0f, cst);
       nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale, 1.0f, cst);
       if (ui->font_icons) {
         struct nk_rect ir =
@@ -1465,8 +1464,8 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
              node->path_point_count > 1) {
     if (node->is_container && !node->image_path[0]) {
       // Empty container placeholder for PATH shape
-      struct nk_color cbg = nk_rgba(66, 133, 244, 40);
-      struct nk_color cst = nk_rgba(66, 133, 244, 255);
+      struct nk_color cbg = nk_rgba(110, 110, 130, 40);
+      struct nk_color cst = nk_rgba(110, 110, 130, 255);
       float poly_pts[512 * 2];
       int poly_count =
           node_get_path_polygon(node, poly_pts, 512, sx, sy, scale);
@@ -1574,8 +1573,8 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     }
   } else if (node->type == NODE_TYPE_ELLIPSE) {
     if (node->is_container && !node->image_path[0]) {
-      struct nk_color cbg = nk_rgba(66, 133, 244, 40);
-      struct nk_color cst = nk_rgba(66, 133, 244, 255);
+      struct nk_color cbg = nk_rgba(110, 110, 130, 40);
+      struct nk_color cst = nk_rgba(110, 110, 130, 255);
       nk_fill_circle(canvas_buf, nr, cbg);
       nk_stroke_circle(canvas_buf, nr, 1.0f, cst);
       if (ui->font_icons) {
@@ -1614,8 +1613,8 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     }
   } else if (node->type == NODE_TYPE_TRIANGLE) {
     if (node->is_container && !node->image_path[0]) {
-      struct nk_color cbg = nk_rgba(66, 133, 244, 40);
-      struct nk_color cst = nk_rgba(66, 133, 244, 255);
+      struct nk_color cbg = nk_rgba(110, 110, 130, 40);
+      struct nk_color cst = nk_rgba(110, 110, 130, 255);
       float vpts[6] = {sx + sw / 2, sy, sx, sy + sh, sx + sw, sy + sh};
       nk_fill_polygon(canvas_buf, vpts, 3, cbg);
       nk_stroke_polygon(canvas_buf, vpts, 3, 1.0f, cst);
@@ -1794,10 +1793,10 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     if (is_editing) {
       display_text = ui->edit_buffer;
       nk_fill_rect(canvas_buf, nk_rect(nr.x - 2, nr.y - 1, nr.w + 4, nr.h + 2),
-                   2.0f, nk_rgba(66, 133, 244, 20));
+                   2.0f, nk_rgba(110, 110, 130, 20));
       nk_stroke_rect(canvas_buf,
                      nk_rect(nr.x - 2, nr.y - 1, nr.w + 4, nr.h + 2), 2.0f,
-                     1.0f, nk_rgb(66, 133, 244));
+                     1.0f, COLOR_ACCENT);
     }
     if (display_text && strlen(display_text) > 0) {
       const struct nk_user_font *font =
@@ -1856,7 +1855,7 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
         int show_cursor = ((int)(SDL_GetTicks() / 500) % 2 == 0);
         if (show_cursor) {
           nk_stroke_line(canvas_buf, nr.x + tw + 1, nr.y + 2, nr.x + tw + 1,
-                         nr.y + nr.h - 2, 1.5f, nk_rgb(66, 133, 244));
+                         nr.y + nr.h - 2, 1.5f, COLOR_ACCENT);
         }
       }
     }
@@ -1865,7 +1864,7 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
   // Container indicator (Add icon in the center if empty container)
   if (node->is_container && !node->image_path[0] &&
       node->type != NODE_TYPE_TEXT && node->type != NODE_TYPE_ROOT) {
-    struct nk_color cst = nk_rgba(66, 133, 244, 255);
+    struct nk_color cst = nk_rgba(110, 110, 130, 255);
     if (ui->font_icons) {
       struct nk_rect ir =
           nk_rect(nr.x + nr.w / 2 - 10, nr.y + nr.h / 2 - 10, 20, 20);
@@ -1883,11 +1882,11 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     if (child->is_mask) {
       float mx = sx + child->x * scale;
       float my = sy + child->y * scale;
-      float mw = child->width  * scale;
+      float mw = child->width * scale;
       float mh = child->height * scale;
       // Show mask region as a blue dashed border so the designer can see it
-      nk_stroke_rect(canvas_buf, nk_rect(mx, my, mw, mh),
-                     0, 1.0f, nk_rgba(80, 140, 200, 180));
+      nk_stroke_rect(canvas_buf, nk_rect(mx, my, mw, mh), 0, 1.0f,
+                     nk_rgba(110, 110, 130, 180));
       // Activate clipping for all subsequent siblings
       nk_push_scissor(canvas_buf, nk_rect(mx, my, mw, mh));
       mask_clipping = 1;
@@ -2000,7 +1999,7 @@ static void design_draw_guides(struct nk_command_buffer *buf,
                                const DesignPage *dp) {
   if (!dp)
     return;
-  struct nk_color guide_col = nk_rgba(0, 180, 220, 180);
+  struct nk_color guide_col = nk_rgba(110, 110, 130, 180);
 
   // Horizontal guides
   for (int i = 0; i < dp->h_guide_count; i++) {
@@ -2015,7 +2014,7 @@ static void design_draw_guides(struct nk_command_buffer *buf,
         float tw =
             fnt->width(fnt->userdata, fnt->height, lbl, (int)strlen(lbl));
         struct nk_rect lr = nk_rect(art.x + 2, sy - 12, tw + 4, 12);
-        nk_fill_rect(buf, lr, 0, nk_rgba(0, 180, 220, 200));
+        nk_fill_rect(buf, lr, 0, nk_rgba(110, 110, 130, 200));
         nk_draw_text(buf, lr, lbl, (int)strlen(lbl), fnt, nk_rgba(0, 0, 0, 0),
                      nk_rgb(255, 255, 255));
       }
@@ -2032,7 +2031,7 @@ static void design_draw_guides(struct nk_command_buffer *buf,
       struct nk_user_font *fnt = (struct nk_user_font *)buf->userdata.ptr;
       if (fnt) {
         struct nk_rect lr = nk_rect(sx + 2, art.y + 2, 30, 12);
-        nk_fill_rect(buf, lr, 0, nk_rgba(0, 180, 220, 200));
+        nk_fill_rect(buf, lr, 0, nk_rgba(110, 110, 130, 200));
         nk_draw_text(buf, lr, lbl, (int)strlen(lbl), fnt, nk_rgba(0, 0, 0, 0),
                      nk_rgb(255, 255, 255));
       }
@@ -2541,10 +2540,10 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
           fill_rotated_rounded_rect(canvas_buf, cx, cy, sw + sel_off * 2,
                                     sh + sel_off * 2, rad, 0,
-                                    nk_rgb(66, 133, 244), 1, 1.0f);
+                                    COLOR_ACCENT, 1, 1.0f);
 
           float hsz = 8.0f;
-          struct nk_color hc = nk_rgb(66, 133, 244);
+          struct nk_color hc = COLOR_ACCENT;
           float c = cosf(rad);
           float s = sinf(rad);
           float h_hw = (sw + sel_off * 2) / 2.0f;
@@ -2961,7 +2960,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                 nk_rect(px - 5 * scale, py - 5 * scale, 10 * scale, 10 * scale);
             nk_fill_rect(canvas_buf, anchor_rect, 0, nk_rgb(255, 255, 255));
             nk_stroke_rect(canvas_buf, anchor_rect, 0, 1.5f * scale,
-                           nk_rgb(66, 133, 244));
+                           COLOR_ACCENT);
 
             if (p->type == 1) { // Cubic
               float cp1x = sx + p->cp1x * scale;
@@ -2978,8 +2977,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                           8 * scale, 8 * scale);
               struct nk_rect r2 = nk_rect(cp2x - 4 * scale, cp2y - 4 * scale,
                                           8 * scale, 8 * scale);
-              nk_fill_circle(canvas_buf, r1, nk_rgb(66, 133, 244));
-              nk_fill_circle(canvas_buf, r2, nk_rgb(66, 133, 244));
+              nk_fill_circle(canvas_buf, r1, COLOR_ACCENT);
+              nk_fill_circle(canvas_buf, r2, COLOR_ACCENT);
             }
           }
         }

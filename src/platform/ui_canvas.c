@@ -34,7 +34,7 @@ void draw_alignment_guides(struct nk_command_buffer *canvas_buf, Node *node,
                            float node_sh) {
   if (!node)
     return;
-  struct nk_color guide_col = nk_rgba(66, 133, 244, 150);
+  struct nk_color guide_col = nk_rgba(110, 110, 130, 150);
   float tolerance = 3.0f;
 
   float node_cx = node_sx + node_sw / 2.0f;
@@ -91,7 +91,7 @@ void render_node_context_menu(UIHost *ui, struct nk_context *ctx,
          ui->mouse_y >= item_r.y && ui->mouse_y < item_r.y + item_r.h);
 
     if (hovered)
-      nk_fill_rect(canvas_buf, item_r, 4.0f, nk_rgba(66, 133, 244, 20));
+      nk_fill_rect(canvas_buf, item_r, 4.0f, nk_rgba(110, 110, 130, 20));
 
     nk_draw_text(
         canvas_buf, nk_rect(item_r.x + 10, item_r.y + 6, item_r.w - 20, 20),
@@ -527,26 +527,29 @@ static const char *node_type_display_name(NodeType type) {
 static const char *node_type_icon(Node *node) {
   switch (node->type) {
   case NODE_TYPE_RECT:
+    return "\xEE\xBD\xB5"; // ri-rectangle-line (U+EF75)
   case NODE_TYPE_ELLIPSE:
+    return "\xEE\xA6\xB1"; // ri-circle-line (U+E9B1)
   case NODE_TYPE_TRIANGLE:
-  case NODE_TYPE_PENTAGON:
-  case NODE_TYPE_HEXAGON:
-  case NODE_TYPE_OCTAGON:
-  case NODE_TYPE_HEART:
-    return ICON_SHAPE;
-  case NODE_TYPE_LINE:
-  case NODE_TYPE_PATH:
-    return ICON_MAGIC;
+    return "\xEF\x82\x98"; // ri-triangle-line (U+F098)
   case NODE_TYPE_TEXT:
     return ICON_TEXT;
   case NODE_TYPE_IMAGE:
     return ICON_IMAGE;
+  case NODE_TYPE_LINE:
+    return "\xEE\xBC\xAE"; // ri-separator (U+EF2E)
+  case NODE_TYPE_PATH:
+    return ICON_MAGIC;
   case NODE_TYPE_STROKE:
     return (node->stroke_data && node->stroke_data->type == STROKE_TYPE_MARKER)
                ? ICON_MARKER
                : ICON_BRUSH;
   case NODE_TYPE_CHART:
     return ICON_CHART;
+  case NODE_TYPE_FRAME:
+    return ICON_CANVAS;
+  case NODE_TYPE_GROUP:
+    return ICON_DESIGN;
   default:
     return ICON_SHAPE;
   }
@@ -899,25 +902,25 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
 
   int is_selected = (ui->selected_node == node);
   int is_renaming = (ui->renaming_node_id == node->id);
-  struct nk_color selected_bg = nk_rgba(80, 140, 200, 40);
   struct nk_color hidden_text = nk_rgb(180, 180, 185);
 
   // -- Layer row: [indent] [Fold] [Icon] [Name flex] [Swatch] [Vis] [Lock] --
-  float indent_w = 4.0f + (float)(depth) * 14.0f;
-  nk_layout_row_template_begin(ctx, 28);
+  float indent_w = 4.0f + (float)(depth) * 16.0f;
+  nk_layout_row_template_begin(ctx, 30);
   nk_layout_row_template_push_static(ctx, indent_w); // indent spacer
-  nk_layout_row_template_push_static(ctx, 18.0f);    // fold toggle
-  nk_layout_row_template_push_static(ctx, 22.0f);    // type icon
-  nk_layout_row_template_push_dynamic(ctx);           // name (flexible)
-  nk_layout_row_template_push_static(ctx, 12.0f);    // fill color swatch
-  nk_layout_row_template_push_static(ctx, 22.0f);    // visibility
-  nk_layout_row_template_push_static(ctx, 22.0f);    // lock
+  nk_layout_row_template_push_static(ctx, 16.0f);    // fold toggle
+  nk_layout_row_template_push_static(ctx, 24.0f);    // type icon
+  nk_layout_row_template_push_dynamic(ctx);          // name (flexible)
+  nk_layout_row_template_push_static(ctx, 16.0f);    // fill color swatch
+  nk_layout_row_template_push_static(ctx, 24.0f);    // visibility
+  nk_layout_row_template_push_static(ctx, 24.0f);    // lock
   nk_layout_row_template_end(ctx);
 
   struct nk_rect row_bounds = nk_widget_bounds(ctx);
-  // Full row area for interaction
-  struct nk_rect full_row =
-      nk_rect(row_bounds.x - 4, row_bounds.y, row_bounds.w + 100, 40);
+  // Full row area for interaction - spans entire content width
+  struct nk_rect full_row = nk_window_get_content_region(ctx);
+  full_row.y = row_bounds.y;
+  full_row.h = 30;
   int is_hovered_row = nk_input_is_mouse_hovering_rect(&ctx->input, full_row);
 
   // 1. Hover Sync (Sidebar -> Canvas)
@@ -952,23 +955,21 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
     ui->sidebar_drop_target_id = node->id;
   }
 
-  // Draw row background if selected or being dragged/targeted or hovered
-  if (is_selected ||
-      (ui->sidebar_drag_node_id == node->id && ui->sidebar_drag_started) ||
-      (is_hovered_row && !ui->sidebar_drag_node_id)) {
+  // Draw row background for hover or dragging (selection uses only left bar)
+  if (ui->sidebar_drag_node_id == node->id && ui->sidebar_drag_started) {
     struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
-    struct nk_color bg =
-        is_selected ? selected_bg
-                    : (ui->sidebar_drag_node_id == node->id
-                           ? nk_rgba(80, 140, 200, 40)
-                           : nk_rgba(255, 255, 255, 10)); // Subtle hover
-    nk_fill_rect(canvas_buf, full_row, 0, bg);
-    // Left accent bar for selected row
-    if (is_selected) {
-      nk_fill_rect(canvas_buf,
-                   nk_rect(full_row.x, full_row.y, 2, full_row.h),
-                   0, nk_rgb(80, 140, 200));
-    }
+    nk_fill_rect(canvas_buf, full_row, 4.0f, nk_rgba(110, 110, 130, 30));
+  } else if (is_hovered_row && !ui->sidebar_drag_node_id) {
+    struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
+    nk_fill_rect(canvas_buf, full_row, 4.0f, nk_rgba(0, 0, 0, 12));
+  }
+
+  // Left accent bar for selected row (professional selection indicator)
+  if (is_selected) {
+    struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
+    nk_fill_rect(canvas_buf,
+                 nk_rect(full_row.x, full_row.y + 4, 3, full_row.h - 8), 1.5f,
+                 COLOR_ACCENT);
   }
 
   // Draw drop indicator line
@@ -979,20 +980,21 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
     if (my < row_mid) {
       // Drop before (above)
       nk_fill_rect(canvas_buf,
-                   nk_rect(full_row.x, full_row.y - 2, full_row.w, 4), 0,
-                   nk_rgb(80, 140, 200));
+                   nk_rect(full_row.x, full_row.y - 1, full_row.w, 2), 0,
+                   COLOR_ACCENT);
     } else {
       // Drop after (below)
       nk_fill_rect(
           canvas_buf,
-          nk_rect(full_row.x, full_row.y + full_row.h - 2, full_row.w, 4), 0,
-          nk_rgb(80, 140, 200));
+          nk_rect(full_row.x, full_row.y + full_row.h - 1, full_row.w, 2), 0,
+          COLOR_ACCENT);
     }
   }
 
   nk_spacing(ctx, 1); // Indentation spacer
 
-  // Shared transparent icon button style (reused for fold, type icon, vis, lock)
+  // Shared transparent icon button style (reused for fold, type icon, vis,
+  // lock)
   struct nk_style_button icon_style = ctx->style.button;
   icon_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
   icon_style.hover = nk_style_item_color(nk_rgba(0, 0, 0, 15));
@@ -1000,9 +1002,11 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
   icon_style.border = 0;
   icon_style.padding = nk_vec2(2, 2);
   struct nk_color icon_col =
-      node->visible ? nk_rgb(120, 120, 130) : hidden_text;
+      node->visible ? nk_rgb(110, 110, 125) : hidden_text;
   icon_style.text_normal = icon_col;
   icon_style.text_hover = icon_col;
+  icon_style.active =
+      nk_style_item_color(nk_rgba(0, 0, 0, 0)); // No blue active
   icon_style.text_active = icon_col;
 
   // 1. Fold Toggle (uses icons font for proper arrow glyphs)
@@ -1010,8 +1014,8 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
     if (ui->font_icons)
       nk_style_set_font(ctx, &ui->font_icons->handle);
     struct nk_style_button fold_style = icon_style;
-    fold_style.text_normal = nk_rgb(150, 150, 160);
-    fold_style.text_hover  = nk_rgb(80, 140, 200);
+    fold_style.text_normal = nk_rgb(160, 160, 175);
+    fold_style.text_hover = COLOR_ACCENT;
     fold_style.text_active = nk_rgb(60, 110, 180);
     if (nk_button_label_styled(ctx, &fold_style,
                                node->folded ? ICON_EXPAND : ICON_COLLAPSE)) {
@@ -1020,14 +1024,25 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
     if (ui->font_inter)
       nk_style_set_font(ctx, &ui->font_inter->handle);
   } else {
+    // Subtle indentation guide line
+    if (depth > 0) {
+      struct nk_command_buffer *cb = nk_window_get_canvas(ctx);
+      float lx = row_bounds.x - 8;
+      nk_stroke_line(cb, lx, row_bounds.y, lx, row_bounds.y + row_bounds.h,
+                     1.0f, nk_rgba(0, 0, 0, 15));
+    }
     nk_spacing(ctx, 1);
   }
 
-  // 2. Type Icon (Selecting)
+  // 2. Type Icon
   const char *icon = node_type_icon(node);
   if (ui->font_icons)
     nk_style_set_font(ctx, &ui->font_icons->handle);
-  if (nk_button_label_styled(ctx, &icon_style, icon)) {
+  struct nk_style_button type_btn_style = icon_style;
+  if (is_selected)
+    type_btn_style.text_normal =
+        COLOR_ACCENT; // Neutral grey instead of blue
+  if (nk_button_label_styled(ctx, &type_btn_style, icon)) {
     ui->selected_node = node;
     ui->renaming_node_id = 0; // Cancel renaming if clicking icon
   }
@@ -1043,6 +1058,7 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
     edit_style.text_normal = nk_rgb(0, 0, 0);
     edit_style.text_active = nk_rgb(0, 0, 0);
     edit_style.cursor_normal = nk_rgb(0, 0, 0);
+    edit_style.padding = nk_vec2(4, 2);
 
     struct nk_style_edit old_edit = ctx->style.edit;
     ctx->style.edit = edit_style;
@@ -1051,9 +1067,6 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
         nk_filter_default);
     ctx->style.edit = old_edit;
 
-    // Focus the edit field on the first frame it actually exists.
-    // Capture flag BEFORE clearing it so the loss-of-focus guard below still
-    // works on this same frame (state is not yet NK_EDIT_ACTIVE on frame 1).
     int just_focused = ui->rename_needs_focus;
     if (just_focused) {
       nk_edit_focus(ctx, NK_EDIT_ALWAYS_INSERT_MODE);
@@ -1061,11 +1074,9 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
     }
 
     if (state & NK_EDIT_COMMITED) {
-      // Enter pressed — commit
       strncpy(node->name, ui->node_rename_buffer, 63);
       ui->renaming_node_id = 0;
     } else if (!(state & NK_EDIT_ACTIVE) && !just_focused) {
-      // Edit field lost focus (click outside, Escape, Tab) — commit
       strncpy(node->name, ui->node_rename_buffer, 63);
       ui->renaming_node_id = 0;
     }
@@ -1083,25 +1094,25 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
 
     struct nk_style_button name_style = ctx->style.button;
     name_style.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-    name_style.hover = nk_style_item_color(nk_rgba(0, 0, 0, 10));
-    name_style.active = nk_style_item_color(nk_rgba(0, 0, 0, 20));
-    name_style.border = 0;
+    name_style.hover = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    name_style.active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    name_style.border = 0.0f;
+    name_style.border_color = nk_rgba(0, 0, 0, 0);
     name_style.padding = nk_vec2(4, 4);
     name_style.text_alignment = NK_TEXT_LEFT;
     struct nk_color text_col = !node->visible ? hidden_text
-                               : is_selected  ? COLOR_ACCENT
-                                              : COLOR_TEXT;
+                               : is_selected  ? nk_rgb(60, 60, 75)
+                                              : nk_rgb(80, 80, 95);
     name_style.text_normal = text_col;
     name_style.text_hover = text_col;
     name_style.text_active = text_col;
     if (nk_button_label_styled(ctx, &name_style, display)) {
       if (ui->selected_node == node) {
-        // Already selected — start renaming on next frame
         ui->renaming_node_id = node->id;
         const char *initial =
             node->name[0] ? node->name : node_type_display_name(node->type);
         strncpy(ui->node_rename_buffer, initial, 63);
-        ui->rename_needs_focus = 1; // Defer focus to next frame when edit exists
+        ui->rename_needs_focus = 1;
       } else {
         ui->selected_node = node;
         ui->renaming_node_id = 0;
@@ -1109,20 +1120,21 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
     }
   }
 
-  // 4. Fill color swatch (read-only indicator)
+  // 4. Fill color swatch (improved circular indicator)
   {
     struct nk_rect sw = nk_widget_bounds(ctx);
     nk_spacing(ctx, 1); // consume the slot
-    // Pick the most informative color: stroke nodes show stroke_color
-    uint32_t fc = (node->type == NODE_TYPE_STROKE || node->type == NODE_TYPE_PATH)
-                      ? node->stroke_color
-                      : node->fill_color;
-    uint8_t sr = (fc >> 24) & 0xFF, sg = (fc >> 16) & 0xFF, sb2 = (fc >> 8) & 0xFF;
+    uint32_t fc =
+        (node->type == NODE_TYPE_STROKE || node->type == NODE_TYPE_PATH)
+            ? node->stroke_color
+            : node->fill_color;
+    uint8_t sr = (fc >> 24) & 0xFF, sg = (fc >> 16) & 0xFF,
+            sb2 = (fc >> 8) & 0xFF;
     struct nk_command_buffer *cb2 = nk_window_get_canvas(ctx);
-    float s = 8.0f;
+    float s = 10.0f;
     float sx2 = sw.x + (sw.w - s) * 0.5f, sy2 = sw.y + (sw.h - s) * 0.5f;
-    nk_fill_rect(cb2, nk_rect(sx2, sy2, s, s), 2.0f, nk_rgba(sr, sg, sb2, 255));
-    nk_stroke_rect(cb2, nk_rect(sx2, sy2, s, s), 2.0f, 0.5f, nk_rgba(0, 0, 0, 45));
+    nk_fill_circle(cb2, nk_rect(sx2, sy2, s, s), nk_rgba(sr, sg, sb2, 255));
+    nk_stroke_circle(cb2, nk_rect(sx2, sy2, s, s), 1.0f, nk_rgba(0, 0, 0, 40));
   }
 
   // 5. Visibility Toggle
@@ -1130,8 +1142,8 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
     nk_style_set_font(ctx, &ui->font_icons->handle);
   struct nk_style_button vis_style = icon_style;
   vis_style.text_normal =
-      node->visible ? nk_rgb(130, 130, 140) : nk_rgb(200, 200, 205);
-  vis_style.text_hover = nk_rgb(80, 140, 200);
+      node->visible ? nk_rgb(150, 150, 160) : nk_rgb(210, 210, 215);
+  vis_style.text_hover = COLOR_ACCENT;
   if (nk_button_label_styled(ctx, &vis_style,
                              node->visible ? ICON_EYE : ICON_EYE_OFF)) {
     node->visible = !node->visible;
@@ -1140,7 +1152,7 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
   // 6. Lock Toggle
   struct nk_style_button lock_style = vis_style;
   lock_style.text_normal =
-      node->locked ? nk_rgb(200, 80, 80) : nk_rgb(200, 200, 205);
+      node->locked ? nk_rgb(220, 100, 100) : nk_rgb(210, 210, 215);
   if (nk_button_label_styled(ctx, &lock_style,
                              node->locked ? ICON_LOCK : ICON_LOCK_UNLOCK)) {
     node->locked = !node->locked;
@@ -1174,7 +1186,7 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
   // ── Row 1: type icon + editable name ──────────────────────────────────────
   nk_layout_row_template_begin(ctx, 24);
   nk_layout_row_template_push_static(ctx, 22.0f); // type icon
-  nk_layout_row_template_push_dynamic(ctx);        // name field
+  nk_layout_row_template_push_dynamic(ctx);       // name field
   nk_layout_row_template_end(ctx);
 
   if (ui->font_icons)
@@ -1184,7 +1196,8 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
     is.normal = is.hover = is.active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
     is.border = 0;
     is.padding = nk_vec2(2, 2);
-    is.text_normal = is.text_hover = is.text_active = COLOR_ACCENT;
+    is.text_normal = is.text_hover = is.text_active =
+        COLOR_ACCENT; // Neutral grey
     nk_button_label_styled(ctx, &is, node_type_icon(node));
   }
   if (ui->font_inter)
@@ -1193,12 +1206,12 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
   // Edit name directly in node->name (no extra buffer needed)
   {
     struct nk_style_edit ne = ctx->style.edit;
-    ne.normal.data.color  = nk_rgba(0, 0, 0, 0);
-    ne.hover.data.color   = nk_rgba(0, 0, 0, 10);
-    ne.active.data.color  = nk_rgba(255, 255, 255, 255);
-    ne.text_normal  = COLOR_TEXT;
-    ne.text_active  = nk_rgb(0, 0, 0);
-    ne.border       = 0.0f;
+    ne.normal.data.color = nk_rgba(0, 0, 0, 0);
+    ne.hover.data.color = nk_rgba(0, 0, 0, 10);
+    ne.active.data.color = nk_rgba(255, 255, 255, 255);
+    ne.text_normal = COLOR_TEXT;
+    ne.text_active = nk_rgb(0, 0, 0);
+    ne.border = 0.0f;
     struct nk_style_edit old_ne = ctx->style.edit;
     ctx->style.edit = ne;
     nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, node->name, 63,
@@ -1215,10 +1228,10 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
 
   // ── Row 3: fill swatch | fill label  + stroke swatch | stroke width ────────
   nk_layout_row_template_begin(ctx, 22);
-  nk_layout_row_template_push_static(ctx, 13.0f);  // fill swatch
-  nk_layout_row_template_push_dynamic(ctx);          // "Fill" label
-  nk_layout_row_template_push_static(ctx, 13.0f);  // stroke swatch
-  nk_layout_row_template_push_static(ctx, 58.0f);  // stroke width
+  nk_layout_row_template_push_static(ctx, 13.0f); // fill swatch
+  nk_layout_row_template_push_dynamic(ctx);       // "Fill" label
+  nk_layout_row_template_push_static(ctx, 13.0f); // stroke swatch
+  nk_layout_row_template_push_static(ctx, 58.0f); // stroke width
   nk_layout_row_template_end(ctx);
 
   struct nk_command_buffer *insp_cb = nk_window_get_canvas(ctx);
@@ -1230,9 +1243,9 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
     uint32_t fc = node->fill_color;
     float s = 9.0f;
     float fx = sr.x + (sr.w - s) * 0.5f, fy = sr.y + (sr.h - s) * 0.5f;
-    nk_fill_rect(insp_cb, nk_rect(fx, fy, s, s), 2.0f,
-                 nk_rgba((fc >> 24) & 0xFF, (fc >> 16) & 0xFF,
-                         (fc >> 8) & 0xFF, 230));
+    nk_fill_rect(
+        insp_cb, nk_rect(fx, fy, s, s), 2.0f,
+        nk_rgba((fc >> 24) & 0xFF, (fc >> 16) & 0xFF, (fc >> 8) & 0xFF, 230));
     nk_stroke_rect(insp_cb, nk_rect(fx, fy, s, s), 2.0f, 0.5f,
                    nk_rgba(0, 0, 0, 40));
   }
@@ -1245,28 +1258,27 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
     uint32_t sc = node->stroke_color;
     float s = 9.0f;
     float fx = sr.x + (sr.w - s) * 0.5f, fy = sr.y + (sr.h - s) * 0.5f;
-    nk_fill_rect(insp_cb, nk_rect(fx, fy, s, s), 2.0f,
-                 nk_rgba((sc >> 24) & 0xFF, (sc >> 16) & 0xFF,
-                         (sc >> 8) & 0xFF, 230));
+    nk_fill_rect(
+        insp_cb, nk_rect(fx, fy, s, s), 2.0f,
+        nk_rgba((sc >> 24) & 0xFF, (sc >> 16) & 0xFF, (sc >> 8) & 0xFF, 230));
     nk_stroke_rect(insp_cb, nk_rect(fx, fy, s, s), 2.0f, 0.5f,
                    nk_rgba(0, 0, 0, 40));
   }
   nk_property_float(ctx, "W:", 0.0f, &node->stroke_width, 100.0f, 0.5f, 0.25f);
 
   // ── Row 4: type-specific property ─────────────────────────────────────────
-  nk_layout_row_dynamic(ctx, 20, 1);
+  nk_layout_row_dynamic(ctx, 24, 1);
   if (node->type == NODE_TYPE_TEXT) {
-    nk_property_float(ctx, "Font size:", 6.0f, &node->font_size, 200.0f, 1.0f,
-                      0.5f);
+    nk_property_float(ctx, "Size", 6.0f, &node->font_size, 200.0f, 1.0f, 0.5f);
   } else if (node->is_container) {
     nk_checkbox_label(ctx, "Clip content", &node->clip_content);
   } else {
-    nk_property_float(ctx, "Radius:", 0.0f, &node->corner_radius, 200.0f, 1.0f,
+    nk_property_float(ctx, "Radius", 0.0f, &node->corner_radius, 200.0f, 1.0f,
                       0.5f);
   }
 
   // ── Row 5: action buttons ─────────────────────────────────────────────────
-  nk_layout_row_dynamic(ctx, 24, 3);
+  nk_layout_row_dynamic(ctx, 25, 3);
 
   // Mask toggle
   {
@@ -1274,16 +1286,16 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
     mb.rounding = 4.0f;
     mb.border = 1.0f;
     if (node->is_mask) {
-      mb.normal      = nk_style_item_color(nk_rgba(80, 140, 200, 50));
-      mb.text_normal = nk_rgb(80, 140, 200);
-      mb.border_color = nk_rgb(80, 140, 200);
+      mb.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+      mb.text_normal = nk_rgb(110, 110, 125);
+      mb.border_color = nk_rgba(0, 0, 0, 30);
     } else {
-      mb.normal       = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-      mb.text_normal  = nk_rgb(100, 100, 115);
-      mb.border_color = nk_rgb(160, 160, 170);
+      mb.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+      mb.text_normal = nk_rgb(110, 110, 125);
+      mb.border_color = nk_rgba(0, 0, 0, 30);
     }
-    mb.hover = nk_style_item_color(nk_rgba(80, 140, 200, 20));
-    mb.text_hover = mb.text_active = nk_rgb(80, 140, 200);
+    mb.hover = nk_style_item_color(nk_rgba(0, 0, 0, 10));
+    mb.text_hover = mb.text_active = COLOR_ACCENT;
     if (nk_button_label_styled(ctx, &mb, "Mask"))
       node->is_mask = !node->is_mask;
   }
@@ -1293,11 +1305,11 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
     struct nk_style_button ab = ctx->style.button;
     ab.rounding = 4.0f;
     ab.border = 1.0f;
-    ab.normal       = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-    ab.hover        = nk_style_item_color(nk_rgba(0, 0, 0, 15));
-    ab.text_normal  = nk_rgb(100, 100, 115);
-    ab.text_hover   = COLOR_TEXT;
-    ab.border_color = nk_rgb(160, 160, 170);
+    ab.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    ab.hover = nk_style_item_color(nk_rgba(0, 0, 0, 10));
+    ab.text_normal = nk_rgb(110, 110, 125);
+    ab.text_hover = nk_rgb(60, 60, 75);
+    ab.border_color = nk_rgba(0, 0, 0, 30);
     if (nk_button_label_styled(ctx, &ab, "Copy"))
       block_design_duplicate_node(block, node->id);
   }
@@ -1307,11 +1319,11 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
     struct nk_style_button db = ctx->style.button;
     db.rounding = 4.0f;
     db.border = 1.0f;
-    db.normal       = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-    db.hover        = nk_style_item_color(nk_rgba(220, 60, 60, 15));
-    db.text_normal  = nk_rgb(200, 70, 70);
-    db.text_hover   = nk_rgb(230, 50, 50);
-    db.border_color = nk_rgb(200, 70, 70);
+    db.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    db.hover = nk_style_item_color(nk_rgba(220, 60, 60, 12));
+    db.text_normal = nk_rgb(200, 80, 80);
+    db.text_hover = nk_rgb(230, 50, 50);
+    db.border_color = nk_rgba(200, 80, 80, 100);
     if (nk_button_label_styled(ctx, &db, "Delete")) {
       ui->selected_node = NULL;
       block_design_delete_node(block, node->id);
@@ -1497,13 +1509,13 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     int hovered = (ui->mouse_x >= btn.x && ui->mouse_x < btn.x + btn.w &&
                    ui->mouse_y >= btn.y && ui->mouse_y < btn.y + btn.h);
 
-    struct nk_color bg_color = is_active ? nk_rgba(66, 133, 244, 25)
+    struct nk_color bg_color = is_active ? nk_rgba(110, 110, 130, 25)
                                : hovered ? nk_rgba(0, 0, 0, 10)
                                          : nk_rgba(0, 0, 0, 0);
     nk_fill_rect(canvas_buf, btn, 8.0f, bg_color);
 
     struct nk_color icon_color =
-        is_active ? nk_rgb(66, 133, 244) : nk_rgb(60, 60, 60);
+        is_active ? COLOR_ACCENT : nk_rgb(60, 60, 60);
 
     if (ui->font_icons) {
       nk_draw_text(canvas_buf,

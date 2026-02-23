@@ -61,11 +61,11 @@
 #define UI_COLOR_BORDER 0xEDECE9FF // #EDECE9
 #define UI_COLOR_TEXT 0x37352FFF   // #37352F (Anthracite)
 #define UI_COLOR_TEXT_DIM 0x8C8C8CFF
-#define UI_COLOR_ACCENT 0x508CC8FF
+#define UI_COLOR_ACCENT 0x6E6E82FF // Neutral grey-blue (#6E6E82)
 
 // Highlights
 #define UI_COLOR_HIGHLIGHT_YELLOW 0xFFF06450 // 80 alpha
-#define UI_COLOR_HIGHLIGHT_BLUE 0x64B4FF50
+#define UI_COLOR_HIGHLIGHT_BLUE 0x8C8C8C30   // Neutral grey highight
 #define UI_COLOR_HIGHLIGHT_GREEN 0x64DC8C50
 
 // =============================================================================
