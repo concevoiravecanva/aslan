@@ -206,6 +206,10 @@ typedef struct {
   // Color Selection
   uint32_t selected_color; // RGBA color for new shapes (default: 0x000000FF)
   int show_color_picker_popup;
+
+  // Snap guide positions (screen-space, -1 = none)
+  float snap_guide_x;
+  float snap_guide_y;
 } DesignInteraction;
 
 // -----------------------------------------------------------------------------
@@ -254,7 +258,9 @@ typedef struct UIHost {
   struct nk_font *font_inter_sizes[10];
 
   // Selection state
-  Node *selected_node; // Selected node in canvas/design block
+  Node *selected_node;        // Primary selected node
+  Node *selected_nodes[64];   // Multi-selection set (design view)
+  int   selected_count;       // Number of entries in selected_nodes[]
 
   // Status message
   char status[128];

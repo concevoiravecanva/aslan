@@ -2618,6 +2618,27 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                       rh_r * 2 + 2),
               1.5f, nk_rgb(255, 255, 255));
         }
+
+        // Multi-selection: thin outline for each secondary selected node
+        for (int _mi = 0; _mi < ui->selected_count; _mi++) {
+          Node *mn = ui->selected_nodes[_mi];
+          if (!mn || mn == ui->selected_node || !mn->visible) continue;
+          float msx = bounds.x + mn->x * scale;
+          float msy = bounds.y + mn->y * scale;
+          Node *mp = mn->parent;
+          while (mp && mp != dd->root) {
+            msx += mp->x * scale;
+            msy += mp->y * scale;
+            mp = mp->parent;
+          }
+          float msw = mn->width * scale;
+          float msh = mn->height * scale;
+          float mrad = mn->rotation * 3.14159f / 180.0f;
+          float mcx = msx + msw / 2.0f;
+          float mcy = msy + msh / 2.0f;
+          fill_rotated_rounded_rect(canvas_buf, mcx, mcy, msw + 4, msh + 4,
+                                    mrad, 0, COLOR_ACCENT, 1, 1.5f);
+        }
       }
 
       // Check mouse in design area
@@ -2841,8 +2862,33 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         float design_x = (ui->mouse_x - bounds.x) / scale;
         float design_y = (ui->mouse_y - bounds.y) / scale;
 
+        // Shift+click = multi-selection toggle
+        SDL_Keymod _click_mods = SDL_GetModState();
+        int shift_click = (_click_mods & KMOD_SHIFT) != 0;
+
         Node *hit = design_find_node_at(dd, design_x, design_y);
-        if (hit) {
+        if (hit && shift_click && ds->tool != CANVAS_TOOL_PEN) {
+          // Toggle this node in/out of the multi-selection set
+          int found = 0;
+          for (int _si = 0; _si < ui->selected_count; _si++) {
+            if (ui->selected_nodes[_si] == hit) {
+              // Remove: swap with last entry
+              ui->selected_nodes[_si] =
+                  ui->selected_nodes[--ui->selected_count];
+              found = 1;
+              break;
+            }
+          }
+          if (!found && ui->selected_count < 64) {
+            ui->selected_nodes[ui->selected_count++] = hit;
+            ui->selected_node = hit; // update primary too
+          }
+          // Do NOT start drag on shift-click
+        } else if (hit) {
+          if (!shift_click) {
+            // Normal click: clear multi-selection
+            ui->selected_count = 0;
+          }
           if (ds->tool == CANVAS_TOOL_PEN) {
             // Skip node logic in pen mode to allow drawing over them
             hit = NULL;
@@ -2915,6 +2961,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           }
         } else {
           ui->selected_node = NULL;
+          ui->selected_count = 0;
           if (ui->editing_node) {
             strncpy(ui->editing_node->text, ui->edit_buffer,
                     sizeof(ui->editing_node->text) - 1);
@@ -2938,19 +2985,91 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       if (ds->is_dragging_node && ui->selected_node && is_active_design) {
         float design_x = (ui->mouse_x - bounds.x) / scale;
         float design_y = (ui->mouse_y - bounds.y) / scale;
-        ui->selected_node->x = design_x - ds->drag_offset_x;
-        ui->selected_node->y = design_y - ds->drag_offset_y;
+        Node *sel = ui->selected_node;
 
-        // Clamp removed to allow elements to overlap design bounds
+        float new_x = design_x - ds->drag_offset_x;
+        float new_y = design_y - ds->drag_offset_y;
+
+        // --- Snap to grid ---
+        DesignPage *dp = &dd->pages[dd->current_page];
+        if (dp->grid_type != 0 && dp->grid_spacing > 4.0f) {
+          float gs = dp->grid_spacing;
+          new_x = roundf(new_x / gs) * gs;
+          new_y = roundf(new_y / gs) * gs;
+        }
+
+        // --- Snap to element edges ---
+        float snap_tol = 6.0f; // design units
+        float best_dx = snap_tol + 1.0f, best_dy = snap_tol + 1.0f;
+        float snap_sx = -1, snap_sy = -1; // screen-space guide positions
+        // 3 X snap points on dragged node
+        float s_left = new_x, s_cx = new_x + sel->width / 2.0f,
+              s_right = new_x + sel->width;
+        float s_top = new_y, s_cy = new_y + sel->height / 2.0f,
+              s_bot = new_y + sel->height;
+        for (Node *other = dd->root->first_child; other;
+             other = other->next_sibling) {
+          if (other == sel || !other->visible) continue;
+          float o_left = other->x, o_cx = other->x + other->width / 2.0f,
+                o_right = other->x + other->width;
+          float o_top = other->y, o_cy = other->y + other->height / 2.0f,
+                o_bot = other->y + other->height;
+          float x_cands[9] = {o_left - s_left,  o_cx - s_left,
+                               o_right - s_left, o_cx - s_cx,
+                               o_left - s_right, o_cx - s_right,
+                               o_right - s_right};
+          float y_cands[9] = {o_top - s_top,  o_cy - s_top, o_bot - s_top,
+                               o_cy - s_cy,   o_top - s_bot, o_cy - s_bot,
+                               o_bot - s_bot};
+          for (int _xi = 0; _xi < 7; _xi++) {
+            if (fabsf(x_cands[_xi]) < fabsf(best_dx)) {
+              best_dx = x_cands[_xi];
+              // Guide at the snapped node edge in screen space
+              snap_sx = bounds.x + (new_x + best_dx) * scale;
+            }
+          }
+          for (int _yi = 0; _yi < 7; _yi++) {
+            if (fabsf(y_cands[_yi]) < fabsf(best_dy)) {
+              best_dy = y_cands[_yi];
+              snap_sy = bounds.y + (new_y + best_dy) * scale;
+            }
+          }
+        }
+        if (fabsf(best_dx) <= snap_tol) {
+          new_x += best_dx;
+          ds->snap_guide_x = snap_sx;
+        } else {
+          ds->snap_guide_x = -1;
+        }
+        if (fabsf(best_dy) <= snap_tol) {
+          new_y += best_dy;
+          ds->snap_guide_y = snap_sy;
+        } else {
+          ds->snap_guide_y = -1;
+        }
+
+        // Apply delta to secondary selected nodes
+        float ddx = new_x - sel->x;
+        float ddy = new_y - sel->y;
+        sel->x = new_x;
+        sel->y = new_y;
+        for (int _mi = 0; _mi < ui->selected_count; _mi++) {
+          Node *mn = ui->selected_nodes[_mi];
+          if (mn && mn != sel) {
+            mn->x += ddx;
+            mn->y += ddy;
+          }
+        }
 
         if (ds->mouse_just_released) {
           ds->is_dragging_node = 0;
+          ds->snap_guide_x = -1;
+          ds->snap_guide_y = -1;
 
           // Auto-delete if 100% out of bounds
-          Node *node = ui->selected_node;
-          if (node->x + node->width < 0 || node->x > dd->width ||
-              node->y + node->height < 0 || node->y > dd->height) {
-            uint32_t nid = node->id;
+          if (sel->x + sel->width < 0 || sel->x > dd->width ||
+              sel->y + sel->height < 0 || sel->y > dd->height) {
+            uint32_t nid = sel->id;
             block_design_delete_node(block, nid);
             ui->selected_node = NULL;
           }
@@ -3165,6 +3284,19 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         draw_alignment_guides(canvas_buf, sel, bounds.x + bounds.w / 2.0f,
                               bounds.y + bounds.h / 2.0f, bounds.x, bounds.y,
                               bounds.w, bounds.h, nsx, nsy, nsw, nsh);
+      }
+
+      // --- Snap guide lines (element-to-element snap feedback) ---
+      if (ds->snap_guide_x >= 0 || ds->snap_guide_y >= 0) {
+        struct nk_color snap_col = nk_rgba(0, 195, 215, 200);
+        if (ds->snap_guide_x >= 0)
+          nk_stroke_line(canvas_buf, ds->snap_guide_x, bounds.y,
+                         ds->snap_guide_x, bounds.y + bounds.h, 1.0f,
+                         snap_col);
+        if (ds->snap_guide_y >= 0)
+          nk_stroke_line(canvas_buf, bounds.x, ds->snap_guide_y,
+                         bounds.x + bounds.w, ds->snap_guide_y, 1.0f,
+                         snap_col);
       }
 
       // Close Design content group (Artboard)

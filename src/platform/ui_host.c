@@ -1192,45 +1192,110 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       return;
     }
 
-    // --- Delete / Backspace: delete selected node ---
-    if ((key == SDLK_DELETE || key == SDLK_BACKSPACE) && ui->selected_node &&
-        active_block) {
-      uint32_t node_id = ui->selected_node->id;
-      if (is_design)
-        block_design_delete_node(active_block, node_id);
+    // --- Delete / Backspace: delete selected node(s) ---
+    if ((key == SDLK_DELETE || key == SDLK_BACKSPACE) && active_block &&
+        is_design) {
+      // Delete all multi-selected nodes first
+      for (int _di = 0; _di < ui->selected_count; _di++) {
+        Node *n = ui->selected_nodes[_di];
+        if (n && n != ui->selected_node)
+          block_design_delete_node(active_block, n->id);
+      }
+      ui->selected_count = 0;
+      // Delete primary selected node
+      if (ui->selected_node) {
+        block_design_delete_node(active_block, ui->selected_node->id);
+        ui->selected_node = NULL;
+      }
+      return;
+    }
+
+    // --- Cmd+D: Duplicate selected node(s) ---
+    if (cmd_held && key == SDLK_d && active_block && is_design) {
+      if (ui->selected_count > 0) {
+        Node *last_dup = NULL;
+        for (int _di = 0; _di < ui->selected_count; _di++) {
+          Node *n = ui->selected_nodes[_di];
+          if (n)
+            last_dup = block_design_duplicate_node(active_block, n->id);
+        }
+        if (last_dup)
+          ui->selected_node = last_dup;
+        ui->selected_count = 0;
+      } else if (ui->selected_node) {
+        Node *dup =
+            block_design_duplicate_node(active_block, ui->selected_node->id);
+        if (dup)
+          ui->selected_node = dup;
+      }
+      return;
+    }
+
+    // --- Cmd+Shift+G: Ungroup selected GROUP node ---
+    if (cmd_held && shift_held && key == SDLK_g && ui->selected_node &&
+        ui->selected_node->type == NODE_TYPE_GROUP && active_block && is_design) {
+      Node *grp = ui->selected_node;
+      Node *child = grp->first_child;
+      while (child) {
+        Node *next = child->next_sibling;
+        node_remove_from_parent(child);
+        child->x += grp->x; // restore world position
+        child->y += grp->y;
+        node_insert_before(child, grp);
+        child = next;
+      }
+      block_design_delete_node(active_block, grp->id);
       ui->selected_node = NULL;
+      ui->selected_count = 0;
       return;
     }
 
-    // --- Cmd+D: Duplicate selected node ---
-    if (cmd_held && key == SDLK_d && ui->selected_node && active_block &&
-        is_design) {
-      Node *dup =
-          block_design_duplicate_node(active_block, ui->selected_node->id);
-      if (dup)
-        ui->selected_node = dup;
-      return;
-    }
+    // --- Cmd+G: Group selected node(s) into a GROUP container ---
+    if (cmd_held && !shift_held && key == SDLK_g && active_block && is_design &&
+        (ui->selected_node || ui->selected_count > 0)) {
+      // Build node list
+      Node *nodes[65];
+      int node_count = 0;
+      if (ui->selected_count > 1) {
+        for (int _gi = 0; _gi < ui->selected_count; _gi++)
+          nodes[node_count++] = ui->selected_nodes[_gi];
+      } else if (ui->selected_node) {
+        nodes[node_count++] = ui->selected_node;
+      }
+      if (node_count == 0) return;
 
-    // --- Cmd+G: Group selected node into a GROUP container ---
-    if (cmd_held && key == SDLK_g && ui->selected_node && active_block &&
-        is_design) {
-      Node *sel = ui->selected_node;
+      // Compute bounding box
+      float min_x = nodes[0]->x, min_y = nodes[0]->y;
+      float max_x = nodes[0]->x + nodes[0]->width;
+      float max_y = nodes[0]->y + nodes[0]->height;
+      for (int _gi = 1; _gi < node_count; _gi++) {
+        Node *n = nodes[_gi];
+        if (n->x < min_x) min_x = n->x;
+        if (n->y < min_y) min_y = n->y;
+        if (n->x + n->width > max_x) max_x = n->x + n->width;
+        if (n->y + n->height > max_y) max_y = n->y + n->height;
+      }
+
       Node *group =
           block_design_create_node(active_block, NODE_TYPE_GROUP, "Group");
       if (group) {
-        group->x = sel->x;
-        group->y = sel->y;
-        group->width = sel->width;
-        group->height = sel->height;
+        group->x = min_x;
+        group->y = min_y;
+        group->width = max_x - min_x;
+        group->height = max_y - min_y;
         group->visible = 1;
-        // Place group where sel was in the sibling list, then reparent sel
-        node_insert_before(group, sel);
-        node_remove_from_parent(sel);
-        sel->x = 0.0f;
-        sel->y = 0.0f;
-        node_add_child(group, sel);
+        // Place group where the first node was
+        node_insert_before(group, nodes[0]);
+        // Reparent all nodes into group, adjusting their local coords
+        for (int _gi = 0; _gi < node_count; _gi++) {
+          Node *n = nodes[_gi];
+          node_remove_from_parent(n);
+          n->x -= min_x;
+          n->y -= min_y;
+          node_add_child(group, n);
+        }
         ui->selected_node = group;
+        ui->selected_count = 0;
       }
       return;
     }

@@ -66,7 +66,8 @@ void render_node_context_menu(UIHost *ui, struct nk_context *ctx,
   const float menu_w = 150.0f;
   const float item_h = 30.0f;
   const float padding = 6.0f;
-  const int item_count = 4;
+  int is_group = (node->type == NODE_TYPE_GROUP);
+  int item_count = is_group ? 5 : 4;
   float menu_h = item_count * item_h + 2 * padding;
   float mx = ui->context_menu_x;
   float my = ui->context_menu_y;
@@ -81,7 +82,7 @@ void render_node_context_menu(UIHost *ui, struct nk_context *ctx,
                  nk_rgb(220, 220, 220));
 
   const char *labels[] = {"Duplicate", "Delete", "Bring to Front",
-                          "Send to Back"};
+                          "Send to Back", "Ungroup"};
 
   for (int i = 0; i < item_count; i++) {
     struct nk_rect item_r = nk_rect(mx + padding, my + padding + i * item_h,
@@ -159,6 +160,21 @@ void render_node_context_menu(UIHost *ui, struct nk_context *ctx,
         node_move_up(node);
         node_move_up(node);
         node_move_up(node);
+      } else if (i == 4 && node->type == NODE_TYPE_GROUP &&
+                 block->type == BLOCK_DESIGN) {
+        // Ungroup: extract children into parent's sibling list
+        Node *child = node->first_child;
+        while (child) {
+          Node *next = child->next_sibling;
+          node_remove_from_parent(child);
+          child->x += node->x;
+          child->y += node->y;
+          node_insert_before(child, node);
+          child = next;
+        }
+        block_design_delete_node(block, node->id);
+        ui->selected_node = NULL;
+        ui->selected_count = 0;
       }
       ui->show_context_menu = 0;
       ui->context_menu_node = NULL;
