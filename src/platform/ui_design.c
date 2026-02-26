@@ -1152,8 +1152,12 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
   // Highlight if hovered (Sidebar -> Canvas or Canvas -> Sidebar)
   if (ui->hovered_node_id == node->id) {
     struct nk_color highlight_col = nk_rgba(110, 110, 130, 255);
-    nk_stroke_rect(canvas_buf, nk_rect(nr.x - 1, nr.y - 1, nr.w + 2, nr.h + 2),
-                   node->corner_radius * scale, 2.0f, highlight_col);
+    float rad_h = node->rotation * 3.14159f / 180.0f;
+    float cx_h = sx + sw / 2.0f;
+    float cy_h = sy + sh / 2.0f;
+    fill_rotated_rounded_rect(canvas_buf, cx_h, cy_h, sw + 2, sh + 2, rad_h,
+                              node->corner_radius * scale, highlight_col, 1,
+                              2.0f);
   }
 
   if (node->is_container && node->clip_content) {
