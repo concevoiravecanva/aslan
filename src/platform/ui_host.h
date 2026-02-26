@@ -172,6 +172,11 @@ typedef struct {
   float resize_start_x, resize_start_y;
   float resize_start_node_x, resize_start_node_y;
 
+  // Image Cropping
+  int is_cropping;
+  float crop_start_x, crop_start_y;
+  float crop_start_node_x, crop_start_node_y;
+
   // Rotation handle
   int is_rotating;
   float rotate_start_angle;
@@ -258,9 +263,9 @@ typedef struct UIHost {
   struct nk_font *font_inter_sizes[10];
 
   // Selection state
-  Node *selected_node;        // Primary selected node
-  Node *selected_nodes[64];   // Multi-selection set (design view)
-  int   selected_count;       // Number of entries in selected_nodes[]
+  Node *selected_node;      // Primary selected node
+  Node *selected_nodes[64]; // Multi-selection set (design view)
+  int selected_count;       // Number of entries in selected_nodes[]
 
   // Status message
   char status[128];

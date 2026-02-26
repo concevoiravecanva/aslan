@@ -128,6 +128,11 @@ typedef struct Node {
   float font_size; // Default 20.0f
   int font_type;   // 0=Inter, 1=H1, 2=H2, 3=H3, 4=Mono
 
+  // Advanced Typography
+  int text_align;       // 0=Left, 1=Center, 2=Right
+  float line_height;    // Multiplier, default 1.2f
+  float letter_spacing; // In pixels, default 0.0f
+
   // Linked text (design only): if non-empty, display value from this column
   char linked_col_name[64];
 
@@ -138,6 +143,11 @@ typedef struct Node {
   // Image path (for NODE_TYPE_IMAGE)
   char image_path[256];
 
+  // Image Cropping (Masking)
+  float image_scale;  // Zoom inside frame (1.0 = fit)
+  float image_crop_x; // Offset X
+  float image_crop_y; // Offset Y
+
   // Visibility
   int visible;
   int locked;
@@ -145,7 +155,7 @@ typedef struct Node {
   int folded;
   int is_mask; // Acts as a clipping mask for sibling nodes above it
   int mask_inverted;
-  int mask_type;    // 0=Alpha, 1=Luminance
+  int mask_type;      // 0=Alpha, 1=Luminance
   float mask_feather; // 0-50px edge softness (stored; rendered later)
 
   // Path data (for NODE_TYPE_PATH)

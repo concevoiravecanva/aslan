@@ -986,6 +986,16 @@ Node *node_create(uint32_t id, NodeType type, const char *name) {
   node->layout_type = 0;
   node->layout_padding = 10.0f;
 
+  // Typography defaults
+  node->text_align = 0;        // Left
+  node->line_height = 1.2f;    // Default leading
+  node->letter_spacing = 0.0f; // Normal tracking
+
+  // Image defaults
+  node->image_scale = 1.0f;
+  node->image_crop_x = 0.0f;
+  node->image_crop_y = 0.0f;
+
   if (name) {
     safe_strcpy(node->name, name, sizeof(node->name));
   }
@@ -1495,14 +1505,14 @@ Node *block_design_duplicate_node(Block *block, uint32_t node_id) {
     return NULL;
 
   *dup = *orig;
-  dup->id         = dd->next_node_id++;
-  dup->x         += 12.0f;
-  dup->y         += 12.0f;
+  dup->id = dd->next_node_id++;
+  dup->x += 12.0f;
+  dup->y += 12.0f;
   // Clear hierarchy and non-trivial data pointers (shallow copy)
-  dup->parent      = NULL;
+  dup->parent = NULL;
   dup->first_child = NULL;
   dup->next_sibling = NULL;
-  dup->chart_data  = NULL;
+  dup->chart_data = NULL;
   dup->stroke_data = NULL;
   dup->path_points = NULL;
   dup->path_point_count = 0;

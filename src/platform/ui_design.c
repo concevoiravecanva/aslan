@@ -693,6 +693,26 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           }
         }
 
+        // ── IMAGE CROP ───────────────────────────────────────────────────
+        if (node->type == NODE_TYPE_IMAGE && node->image_path[0]) {
+          ds_section(ctx, "IMAGE CROP");
+          nk_layout_row_dynamic(ctx, 24, 1);
+          nk_property_float(ctx, "Scale:", 0.1f, &node->image_scale, 10.0f,
+                            0.1f, 0.05f);
+          nk_layout_row_dynamic(ctx, 24, 2);
+          nk_property_float(ctx, "Off X:", -2000.f, &node->image_crop_x, 2000.f,
+                            5.f, 1.f);
+          nk_property_float(ctx, "Off Y:", -2000.f, &node->image_crop_y, 2000.f,
+                            5.f, 1.f);
+
+          nk_layout_row_dynamic(ctx, 24, 1);
+          if (nk_button_label(ctx, "Reset Crop")) {
+            node->image_scale = 1.0f;
+            node->image_crop_x = 0.0f;
+            node->image_crop_y = 0.0f;
+          }
+        }
+
         // ── LAYERS ───────────────────────────────────────────────────────
         ds_section(ctx, "ORDER");
         nk_layout_row_dynamic(ctx, 24, 4);
@@ -713,6 +733,28 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           nk_layout_row_dynamic(ctx, 24, 1);
           nk_property_float(ctx, "Font size:", 8.f, &node->font_size, 200.f,
                             1.f, 0.5f);
+
+          // Typography controls
+          ds_section(ctx, "TYPOGRAPHY");
+          nk_layout_row_dynamic(ctx, 24, 3);
+          if (nk_widget_is_hovered(ctx))
+            nk_tooltip(ctx, "Left Align");
+          if (nk_button_label(ctx, node->text_align == 0 ? "[ L ]" : "L"))
+            node->text_align = 0;
+          if (nk_widget_is_hovered(ctx))
+            nk_tooltip(ctx, "Center Align");
+          if (nk_button_label(ctx, node->text_align == 1 ? "[ C ]" : "C"))
+            node->text_align = 1;
+          if (nk_widget_is_hovered(ctx))
+            nk_tooltip(ctx, "Right Align");
+          if (nk_button_label(ctx, node->text_align == 2 ? "[ R ]" : "R"))
+            node->text_align = 2;
+
+          nk_layout_row_dynamic(ctx, 24, 1);
+          nk_property_float(ctx, "Line height:", 0.5f, &node->line_height, 3.0f,
+                            0.1f, 0.05f);
+          nk_property_float(ctx, "Letter spacing:", -10.0f,
+                            &node->letter_spacing, 50.0f, 0.5f, 0.1f);
 
           // Link to column
           Block *tbl_block = NULL;
@@ -798,15 +840,19 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
       int has_mask = sel->is_mask;
       if (!has_mask) {
         for (Node *ch = sel->first_child; ch; ch = ch->next_sibling)
-          if (ch->is_mask) { has_mask = 1; break; }
+          if (ch->is_mask) {
+            has_mask = 1;
+            break;
+          }
       }
       if (ui->show_mask_creator_popup && !has_mask)
         inspector_h += 148.0f; // header(22)+3×btn-rows(78)+spacers+divider
       if (has_mask)
-        inspector_h += 120.0f; // header(22)+invert(22)+feather(22)+remove(24)+spacers+divider
+        inspector_h +=
+            120.0f; // header(22)+invert(22)+feather(22)+remove(24)+spacers+divider
     }
-    float tree_h = sb_avail - inspector_h
-                   - (ui->selected_node ? 4.0f : 0.0f); // Nuklear row spacing
+    float tree_h = sb_avail - inspector_h -
+                   (ui->selected_node ? 4.0f : 0.0f); // Nuklear row spacing
     if (tree_h < 40.0f)
       tree_h = 40.0f;
 
@@ -1170,7 +1216,10 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
   // after children (as a blue overlay) so the designer can see its boundary.
   Node *mask_child = NULL;
   for (Node *ch = node->first_child; ch; ch = ch->next_sibling) {
-    if (ch->is_mask && ch->visible) { mask_child = ch; break; }
+    if (ch->is_mask && ch->visible) {
+      mask_child = ch;
+      break;
+    }
   }
   if (mask_child) {
     float mx = sx + mask_child->x * scale;
@@ -1333,8 +1382,24 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     if (node->image_path[0]) {
       SDL_Texture *tex = get_image_texture(ui, node->image_path);
       if (tex) {
+        // Image Cropping implementation
         struct nk_image img = nk_image_ptr(tex);
-        nk_draw_image(canvas_buf, nr, &img, nk_rgb(255, 255, 255));
+
+        // Use Scissor to clip image to node bounds
+        nk_push_scissor(canvas_buf, nr);
+
+        // Calculate transformed image rect
+        float img_w = nr.w * node->image_scale;
+        float img_h = nr.h * node->image_scale;
+        float img_x = nr.x + node->image_crop_x * scale;
+        float img_y = nr.y + node->image_crop_y * scale;
+        struct nk_rect ir = nk_rect(img_x, img_y, img_w, img_h);
+
+        nk_draw_image(canvas_buf, ir, &img, nk_rgb(255, 255, 255));
+
+        // Pop scissor (use a giant rect to reset it)
+        nk_push_scissor(canvas_buf, nk_rect(-8192, -8192, 16384, 16384));
+
         drawn = 1;
       }
     }
@@ -1891,13 +1956,90 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
           (node->stroke_color >> 24) & 0xFF, (node->stroke_color >> 16) & 0xFF,
           (node->stroke_color >> 8) & 0xFF, node->stroke_color & 0xFF};
 
-      nk_draw_text(canvas_buf, nr, display_text, strlen(display_text), font,
-                   nk_rgba(0, 0, 0, 0), txt_color);
+      // --- Advanced Text Rendering ---
+      // 1. Split text into lines
+      char *text_copy = strdup(display_text);
+      if (text_copy) {
+        char *lines[32];
+        int line_count = 0;
+        char *p = text_copy;
+        lines[line_count++] = p;
+        while (*p && line_count < 32) {
+          if (*p == '\n') {
+            *p = '\0';
+            lines[line_count++] = p + 1;
+          }
+          p++;
+        }
+
+        float cursor_y = nr.y;
+        float actual_line_height = font->height * node->line_height;
+
+        for (int i = 0; i < line_count; i++) {
+          char *line = lines[i];
+          int len = strlen(line);
+          if (len == 0) {
+            cursor_y += actual_line_height;
+            continue;
+          }
+
+          // Calculate line width with letter spacing
+          float line_w = 0;
+          for (int c = 0; c < len; c++) {
+            line_w += font->width(font->userdata, font->height, &line[c], 1);
+            if (c < len - 1)
+              line_w += node->letter_spacing * scale;
+          }
+
+          // Alignment
+          float cursor_x = nr.x;
+          if (node->text_align == 1) { // Center
+            cursor_x = nr.x + (nr.w - line_w) / 2.0f;
+          } else if (node->text_align == 2) { // Right
+            cursor_x = nr.x + nr.w - line_w;
+          }
+
+          // Draw char by char to apply letter spacing
+          for (int c = 0; c < len; c++) {
+            float char_w =
+                font->width(font->userdata, font->height, &line[c], 1);
+            nk_draw_text(canvas_buf,
+                         nk_rect(cursor_x, cursor_y, char_w + 5, font->height),
+                         &line[c], 1, font, nk_rgba(0, 0, 0, 0), txt_color);
+            cursor_x += char_w + (node->letter_spacing * scale);
+          }
+
+          cursor_y += actual_line_height;
+        }
+
+        // Auto-resize
+        if (!is_editing) {
+          float max_w = 0;
+          for (int i = 0; i < line_count; i++) {
+            float lw = 0;
+            int l = strlen(lines[i]);
+            for (int c = 0; c < l; c++)
+              lw += font->width(font->userdata, font->height, &lines[i][c], 1) +
+                    (c < l - 1 ? node->letter_spacing * scale : 0);
+            if (lw > max_w)
+              max_w = lw;
+          }
+          float total_h = line_count * actual_line_height;
+          if (fabsf(node->width - (max_w + 10.0f)) > 2.0f ||
+              fabsf(node->height - (total_h + 10.0f)) > 2.0f) {
+            node->width = max_w + 10.0f;
+            node->height = total_h + 10.0f;
+          }
+        }
+        free(text_copy);
+      }
+
       if (is_editing) {
         float tw = font->width(font->userdata, font->height, display_text,
                                strlen(display_text));
         int show_cursor = ((int)(SDL_GetTicks() / 500) % 2 == 0);
         if (show_cursor) {
+          // Cursor placement is simplistic here (end of block)
           nk_stroke_line(canvas_buf, nr.x + tw + 1, nr.y + 2, nr.x + tw + 1,
                          nr.y + nr.h - 2, 1.5f, COLOR_ACCENT);
         }
@@ -1917,9 +2059,11 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     }
   }
 
-  // Render children — skip mask children (they define clip, not visible shapes).
+  // Render children — skip mask children (they define clip, not visible
+  // shapes).
   for (Node *child = node->first_child; child; child = child->next_sibling) {
-    if (child->is_mask) continue;
+    if (child->is_mask)
+      continue;
     ui_render_node_tree(ui, ctx, engine, block, dd, canvas_buf, child, bounds,
                         scale, sx, sy);
   }
@@ -1936,9 +2080,9 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
                    nk_rgba(80, 140, 200, 160));
     // Draw small "masque" label at top-left so it's always identifiable
     if (mw > 40 && mh > 20) {
-      nk_draw_text(canvas_buf, nk_rect(mx + 4, my + 2, mw - 4, 16),
-                   "masque", 6, &ui->font_inter_sizes[0]->handle,
-                   nk_rgba(0, 0, 0, 0), nk_rgba(80, 140, 200, 180));
+      nk_draw_text(canvas_buf, nk_rect(mx + 4, my + 2, mw - 4, 16), "masque", 6,
+                   &ui->font_inter_sizes[0]->handle, nk_rgba(0, 0, 0, 0),
+                   nk_rgba(80, 140, 200, 180));
     }
   }
 
@@ -2612,17 +2756,17 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           nk_fill_circle(canvas_buf,
                          nk_rect(rh_x - rh_r, rh_y - rh_r, rh_r * 2, rh_r * 2),
                          hc);
-          nk_stroke_circle(
-              canvas_buf,
-              nk_rect(rh_x - rh_r - 1, rh_y - rh_r - 1, rh_r * 2 + 2,
-                      rh_r * 2 + 2),
-              1.5f, nk_rgb(255, 255, 255));
+          nk_stroke_circle(canvas_buf,
+                           nk_rect(rh_x - rh_r - 1, rh_y - rh_r - 1,
+                                   rh_r * 2 + 2, rh_r * 2 + 2),
+                           1.5f, nk_rgb(255, 255, 255));
         }
 
         // Multi-selection: thin outline for each secondary selected node
         for (int _mi = 0; _mi < ui->selected_count; _mi++) {
           Node *mn = ui->selected_nodes[_mi];
-          if (!mn || mn == ui->selected_node || !mn->visible) continue;
+          if (!mn || mn == ui->selected_node || !mn->visible)
+            continue;
           float msx = bounds.x + mn->x * scale;
           float msy = bounds.y + mn->y * scale;
           Node *mp = mn->parent;
@@ -2758,10 +2902,11 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           break;
         }
 
-        // Keep the mask child in sync — it must always cover the parent exactly.
+        // Keep the mask child in sync — it must always cover the parent
+        // exactly.
         for (Node *ch = sel->first_child; ch; ch = ch->next_sibling) {
           if (ch->is_mask) {
-            ch->width  = sel->width;
+            ch->width = sel->width;
             ch->height = sel->height;
             break;
           }
@@ -2783,8 +2928,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         float cx2 = sx2 + sw2 / 2.0f;
         float cy2 = sy2 + sh2 / 2.0f;
         ds->is_rotating = 1;
-        ds->rotate_start_angle =
-            atan2f(ui->mouse_y - cy2, ui->mouse_x - cx2);
+        ds->rotate_start_angle = atan2f(ui->mouse_y - cy2, ui->mouse_x - cx2);
         ds->rotate_start_node_rotation = sel->rotation;
       }
       // Handle rotation dragging
@@ -2856,8 +3000,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         // Handle hit, skip node selection
       } else if (mouse_in_design && !in_toolbar && !in_forms_menu &&
                  ds->mouse_just_pressed && !on_resize_handle &&
-                 !on_rotate_handle &&
-                 is_active_design) {
+                 !on_rotate_handle && is_active_design) {
         // Convert to design coordinates
         float design_x = (ui->mouse_x - bounds.x) / scale;
         float design_y = (ui->mouse_y - bounds.y) / scale;
@@ -2917,8 +3060,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                          hit->type != NODE_TYPE_CHART) {
                 // Find existing text child or create a new one
                 Node *txt = NULL;
-                for (Node *ch = hit->first_child; ch;
-                     ch = ch->next_sibling) {
+                for (Node *ch = hit->first_child; ch; ch = ch->next_sibling) {
                   if (ch->type == NODE_TYPE_TEXT && !ch->is_mask) {
                     txt = ch;
                     break;
@@ -2950,9 +3092,15 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                           sizeof(ui->edit_buffer) - 1);
                   SDL_StartTextInput();
                 }
+              } else if (hit->type == NODE_TYPE_IMAGE && hit->image_path[0]) {
+                ds->is_cropping = 1;
+                ds->crop_start_x = ui->mouse_x;
+                ds->crop_start_y = ui->mouse_y;
+                ds->crop_start_node_x = hit->image_crop_x;
+                ds->crop_start_node_y = hit->image_crop_y;
               }
             }
-            if (!ui->editing_node) {
+            if (!ui->editing_node && !ds->is_cropping) {
               ui->selected_node = hit;
               ds->is_dragging_node = 1;
               ds->drag_offset_x = design_x - hit->x;
@@ -2962,6 +3110,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         } else {
           ui->selected_node = NULL;
           ui->selected_count = 0;
+          ds->is_cropping = 0; // stop cropping
           if (ui->editing_node) {
             strncpy(ui->editing_node->text, ui->edit_buffer,
                     sizeof(ui->editing_node->text) - 1);
@@ -2981,8 +3130,22 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
       }
 
+      // Handle image cropping dragging
+      if (ds->is_cropping && ui->selected_node &&
+          ui->selected_node->type == NODE_TYPE_IMAGE && is_active_design) {
+        Node *sel = ui->selected_node;
+        float dx = (ui->mouse_x - ds->crop_start_x) / scale;
+        float dy = (ui->mouse_y - ds->crop_start_y) / scale;
+
+        sel->image_crop_x = ds->crop_start_node_x + dx;
+        sel->image_crop_y = ds->crop_start_node_y + dy;
+
+        if (ds->mouse_just_released) {
+          ds->is_cropping = 0;
+        }
+      }
       // Handle node dragging
-      if (ds->is_dragging_node && ui->selected_node && is_active_design) {
+      else if (ds->is_dragging_node && ui->selected_node && is_active_design) {
         float design_x = (ui->mouse_x - bounds.x) / scale;
         float design_y = (ui->mouse_y - bounds.y) / scale;
         Node *sel = ui->selected_node;
@@ -3009,18 +3172,18 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
               s_bot = new_y + sel->height;
         for (Node *other = dd->root->first_child; other;
              other = other->next_sibling) {
-          if (other == sel || !other->visible) continue;
+          if (other == sel || !other->visible)
+            continue;
           float o_left = other->x, o_cx = other->x + other->width / 2.0f,
                 o_right = other->x + other->width;
           float o_top = other->y, o_cy = other->y + other->height / 2.0f,
                 o_bot = other->y + other->height;
-          float x_cands[9] = {o_left - s_left,  o_cx - s_left,
-                               o_right - s_left, o_cx - s_cx,
-                               o_left - s_right, o_cx - s_right,
-                               o_right - s_right};
-          float y_cands[9] = {o_top - s_top,  o_cy - s_top, o_bot - s_top,
-                               o_cy - s_cy,   o_top - s_bot, o_cy - s_bot,
-                               o_bot - s_bot};
+          float x_cands[9] = {
+              o_left - s_left,  o_cx - s_left,  o_right - s_left, o_cx - s_cx,
+              o_left - s_right, o_cx - s_right, o_right - s_right};
+          float y_cands[9] = {o_top - s_top, o_cy - s_top,  o_bot - s_top,
+                              o_cy - s_cy,   o_top - s_bot, o_cy - s_bot,
+                              o_bot - s_bot};
           for (int _xi = 0; _xi < 7; _xi++) {
             if (fabsf(x_cands[_xi]) < fabsf(best_dx)) {
               best_dx = x_cands[_xi];
@@ -3291,12 +3454,10 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         struct nk_color snap_col = nk_rgba(0, 195, 215, 200);
         if (ds->snap_guide_x >= 0)
           nk_stroke_line(canvas_buf, ds->snap_guide_x, bounds.y,
-                         ds->snap_guide_x, bounds.y + bounds.h, 1.0f,
-                         snap_col);
+                         ds->snap_guide_x, bounds.y + bounds.h, 1.0f, snap_col);
         if (ds->snap_guide_y >= 0)
           nk_stroke_line(canvas_buf, bounds.x, ds->snap_guide_y,
-                         bounds.x + bounds.w, ds->snap_guide_y, 1.0f,
-                         snap_col);
+                         bounds.x + bounds.w, ds->snap_guide_y, 1.0f, snap_col);
       }
 
       // Close Design content group (Artboard)
