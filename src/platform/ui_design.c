@@ -525,8 +525,10 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
     nk_spacing(ctx, 1);
   }
 
-  // Scrollable content: fill remaining height in the sidebar group
-  float sb_avail = nk_window_get_content_region(ctx).h - 36.0f;
+  // Scrollable content: fill remaining height.
+  // Use -50 (not -36) to budget for Nuklear's inter-row spacing so the
+  // bottom inspector group never overflows and its inputs get clipped.
+  float sb_avail = nk_window_get_content_region(ctx).h - 50.0f;
   if (sb_avail < 50.0f)
     sb_avail = 50.0f;
 
@@ -784,9 +786,27 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
   // TAB 1 — LAYERS  (toolbar | scrollable tree | fixed inspector)
   // =========================================================================
   if (ui->design_bottom_tab == 1) {
-    const float inspector_h = 148.0f; // fits 5 rows + group padding
-    float tree_h = sb_avail - (ui->selected_node ? inspector_h : 0.0f) -
-                   2.0f; // gap between sections
+    // Inspector height: base rows + optional top-panels for mask.
+    // Base (name+opacity+fill/stroke+type-specific+buttons): ~148px
+    // Creator panel (header+6 shape btns+divider): ~148px extra
+    // Mask edit panel (header+invert+feather+remove btn+divider): ~120px extra
+    float inspector_h = 0.0f;
+    if (ui->selected_node) {
+      inspector_h = 148.0f;
+      // Detect mask: selected node IS a mask, or has a mask child.
+      Node *sel = ui->selected_node;
+      int has_mask = sel->is_mask;
+      if (!has_mask) {
+        for (Node *ch = sel->first_child; ch; ch = ch->next_sibling)
+          if (ch->is_mask) { has_mask = 1; break; }
+      }
+      if (ui->show_mask_creator_popup && !has_mask)
+        inspector_h += 148.0f; // header(22)+3×btn-rows(78)+spacers+divider
+      if (has_mask)
+        inspector_h += 120.0f; // header(22)+invert(22)+feather(22)+remove(24)+spacers+divider
+    }
+    float tree_h = sb_avail - inspector_h
+                   - (ui->selected_node ? 4.0f : 0.0f); // Nuklear row spacing
     if (tree_h < 40.0f)
       tree_h = 40.0f;
 
@@ -1138,6 +1158,22 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
 
   if (node->is_container && node->clip_content) {
     nk_push_scissor(canvas_buf, nr);
+  }
+
+  // --- Mask child clip ---
+  // If this node has a mask child, push a scissor BEFORE rendering the node's
+  // shape so only the area inside the mask is visible.  The mask is rendered
+  // after children (as a blue overlay) so the designer can see its boundary.
+  Node *mask_child = NULL;
+  for (Node *ch = node->first_child; ch; ch = ch->next_sibling) {
+    if (ch->is_mask && ch->visible) { mask_child = ch; break; }
+  }
+  if (mask_child) {
+    float mx = sx + mask_child->x * scale;
+    float my = sy + mask_child->y * scale;
+    float mw = mask_child->width * scale;
+    float mh = mask_child->height * scale;
+    nk_push_scissor(canvas_buf, nk_rect(mx, my, mw, mh));
   }
 
   // --- Inject Shadow ---
@@ -1873,31 +1909,29 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     }
   }
 
-  // Render children.  When a child has is_mask=1 it is NOT drawn as a normal
-  // shape; instead it defines a clipping region for all siblings rendered
-  // AFTER it (i.e. visually above it in the stack — Figma semantics).
-  // Siblings rendered before the mask are unaffected.
-  int mask_clipping = 0;
+  // Render children — skip mask children (they define clip, not visible shapes).
   for (Node *child = node->first_child; child; child = child->next_sibling) {
-    if (child->is_mask) {
-      float mx = sx + child->x * scale;
-      float my = sy + child->y * scale;
-      float mw = child->width * scale;
-      float mh = child->height * scale;
-      // Show mask region as a blue dashed border so the designer can see it
-      nk_stroke_rect(canvas_buf, nk_rect(mx, my, mw, mh), 0, 1.0f,
-                     nk_rgba(110, 110, 130, 180));
-      // Activate clipping for all subsequent siblings
-      nk_push_scissor(canvas_buf, nk_rect(mx, my, mw, mh));
-      mask_clipping = 1;
-      continue; // Mask node itself is invisible — don't render as a shape
-    }
+    if (child->is_mask) continue;
     ui_render_node_tree(ui, ctx, engine, block, dd, canvas_buf, child, bounds,
                         scale, sx, sy);
   }
 
-  if (mask_clipping) {
+  // Pop the mask scissor and draw the mask boundary so the designer can see it.
+  if (mask_child) {
     nk_push_scissor(canvas_buf, nk_rect(-8192, -8192, 16384, 16384));
+    float mx = sx + mask_child->x * scale;
+    float my = sy + mask_child->y * scale;
+    float mw = mask_child->width * scale;
+    float mh = mask_child->height * scale;
+    // Blue dashed border — visible over the clipped content
+    nk_stroke_rect(canvas_buf, nk_rect(mx, my, mw, mh), 0, 1.5f,
+                   nk_rgba(80, 140, 200, 160));
+    // Draw small "masque" label at top-left so it's always identifiable
+    if (mw > 40 && mh > 20) {
+      nk_draw_text(canvas_buf, nk_rect(mx + 4, my + 2, mw - 4, 16),
+                   "masque", 6, &ui->font_inter_sizes[0]->handle,
+                   nk_rgba(0, 0, 0, 0), nk_rgba(80, 140, 200, 180));
+    }
   }
 
   if (node->is_container && node->clip_content) {
@@ -2539,8 +2573,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           float cy = sy + sh / 2.0f;
 
           fill_rotated_rounded_rect(canvas_buf, cx, cy, sw + sel_off * 2,
-                                    sh + sel_off * 2, rad, 0,
-                                    COLOR_ACCENT, 1, 1.0f);
+                                    sh + sel_off * 2, rad, 0, COLOR_ACCENT, 1,
+                                    1.0f);
 
           float hsz = 8.0f;
           struct nk_color hc = COLOR_ACCENT;
@@ -2650,6 +2684,15 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           sel->height = fmaxf(20.0f, ds->resize_start_h - dy);
           sel->y = ds->resize_start_node_y + (ds->resize_start_h - sel->height);
           break;
+        }
+
+        // Keep the mask child in sync — it must always cover the parent exactly.
+        for (Node *ch = sel->first_child; ch; ch = ch->next_sibling) {
+          if (ch->is_mask) {
+            ch->width  = sel->width;
+            ch->height = sel->height;
+            break;
+          }
         }
 
         if (ds->mouse_just_released) {

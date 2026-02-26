@@ -484,7 +484,7 @@ typedef struct UIHost {
   // Layer sidebar state
   uint32_t renaming_node_id;
   char node_rename_buffer[64];
-  int rename_needs_focus;      // 1 = call nk_edit_focus on first frame of edit
+  int rename_needs_focus; // 1 = call nk_edit_focus on first frame of edit
   uint32_t sidebar_drag_node_id;
   uint32_t sidebar_drop_target_id;
   uint32_t hovered_node_id;
@@ -492,6 +492,8 @@ typedef struct UIHost {
 
   // Sidebar state: 0=Properties/Layers, 1=Shape Selection
   int sidebar_mode;
+  int show_mask_tools;         // Toggle for mask tools zone
+  int show_mask_creator_popup; // Toggle for mask creation popup
 
   // Right-click context menu for canvas/design nodes
   int show_context_menu;
@@ -583,7 +585,8 @@ void ui_render_chart_impl(UIHost *ui, struct nk_context *ctx, ChartData *cd,
                           struct nk_rect bounds, Page *page);
 
 // Layer panel components
-void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx, Block *block);
+void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
+                               Block *block);
 
 // Shared UI Helpers
 int ui_icon_button(UIHost *ui, const char *icon);
@@ -650,6 +653,11 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_IMAGE "\xEE\xB9\x85"       // ri-image-2-line
 #define ICON_MAGIC "\xEE\xBF\x9E"       // ri-pen-nib-line
 #define ICON_LINKED_TEXT "\xEE\xBA\xB2" // \uEEB2 (linked/data text)
+#define ICON_MASK "\xEF\x8C\xBB"        // ri-mask-line
+#define ICON_RECT_MASK "\xEF\x83\xB0"   // ri-shape-2-line
+#define ICON_CIRCLE_MASK                                                       \
+  "\xEE\xBD\xB3" // ri-pentagon-line (placeholder if circle not found)
+#define ICON_PATH_MASK "\xEE\xBF\x9E" // ri-pen-nib-line
 
 // Table column type icons
 #define ICON_COL_TEXT "\xEF\x88\x81"     // \uf201
