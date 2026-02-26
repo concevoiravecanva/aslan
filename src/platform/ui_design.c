@@ -1218,7 +1218,11 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     }
   }
 
-  if (node->type == NODE_TYPE_CHART && node->chart_data) {
+  if (node->type == NODE_TYPE_GROUP) {
+    // Group: no background fill — just a faint dashed border so the designer
+    // can see its bounds.  Children are rendered below in the normal loop.
+    nk_stroke_rect(canvas_buf, nr, 0, 1.0f, nk_rgba(120, 120, 180, 60));
+  } else if (node->type == NODE_TYPE_CHART && node->chart_data) {
     Page *curr_page = doc_page_get_active(engine->doc);
     ui_render_chart_node(ui, ctx, node, nr, curr_page);
 
@@ -2591,6 +2595,24 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                          nk_rect(hx - hsz / 2, hy - hsz / 2, hsz, hsz), 2.0f,
                          hc);
           }
+
+          // Rotation handle: small circle above top-center of the selection box
+          float rot_dist = 28.0f;
+          float top_x = cx + 0.0f * c - (-h_hh) * s;
+          float top_y = cy + 0.0f * s + (-h_hh) * c;
+          float rh_lx = 0.0f, rh_ly = -(h_hh + rot_dist);
+          float rh_x = cx + rh_lx * c - rh_ly * s;
+          float rh_y = cy + rh_lx * s + rh_ly * c;
+          float rh_r = 6.0f;
+          nk_stroke_line(canvas_buf, top_x, top_y, rh_x, rh_y, 1.2f, hc);
+          nk_fill_circle(canvas_buf,
+                         nk_rect(rh_x - rh_r, rh_y - rh_r, rh_r * 2, rh_r * 2),
+                         hc);
+          nk_stroke_circle(
+              canvas_buf,
+              nk_rect(rh_x - rh_r - 1, rh_y - rh_r - 1, rh_r * 2 + 2,
+                      rh_r * 2 + 2),
+              1.5f, nk_rgb(255, 255, 255));
         }
       }
 
@@ -2645,9 +2667,34 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
       }
 
+      // --- Check rotation handle hit ---
+      int on_rotate_handle = 0;
+      if (!on_resize_handle && ui->selected_node &&
+          ui->selected_node->visible && is_active_design) {
+        Node *sel = ui->selected_node;
+        float sx2 = bounds.x + sel->x * scale;
+        float sy2 = bounds.y + sel->y * scale;
+        float sw2 = sel->width * scale;
+        float sh2 = sel->height * scale;
+        float rad2 = sel->rotation * 3.14159f / 180.0f;
+        float cx2 = sx2 + sw2 / 2.0f;
+        float cy2 = sy2 + sh2 / 2.0f;
+        float sel_off2 = 2.0f + (sel->stroke_width * scale) / 2.0f;
+        float h_hh2 = (sh2 + sel_off2 * 2) / 2.0f;
+        float c2 = cosf(rad2), s2 = sinf(rad2);
+        float rot_dist = 28.0f;
+        float rh_lx2 = 0.0f, rh_ly2 = -(h_hh2 + rot_dist);
+        float rh_x2 = cx2 + rh_lx2 * c2 - rh_ly2 * s2;
+        float rh_y2 = cy2 + rh_lx2 * s2 + rh_ly2 * c2;
+        float rdx = ui->mouse_x - rh_x2;
+        float rdy = ui->mouse_y - rh_y2;
+        if (rdx * rdx + rdy * rdy < 16.0f * 16.0f)
+          on_rotate_handle = 1;
+      }
+
       // Start resize
       if (mouse_in_design && ds->mouse_just_pressed && on_resize_handle &&
-          ui->selected_node && is_active_design) {
+          !on_rotate_handle && ui->selected_node && is_active_design) {
         ds->is_resizing = 1;
         ds->resize_handle = hit_handle_index;
         ds->resize_start_w = ui->selected_node->width;
@@ -2699,6 +2746,39 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           ds->is_resizing = 0;
         }
       }
+
+      // Start rotation
+      if (mouse_in_design && ds->mouse_just_pressed && on_rotate_handle &&
+          ui->selected_node && is_active_design) {
+        Node *sel = ui->selected_node;
+        float sx2 = bounds.x + sel->x * scale;
+        float sy2 = bounds.y + sel->y * scale;
+        float sw2 = sel->width * scale;
+        float sh2 = sel->height * scale;
+        float cx2 = sx2 + sw2 / 2.0f;
+        float cy2 = sy2 + sh2 / 2.0f;
+        ds->is_rotating = 1;
+        ds->rotate_start_angle =
+            atan2f(ui->mouse_y - cy2, ui->mouse_x - cx2);
+        ds->rotate_start_node_rotation = sel->rotation;
+      }
+      // Handle rotation dragging
+      else if (ds->is_rotating && ui->selected_node && is_active_design) {
+        Node *sel = ui->selected_node;
+        float sx2 = bounds.x + sel->x * scale;
+        float sy2 = bounds.y + sel->y * scale;
+        float sw2 = sel->width * scale;
+        float sh2 = sel->height * scale;
+        float cx2 = sx2 + sw2 / 2.0f;
+        float cy2 = sy2 + sh2 / 2.0f;
+        float cur_angle = atan2f(ui->mouse_y - cy2, ui->mouse_x - cx2);
+        float delta_deg =
+            (cur_angle - ds->rotate_start_angle) * 180.0f / 3.14159f;
+        sel->rotation = ds->rotate_start_node_rotation + delta_deg;
+        if (ds->mouse_just_released)
+          ds->is_rotating = 0;
+      }
+
       // 4. Handle Bezier interaction priority
       int handle_hit = 0;
       if (ds->bezier_mode && ui->selected_node &&
@@ -2751,6 +2831,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         // Handle hit, skip node selection
       } else if (mouse_in_design && !in_toolbar && !in_forms_menu &&
                  ds->mouse_just_pressed && !on_resize_handle &&
+                 !on_rotate_handle &&
                  is_active_design) {
         // Convert to design coordinates
         float design_x = (ui->mouse_x - bounds.x) / scale;
@@ -2773,17 +2854,60 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
             }
             ui->selected_node = hit;
           } else {
-            // Check for double-click on text node
-            if (hit == ui->selected_node && hit->type == NODE_TYPE_TEXT) {
-              // Start inline editing
-              ui->editing_node = hit;
-              strncpy(ui->edit_buffer, hit->text, sizeof(ui->edit_buffer) - 1);
-              SDL_StartTextInput();
+            // Double-click: edit or add text
+            if (hit == ui->selected_node) {
+              if (hit->type == NODE_TYPE_TEXT) {
+                // Edit existing text node inline
+                ui->editing_node = hit;
+                strncpy(ui->edit_buffer, hit->text,
+                        sizeof(ui->edit_buffer) - 1);
+                SDL_StartTextInput();
+              } else if (hit->type != NODE_TYPE_STROKE &&
+                         hit->type != NODE_TYPE_PATH &&
+                         hit->type != NODE_TYPE_CHART) {
+                // Find existing text child or create a new one
+                Node *txt = NULL;
+                for (Node *ch = hit->first_child; ch;
+                     ch = ch->next_sibling) {
+                  if (ch->type == NODE_TYPE_TEXT && !ch->is_mask) {
+                    txt = ch;
+                    break;
+                  }
+                }
+                if (!txt) {
+                  txt = (Node *)calloc(1, sizeof(Node));
+                  if (txt) {
+                    txt->id = dd->next_node_id++;
+                    txt->type = NODE_TYPE_TEXT;
+                    txt->visible = 1;
+                    txt->x = 5.0f;
+                    txt->y = hit->height / 2.0f - 15.0f;
+                    txt->width = hit->width - 10.0f;
+                    txt->height = 30.0f;
+                    txt->font_size = 20.0f;
+                    txt->stroke_color = 0xFFFFFFFF; // white text
+                    strncpy(txt->text, "Text", sizeof(txt->text) - 1);
+                    // Prepend as first child so it renders on top
+                    txt->parent = hit;
+                    txt->next_sibling = hit->first_child;
+                    hit->first_child = txt;
+                  }
+                }
+                if (txt) {
+                  ui->selected_node = txt;
+                  ui->editing_node = txt;
+                  strncpy(ui->edit_buffer, txt->text,
+                          sizeof(ui->edit_buffer) - 1);
+                  SDL_StartTextInput();
+                }
+              }
             }
-            ui->selected_node = hit;
-            ds->is_dragging_node = 1;
-            ds->drag_offset_x = design_x - hit->x;
-            ds->drag_offset_y = design_y - hit->y;
+            if (!ui->editing_node) {
+              ui->selected_node = hit;
+              ds->is_dragging_node = 1;
+              ds->drag_offset_x = design_x - hit->x;
+              ds->drag_offset_y = design_y - hit->y;
+            }
           }
         } else {
           ui->selected_node = NULL;

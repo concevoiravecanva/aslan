@@ -172,6 +172,11 @@ typedef struct {
   float resize_start_x, resize_start_y;
   float resize_start_node_x, resize_start_node_y;
 
+  // Rotation handle
+  int is_rotating;
+  float rotate_start_angle;
+  float rotate_start_node_rotation;
+
   // Design bounds (set during render, used in events)
   float bounds_x, bounds_y, bounds_w, bounds_h;
   float scale;

@@ -1202,6 +1202,39 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       return;
     }
 
+    // --- Cmd+D: Duplicate selected node ---
+    if (cmd_held && key == SDLK_d && ui->selected_node && active_block &&
+        is_design) {
+      Node *dup =
+          block_design_duplicate_node(active_block, ui->selected_node->id);
+      if (dup)
+        ui->selected_node = dup;
+      return;
+    }
+
+    // --- Cmd+G: Group selected node into a GROUP container ---
+    if (cmd_held && key == SDLK_g && ui->selected_node && active_block &&
+        is_design) {
+      Node *sel = ui->selected_node;
+      Node *group =
+          block_design_create_node(active_block, NODE_TYPE_GROUP, "Group");
+      if (group) {
+        group->x = sel->x;
+        group->y = sel->y;
+        group->width = sel->width;
+        group->height = sel->height;
+        group->visible = 1;
+        // Place group where sel was in the sibling list, then reparent sel
+        node_insert_before(group, sel);
+        node_remove_from_parent(sel);
+        sel->x = 0.0f;
+        sel->y = 0.0f;
+        node_add_child(group, sel);
+        ui->selected_node = group;
+      }
+      return;
+    }
+
     // --- Arrow keys: nudge selected node ---
     if ((key == SDLK_UP || key == SDLK_DOWN || key == SDLK_LEFT ||
          key == SDLK_RIGHT) &&
