@@ -657,39 +657,43 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
                           0.005f);
 
         // ── SHADOW ───────────────────────────────────────────────────────
-        ds_section(ctx, "SHADOW");
-        nk_layout_row_dynamic(ctx, 24, 1);
-        nk_checkbox_label(ctx, "Drop Shadow", &node->has_shadow);
-        if (node->has_shadow) {
-          ds_color(ctx, "Shadow Color", &node->shadow_color);
-          nk_layout_row_dynamic(ctx, 24, 2);
-          nk_property_float(ctx, "Offset X:", -50.f, &node->shadow_offset_x,
-                            50.f, 1.f, 0.5f);
-          nk_property_float(ctx, "Offset Y:", -50.f, &node->shadow_offset_y,
-                            50.f, 1.f, 0.5f);
+        if (node->type != NODE_TYPE_TEXT || node->font_type != 4) {
+          ds_section(ctx, "SHADOW");
           nk_layout_row_dynamic(ctx, 24, 1);
-          nk_property_float(ctx, "Blur:", 0.f, &node->shadow_blur, 100.f, 1.f,
-                            0.5f);
+          nk_checkbox_label(ctx, "Drop Shadow", &node->has_shadow);
+          if (node->has_shadow) {
+            ds_color(ctx, "Shadow Color", &node->shadow_color);
+            nk_layout_row_dynamic(ctx, 24, 2);
+            nk_property_float(ctx, "Offset X:", -50.f, &node->shadow_offset_x,
+                              50.f, 1.f, 0.5f);
+            nk_property_float(ctx, "Offset Y:", -50.f, &node->shadow_offset_y,
+                              50.f, 1.f, 0.5f);
+            nk_layout_row_dynamic(ctx, 24, 1);
+            nk_property_float(ctx, "Blur:", 0.f, &node->shadow_blur, 100.f, 1.f,
+                              0.5f);
+          }
         }
 
         // ── CONTAINER ────────────────────────────────────────────────────
-        ds_section(ctx, "CONTAINER");
-        nk_layout_row_dynamic(ctx, 24, 1);
-        nk_checkbox_label(ctx, "Is Container", &node->is_container);
-        if (node->is_container) {
+        if (node->type != NODE_TYPE_TEXT || node->font_type != 4) {
+          ds_section(ctx, "CONTAINER");
           nk_layout_row_dynamic(ctx, 24, 1);
-          nk_checkbox_label(ctx, "Clip Content", &node->clip_content);
-
-          const char *layout_modes[] = {"None", "V-Stack", "H-Stack"};
-          nk_layout_row_dynamic(ctx, 24, 2);
-          nk_label(ctx, "Auto Layout:", NK_TEXT_LEFT);
-          node->layout_type = nk_combo(ctx, layout_modes, 3, node->layout_type,
-                                       24, nk_vec2(150, 200));
-
-          if (node->layout_type > 0) {
+          nk_checkbox_label(ctx, "Is Container", &node->is_container);
+          if (node->is_container) {
             nk_layout_row_dynamic(ctx, 24, 1);
-            nk_property_float(ctx, "Spacing:", 0.f, &node->layout_padding,
-                              200.f, 1.f, 0.5f);
+            nk_checkbox_label(ctx, "Clip Content", &node->clip_content);
+
+            const char *layout_modes[] = {"None", "V-Stack", "H-Stack"};
+            nk_layout_row_dynamic(ctx, 24, 2);
+            nk_label(ctx, "Auto Layout:", NK_TEXT_LEFT);
+            node->layout_type = nk_combo(
+                ctx, layout_modes, 3, node->layout_type, 24, nk_vec2(150, 200));
+
+            if (node->layout_type > 0) {
+              nk_layout_row_dynamic(ctx, 24, 1);
+              nk_property_float(ctx, "Spacing:", 0.f, &node->layout_padding,
+                                200.f, 1.f, 0.5f);
+            }
           }
         }
 
@@ -714,19 +718,60 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         }
 
         // ── LAYERS ───────────────────────────────────────────────────────
-        ds_section(ctx, "ORDER");
-        nk_layout_row_dynamic(ctx, 24, 4);
-        if (nk_button_label(ctx, "Front"))
-          node_bring_to_front(node);
-        if (nk_button_label(ctx, "Back"))
-          node_send_to_back(node);
-        if (nk_button_label(ctx, "Fwd"))
-          node_move_up(node);
-        if (nk_button_label(ctx, "Bwd"))
-          node_move_down(node);
+        if (node->type != NODE_TYPE_TEXT || node->font_type != 4) {
+          ds_section(ctx, "ORDER");
+          nk_layout_row_dynamic(ctx, 24, 4);
+          if (nk_button_label(ctx, "Front"))
+            node_bring_to_front(node);
+          if (nk_button_label(ctx, "Back"))
+            node_send_to_back(node);
+          if (nk_button_label(ctx, "Fwd"))
+            node_move_up(node);
+          if (nk_button_label(ctx, "Bwd"))
+            node_move_down(node);
+        }
+        // ── ICON (ASSET) ─────────────────────────────────────────────────
+        if (node->type == NODE_TYPE_TEXT && node->font_type == 4) {
+          ds_section(ctx, "ICON / ASSET");
+          nk_layout_row_dynamic(ctx, 24, 1);
+          nk_property_float(ctx, "Size:", 8.f, &node->font_size, 300.f, 1.f,
+                            0.5f);
 
+          nk_layout_row_dynamic(ctx, 20, 1);
+          nk_label(ctx, "Quick Select:", NK_TEXT_LEFT);
+
+          const char *icon_gallery[] = {
+              "\xF3\x87\xAF", // Remixicon (default)
+              "\xEE\xBA\x82", // Layout
+              "\xEE\xBE\xA1", // Paint
+              "\xEE\xBA\xA6", // Lightbulb
+              "\xEE\xB1\xA0", // Hand
+              "\xEF\x81\x8B", // Quill pen
+              "\xEE\xBD\x92", // Settings
+              "\xEE\xB7\xD1", // Lock
+              "\xEE\xB2\xB5", // Eye
+              "\xEE\xA9\xB8", // Arrow up
+              "\xEE\xA9\x8B", // Arrow down
+              "\xEE\xA8\x93", // Add
+              "\xEF\x83\xBC", // Sticky
+              "\xEE\xBA\xB2", // Link
+              "\xEE\xAB\xA3", // Shapes
+          };
+          int icon_count = sizeof(icon_gallery) / sizeof(icon_gallery[0]);
+
+          nk_layout_row_dynamic(ctx, 32, 5); // 5 icons per row
+          if (ui->font_icons)
+            nk_style_set_font(ctx, &ui->font_icons->handle);
+          for (int i = 0; i < icon_count; i++) {
+            if (nk_button_label(ctx, icon_gallery[i])) {
+              strncpy(node->text, icon_gallery[i], sizeof(node->text) - 1);
+            }
+          }
+          if (ui->font_inter)
+            nk_style_set_font(ctx, &ui->font_inter->handle);
+        }
         // ── TEXT ─────────────────────────────────────────────────────────
-        if (node->type == NODE_TYPE_TEXT) {
+        else if (node->type == NODE_TYPE_TEXT) {
           ds_section(ctx, "TEXT");
           if (node->font_size < 8.0f)
             node->font_size = 12.0f;
@@ -831,7 +876,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
     // Inspector height: base rows + optional top-panels for mask.
     // Base (name+opacity+fill/stroke+type-specific+buttons): ~148px
     // Creator panel (header+6 shape btns+divider): ~148px extra
-    // Mask edit panel (header+invert+feather+remove btn+divider): ~120px extra
+    // Mask edit panel (header+invert+feather+remove btn+divider): ~120px
+    // extra
     float inspector_h = 0.0f;
     if (ui->selected_node) {
       inspector_h = 148.0f;
@@ -856,7 +902,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
     if (tree_h < 40.0f)
       tree_h = 40.0f;
 
-    // ── Layer tree (scrollable) ───────────────────────────────────────────
+    // ── Layer tree (scrollable)
+    // ───────────────────────────────────────────
     nk_layout_row_dynamic(ctx, tree_h, 1);
     if (nk_group_begin(ctx, gp_layers, 0)) {
       ui_render_sidebar_layers(ui, ctx, block);
@@ -1211,9 +1258,10 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
   }
 
   // --- Mask child clip ---
-  // If this node has a mask child, push a scissor BEFORE rendering the node's
-  // shape so only the area inside the mask is visible.  The mask is rendered
-  // after children (as a blue overlay) so the designer can see its boundary.
+  // If this node has a mask child, push a scissor BEFORE rendering the
+  // node's shape so only the area inside the mask is visible.  The mask is
+  // rendered after children (as a blue overlay) so the designer can see its
+  // boundary.
   Node *mask_child = NULL;
   for (Node *ch = node->first_child; ch; ch = ch->next_sibling) {
     if (ch->is_mask && ch->visible) {
@@ -1272,8 +1320,9 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
   }
 
   if (node->type == NODE_TYPE_GROUP) {
-    // Group: no background fill — just a faint dashed border so the designer
-    // can see its bounds.  Children are rendered below in the normal loop.
+    // Group: no background fill — just a faint dashed border so the
+    // designer can see its bounds.  Children are rendered below in the
+    // normal loop.
     nk_stroke_rect(canvas_buf, nr, 0, 1.0f, nk_rgba(120, 120, 180, 60));
   } else if (node->type == NODE_TYPE_CHART && node->chart_data) {
     Page *curr_page = doc_page_get_active(engine->doc);
@@ -1912,8 +1961,8 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
           ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
 
       // Select font based on type and size
-      if (node->font_type == 4 && ui->font_inter) { // Mono -> Inter
-        font = &ui->font_inter->handle;
+      if (node->font_type == 4 && ui->font_icons) {
+        font = &ui->font_icons->handle;
       } else { // Inter variants (Body, H1, H2, H3)
         // Find closest size in font_inter_sizes
         float target_size = node->font_size;
@@ -2068,7 +2117,8 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
                         scale, sx, sy);
   }
 
-  // Pop the mask scissor and draw the mask boundary so the designer can see it.
+  // Pop the mask scissor and draw the mask boundary so the designer can see
+  // it.
   if (mask_child) {
     nk_push_scissor(canvas_buf, nk_rect(-8192, -8192, 16384, 16384));
     float mx = sx + mask_child->x * scale;
@@ -2369,7 +2419,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       ui->active_block_id = block->id;
     }
 
-    // Pre-calculate toolbar flags for interaction logic (8 buttons in design)
+    // Pre-calculate toolbar flags for interaction logic (8 buttons in
+    // design)
     float toolbar_w = 8 * 36.0f + 7 * 8.0f + 24.0f;
     float toolbar_x = ws_bounds.x + (ws_bounds.w - toolbar_w) / 2.0f;
     float toolbar_y = ws_bounds.y + ws_bounds.h - 52.0f - 20.0f; // toolbar_h=52
@@ -2382,7 +2433,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     // Early check for active state
     int is_active_design = (ds->active_design_id == block->id);
 
-    // Hardened Input Check: Sync Nuklear input state (only if inside workspace)
+    // Hardened Input Check: Sync Nuklear input state (only if inside
+    // workspace)
     if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
         !ui->block_drag.is_active && ui->mouse_x >= ws_bounds.x &&
         ui->mouse_x < ws_bounds.x + ws_bounds.w && ui->mouse_y >= ws_bounds.y &&
@@ -2640,12 +2692,15 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
               }
             }
           }
-        } else if (ds->pending_create == 7) { // Linked text
+        } else if (ds->pending_create == 12) { // Icon
           new_node = design_create_styled_node(
-              dd, NODE_STYLE_TEXT, nx, ny, 200.0f, 40.0f, ds->selected_color);
-          if (new_node)
-            strncpy(new_node->text, "Linked text", sizeof(new_node->text) - 1);
-          // linked_col_name starts empty; user links it via Properties sidebar
+              dd, NODE_STYLE_TEXT, nx, ny, 60.0f, 60.0f, ds->selected_color);
+          if (new_node) {
+            new_node->font_type = 4; // Assuming 4 is ui->font_icons
+            new_node->font_size = 48.0f;
+            strncpy(new_node->text, "\xF3\x87\xAF",
+                    sizeof(new_node->text) - 1); // ri-remixicon-line
+          }
         } else if (ds->pending_create >= 10 && ds->pending_create <= 13) {
           NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
                                     NODE_STYLE_TRIANGLE, NODE_STYLE_LINE};
@@ -2744,7 +2799,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                          hc);
           }
 
-          // Rotation handle: small circle above top-center of the selection box
+          // Rotation handle: small circle above top-center of the selection
+          // box
           float rot_dist = 28.0f;
           float top_x = cx + 0.0f * c - (-h_hh) * s;
           float top_y = cy + 0.0f * s + (-h_hh) * c;

@@ -668,6 +668,7 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_HAND "\xEE\xB1\xA0"        // \uec60
 #define ICON_IMAGE "\xEE\xB9\x85"       // ri-image-2-line
 #define ICON_MAGIC "\xEE\xBF\x9E"       // ri-pen-nib-line
+#define ICON_ICON "\xEF\x8E\xBF"        // ri-remixicon-line
 #define ICON_LINKED_TEXT "\xEE\xBA\xB2" // \uEEB2 (linked/data text)
 #define ICON_MASK "\xEF\x8C\xBB"        // ri-mask-line
 #define ICON_RECT_MASK "\xEF\x83\xB0"   // ri-shape-2-line

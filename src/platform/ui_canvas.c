@@ -915,9 +915,11 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
 // Masks are stored as children of the node they clip — so moving or scaling
 // the parent automatically repositions the mask in screen space.
 static Node *node_find_mask(Node *node) {
-  if (!node) return NULL;
+  if (!node)
+    return NULL;
   for (Node *ch = node->first_child; ch; ch = ch->next_sibling)
-    if (ch->is_mask) return ch;
+    if (ch->is_mask)
+      return ch;
   return NULL;
 }
 
@@ -929,25 +931,28 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
   // They are children of the layer they clip, shown indented below it.
   if (node->is_mask) {
     // Compact row — same template as normal but with blue accent visuals
-    float indent_w = 4.0f + (float)(depth)*16.0f;
+    float indent_w = 4.0f + (float)(depth) * 16.0f;
     nk_layout_row_template_begin(ctx, 26);
     nk_layout_row_template_push_static(ctx, indent_w);
     nk_layout_row_template_push_static(ctx, 16.0f); // clip icon slot
-    nk_layout_row_template_push_dynamic(ctx);        // name
+    nk_layout_row_template_push_dynamic(ctx);       // name
     nk_layout_row_template_push_static(ctx, 16.0f); // visibility
     nk_layout_row_template_push_static(ctx, 16.0f); // lock
     nk_layout_row_template_end(ctx);
 
-    struct nk_rect mr  = nk_widget_bounds(ctx);
+    struct nk_rect mr = nk_widget_bounds(ctx);
     struct nk_rect mfr = nk_window_get_content_region(ctx);
-    mfr.y = mr.y; mfr.h = 26;
+    mfr.y = mr.y;
+    mfr.h = 26;
     int is_sel = (ui->selected_node == node);
     int is_hov = nk_input_is_mouse_hovering_rect(&ctx->input, mfr);
-    if (is_hov) ui->hovered_node_id = node->id;
+    if (is_hov)
+      ui->hovered_node_id = node->id;
 
     struct nk_command_buffer *mcb = nk_window_get_canvas(ctx);
     // Blue-tinted row background
-    nk_fill_rect(mcb, mfr, 0, nk_rgba(80, 140, 200, is_sel ? 25 : (is_hov ? 12 : 0)));
+    nk_fill_rect(mcb, mfr, 0,
+                 nk_rgba(80, 140, 200, is_sel ? 25 : (is_hov ? 12 : 0)));
     // Left accent bar for selection
     if (is_sel)
       nk_fill_rect(mcb, nk_rect(mfr.x, mfr.y + 3, 3, mfr.h - 6), 1.5f,
@@ -958,24 +963,32 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
     // Clip icon (scissors symbol via plain text fallback)
     {
       struct nk_style_button ib = ctx->style.button;
-      ib.normal = ib.hover = ib.active = nk_style_item_color(nk_rgba(0,0,0,0));
-      ib.border = 0; ib.padding = nk_vec2(2, 2);
+      ib.normal = ib.hover = ib.active =
+          nk_style_item_color(nk_rgba(0, 0, 0, 0));
+      ib.border = 0;
+      ib.padding = nk_vec2(2, 2);
       ib.text_normal = ib.text_hover = nk_rgba(80, 140, 200, 200);
-      if (ui->font_icons) nk_style_set_font(ctx, &ui->font_icons->handle);
+      if (ui->font_icons)
+        nk_style_set_font(ctx, &ui->font_icons->handle);
       nk_button_label_styled(ctx, &ib, node_type_icon(node));
-      if (ui->font_inter) nk_style_set_font(ctx, &ui->font_inter->handle);
+      if (ui->font_inter)
+        nk_style_set_font(ctx, &ui->font_inter->handle);
     }
 
     // Name label — shows shape type
     {
       char mbuf[72];
-      const char *mn = node->name[0] ? node->name : node_type_display_name(node->type);
+      const char *mn =
+          node->name[0] ? node->name : node_type_display_name(node->type);
       snprintf(mbuf, sizeof(mbuf), "Masque : %s", mn);
       struct nk_style_button nb = ctx->style.button;
-      nb.normal = nb.hover = nb.active = nk_style_item_color(nk_rgba(0,0,0,0));
-      nb.border = 0; nb.padding = nk_vec2(4, 4);
+      nb.normal = nb.hover = nb.active =
+          nk_style_item_color(nk_rgba(0, 0, 0, 0));
+      nb.border = 0;
+      nb.padding = nk_vec2(4, 4);
       nb.text_alignment = NK_TEXT_LEFT;
-      nb.text_normal = nb.text_hover = nk_rgba(80, 140, 200, is_sel ? 255 : 180);
+      nb.text_normal = nb.text_hover =
+          nk_rgba(80, 140, 200, is_sel ? 255 : 180);
       if (nk_button_label_styled(ctx, &nb, mbuf)) {
         ui->selected_node = node;
         ui->renaming_node_id = 0;
@@ -984,27 +997,37 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
     }
 
     // Visibility
-    if (ui->font_icons) nk_style_set_font(ctx, &ui->font_icons->handle);
+    if (ui->font_icons)
+      nk_style_set_font(ctx, &ui->font_icons->handle);
     {
       struct nk_style_button vb = ctx->style.button;
-      vb.normal = vb.hover = vb.active = nk_style_item_color(nk_rgba(0,0,0,0));
-      vb.border = 0; vb.padding = nk_vec2(2,2);
-      vb.text_normal = node->visible ? nk_rgba(80,140,200,160) : nk_rgb(210,210,215);
-      vb.text_hover  = nk_rgba(80,140,200,255);
-      if (nk_button_label_styled(ctx, &vb, node->visible ? ICON_EYE : ICON_EYE_OFF))
+      vb.normal = vb.hover = vb.active =
+          nk_style_item_color(nk_rgba(0, 0, 0, 0));
+      vb.border = 0;
+      vb.padding = nk_vec2(2, 2);
+      vb.text_normal =
+          node->visible ? nk_rgba(80, 140, 200, 160) : nk_rgb(210, 210, 215);
+      vb.text_hover = nk_rgba(80, 140, 200, 255);
+      if (nk_button_label_styled(ctx, &vb,
+                                 node->visible ? ICON_EYE : ICON_EYE_OFF))
         node->visible = !node->visible;
     }
     // Lock
     {
       struct nk_style_button lb = ctx->style.button;
-      lb.normal = lb.hover = lb.active = nk_style_item_color(nk_rgba(0,0,0,0));
-      lb.border = 0; lb.padding = nk_vec2(2,2);
-      lb.text_normal = node->locked ? nk_rgb(220,100,100) : nk_rgba(80,140,200,120);
-      lb.text_hover  = nk_rgba(80,140,200,255);
-      if (nk_button_label_styled(ctx, &lb, node->locked ? ICON_LOCK : ICON_LOCK_UNLOCK))
+      lb.normal = lb.hover = lb.active =
+          nk_style_item_color(nk_rgba(0, 0, 0, 0));
+      lb.border = 0;
+      lb.padding = nk_vec2(2, 2);
+      lb.text_normal =
+          node->locked ? nk_rgb(220, 100, 100) : nk_rgba(80, 140, 200, 120);
+      lb.text_hover = nk_rgba(80, 140, 200, 255);
+      if (nk_button_label_styled(ctx, &lb,
+                                 node->locked ? ICON_LOCK : ICON_LOCK_UNLOCK))
         node->locked = !node->locked;
     }
-    if (ui->font_inter) nk_style_set_font(ctx, &ui->font_inter->handle);
+    if (ui->font_inter)
+      nk_style_set_font(ctx, &ui->font_inter->handle);
     return;
   }
 
@@ -1246,7 +1269,8 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
       nk_stroke_circle(cb2, nk_rect(sx2 - 1, sy2 - 1, s + 2, s + 2), 1.5f,
                        nk_rgba(80, 140, 200, 200));
     } else {
-      nk_stroke_circle(cb2, nk_rect(sx2, sy2, s, s), 1.0f, nk_rgba(0, 0, 0, 40));
+      nk_stroke_circle(cb2, nk_rect(sx2, sy2, s, s), 1.0f,
+                       nk_rgba(0, 0, 0, 40));
     }
   }
 
@@ -1276,7 +1300,8 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
   // Recursive call for children.
   // Mask children are shown for ANY node (not just containers) so the user
   // can see which mask is attached.  Regular children only show for containers.
-  // Reversed order so the topmost layer in the panel matches the front in canvas.
+  // Reversed order so the topmost layer in the panel matches the front in
+  // canvas.
   {
     Node *list[128];
     int c = 0;
@@ -1286,8 +1311,10 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
     // Non-container nodes skip non-mask children below.
     for (int i = c - 1; i >= 0; i--) {
       Node *ch = list[i];
-      if (!ch->is_mask && !node->is_container) continue; // skip regular children for non-containers
-      if (!ch->is_mask && node->folded) continue;        // respect fold for containers
+      if (!ch->is_mask && !node->is_container)
+        continue; // skip regular children for non-containers
+      if (!ch->is_mask && node->folded)
+        continue; // respect fold for containers
       ui_render_layer_item(ui, ctx, block, ch, depth + 1);
     }
   }
@@ -1308,20 +1335,21 @@ void ui_design_create_mask_for_node(UIHost *ui, Block *block, Node *target,
 
   // Mask is a CHILD of the target, not a sibling.
   // This means:
-  //   - It is shown indented below the target in the layer panel (visually linked)
+  //   - It is shown indented below the target in the layer panel (visually
+  //   linked)
   //   - Moving/scaling target changes the parent position, which the child
   //     inherits automatically because rendering uses parent_x + child->x*scale
   //   - Resizing target syncs mask width/height explicitly (see resize handler)
   // Position: x=0, y=0 relative to parent; same size as parent.
   mask->x = 0.0f;
   mask->y = 0.0f;
-  mask->width  = target->width;
+  mask->width = target->width;
   mask->height = target->height;
-  mask->is_mask    = 1;
-  mask->visible    = 1;
-  mask->opacity    = 1.0f;
+  mask->is_mask = 1;
+  mask->visible = 1;
+  mask->opacity = 1.0f;
   mask->fill_color = 0xFFFFFFFF;
-  mask->parent     = target;
+  mask->parent = target;
 
   // Append as LAST child so reversed panel iteration puts it at the TOP
   // (= "in front" in the layer list, matching user expectation).
@@ -1334,7 +1362,8 @@ void ui_design_create_mask_for_node(UIHost *ui, Block *block, Node *target,
     last->next_sibling = mask;
   }
 
-  // Stay on the target layer — mask options appear in the inspector automatically.
+  // Stay on the target layer — mask options appear in the inspector
+  // automatically.
   ui->selected_node = target;
   ui->show_mask_tools = 1;
 }
@@ -1374,22 +1403,22 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
       struct nk_style_button xb = ctx->style.button;
       xb.normal = xb.hover = xb.active =
           nk_style_item_color(nk_rgba(0, 0, 0, 0));
-      xb.border      = 0.0f;
+      xb.border = 0.0f;
       xb.text_normal = nk_rgb(140, 140, 155);
-      xb.text_hover  = nk_rgb(200, 60, 60);
+      xb.text_hover = nk_rgb(200, 60, 60);
       if (nk_button_label_styled(ctx, &xb, "\xc3\x97")) // ×
         ui->show_mask_creator_popup = 0;
     }
 
     // Six shape buttons — 2 per row, ghost-style
     struct nk_style_button sb = ctx->style.button;
-    sb.rounding     = 6.0f;
-    sb.border       = 1.0f;
-    sb.normal       = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-    sb.hover        = nk_style_item_color(nk_rgba(80, 140, 200, 15));
-    sb.active       = nk_style_item_color(nk_rgba(80, 140, 200, 30));
-    sb.text_normal  = nk_rgb(100, 100, 115);
-    sb.text_hover   = nk_rgb(60, 120, 200);
+    sb.rounding = 6.0f;
+    sb.border = 1.0f;
+    sb.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    sb.hover = nk_style_item_color(nk_rgba(80, 140, 200, 15));
+    sb.active = nk_style_item_color(nk_rgba(80, 140, 200, 30));
+    sb.text_normal = nk_rgb(100, 100, 115);
+    sb.text_hover = nk_rgb(60, 120, 200);
     sb.border_color = nk_rgb(180, 180, 195);
 
     nk_layout_row_dynamic(ctx, 26, 2);
@@ -1432,7 +1461,8 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
 
   // ══ TOP: MASK EDITING PANEL ═══════════════════════════════════════════════
   // Shown when the selected layer has an attached mask node.
-  // The mask node itself is hidden from the layer panel — its options live here.
+  // The mask node itself is hidden from the layer panel — its options live
+  // here.
   if (node_mask) {
     // Blue-tinted header
     nk_layout_row_dynamic(ctx, 22, 1);
@@ -1461,12 +1491,12 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
     // "Enlever le masque" — deletes the mask node entirely from the tree
     {
       struct nk_style_button rb = ctx->style.button;
-      rb.rounding     = 4.0f;
-      rb.border       = 1.0f;
-      rb.normal       = nk_style_item_color(nk_rgba(200, 60, 60, 10));
-      rb.hover        = nk_style_item_color(nk_rgba(220, 50, 50, 20));
-      rb.text_normal  = nk_rgb(190, 60, 60);
-      rb.text_hover   = nk_rgb(220, 40, 40);
+      rb.rounding = 4.0f;
+      rb.border = 1.0f;
+      rb.normal = nk_style_item_color(nk_rgba(200, 60, 60, 10));
+      rb.hover = nk_style_item_color(nk_rgba(220, 50, 50, 20));
+      rb.text_normal = nk_rgb(190, 60, 60);
+      rb.text_hover = nk_rgb(220, 40, 40);
       rb.border_color = nk_rgba(200, 60, 60, 80);
       nk_layout_row_dynamic(ctx, 24, 1);
       if (nk_button_label_styled(ctx, &rb, "Enlever le masque")) {
@@ -1503,8 +1533,8 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
   {
     struct nk_style_button is = ctx->style.button;
     is.normal = is.hover = is.active = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-    is.border   = 0;
-    is.padding  = nk_vec2(2, 2);
+    is.border = 0;
+    is.padding = nk_vec2(2, 2);
     is.text_normal = is.text_hover = is.text_active = COLOR_ACCENT;
     nk_button_label_styled(ctx, &is, node_type_icon(node));
   }
@@ -1513,13 +1543,13 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
 
   // Edit name directly in node->name
   {
-    struct nk_style_edit ne  = ctx->style.edit;
-    ne.normal.data.color     = nk_rgba(0, 0, 0, 0);
-    ne.hover.data.color      = nk_rgba(0, 0, 0, 10);
-    ne.active.data.color     = nk_rgba(255, 255, 255, 255);
-    ne.text_normal           = COLOR_TEXT;
-    ne.text_active           = nk_rgb(0, 0, 0);
-    ne.border                = 0.0f;
+    struct nk_style_edit ne = ctx->style.edit;
+    ne.normal.data.color = nk_rgba(0, 0, 0, 0);
+    ne.hover.data.color = nk_rgba(0, 0, 0, 10);
+    ne.active.data.color = nk_rgba(255, 255, 255, 255);
+    ne.text_normal = COLOR_TEXT;
+    ne.text_active = nk_rgb(0, 0, 0);
+    ne.border = 0.0f;
     struct nk_style_edit old_ne = ctx->style.edit;
     ctx->style.edit = ne;
     nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, node->name, 63,
@@ -1551,9 +1581,9 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
     uint32_t fc = node->fill_color;
     float s = 9.0f;
     float fx = sr.x + (sr.w - s) * 0.5f, fy = sr.y + (sr.h - s) * 0.5f;
-    nk_fill_rect(insp_cb, nk_rect(fx, fy, s, s), 2.0f,
-                 nk_rgba((fc >> 24) & 0xFF, (fc >> 16) & 0xFF,
-                         (fc >> 8) & 0xFF, 230));
+    nk_fill_rect(
+        insp_cb, nk_rect(fx, fy, s, s), 2.0f,
+        nk_rgba((fc >> 24) & 0xFF, (fc >> 16) & 0xFF, (fc >> 8) & 0xFF, 230));
     nk_stroke_rect(insp_cb, nk_rect(fx, fy, s, s), 2.0f, 0.5f,
                    nk_rgba(0, 0, 0, 40));
   }
@@ -1566,9 +1596,9 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
     uint32_t sc = node->stroke_color;
     float s = 9.0f;
     float fx = sr.x + (sr.w - s) * 0.5f, fy = sr.y + (sr.h - s) * 0.5f;
-    nk_fill_rect(insp_cb, nk_rect(fx, fy, s, s), 2.0f,
-                 nk_rgba((sc >> 24) & 0xFF, (sc >> 16) & 0xFF,
-                         (sc >> 8) & 0xFF, 230));
+    nk_fill_rect(
+        insp_cb, nk_rect(fx, fy, s, s), 2.0f,
+        nk_rgba((sc >> 24) & 0xFF, (sc >> 16) & 0xFF, (sc >> 8) & 0xFF, 230));
     nk_stroke_rect(insp_cb, nk_rect(fx, fy, s, s), 2.0f, 0.5f,
                    nk_rgba(0, 0, 0, 40));
   }
@@ -1577,7 +1607,8 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
   // ── Row 4: type-specific property ─────────────────────────────────────────
   nk_layout_row_dynamic(ctx, 24, 1);
   if (node->type == NODE_TYPE_TEXT) {
-    nk_property_float(ctx, "Taille", 6.0f, &node->font_size, 200.0f, 1.0f, 0.5f);
+    nk_property_float(ctx, "Taille", 6.0f, &node->font_size, 200.0f, 1.0f,
+                      0.5f);
   } else if (node->is_container) {
     nk_checkbox_label(ctx, "Decouper le contenu", &node->clip_content);
   } else {
@@ -1595,20 +1626,20 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
     {
       struct nk_style_button mb = ctx->style.button;
       mb.rounding = 4.0f;
-      mb.border   = 1.0f;
+      mb.border = 1.0f;
       if (ui->show_mask_creator_popup) {
-        mb.normal       = nk_style_item_color(nk_rgba(80, 140, 200, 25));
-        mb.hover        = nk_style_item_color(nk_rgba(80, 140, 200, 40));
-        mb.text_normal  = nk_rgb(80, 140, 200);
-        mb.text_hover   = nk_rgb(60, 110, 180);
+        mb.normal = nk_style_item_color(nk_rgba(80, 140, 200, 25));
+        mb.hover = nk_style_item_color(nk_rgba(80, 140, 200, 40));
+        mb.text_normal = nk_rgb(80, 140, 200);
+        mb.text_hover = nk_rgb(60, 110, 180);
         mb.border_color = nk_rgb(80, 140, 200);
         if (nk_button_label_styled(ctx, &mb, "Masque \xc3\x97"))
           ui->show_mask_creator_popup = 0;
       } else {
-        mb.normal       = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-        mb.hover        = nk_style_item_color(nk_rgba(0, 0, 0, 10));
-        mb.text_normal  = nk_rgb(110, 110, 125);
-        mb.text_hover   = COLOR_ACCENT;
+        mb.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+        mb.hover = nk_style_item_color(nk_rgba(0, 0, 0, 10));
+        mb.text_normal = nk_rgb(110, 110, 125);
+        mb.text_hover = COLOR_ACCENT;
         mb.border_color = nk_rgba(0, 0, 0, 30);
         if (nk_button_label_styled(ctx, &mb, "+ Masque"))
           ui->show_mask_creator_popup = 1;
@@ -1619,12 +1650,12 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
   // Copy
   {
     struct nk_style_button ab = ctx->style.button;
-    ab.rounding     = 4.0f;
-    ab.border       = 1.0f;
-    ab.normal       = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-    ab.hover        = nk_style_item_color(nk_rgba(0, 0, 0, 10));
-    ab.text_normal  = nk_rgb(110, 110, 125);
-    ab.text_hover   = nk_rgb(60, 60, 75);
+    ab.rounding = 4.0f;
+    ab.border = 1.0f;
+    ab.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    ab.hover = nk_style_item_color(nk_rgba(0, 0, 0, 10));
+    ab.text_normal = nk_rgb(110, 110, 125);
+    ab.text_hover = nk_rgb(60, 60, 75);
     ab.border_color = nk_rgba(0, 0, 0, 30);
     if (nk_button_label_styled(ctx, &ab, "Copier"))
       block_design_duplicate_node(block, node->id);
@@ -1633,12 +1664,12 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
   // Delete
   {
     struct nk_style_button db = ctx->style.button;
-    db.rounding     = 4.0f;
-    db.border       = 1.0f;
-    db.normal       = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-    db.hover        = nk_style_item_color(nk_rgba(220, 60, 60, 12));
-    db.text_normal  = nk_rgb(200, 80, 80);
-    db.text_hover   = nk_rgb(230, 50, 50);
+    db.rounding = 4.0f;
+    db.border = 1.0f;
+    db.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+    db.hover = nk_style_item_color(nk_rgba(220, 60, 60, 12));
+    db.text_normal = nk_rgb(200, 80, 80);
+    db.text_hover = nk_rgb(230, 50, 50);
     db.border_color = nk_rgba(200, 80, 80, 100);
     if (nk_button_label_styled(ctx, &db, "Supprimer")) {
       ui->selected_node = NULL;
@@ -1801,9 +1832,8 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
 
   // 7 buttons (canvas) or 8 buttons (design): last button is Linked Text
   const char *brush_icon = cs->pen_is_marker ? ICON_MARKER : ICON_BRUSH;
-  const char *tool_icons[] = {
-      ICON_SHAPE, ICON_TEXT,  ICON_IMAGE, brush_icon,
-      "",         ICON_MAGIC, ICON_CHART, ICON_LINKED_TEXT};
+  const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT,  ICON_IMAGE, brush_icon,
+                              "",         ICON_MAGIC, ICON_CHART, ICON_ICON};
 
   for (int i = 0; i < tool_count; i++) {
     struct nk_rect btn = nk_rect(btn_x + i * (btn_size + btn_spacing), btn_y,
@@ -1904,8 +1934,8 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
         } else if (i == 6) { // Chart button (direct action)
           cs->pending_create = 11;
           cs->show_sub_menu = 0;
-        } else if (i == 7) { // Linked text button (design only, direct action)
-          cs->pending_create = 7;
+        } else if (i == 7) { // Icon button (design only, direct action)
+          cs->pending_create = 12;
           cs->show_sub_menu = 0;
         } else if (cs->active_cat == cat) {
           cs->show_sub_menu = !cs->show_sub_menu;
