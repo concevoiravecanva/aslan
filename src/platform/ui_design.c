@@ -801,24 +801,75 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           nk_property_float(ctx, "Letter spacing:", -10.0f,
                             &node->letter_spacing, 50.0f, 0.5f, 0.1f);
 
-          // Link to column
+          // Link to table and column
+          ds_section(ctx, "LINKED TEXT");
+
+          static char text_tnames[32][64];
+          uint32_t text_tids[32];
+          const char *text_tnames_ptr[32];
+          int text_tcount = 0;
+          text_tnames_ptr[text_tcount] = "None";
+          text_tids[text_tcount] = 0;
+          text_tcount++;
+
           Block *tbl_block = NULL;
-          if (dd->linked_table_id && engine && engine->doc) {
+          if (engine && engine->doc) {
             for (int i = 0; i < 32; i++) {
               Page *p = &engine->doc->pages[i];
               if (!p->in_use)
                 continue;
-              tbl_block = page_find_block_by_id(p, dd->linked_table_id);
-              if (tbl_block)
-                break;
+              for (Block *b = p->first_block; b; b = b->next) {
+                if (b->type == BLOCK_TABLE && b->data.table.columnar) {
+                  if (text_tcount < 32) {
+                    text_tids[text_tcount] = b->id;
+                    snprintf(text_tnames[text_tcount], 64, "Table %u", b->id);
+                    text_tnames_ptr[text_tcount] = text_tnames[text_tcount];
+                    text_tcount++;
+                  }
+                  if (b->id == dd->linked_table_id) {
+                    tbl_block = b;
+                  }
+                }
+              }
             }
           }
+
+          nk_layout_row_dynamic(ctx, 20, 1);
+          nk_label(ctx, "Source Table:", NK_TEXT_LEFT);
+          nk_layout_row_dynamic(ctx, 24, 1);
+
+          int cur_tidx = 0;
+          for (int i = 0; i < text_tcount; i++) {
+            if (text_tids[i] == dd->linked_table_id)
+              cur_tidx = i;
+          }
+          int new_tidx = nk_combo(ctx, text_tnames_ptr, text_tcount, cur_tidx,
+                                  24, nk_vec2(220, 200));
+          if (new_tidx != cur_tidx) {
+            dd->linked_table_id = text_tids[new_tidx];
+            ui->design_linked_row_idx = 0;
+            node->linked_col_name[0] = '\0'; // reset column selection
+
+            tbl_block = NULL;
+            if (dd->linked_table_id && engine && engine->doc) {
+              for (int i = 0; i < 32; i++) {
+                Page *p = &engine->doc->pages[i];
+                if (!p->in_use)
+                  continue;
+                Block *tb = page_find_block_by_id(p, dd->linked_table_id);
+                if (tb && tb->type == BLOCK_TABLE && tb->data.table.columnar) {
+                  tbl_block = tb;
+                  break;
+                }
+              }
+            }
+          }
+
           if (tbl_block) {
-            ds_section(ctx, "LINKED TEXT");
             AslanTable *tbl = tbl_block->data.table.columnar;
             int col_count = (int)tbl->column_count;
             if (col_count > 32)
-              col_count = 32; // PREVENT OVERFLOW
+              col_count = 32;
             const char *col_names[33];
             col_names[0] = "None";
             for (int k = 0; k < col_count; k++)
@@ -830,6 +881,10 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
                 break;
               }
             }
+            nk_layout_row_dynamic(ctx, 4, 1);
+            nk_spacing(ctx, 1);
+            nk_layout_row_dynamic(ctx, 20, 1);
+            nk_label(ctx, "Data Column:", NK_TEXT_LEFT);
             nk_layout_row_dynamic(ctx, 24, 1);
             int new_sel = nk_combo(ctx, col_names, col_count + 1, cur_sel, 24,
                                    nk_vec2(220, 200));
@@ -840,7 +895,6 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
                 strncpy(node->linked_col_name, col_names[new_sel],
                         sizeof(node->linked_col_name) - 1);
                 node->linked_col_name[sizeof(node->linked_col_name) - 1] = '\0';
-                ui->design_linked_row_idx = 0;
               }
             }
             if (node->linked_col_name[0]) {
@@ -862,6 +916,12 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
                   ui->design_linked_row_idx < total_rows - 1)
                 ui->design_linked_row_idx++;
             }
+          } else {
+            nk_layout_row_dynamic(ctx, 18, 1);
+            nk_label_colored(ctx, "Link a table in the 'Page' tab",
+                             NK_TEXT_CENTERED, nk_rgb(160, 160, 175));
+            nk_label_colored(ctx, "to use data columns here.", NK_TEXT_CENTERED,
+                             nk_rgb(160, 160, 175));
           }
         }
       }
@@ -1000,64 +1060,106 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           }
         }
 
-        // ── PAGES ────────────────────────────────────────────────────────
-        ds_section(ctx, "PAGES");
-        nk_layout_row_template_begin(ctx, 28);
-        nk_layout_row_template_push_static(ctx, 28); // <
-        nk_layout_row_template_push_dynamic(ctx);    // counter
-        nk_layout_row_template_push_static(ctx, 28); // >
-        nk_layout_row_template_push_static(ctx, 28); // +
-        nk_layout_row_template_end(ctx);
+        // ── DATA NAVIGATION (Template Mode) ─────────────────────────────
+        ds_section(ctx, "DATA NAVIGATION");
 
-        int prev_ok = (dd->current_page > 0);
-        int next_ok = (dd->current_page < dd->page_count - 1);
-        struct nk_style_button arr = ctx->style.button;
-        arr.padding = nk_vec2(2, 2);
+        static char tnames[32][64];
+        uint32_t table_ids[32];
+        const char *table_names[32];
+        int table_count = 0;
+        table_names[table_count] = "None";
+        table_ids[table_count] = 0;
+        table_count++;
 
-        struct nk_style_button arr_prev = arr;
-        if (!prev_ok)
-          arr_prev.text_normal = nk_rgb(200, 200, 215);
-        if (nk_button_label_styled(ctx, &arr_prev, "<") && prev_ok) {
-          block_design_goto_page(block, dd->current_page - 1);
-          ui->selected_node = NULL;
-        }
-        char pg_str[32];
-        snprintf(pg_str, sizeof(pg_str), "%d / %d", dd->current_page + 1,
-                 dd->page_count);
-        nk_label(ctx, pg_str, NK_TEXT_CENTERED);
-        struct nk_style_button arr_next = arr;
-        if (!next_ok)
-          arr_next.text_normal = nk_rgb(200, 200, 215);
-        if (nk_button_label_styled(ctx, &arr_next, ">") && next_ok) {
-          block_design_goto_page(block, dd->current_page + 1);
-          ui->selected_node = NULL;
-        }
-        struct nk_style_button add_btn = arr;
-        add_btn.text_normal = COLOR_ACCENT;
-        if (nk_button_label_styled(ctx, &add_btn, "+")) {
-          int new_pg = block_design_add_page(block);
-          if (new_pg >= 0) {
-            block_design_goto_page(block, new_pg);
-            ui->selected_node = NULL;
+        AslanTable *linked_tbl = NULL;
+        if (engine && engine->doc) {
+          for (int i = 0; i < 32; i++) {
+            Page *p = &engine->doc->pages[i];
+            if (!p->in_use)
+              continue;
+            for (Block *b = p->first_block; b; b = b->next) {
+              if (b->type == BLOCK_TABLE && b->data.table.columnar) {
+                if (table_count < 32) {
+                  table_ids[table_count] = b->id;
+                  snprintf(tnames[table_count], 64, "Table %u (Page %u)", b->id,
+                           p->id);
+                  table_names[table_count] = tnames[table_count];
+                  table_count++;
+                }
+                if (b->id == dd->linked_table_id) {
+                  linked_tbl = b->data.table.columnar;
+                }
+              }
+            }
           }
         }
 
-        if (dd->page_count > 1) {
+        nk_layout_row_dynamic(ctx, 24, 1);
+        int cur_table_idx = 0;
+        for (int i = 0; i < table_count; i++) {
+          if (table_ids[i] == dd->linked_table_id)
+            cur_table_idx = i;
+        }
+        int new_table_idx = nk_combo(ctx, table_names, table_count,
+                                     cur_table_idx, 24, nk_vec2(220, 200));
+        if (new_table_idx != cur_table_idx) {
+          dd->linked_table_id = table_ids[new_table_idx];
+          ui->design_linked_row_idx = 0; // reset row when table changes
+          // Refresh linked table pointer if changed
+          linked_tbl = NULL;
+          if (dd->linked_table_id && engine && engine->doc) {
+            for (int i = 0; i < 32; i++) {
+              Page *p = &engine->doc->pages[i];
+              if (!p->in_use)
+                continue;
+              Block *tb = page_find_block_by_id(p, dd->linked_table_id);
+              if (tb && tb->type == BLOCK_TABLE && tb->data.table.columnar) {
+                linked_tbl = tb->data.table.columnar;
+                break;
+              }
+            }
+          }
+        }
+
+        if (linked_tbl) {
+          nk_layout_row_dynamic(ctx, 4, 1);
+          nk_spacing(ctx, 1);
+          int total_rows = (int)linked_tbl->active_count;
+          nk_layout_row_template_begin(ctx, 28);
+          nk_layout_row_template_push_static(ctx, 28); // <
+          nk_layout_row_template_push_dynamic(ctx);    // counter
+          nk_layout_row_template_push_static(ctx, 28); // >
+          nk_layout_row_template_end(ctx);
+
+          int prev_ok = (ui->design_linked_row_idx > 0);
+          int next_ok = (ui->design_linked_row_idx < total_rows - 1);
+          struct nk_style_button arr = ctx->style.button;
+          arr.padding = nk_vec2(2, 2);
+
+          struct nk_style_button arr_prev = arr;
+          if (!prev_ok)
+            arr_prev.text_normal = nk_rgb(200, 200, 215);
+          if (nk_button_label_styled(ctx, &arr_prev, "<") && prev_ok) {
+            ui->design_linked_row_idx--;
+          }
+          char pg_str[32];
+          snprintf(pg_str, sizeof(pg_str), "Row %d / %d",
+                   ui->design_linked_row_idx + 1, total_rows);
+          nk_label(ctx, pg_str, NK_TEXT_CENTERED);
+
+          struct nk_style_button arr_next = arr;
+          if (!next_ok)
+            arr_next.text_normal = nk_rgb(200, 200, 215);
+          if (nk_button_label_styled(ctx, &arr_next, ">") && next_ok) {
+            ui->design_linked_row_idx++;
+          }
+        } else {
           nk_layout_row_dynamic(ctx, 24, 1);
-          struct nk_style_button del_btn = ctx->style.button;
-          del_btn.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-          del_btn.hover = nk_style_item_color(nk_rgba(220, 50, 50, 18));
-          del_btn.active = nk_style_item_color(nk_rgba(220, 50, 50, 35));
-          del_btn.border = 0;
-          del_btn.text_normal = nk_rgb(200, 65, 65);
-          del_btn.text_hover = nk_rgb(220, 35, 35);
-          del_btn.text_active = nk_rgb(180, 25, 25);
-          if (nk_button_label_styled(ctx, &del_btn, "Delete current page")) {
-            int cur = dd->current_page;
-            block_design_delete_page(block, cur);
-            block_design_goto_page(block, cur > 0 ? cur - 1 : 0);
-            ui->selected_node = NULL;
-          }
+          nk_label_colored(ctx, "No table linked", NK_TEXT_CENTERED,
+                           nk_rgb(160, 160, 175));
+          nk_layout_row_dynamic(ctx, 18, 1);
+          nk_label_colored(ctx, "Design is a single template", NK_TEXT_CENTERED,
+                           nk_rgb(195, 195, 210));
         }
 
         // ── SMART LAYOUTS ────────────────────────────────────────────────
@@ -3103,7 +3205,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
             }
             ui->selected_node = hit;
           } else {
-            // Double-click: edit or add text
+            // Double-click: edit text node
             if (hit == ui->selected_node) {
               if (hit->type == NODE_TYPE_TEXT) {
                 // Edit existing text node inline
@@ -3111,43 +3213,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                 strncpy(ui->edit_buffer, hit->text,
                         sizeof(ui->edit_buffer) - 1);
                 SDL_StartTextInput();
-              } else if (hit->type != NODE_TYPE_STROKE &&
-                         hit->type != NODE_TYPE_PATH &&
-                         hit->type != NODE_TYPE_CHART) {
-                // Find existing text child or create a new one
-                Node *txt = NULL;
-                for (Node *ch = hit->first_child; ch; ch = ch->next_sibling) {
-                  if (ch->type == NODE_TYPE_TEXT && !ch->is_mask) {
-                    txt = ch;
-                    break;
-                  }
-                }
-                if (!txt) {
-                  txt = (Node *)calloc(1, sizeof(Node));
-                  if (txt) {
-                    txt->id = dd->next_node_id++;
-                    txt->type = NODE_TYPE_TEXT;
-                    txt->visible = 1;
-                    txt->x = 5.0f;
-                    txt->y = hit->height / 2.0f - 15.0f;
-                    txt->width = hit->width - 10.0f;
-                    txt->height = 30.0f;
-                    txt->font_size = 20.0f;
-                    txt->stroke_color = 0xFFFFFFFF; // white text
-                    strncpy(txt->text, "Text", sizeof(txt->text) - 1);
-                    // Prepend as first child so it renders on top
-                    txt->parent = hit;
-                    txt->next_sibling = hit->first_child;
-                    hit->first_child = txt;
-                  }
-                }
-                if (txt) {
-                  ui->selected_node = txt;
-                  ui->editing_node = txt;
-                  strncpy(ui->edit_buffer, txt->text,
-                          sizeof(ui->edit_buffer) - 1);
-                  SDL_StartTextInput();
-                }
               } else if (hit->type == NODE_TYPE_IMAGE && hit->image_path[0]) {
                 ds->is_cropping = 1;
                 ds->crop_start_x = ui->mouse_x;
