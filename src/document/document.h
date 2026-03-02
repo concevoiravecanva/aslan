@@ -156,11 +156,6 @@ typedef struct Node {
   int locked;
   int is_container;
   int folded;
-  int is_mask; // Acts as a clipping mask for sibling nodes above it
-  int mask_inverted;
-  int mask_type;      // 0=Alpha, 1=Luminance
-  float mask_feather; // 0-50px edge softness (stored; rendered later)
-
   // Path data (for NODE_TYPE_PATH)
   NodePathPoint *path_points;
   int path_point_count;

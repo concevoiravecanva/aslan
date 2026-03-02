@@ -911,125 +911,10 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
   }
 }
 
-// Returns the mask child of a node (first child with is_mask == 1), or NULL.
-// Masks are stored as children of the node they clip — so moving or scaling
-// the parent automatically repositions the mask in screen space.
-static Node *node_find_mask(Node *node) {
-  if (!node)
-    return NULL;
-  for (Node *ch = node->first_child; ch; ch = ch->next_sibling)
-    if (ch->is_mask)
-      return ch;
-  return NULL;
-}
-
 static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
                                  Block *block, Node *node, int depth) {
   if (!node)
     return;
-  // Mask nodes render as a special linked sub-row (blue tint, clip icon).
-  // They are children of the layer they clip, shown indented below it.
-  if (node->is_mask) {
-    // Compact row — same template as normal but with blue accent visuals
-    float indent_w = 4.0f + (float)(depth) * 16.0f;
-    nk_layout_row_template_begin(ctx, 26);
-    nk_layout_row_template_push_static(ctx, indent_w);
-    nk_layout_row_template_push_static(ctx, 16.0f); // clip icon slot
-    nk_layout_row_template_push_dynamic(ctx);       // name
-    nk_layout_row_template_push_static(ctx, 16.0f); // visibility
-    nk_layout_row_template_push_static(ctx, 16.0f); // lock
-    nk_layout_row_template_end(ctx);
-
-    struct nk_rect mr = nk_widget_bounds(ctx);
-    struct nk_rect mfr = nk_window_get_content_region(ctx);
-    mfr.y = mr.y;
-    mfr.h = 26;
-    int is_sel = (ui->selected_node == node);
-    int is_hov = nk_input_is_mouse_hovering_rect(&ctx->input, mfr);
-    if (is_hov)
-      ui->hovered_node_id = node->id;
-
-    struct nk_command_buffer *mcb = nk_window_get_canvas(ctx);
-    // Blue-tinted row background
-    nk_fill_rect(mcb, mfr, 0,
-                 nk_rgba(80, 140, 200, is_sel ? 25 : (is_hov ? 12 : 0)));
-    // Left accent bar for selection
-    if (is_sel)
-      nk_fill_rect(mcb, nk_rect(mfr.x, mfr.y + 3, 3, mfr.h - 6), 1.5f,
-                   nk_rgba(80, 140, 200, 255));
-
-    nk_spacing(ctx, 1); // indent
-
-    // Clip icon (scissors symbol via plain text fallback)
-    {
-      struct nk_style_button ib = ctx->style.button;
-      ib.normal = ib.hover = ib.active =
-          nk_style_item_color(nk_rgba(0, 0, 0, 0));
-      ib.border = 0;
-      ib.padding = nk_vec2(2, 2);
-      ib.text_normal = ib.text_hover = nk_rgba(80, 140, 200, 200);
-      if (ui->font_icons)
-        nk_style_set_font(ctx, &ui->font_icons->handle);
-      nk_button_label_styled(ctx, &ib, node_type_icon(node));
-      if (ui->font_inter)
-        nk_style_set_font(ctx, &ui->font_inter->handle);
-    }
-
-    // Name label — shows shape type
-    {
-      char mbuf[72];
-      const char *mn =
-          node->name[0] ? node->name : node_type_display_name(node->type);
-      snprintf(mbuf, sizeof(mbuf), "Masque : %s", mn);
-      struct nk_style_button nb = ctx->style.button;
-      nb.normal = nb.hover = nb.active =
-          nk_style_item_color(nk_rgba(0, 0, 0, 0));
-      nb.border = 0;
-      nb.padding = nk_vec2(4, 4);
-      nb.text_alignment = NK_TEXT_LEFT;
-      nb.text_normal = nb.text_hover =
-          nk_rgba(80, 140, 200, is_sel ? 255 : 180);
-      if (nk_button_label_styled(ctx, &nb, mbuf)) {
-        ui->selected_node = node;
-        ui->renaming_node_id = 0;
-        ui->show_mask_creator_popup = 0;
-      }
-    }
-
-    // Visibility
-    if (ui->font_icons)
-      nk_style_set_font(ctx, &ui->font_icons->handle);
-    {
-      struct nk_style_button vb = ctx->style.button;
-      vb.normal = vb.hover = vb.active =
-          nk_style_item_color(nk_rgba(0, 0, 0, 0));
-      vb.border = 0;
-      vb.padding = nk_vec2(2, 2);
-      vb.text_normal =
-          node->visible ? nk_rgba(80, 140, 200, 160) : nk_rgb(210, 210, 215);
-      vb.text_hover = nk_rgba(80, 140, 200, 255);
-      if (nk_button_label_styled(ctx, &vb,
-                                 node->visible ? ICON_EYE : ICON_EYE_OFF))
-        node->visible = !node->visible;
-    }
-    // Lock
-    {
-      struct nk_style_button lb = ctx->style.button;
-      lb.normal = lb.hover = lb.active =
-          nk_style_item_color(nk_rgba(0, 0, 0, 0));
-      lb.border = 0;
-      lb.padding = nk_vec2(2, 2);
-      lb.text_normal =
-          node->locked ? nk_rgb(220, 100, 100) : nk_rgba(80, 140, 200, 120);
-      lb.text_hover = nk_rgba(80, 140, 200, 255);
-      if (nk_button_label_styled(ctx, &lb,
-                                 node->locked ? ICON_LOCK : ICON_LOCK_UNLOCK))
-        node->locked = !node->locked;
-    }
-    if (ui->font_inter)
-      nk_style_set_font(ctx, &ui->font_inter->handle);
-    return;
-  }
 
   int is_selected = (ui->selected_node == node);
   int is_renaming = (ui->renaming_node_id == node->id);
@@ -1180,8 +1065,6 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
     nk_style_set_font(ctx, &ui->font_inter->handle);
 
   // 3. Name or Edit
-  // Pre-compute whether this layer has a mask applied (used in name + swatch).
-  Node *applied_mask = node_find_mask(node);
   if (is_renaming) {
     struct nk_style_edit edit_style = ctx->style.edit;
     edit_style.normal.data.color = nk_rgb(255, 255, 255);
@@ -1244,13 +1127,11 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
       } else {
         ui->selected_node = node;
         ui->renaming_node_id = 0;
-        ui->show_mask_tools = 0;
-        ui->show_mask_creator_popup = 0;
       }
     }
   }
 
-  // 4. Fill color swatch — blue ring overlay when a mask is applied
+  // 4. Fill color swatch
   {
     struct nk_rect sw = nk_widget_bounds(ctx);
     nk_spacing(ctx, 1); // consume the slot
@@ -1264,14 +1145,7 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
     float s = 10.0f;
     float sx2 = sw.x + (sw.w - s) * 0.5f, sy2 = sw.y + (sw.h - s) * 0.5f;
     nk_fill_circle(cb2, nk_rect(sx2, sy2, s, s), nk_rgba(sr, sg, sb2, 255));
-    // Blue ring = mask applied indicator
-    if (applied_mask) {
-      nk_stroke_circle(cb2, nk_rect(sx2 - 1, sy2 - 1, s + 2, s + 2), 1.5f,
-                       nk_rgba(80, 140, 200, 200));
-    } else {
-      nk_stroke_circle(cb2, nk_rect(sx2, sy2, s, s), 1.0f,
-                       nk_rgba(0, 0, 0, 40));
-    }
+    nk_stroke_circle(cb2, nk_rect(sx2, sy2, s, s), 1.0f, nk_rgba(0, 0, 0, 40));
   }
 
   // 5. Visibility Toggle
@@ -1298,75 +1172,25 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
     nk_style_set_font(ctx, &ui->font_inter->handle);
 
   // Recursive call for children.
-  // Mask children are shown for ANY node (not just containers) so the user
-  // can see which mask is attached.  Regular children only show for containers.
   // Reversed order so the topmost layer in the panel matches the front in
-  // canvas.
+  // canvas. Only container nodes show their children.
   {
     Node *list[128];
     int c = 0;
     for (Node *ch = node->first_child; ch && c < 128; ch = ch->next_sibling)
       list[c++] = ch;
-    // Render all children (masks + regular) in reversed order.
-    // Non-container nodes skip non-mask children below.
+    // Render children in reversed order.
     for (int i = c - 1; i >= 0; i--) {
       Node *ch = list[i];
-      if (!ch->is_mask && !node->is_container)
-        continue; // skip regular children for non-containers
-      if (!ch->is_mask && node->folded)
+      if (!node->is_container)
+        continue; // skip children for non-containers
+      if (node->folded)
         continue; // respect fold for containers
       ui_render_layer_item(ui, ctx, block, ch, depth + 1);
     }
   }
 }
 
-// ── Helper: Create a mask node for a target node
-// ──────────────────────────────
-void ui_design_create_mask_for_node(UIHost *ui, Block *block, Node *target,
-                                    NodeType type) {
-  if (!block || !target || block->type != BLOCK_DESIGN)
-    return;
-  DesignData *dd = &block->data.design;
-
-  // Create the mask node
-  Node *mask = node_create(dd->next_node_id++, type, "Masque");
-  if (!mask)
-    return;
-
-  // Mask is a CHILD of the target, not a sibling.
-  // This means:
-  //   - It is shown indented below the target in the layer panel (visually
-  //   linked)
-  //   - Moving/scaling target changes the parent position, which the child
-  //     inherits automatically because rendering uses parent_x + child->x*scale
-  //   - Resizing target syncs mask width/height explicitly (see resize handler)
-  // Position: x=0, y=0 relative to parent; same size as parent.
-  mask->x = 0.0f;
-  mask->y = 0.0f;
-  mask->width = target->width;
-  mask->height = target->height;
-  mask->is_mask = 1;
-  mask->visible = 1;
-  mask->opacity = 1.0f;
-  mask->fill_color = 0xFFFFFFFF;
-  mask->parent = target;
-
-  // Append as LAST child so reversed panel iteration puts it at the TOP
-  // (= "in front" in the layer list, matching user expectation).
-  if (!target->first_child) {
-    target->first_child = mask;
-  } else {
-    Node *last = target->first_child;
-    while (last->next_sibling)
-      last = last->next_sibling;
-    last->next_sibling = mask;
-  }
-
-  // Stay on the target layer — mask options appear in the inspector
-  // automatically.
-  ui->selected_node = target;
-  ui->show_mask_tools = 1;
-}
 
 // =============================================================================
 // LAYER INSPECTOR — fixed panel shown below the layer tree when a node is
@@ -1377,150 +1201,6 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
   Node *node = ui->selected_node;
   if (!node || !block)
     return;
-
-  struct nk_command_buffer *cb = nk_window_get_canvas(ctx);
-
-  // Resolve the associated mask:
-  //  - If the selected node IS a mask (user clicked the mask sub-row): show
-  //    mask options for itself.
-  //  - If the selected node has a mask child: show options for that child.
-  //  - Otherwise: NULL (no mask panel shown).
-  Node *node_mask = node->is_mask ? node : node_find_mask(node);
-
-  // ══ TOP: MASK CREATOR PANEL ═══════════════════════════════════════════════
-  // Shown when user clicked "+ Masque" on a node that has no mask yet.
-  // Lets them pick a clip shape without any popup (Nuklear popups break inside
-  // nested groups).
-  if (ui->show_mask_creator_popup && !node_mask) {
-    // Header row: title + cancel button
-    nk_layout_row_template_begin(ctx, 22);
-    nk_layout_row_template_push_dynamic(ctx);       // title
-    nk_layout_row_template_push_static(ctx, 22.0f); // × cancel
-    nk_layout_row_template_end(ctx);
-    nk_label_colored(ctx, "  Forme du masque", NK_TEXT_LEFT,
-                     nk_rgb(80, 140, 200));
-    {
-      struct nk_style_button xb = ctx->style.button;
-      xb.normal = xb.hover = xb.active =
-          nk_style_item_color(nk_rgba(0, 0, 0, 0));
-      xb.border = 0.0f;
-      xb.text_normal = nk_rgb(140, 140, 155);
-      xb.text_hover = nk_rgb(200, 60, 60);
-      if (nk_button_label_styled(ctx, &xb, "\xc3\x97")) // ×
-        ui->show_mask_creator_popup = 0;
-    }
-
-    // Six shape buttons — 2 per row, ghost-style
-    struct nk_style_button sb = ctx->style.button;
-    sb.rounding = 6.0f;
-    sb.border = 1.0f;
-    sb.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-    sb.hover = nk_style_item_color(nk_rgba(80, 140, 200, 15));
-    sb.active = nk_style_item_color(nk_rgba(80, 140, 200, 30));
-    sb.text_normal = nk_rgb(100, 100, 115);
-    sb.text_hover = nk_rgb(60, 120, 200);
-    sb.border_color = nk_rgb(180, 180, 195);
-
-    nk_layout_row_dynamic(ctx, 26, 2);
-    if (nk_button_label_styled(ctx, &sb, "Rectangle")) {
-      ui_design_create_mask_for_node(ui, block, node, NODE_TYPE_RECT);
-      ui->show_mask_creator_popup = 0;
-    }
-    if (nk_button_label_styled(ctx, &sb, "Cercle")) {
-      ui_design_create_mask_for_node(ui, block, node, NODE_TYPE_ELLIPSE);
-      ui->show_mask_creator_popup = 0;
-    }
-    nk_layout_row_dynamic(ctx, 26, 2);
-    if (nk_button_label_styled(ctx, &sb, "Triangle")) {
-      ui_design_create_mask_for_node(ui, block, node, NODE_TYPE_TRIANGLE);
-      ui->show_mask_creator_popup = 0;
-    }
-    if (nk_button_label_styled(ctx, &sb, "Etoile")) {
-      ui_design_create_mask_for_node(ui, block, node, NODE_TYPE_STAR);
-      ui->show_mask_creator_popup = 0;
-    }
-    nk_layout_row_dynamic(ctx, 26, 2);
-    if (nk_button_label_styled(ctx, &sb, "Coeur")) {
-      ui_design_create_mask_for_node(ui, block, node, NODE_TYPE_HEART);
-      ui->show_mask_creator_popup = 0;
-    }
-    if (nk_button_label_styled(ctx, &sb, "Hexagone")) {
-      ui_design_create_mask_for_node(ui, block, node, NODE_TYPE_HEXAGON);
-      ui->show_mask_creator_popup = 0;
-    }
-
-    // Thin blue divider
-    nk_layout_row_dynamic(ctx, 10, 1);
-    {
-      struct nk_rect dr = nk_widget_bounds(ctx);
-      nk_spacing(ctx, 1);
-      nk_fill_rect(cb, nk_rect(dr.x, dr.y + dr.h * 0.5f, dr.w, 1.0f), 0,
-                   nk_rgba(80, 140, 200, 40));
-    }
-  }
-
-  // ══ TOP: MASK EDITING PANEL ═══════════════════════════════════════════════
-  // Shown when the selected layer has an attached mask node.
-  // The mask node itself is hidden from the layer panel — its options live
-  // here.
-  if (node_mask) {
-    // Blue-tinted header
-    nk_layout_row_dynamic(ctx, 22, 1);
-    {
-      struct nk_rect hr = nk_widget_bounds(ctx);
-      nk_fill_rect(cb, nk_rect(hr.x, hr.y, hr.w, hr.h), 0,
-                   nk_rgba(80, 140, 200, 22));
-      nk_label_colored(ctx, "  MASQUE", NK_TEXT_LEFT, nk_rgb(80, 140, 200));
-    }
-
-    nk_layout_row_dynamic(ctx, 6, 1);
-    nk_spacing(ctx, 1);
-
-    // Invert toggle (field belongs to the mask node)
-    nk_layout_row_dynamic(ctx, 22, 1);
-    nk_checkbox_label(ctx, "Inverser le masque", &node_mask->mask_inverted);
-
-    // Feather / edge softness (field belongs to the mask node)
-    nk_layout_row_dynamic(ctx, 22, 1);
-    nk_property_float(ctx, "Adoucir (px)", 0.0f, &node_mask->mask_feather,
-                      50.0f, 1.0f, 0.5f);
-
-    nk_layout_row_dynamic(ctx, 6, 1);
-    nk_spacing(ctx, 1);
-
-    // "Enlever le masque" — deletes the mask node entirely from the tree
-    {
-      struct nk_style_button rb = ctx->style.button;
-      rb.rounding = 4.0f;
-      rb.border = 1.0f;
-      rb.normal = nk_style_item_color(nk_rgba(200, 60, 60, 10));
-      rb.hover = nk_style_item_color(nk_rgba(220, 50, 50, 20));
-      rb.text_normal = nk_rgb(190, 60, 60);
-      rb.text_hover = nk_rgb(220, 40, 40);
-      rb.border_color = nk_rgba(200, 60, 60, 80);
-      nk_layout_row_dynamic(ctx, 24, 1);
-      if (nk_button_label_styled(ctx, &rb, "Enlever le masque")) {
-        // If the mask itself was selected, move selection to its parent layer
-        if (node->is_mask && node->parent) {
-          ui->selected_node = node->parent;
-          if (ui->selected_node == block->data.design.root)
-            ui->selected_node = NULL;
-        }
-        block_design_delete_node(block, node_mask->id);
-        ui->show_mask_tools = 0;
-        return; // Node may be deleted — stop drawing this frame
-      }
-    }
-
-    // Thin blue divider
-    nk_layout_row_dynamic(ctx, 10, 1);
-    {
-      struct nk_rect dr = nk_widget_bounds(ctx);
-      nk_spacing(ctx, 1);
-      nk_fill_rect(cb, nk_rect(dr.x, dr.y + dr.h * 0.5f, dr.w, 1.0f), 0,
-                   nk_rgba(80, 140, 200, 40));
-    }
-  }
 
   // ── Row 1: type icon + editable name ──────────────────────────────────────
   nk_layout_row_template_begin(ctx, 24);
@@ -1617,35 +1297,7 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
   }
 
   // ── Row 5: action buttons ─────────────────────────────────────────────────
-  // Layer with mask: mask panel is shown above — just Copy + Delete here.
-  // Layer without mask: show "+ Masque" toggle + Copy + Delete.
-  if (node_mask) {
-    nk_layout_row_dynamic(ctx, 25, 2);
-  } else {
-    nk_layout_row_dynamic(ctx, 25, 3);
-    {
-      struct nk_style_button mb = ctx->style.button;
-      mb.rounding = 4.0f;
-      mb.border = 1.0f;
-      if (ui->show_mask_creator_popup) {
-        mb.normal = nk_style_item_color(nk_rgba(80, 140, 200, 25));
-        mb.hover = nk_style_item_color(nk_rgba(80, 140, 200, 40));
-        mb.text_normal = nk_rgb(80, 140, 200);
-        mb.text_hover = nk_rgb(60, 110, 180);
-        mb.border_color = nk_rgb(80, 140, 200);
-        if (nk_button_label_styled(ctx, &mb, "Masque \xc3\x97"))
-          ui->show_mask_creator_popup = 0;
-      } else {
-        mb.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-        mb.hover = nk_style_item_color(nk_rgba(0, 0, 0, 10));
-        mb.text_normal = nk_rgb(110, 110, 125);
-        mb.text_hover = COLOR_ACCENT;
-        mb.border_color = nk_rgba(0, 0, 0, 30);
-        if (nk_button_label_styled(ctx, &mb, "+ Masque"))
-          ui->show_mask_creator_popup = 1;
-      }
-    }
-  }
+  nk_layout_row_dynamic(ctx, 25, 2);
 
   // Copy
   {
@@ -2193,341 +1845,6 @@ SDL_Texture *get_image_texture(UIHost *ui, const char *path) {
   tex_cache[slot].height = h;
   tex_cache[slot].last_used = tex_cache_counter;
   tex_cache[slot].in_use = 1;
-
-  return tex;
-}
-
-// =============================================================================
-// Shape-Masked Image Texture (Canva-like container image clipping)
-// =============================================================================
-
-#define MASKED_TEX_CACHE_SIZE 32
-static struct {
-  char path[256];
-  int shape_type;
-  int corner_key;     // corner_ratio * 100
-  uint32_t path_hash; // hash of path points for PATH nodes
-  SDL_Texture *tex;
-  int width, height;
-  int in_use;
-  uint32_t last_used;
-} masked_tex_cache[MASKED_TEX_CACHE_SIZE];
-static uint32_t masked_tex_counter = 0;
-
-// Simple hash of path points for cache invalidation
-static uint32_t hash_path_points(NodePathPoint *pts, int count) {
-  uint32_t h = 0x811c9dc5; // FNV-1a offset basis
-  const uint8_t *data = (const uint8_t *)pts;
-  size_t len = (size_t)count * sizeof(NodePathPoint);
-  for (size_t i = 0; i < len; i++) {
-    h ^= data[i];
-    h *= 0x01000193; // FNV-1a prime
-  }
-  return h;
-}
-
-// Tessellate path to normalized [0,1] polygon coords relative to node bounds
-static int tessellate_path_normalized(Node *node, float *out_pts, int max_pts) {
-  if (!node || !node->path_points || node->path_point_count < 2)
-    return 0;
-  float w = node->width, h = node->height;
-  if (w < 1.0f)
-    w = 1.0f;
-  if (h < 1.0f)
-    h = 1.0f;
-
-  int total = 0;
-  for (int i = 0; i < node->path_point_count; i++) {
-    int next = (i + 1) % node->path_point_count;
-    NodePathPoint p1 = node->path_points[i];
-    NodePathPoint p2 = node->path_points[next];
-
-    if (p1.type ==
-        1) { // Cubic Bezier - tessellate in node-local coords then normalize
-      float seg_pts[128];
-      int c = tessellate_bezier(p1.x, p1.y, p1.cp2x, p1.cp2y, p2.cp1x, p2.cp1y,
-                                p2.x, p2.y, seg_pts, 64, 0);
-      for (int j = 0; j < c && total < max_pts; j++) {
-        out_pts[total * 2] = seg_pts[j * 2] / w;
-        out_pts[total * 2 + 1] = seg_pts[j * 2 + 1] / h;
-        total++;
-      }
-    } else {
-      if (total < max_pts) {
-        out_pts[total * 2] = p1.x / w;
-        out_pts[total * 2 + 1] = p1.y / h;
-        total++;
-      }
-    }
-  }
-  return total;
-}
-
-// Winding number point-in-polygon test
-static float path_winding_alpha(float px, float py, const float *poly,
-                                int count) {
-  int winding = 0;
-  for (int i = 0; i < count; i++) {
-    int j = (i + 1) % count;
-    float y0 = poly[i * 2 + 1], y1 = poly[j * 2 + 1];
-    float x0 = poly[i * 2], x1 = poly[j * 2];
-    if (y0 <= py) {
-      if (y1 > py) {
-        float vt = (py - y0) / (y1 - y0);
-        if (px < x0 + vt * (x1 - x0))
-          winding++;
-      }
-    } else {
-      if (y1 <= py) {
-        float vt = (py - y0) / (y1 - y0);
-        if (px < x0 + vt * (x1 - x0))
-          winding--;
-      }
-    }
-  }
-  return winding != 0 ? 1.0f : 0.0f;
-}
-
-// Compute alpha for a pixel at normalized coords (nx, ny) in [0,1]
-// Returns 0.0 (outside) to 1.0 (inside), with smooth AA at edges
-static float shape_alpha(NodeType shape, float nx, float ny, float cr,
-                         int img_size) {
-  float aa = 1.5f / (float)img_size; // Anti-aliasing band
-
-  switch (shape) {
-  case NODE_TYPE_ELLIPSE: {
-    float dx = nx - 0.5f, dy = ny - 0.5f;
-    float r = sqrtf(dx * dx * 4.0f + dy * dy * 4.0f);
-    float d = 1.0f - r; // >0 inside, <0 outside
-    if (d > aa)
-      return 1.0f;
-    if (d < -aa)
-      return 0.0f;
-    return (d + aa) / (2.0f * aa);
-  }
-  case NODE_TYPE_RECT: {
-    if (cr <= 0.001f)
-      return 1.0f; // No rounding => no masking needed
-    float r = cr * 0.5f;
-    float cx = (nx < r) ? r : (nx > 1.0f - r) ? 1.0f - r : nx;
-    float cy = (ny < r) ? r : (ny > 1.0f - r) ? 1.0f - r : ny;
-    if (cx != nx || cy != ny) { // In a corner region
-      float dd = sqrtf((nx - cx) * (nx - cx) + (ny - cy) * (ny - cy));
-      float d = r - dd;
-      if (d > aa)
-        return 1.0f;
-      if (d < -aa)
-        return 0.0f;
-      return (d + aa) / (2.0f * aa);
-    }
-    return 1.0f;
-  }
-  case NODE_TYPE_TRIANGLE: {
-    // Triangle: top-center(0.5,0), bottom-left(0,1), bottom-right(1,1)
-    // Edge normals pointing inward
-    // Left edge: (0.5,0)->(0,1), normal = (1, 0.5)/|n|
-    float d_left = (nx - 0.0f) * (0.0f - 1.0f) - (ny - 1.0f) * (0.5f - 0.0f);
-    // Right edge: (1,1)->(0.5,0), normal = (-1, 0.5)/|n|
-    float d_right = (nx - 0.5f) * (1.0f - 0.0f) - (ny - 0.0f) * (1.0f - 0.5f);
-    // Bottom edge: (0,1)->(1,1), normal = (0, -1)
-    float d_bottom = 1.0f - ny;
-
-    float edge_len = sqrtf(0.25f + 1.0f); // length of left/right edges
-    float min_d = fminf(fminf(d_left / edge_len, d_right / edge_len), d_bottom);
-
-    if (min_d > aa)
-      return 1.0f;
-    if (min_d < -aa)
-      return 0.0f;
-    return (min_d + aa) / (2.0f * aa);
-  }
-  case NODE_TYPE_PENTAGON:
-  case NODE_TYPE_HEXAGON:
-  case NODE_TYPE_OCTAGON:
-  case NODE_TYPE_STAR: {
-    int sides = (shape == NODE_TYPE_PENTAGON)  ? 5
-                : (shape == NODE_TYPE_HEXAGON) ? 6
-                : (shape == NODE_TYPE_STAR)    ? 10
-                                               : 8;
-    float angle_off = (shape == NODE_TYPE_PENTAGON)  ? -3.14159f / 2.0f
-                      : (shape == NODE_TYPE_HEXAGON) ? 0.0f
-                      : (shape == NODE_TYPE_STAR)    ? -3.14159f / 2.0f
-                                                     : 3.14159f / 8.0f;
-    float dx = nx - 0.5f, dy = ny - 0.5f;
-    float angle = atan2f(dy, dx) - angle_off;
-    float sector = 2.0f * 3.14159f / (float)sides;
-    angle = fmodf(angle, sector);
-    if (angle < 0)
-      angle += sector;
-    float cos_half = cosf(sector / 2.0f);
-    float edge_r;
-    if (shape == NODE_TYPE_STAR) {
-      // Alternating outer/inner radii for star points
-      int idx = (int)((atan2f(dy, dx) - angle_off) / (3.14159f / 5.0f));
-      if (idx < 0)
-        idx += 10;
-      idx = idx % 10;
-      float outer_r = 0.5f;
-      float inner_r = 0.2f;
-      float r_at = (idx % 2 == 0) ? outer_r : inner_r;
-      float r_next = (idx % 2 == 0) ? inner_r : outer_r;
-      float frac = fmodf(angle, sector) / sector;
-      edge_r = r_at + (r_next - r_at) * frac;
-    } else {
-      edge_r = 0.5f * cos_half / cosf(angle - sector / 2.0f);
-    }
-    float point_r = sqrtf(dx * dx + dy * dy);
-    float d = edge_r - point_r;
-    if (d > aa)
-      return 1.0f;
-    if (d < -aa)
-      return 0.0f;
-    return (d + aa) / (2.0f * aa);
-  }
-  case NODE_TYPE_HEART: {
-    // Winding number test on sampled parametric heart boundary
-    float hx = (nx - 0.5f) * 32.0f;
-    float hy = (ny - 0.45f) * 32.0f;
-    int winding = 0;
-    float prev_bx = 0, prev_by = 0;
-    for (int i = 0; i <= 48; i++) {
-      float t = (float)(i % 48) * 2.0f * 3.14159f / 48.0f;
-      float bx = 16.0f * powf(sinf(t), 3.0f);
-      float by = -(13.0f * cosf(t) - 5.0f * cosf(2.0f * t) -
-                   2.0f * cosf(3.0f * t) - cosf(4.0f * t));
-      if (i > 0) {
-        if (prev_by <= hy && by > hy) {
-          float vt = (hy - prev_by) / (by - prev_by);
-          if (hx < prev_bx + vt * (bx - prev_bx))
-            winding++;
-        } else if (prev_by > hy && by <= hy) {
-          float vt = (hy - prev_by) / (by - prev_by);
-          if (hx < prev_bx + vt * (bx - prev_bx))
-            winding--;
-        }
-      }
-      prev_bx = bx;
-      prev_by = by;
-    }
-    return winding != 0 ? 1.0f : 0.0f;
-  }
-  default:
-    return 1.0f; // No masking for unknown shapes
-  }
-}
-
-SDL_Texture *get_masked_image_texture(UIHost *ui, const char *path,
-                                      Node *node) {
-  if (!path || !path[0] || !node)
-    return NULL;
-
-  NodeType shape = node->type;
-  float corner_ratio = 0;
-  if (shape == NODE_TYPE_RECT && node->width > 0 && node->height > 0)
-    corner_ratio = node->corner_radius / fminf(node->width, node->height);
-
-  masked_tex_counter++;
-  int cr_key = (int)(corner_ratio * 100);
-  uint32_t ph = 0;
-  if (shape == NODE_TYPE_PATH && node->path_points &&
-      node->path_point_count > 0)
-    ph = hash_path_points(node->path_points, node->path_point_count);
-
-  // Check cache
-  for (int i = 0; i < MASKED_TEX_CACHE_SIZE; i++) {
-    if (masked_tex_cache[i].in_use &&
-        masked_tex_cache[i].shape_type == (int)shape &&
-        masked_tex_cache[i].corner_key == cr_key &&
-        masked_tex_cache[i].path_hash == ph &&
-        strcmp(masked_tex_cache[i].path, path) == 0) {
-      masked_tex_cache[i].last_used = masked_tex_counter;
-      return masked_tex_cache[i].tex;
-    }
-  }
-
-  // Load original image pixels
-  int w, h;
-  void *pixels = image_load_rgba(path, &w, &h);
-  if (!pixels && strncmp(path, "assets/", 7) != 0) {
-    char full_path[512];
-    snprintf(full_path, sizeof(full_path), "assets/%s", path);
-    pixels = image_load_rgba(full_path, &w, &h);
-  }
-  if (!pixels)
-    return NULL;
-
-  // Apply shape mask to pixels
-  uint8_t *rgba = (uint8_t *)pixels;
-  int img_size = w > h ? w : h;
-
-  if (shape == NODE_TYPE_PATH) {
-    // Tessellate path to normalized polygon, then use winding number test
-    float poly[1024 * 2];
-    int poly_count = tessellate_path_normalized(node, poly, 1024);
-    if (poly_count > 2) {
-      for (int py = 0; py < h; py++) {
-        for (int px = 0; px < w; px++) {
-          float nx = ((float)px + 0.5f) / (float)w;
-          float ny = ((float)py + 0.5f) / (float)h;
-          float a = path_winding_alpha(nx, ny, poly, poly_count);
-          int idx = (py * w + px) * 4;
-          rgba[idx + 3] = (uint8_t)((float)rgba[idx + 3] * a);
-        }
-      }
-    }
-  } else {
-    for (int y = 0; y < h; y++) {
-      for (int x = 0; x < w; x++) {
-        float nx = ((float)x + 0.5f) / (float)w;
-        float ny = ((float)y + 0.5f) / (float)h;
-        float a = shape_alpha(shape, nx, ny, corner_ratio, img_size);
-        int idx = (y * w + x) * 4;
-        rgba[idx + 3] = (uint8_t)((float)rgba[idx + 3] * a);
-      }
-    }
-  }
-
-  // Create texture
-  SDL_Texture *tex = SDL_CreateTexture(ui->renderer, SDL_PIXELFORMAT_RGBA32,
-                                       SDL_TEXTUREACCESS_STATIC, w, h);
-  if (tex) {
-    SDL_UpdateTexture(tex, NULL, pixels, w * 4);
-    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
-  }
-  free(pixels);
-  if (!tex)
-    return NULL;
-
-  // Find cache slot (LRU eviction)
-  int slot = -1;
-  for (int i = 0; i < MASKED_TEX_CACHE_SIZE; i++) {
-    if (!masked_tex_cache[i].in_use) {
-      slot = i;
-      break;
-    }
-  }
-  if (slot == -1) {
-    uint32_t min_time = 0xFFFFFFFF;
-    for (int i = 0; i < MASKED_TEX_CACHE_SIZE; i++) {
-      if (masked_tex_cache[i].last_used < min_time) {
-        min_time = masked_tex_cache[i].last_used;
-        slot = i;
-      }
-    }
-    if (masked_tex_cache[slot].tex)
-      SDL_DestroyTexture(masked_tex_cache[slot].tex);
-  }
-
-  strncpy(masked_tex_cache[slot].path, path,
-          sizeof(masked_tex_cache[slot].path) - 1);
-  masked_tex_cache[slot].shape_type = (int)shape;
-  masked_tex_cache[slot].corner_key = cr_key;
-  masked_tex_cache[slot].path_hash = ph;
-  masked_tex_cache[slot].tex = tex;
-  masked_tex_cache[slot].width = w;
-  masked_tex_cache[slot].height = h;
-  masked_tex_cache[slot].last_used = masked_tex_counter;
-  masked_tex_cache[slot].in_use = 1;
 
   return tex;
 }

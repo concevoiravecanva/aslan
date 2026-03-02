@@ -510,8 +510,6 @@ typedef struct UIHost {
 
   // Sidebar state: 0=Properties/Layers, 1=Shape Selection
   int sidebar_mode;
-  int show_mask_tools;         // Toggle for mask tools zone
-  int show_mask_creator_popup; // Toggle for mask creation popup
 
   // Right-click context menu for canvas/design nodes
   int show_context_menu;
@@ -672,12 +670,6 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_MAGIC "\xEE\xBF\x9E"       // ri-pen-nib-line
 #define ICON_ICON "\xEF\x8E\xBF"        // ri-remixicon-line
 #define ICON_LINKED_TEXT "\xEE\xBA\xB2" // \uEEB2 (linked/data text)
-#define ICON_MASK "\xEF\x8C\xBB"        // ri-mask-line
-#define ICON_RECT_MASK "\xEF\x83\xB0"   // ri-shape-2-line
-#define ICON_CIRCLE_MASK                                                       \
-  "\xEE\xBD\xB3" // ri-pentagon-line (placeholder if circle not found)
-#define ICON_PATH_MASK "\xEE\xBF\x9E" // ri-pen-nib-line
-
 // Table column type icons
 #define ICON_COL_TEXT "\xEF\x88\x81"     // \uf201
 #define ICON_COL_NUMBER "\xEE\xBE\xAA"   // \uefaa
