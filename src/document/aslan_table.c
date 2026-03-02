@@ -93,6 +93,7 @@ static size_t column_element_size(AslanColumnType type) {
   case ASLAN_COL_FORMULA:
     return sizeof(double); // Cached result (C parser)
   case ASLAN_COL_FILE:
+  case ASLAN_COL_IMAGE:
   case ASLAN_COL_LINK:
     return sizeof(char *); // Heap-allocated string
   default:
@@ -157,7 +158,7 @@ void aslan_table_destroy(AslanTable *table) {
 
     // Free string data for TEXT columns
     if (col->type == ASLAN_COL_TEXT || col->type == ASLAN_COL_FILE ||
-        col->type == ASLAN_COL_LINK) {
+        col->type == ASLAN_COL_IMAGE || col->type == ASLAN_COL_LINK) {
       char **strings = (char **)col->data;
       if (strings) {
         for (size_t r = 0; r < col->count; r++) {
@@ -185,7 +186,7 @@ void aslan_table_clear(AslanTable *table) {
   for (size_t c = 0; c < table->column_count; c++) {
     AslanColumn *col = &table->columns[c];
     if (col->type == ASLAN_COL_TEXT || col->type == ASLAN_COL_FILE ||
-        col->type == ASLAN_COL_LINK) {
+        col->type == ASLAN_COL_IMAGE || col->type == ASLAN_COL_LINK) {
       char **strings = (char **)col->data;
       if (strings) {
         for (size_t r = 0; r < col->count; r++) {
@@ -272,7 +273,7 @@ bool aslan_table_remove_column(AslanTable *table, int col_idx) {
   AslanColumn *col = &table->columns[col_idx];
 
   if (col->type == ASLAN_COL_TEXT || col->type == ASLAN_COL_FILE ||
-      col->type == ASLAN_COL_LINK) {
+      col->type == ASLAN_COL_IMAGE || col->type == ASLAN_COL_LINK) {
     char **strings = (char **)col->data;
     if (strings) {
       for (size_t r = 0; r < col->count; r++) {
@@ -607,7 +608,7 @@ uint64_t aslan_table_duplicate_row(AslanTable *table, uint64_t source_row_id) {
     if (col->type == ASLAN_COL_FORMULA)
       continue; // Computed, skip
     if (col->type == ASLAN_COL_TEXT || col->type == ASLAN_COL_FILE ||
-        col->type == ASLAN_COL_LINK) {
+        col->type == ASLAN_COL_IMAGE || col->type == ASLAN_COL_LINK) {
       char **strings = (char **)col->data;
       if (strings[src_idx] && strings[src_idx][0]) {
         free(strings[dst_idx]);
@@ -647,7 +648,7 @@ bool aslan_table_set_text(AslanTable *table, int col_idx, uint64_t row_id,
 
   AslanColumn *col = &table->columns[col_idx];
   if (col->type != ASLAN_COL_TEXT && col->type != ASLAN_COL_FILE &&
-      col->type != ASLAN_COL_LINK)
+      col->type != ASLAN_COL_IMAGE && col->type != ASLAN_COL_LINK)
     return false;
 
   char **strings = (char **)col->data;
@@ -807,6 +808,7 @@ bool aslan_table_set_cell(AslanTable *table, int col_idx, uint64_t row_id,
   switch (col->type) {
   case ASLAN_COL_TEXT:
   case ASLAN_COL_FILE:
+  case ASLAN_COL_IMAGE:
   case ASLAN_COL_LINK:
     return aslan_table_set_text(table, col_idx, row_id, value_str);
   case ASLAN_COL_NUMBER: {
@@ -852,7 +854,7 @@ const char *aslan_table_get_text(const AslanTable *table, int col_idx,
 
   const AslanColumn *col = &table->columns[col_idx];
   if (col->type != ASLAN_COL_TEXT && col->type != ASLAN_COL_FILE &&
-      col->type != ASLAN_COL_LINK)
+      col->type != ASLAN_COL_IMAGE && col->type != ASLAN_COL_LINK)
     return NULL;
 
   const char **strings = (const char **)col->data;
@@ -982,6 +984,7 @@ const char *aslan_table_get_cell_display(const AslanTable *table, int col_idx,
   switch (col->type) {
   case ASLAN_COL_TEXT:
   case ASLAN_COL_FILE:
+  case ASLAN_COL_IMAGE:
   case ASLAN_COL_LINK: {
     const char *str = ((char **)col->data)[row_idx];
     snprintf(buf, buf_size, "%s", str ? str : "");
@@ -1503,6 +1506,7 @@ void aslan_table_sort(AslanTable *table, int col_idx, bool ascending) {
     break;
   case ASLAN_COL_TEXT:
   case ASLAN_COL_FILE:
+  case ASLAN_COL_IMAGE:
   case ASLAN_COL_LINK:
     qsort_r(table->view_index, view_count, sizeof(size_t), &ctx,
             compare_wrapper_text);
@@ -1532,6 +1536,7 @@ void aslan_table_sort(AslanTable *table, int col_idx, bool ascending) {
     break;
   case ASLAN_COL_TEXT:
   case ASLAN_COL_FILE:
+  case ASLAN_COL_IMAGE:
   case ASLAN_COL_LINK:
     qsort_r(table->view_index, view_count, sizeof(size_t), compare_text, &ctx);
     break;

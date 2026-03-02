@@ -980,6 +980,16 @@ static bool handle_block_design_node(Engine *engine, const AofCommand *cmd,
                 sizeof(node->linked_col_name) - 1);
         node->linked_col_name[sizeof(node->linked_col_name) - 1] = '\0';
       }
+    } else if (strcmp(action, "linked_image_col") == 0 && cmd->argc >= 6) {
+      Node *node = block_design_find_node(block, (uint32_t)atoi(cmd->argv[4]));
+      if (node) {
+        char unescaped[64];
+        unescape_string(cmd->argv[5], unescaped, sizeof(unescaped));
+        strncpy(node->linked_image_col_name, unescaped,
+                sizeof(node->linked_image_col_name) - 1);
+        node->linked_image_col_name[sizeof(node->linked_image_col_name) - 1] =
+            '\0';
+      }
     } else {
       return false;
     }

@@ -40,6 +40,7 @@ typedef enum {
   ASLAN_COL_FORMULA,  // double - C shunting-yard parser (simple math)
   ASLAN_COL_FILE,     // char* - Path to a local file
   ASLAN_COL_LINK,     // char* - URL/Link (Label|URL)
+  ASLAN_COL_IMAGE,    // char* - Path to an image in assets/
   ASLAN_COL_TYPE_COUNT
 } AslanColumnType;
 

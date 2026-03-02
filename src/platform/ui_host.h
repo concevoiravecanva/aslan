@@ -171,6 +171,7 @@ typedef struct {
   float resize_start_w, resize_start_h;
   float resize_start_x, resize_start_y;
   float resize_start_node_x, resize_start_node_y;
+  float resize_start_font_size;
 
   // Image Cropping
   int is_cropping;
@@ -400,9 +401,10 @@ typedef struct UIHost {
   } clipboard_block;
 
   // Canvas node text editing
-  Node *editing_node;       // Node being text-edited (NULL=none)
-  char edit_buffer[512];    // Text buffer for editing
-  int show_text_edit_popup; // Show text edit popup
+  Node *editing_node;               // Node being text-edited (NULL=none)
+  char edit_buffer[512];            // Text buffer for editing
+  int show_text_edit_popup;         // Show text edit popup
+  struct nk_rect editing_node_rect; // Screen bounds for overlay editor
 
   // Design bottom panel tab (0=Properties, 1=Layers)
   int design_bottom_tab;
@@ -686,6 +688,7 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_COL_RELATION "\xEE\xB0\xB5" // ri-links-line
 #define ICON_COL_FORMULA "\xEF\x93\x9C"  // \uf4dc
 #define ICON_COL_FILE "\xEF\x84\x95"     // ri-file-line
+#define ICON_COL_IMAGE "\xEE\xB9\x85"    // ri-image-2-line
 #define ICON_COL_LINK "\xEF\x81\xA1"     // ri-link
 
 // Sort icons

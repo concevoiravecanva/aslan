@@ -770,39 +770,47 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           if (ui->font_inter)
             nk_style_set_font(ctx, &ui->font_inter->handle);
         }
-        // ── TEXT ─────────────────────────────────────────────────────────
+        // ── TEXT CONTENT ─────────────────────────────────────────────────
         else if (node->type == NODE_TYPE_TEXT) {
-          ds_section(ctx, "TEXT");
-          if (node->font_size < 8.0f)
-            node->font_size = 12.0f;
+          ds_section(ctx, "TEXT CONTENT");
+          nk_layout_row_dynamic(ctx, 100, 1);
+          nk_edit_string_zero_terminated(
+              ctx, NK_EDIT_BOX | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD,
+              node->text, sizeof(node->text), nk_filter_default);
+
           nk_layout_row_dynamic(ctx, 24, 1);
-          nk_property_float(ctx, "Font size:", 8.f, &node->font_size, 200.f,
+          nk_property_float(ctx, "Font size:", 6.f, &node->font_size, 200.f,
                             1.f, 0.5f);
+          nk_layout_row_dynamic(ctx, 24, 2);
+          const char *font_types[] = {"Inter", "Inter Bold", "Courier",
+                                      "Serif"};
+          int cur_font = node->font_type;
+          int new_font =
+              nk_combo(ctx, font_types, 4, cur_font, 24, nk_vec2(150, 150));
+          if (new_font != cur_font) {
+            node->font_type = new_font;
+          }
+          // Alignment
+          const char *aligns[] = {"Left", "Center", "Right"};
+          int cur_align = node->text_align;
+          int new_align =
+              nk_combo(ctx, aligns, 3, cur_align, 24, nk_vec2(100, 100));
+          if (new_align != cur_align) {
+            node->text_align = new_align;
+          }
 
-          // Typography controls
-          ds_section(ctx, "TYPOGRAPHY");
-          nk_layout_row_dynamic(ctx, 24, 3);
-          if (nk_widget_is_hovered(ctx))
-            nk_tooltip(ctx, "Left Align");
-          if (nk_button_label(ctx, node->text_align == 0 ? "[ L ]" : "L"))
-            node->text_align = 0;
-          if (nk_widget_is_hovered(ctx))
-            nk_tooltip(ctx, "Center Align");
-          if (nk_button_label(ctx, node->text_align == 1 ? "[ C ]" : "C"))
-            node->text_align = 1;
-          if (nk_widget_is_hovered(ctx))
-            nk_tooltip(ctx, "Right Align");
-          if (nk_button_label(ctx, node->text_align == 2 ? "[ R ]" : "R"))
-            node->text_align = 2;
-
-          nk_layout_row_dynamic(ctx, 24, 1);
+          nk_layout_row_dynamic(ctx, 24, 2);
           nk_property_float(ctx, "Line height:", 0.5f, &node->line_height, 3.0f,
                             0.1f, 0.05f);
           nk_property_float(ctx, "Letter spacing:", -10.0f,
                             &node->letter_spacing, 50.0f, 0.5f, 0.1f);
 
           // Link to table and column
-          ds_section(ctx, "LINKED TEXT");
+          if (node->type == NODE_TYPE_TEXT && node->font_type != 4) {
+            ds_section(ctx, "LINKED TEXT");
+          } else if (node->type == NODE_TYPE_IMAGE) {
+            ds_section(ctx, "LINKED IMAGE");
+          }
 
           static char text_tnames[32][64];
           uint32_t text_tids[32];
@@ -875,8 +883,11 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
             for (int k = 0; k < col_count; k++)
               col_names[k + 1] = tbl->columns[k].name;
             int cur_sel = 0;
+            char *active_col_name = (node->type == NODE_TYPE_IMAGE)
+                                        ? node->linked_image_col_name
+                                        : node->linked_col_name;
             for (int k = 0; k < col_count; k++) {
-              if (strcmp(node->linked_col_name, tbl->columns[k].name) == 0) {
+              if (strcmp(active_col_name, tbl->columns[k].name) == 0) {
                 cur_sel = k + 1;
                 break;
               }
@@ -890,14 +901,13 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
                                    nk_vec2(220, 200));
             if (new_sel != cur_sel) {
               if (new_sel == 0) {
-                node->linked_col_name[0] = '\0';
+                active_col_name[0] = '\0';
               } else {
-                strncpy(node->linked_col_name, col_names[new_sel],
-                        sizeof(node->linked_col_name) - 1);
-                node->linked_col_name[sizeof(node->linked_col_name) - 1] = '\0';
+                strncpy(active_col_name, col_names[new_sel], 63);
+                active_col_name[63] = '\0';
               }
             }
-            if (node->linked_col_name[0]) {
+            if (active_col_name[0]) {
               int total_rows = (int)tbl->active_count;
               if (ui->design_linked_row_idx >= total_rows && total_rows > 0)
                 ui->design_linked_row_idx = total_rows - 1;
@@ -1530,8 +1540,51 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
 
   if (node->type == NODE_TYPE_IMAGE) {
     int drawn = 0;
-    if (node->image_path[0]) {
-      SDL_Texture *tex = get_image_texture(ui, node->image_path);
+    const char *img_path_to_use = node->image_path;
+
+    // Check if we have a linked image column
+    if (node->linked_image_col_name[0] && block->data.design.linked_table_id) {
+      Block *tbl_block = NULL;
+      if (engine && engine->doc) {
+        for (int i = 0; i < 32; i++) {
+          Page *p = &engine->doc->pages[i];
+          if (!p->in_use)
+            continue;
+          Block *tb =
+              page_find_block_by_id(p, block->data.design.linked_table_id);
+          if (tb && tb->type == BLOCK_TABLE && tb->data.table.columnar) {
+            tbl_block = tb;
+            break;
+          }
+        }
+      }
+      if (tbl_block) {
+        AslanTable *tbl = tbl_block->data.table.columnar;
+        int col_idx = -1;
+        for (size_t k = 0; k < tbl->column_count; k++) {
+          if (strcmp(tbl->columns[k].name, node->linked_image_col_name) == 0) {
+            col_idx = (int)k;
+            break;
+          }
+        }
+        if (col_idx >= 0) {
+          int row_count_view = (int)aslan_table_view_count(tbl);
+          if (row_count_view > 0) {
+            int r_idx = ui->design_linked_row_idx;
+            if (r_idx >= row_count_view)
+              r_idx = row_count_view - 1;
+            uint64_t active_row_id = tbl->view_index[r_idx];
+            const char *val = aslan_table_get_text(tbl, col_idx, active_row_id);
+            if (val && val[0]) {
+              img_path_to_use = val;
+            }
+          }
+        }
+      }
+    }
+
+    if (img_path_to_use && img_path_to_use[0]) {
+      SDL_Texture *tex = get_image_texture(ui, img_path_to_use);
       if (tex) {
         // Image Cropping implementation
         struct nk_image img = nk_image_ptr(tex);
@@ -2021,7 +2074,7 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     const char *display_text = node->text;
     static char linked_val_buf[256];
     int is_editing = (ui->editing_node == node);
-    // Substitute linked column value when not editing
+    // Substitute linked column value
     if (!is_editing && node->linked_col_name[0]) {
       if (dd->linked_table_id && engine && engine->doc) {
         for (int i = 0; i < 32; i++) {
@@ -2058,143 +2111,186 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
                      nk_rect(nr.x - 2, nr.y - 1, nr.w + 4, nr.h + 2), 2.0f,
                      1.0f, COLOR_ACCENT);
     }
+    const struct nk_user_font *unscaled_font =
+        ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
+    const struct nk_user_font *font = unscaled_font;
+
+    // Select font based on type and size
+    if (node->font_type == 4 && ui->font_icons) {
+      unscaled_font = &ui->font_icons->handle;
+      font = &ui->font_icons->handle;
+    } else { // Inter variants (Body, H1, H2, H3)
+      // Find closest size in font_inter_sizes
+      float target_size = node->font_size;
+      float scaled_size = node->font_size * scale;
+      float available_sizes[] = {12.0f, 14.0f, 16.0f, 20.0f, 24.0f,
+                                 32.0f, 48.0f, 64.0f, 96.0f};
+
+      int best_idx = -1;
+      float best_diff = 1000.0f;
+      for (int i = 0; i < 9; i++) {
+        if (fabsf(available_sizes[i] - target_size) < best_diff) {
+          best_diff = fabsf(available_sizes[i] - target_size);
+          best_idx = i;
+        }
+      }
+      if (best_idx >= 0 && ui->font_inter_sizes[best_idx]) {
+        unscaled_font = &ui->font_inter_sizes[best_idx]->handle;
+      } else if (ui->font_inter) {
+        unscaled_font = &ui->font_inter->handle;
+      }
+
+      int scaled_best_idx = -1;
+      float scaled_best_diff = 1000.0f;
+      for (int i = 0; i < 9; i++) {
+        if (fabsf(available_sizes[i] - scaled_size) < scaled_best_diff) {
+          scaled_best_diff = fabsf(available_sizes[i] - scaled_size);
+          scaled_best_idx = i;
+        }
+      }
+      if (scaled_best_idx >= 0 && ui->font_inter_sizes[scaled_best_idx]) {
+        font = &ui->font_inter_sizes[scaled_best_idx]->handle;
+      } else if (ui->font_inter) {
+        font = &ui->font_inter->handle;
+      }
+    }
+
+    // Auto-resize text node to fit content
     if (display_text && strlen(display_text) > 0) {
-      const struct nk_user_font *font =
-          ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
-
-      // Select font based on type and size
-      if (node->font_type == 4 && ui->font_icons) {
-        font = &ui->font_icons->handle;
-      } else { // Inter variants (Body, H1, H2, H3)
-        // Find closest size in font_inter_sizes
-        float target_size = node->font_size;
-        float best_diff = 1000.0f;
-        int best_idx = -1;
-        float available_sizes[] = {12.0f, 14.0f, 16.0f, 20.0f, 24.0f,
-                                   32.0f, 48.0f, 64.0f, 96.0f};
-
-        for (int i = 0; i < 9; i++) {
-          float diff = fabsf(available_sizes[i] - target_size);
-          if (diff < best_diff) {
-            best_diff = diff;
-            best_idx = i;
-          }
-        }
-
-        if (best_idx >= 0 && ui->font_inter_sizes[best_idx]) {
-          font = &ui->font_inter_sizes[best_idx]->handle;
-        } else if (ui->font_inter) {
-          font = &ui->font_inter->handle;
-        }
-      }
-
-      // Auto-resize text node to fit content
-      if (display_text && strlen(display_text) > 0) {
-        float text_w = font->width(font->userdata, font->height, display_text,
-                                   strlen(display_text));
-        float text_h = font->height;
-
-        // Only update if dimensions differ significantly (prevent
-        // jitter)
-        if (fabsf(node->width - (text_w + 10.0f)) > 1.0f ||
-            fabsf(node->height - (text_h + 10.0f)) > 1.0f) {
-          node->width = text_w + 10.0f; // Add padding
-          node->height = text_h + 10.0f;
-        }
-      }
-
-      struct nk_color txt_color = {
-          (node->stroke_color >> 24) & 0xFF, (node->stroke_color >> 16) & 0xFF,
-          (node->stroke_color >> 8) & 0xFF, node->stroke_color & 0xFF};
-
-      // --- Advanced Text Rendering ---
-      // 1. Split text into lines
+      // Calculate multi-line bounds using unscaled font!
       char *text_copy = strdup(display_text);
+      float max_w = 0;
+      int lines = 0;
       if (text_copy) {
-        char *lines[32];
-        int line_count = 0;
         char *p = text_copy;
-        lines[line_count++] = p;
-        while (*p && line_count < 32) {
+        char *start = p;
+        while (*p) {
           if (*p == '\n') {
             *p = '\0';
-            lines[line_count++] = p + 1;
+            float lw = unscaled_font->width(unscaled_font->userdata,
+                                            unscaled_font->height, start,
+                                            strlen(start));
+            if (lw > max_w)
+              max_w = lw;
+            lines++;
+            start = p + 1;
           }
           p++;
         }
-
-        float cursor_y = nr.y;
-        float actual_line_height = font->height * node->line_height;
-
-        for (int i = 0; i < line_count; i++) {
-          char *line = lines[i];
-          int len = strlen(line);
-          if (len == 0) {
-            cursor_y += actual_line_height;
-            continue;
-          }
-
-          // Calculate line width with letter spacing
-          float line_w = 0;
-          for (int c = 0; c < len; c++) {
-            line_w += font->width(font->userdata, font->height, &line[c], 1);
-            if (c < len - 1)
-              line_w += node->letter_spacing * scale;
-          }
-
-          // Alignment
-          float cursor_x = nr.x;
-          if (node->text_align == 1) { // Center
-            cursor_x = nr.x + (nr.w - line_w) / 2.0f;
-          } else if (node->text_align == 2) { // Right
-            cursor_x = nr.x + nr.w - line_w;
-          }
-
-          // Draw char by char to apply letter spacing
-          for (int c = 0; c < len; c++) {
-            float char_w =
-                font->width(font->userdata, font->height, &line[c], 1);
-            nk_draw_text(canvas_buf,
-                         nk_rect(cursor_x, cursor_y, char_w + 5, font->height),
-                         &line[c], 1, font, nk_rgba(0, 0, 0, 0), txt_color);
-            cursor_x += char_w + (node->letter_spacing * scale);
-          }
-
-          cursor_y += actual_line_height;
-        }
-
-        // Auto-resize
-        if (!is_editing) {
-          float max_w = 0;
-          for (int i = 0; i < line_count; i++) {
-            float lw = 0;
-            int l = strlen(lines[i]);
-            for (int c = 0; c < l; c++)
-              lw += font->width(font->userdata, font->height, &lines[i][c], 1) +
-                    (c < l - 1 ? node->letter_spacing * scale : 0);
-            if (lw > max_w)
-              max_w = lw;
-          }
-          float total_h = line_count * actual_line_height;
-          if (fabsf(node->width - (max_w + 10.0f)) > 2.0f ||
-              fabsf(node->height - (total_h + 10.0f)) > 2.0f) {
-            node->width = max_w + 10.0f;
-            node->height = total_h + 10.0f;
-          }
+        if (start < p) {
+          float lw =
+              unscaled_font->width(unscaled_font->userdata,
+                                   unscaled_font->height, start, strlen(start));
+          if (lw > max_w)
+            max_w = lw;
+          lines++;
         }
         free(text_copy);
       }
 
-      if (is_editing) {
-        float tw = font->width(font->userdata, font->height, display_text,
-                               strlen(display_text));
-        int show_cursor = ((int)(SDL_GetTicks() / 500) % 2 == 0);
-        if (show_cursor) {
-          // Cursor placement is simplistic here (end of block)
-          nk_stroke_line(canvas_buf, nr.x + tw + 1, nr.y + 2, nr.x + tw + 1,
-                         nr.y + nr.h - 2, 1.5f, COLOR_ACCENT);
+      float text_w = max_w;
+      float text_h = unscaled_font->height * lines * node->line_height;
+      if (lines == 0) {
+        text_w = 10;
+        text_h = 24.0f;
+      }
+
+      if (fabsf(node->width - (text_w + 10.0f)) > 1.0f ||
+          fabsf(node->height - (text_h + 10.0f)) > 1.0f) {
+        node->width = text_w + 10.0f; // Add padding
+        node->height = text_h + 10.0f;
+      }
+    }
+
+    struct nk_color txt_color = {
+        (node->stroke_color >> 24) & 0xFF, (node->stroke_color >> 16) & 0xFF,
+        (node->stroke_color >> 8) & 0xFF, node->stroke_color & 0xFF};
+
+    // --- Advanced Text Rendering ---
+    // 1. Split text into lines
+    char *text_copy = strdup(display_text);
+    if (text_copy) {
+      char *lines[32];
+      int line_count = 0;
+      char *p = text_copy;
+      lines[line_count++] = p;
+      while (*p && line_count < 32) {
+        if (*p == '\n') {
+          *p = '\0';
+          lines[line_count++] = p + 1;
+        }
+        p++;
+      }
+
+      float cursor_y = nr.y;
+      float actual_line_height = font->height * node->line_height;
+
+      for (int i = 0; i < line_count; i++) {
+        char *line = lines[i];
+        int len = strlen(line);
+        if (len == 0) {
+          cursor_y += actual_line_height;
+          continue;
+        }
+
+        // Calculate line width with letter spacing
+        float line_w = 0;
+        for (int c = 0; c < len; c++) {
+          line_w += font->width(font->userdata, font->height, &line[c], 1);
+          if (c < len - 1)
+            line_w += node->letter_spacing * scale;
+        }
+
+        // Alignment
+        float cursor_x = nr.x;
+        if (node->text_align == 1) { // Center
+          cursor_x = nr.x + (nr.w - line_w) / 2.0f;
+        } else if (node->text_align == 2) { // Right
+          cursor_x = nr.x + nr.w - line_w;
+        }
+
+        // Draw char by char to apply letter spacing
+        for (int c = 0; c < len; c++) {
+          float char_w = font->width(font->userdata, font->height, &line[c], 1);
+          nk_draw_text(canvas_buf,
+                       nk_rect(cursor_x, cursor_y, char_w + 5, font->height),
+                       &line[c], 1, font, nk_rgba(0, 0, 0, 0), txt_color);
+          cursor_x += char_w + (node->letter_spacing * scale);
+        }
+
+        cursor_y += actual_line_height;
+      }
+
+      // Auto-resize
+      if (!is_editing) {
+        float max_w = 0;
+        for (int i = 0; i < line_count; i++) {
+          float lw = 0;
+          int l = strlen(lines[i]);
+          for (int c = 0; c < l; c++)
+            lw += font->width(font->userdata, font->height, &lines[i][c], 1) +
+                  (c < l - 1 ? node->letter_spacing * scale : 0);
+          if (lw > max_w)
+            max_w = lw;
+        }
+        float total_h = line_count * actual_line_height;
+        float target_w = (max_w / scale) + 10.0f;
+        float target_h = (total_h / scale) + 10.0f;
+        if (fabsf(node->width - target_w) > 2.0f ||
+            fabsf(node->height - target_h) > 2.0f) {
+          node->width = target_w;
+          node->height = target_h;
         }
       }
+
+      free(text_copy);
+    }
+
+    if (is_editing) {
+      ui->editing_node_rect = nk_rect(nr.x, nr.y, nr.w, nr.h);
+      // We do not render the nk_edit here because nk_layout_space is not active
+      // in this group traverse. Instead, we pass the absolute screen bounds
+      // out, and render the text input overlay after the group.
     }
   }
 
@@ -3030,6 +3126,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         ds->resize_start_y = ui->mouse_y;
         ds->resize_start_node_x = ui->selected_node->x;
         ds->resize_start_node_y = ui->selected_node->y;
+        ds->resize_start_font_size = ui->selected_node->font_size;
       }
       // Handle resize dragging
       else if (ds->is_resizing && ui->selected_node && is_active_design) {
@@ -3058,6 +3155,15 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           sel->height = fmaxf(20.0f, ds->resize_start_h - dy);
           sel->y = ds->resize_start_node_y + (ds->resize_start_h - sel->height);
           break;
+        }
+
+        // Scale font size proportionally for text nodes
+        if (sel->type == NODE_TYPE_TEXT && ds->resize_start_w > 0.1f) {
+          float scale_factor = sel->width / ds->resize_start_w;
+          sel->font_size = ds->resize_start_font_size * scale_factor;
+          if (sel->font_size < 8.0f) {
+            sel->font_size = 8.0f;
+          }
         }
 
         // Keep the mask child in sync — it must always cover the parent
@@ -3205,14 +3311,15 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
             }
             ui->selected_node = hit;
           } else {
-            // Double-click: edit text node
+            // Double-click: edit text / crop image
             if (hit == ui->selected_node) {
               if (hit->type == NODE_TYPE_TEXT) {
-                // Edit existing text node inline
+                // Edit existing text node inline natively
                 ui->editing_node = hit;
                 strncpy(ui->edit_buffer, hit->text,
                         sizeof(ui->edit_buffer) - 1);
-                SDL_StartTextInput();
+                ui->rename_needs_focus = 1;
+                ui->edit_buffer[sizeof(ui->edit_buffer) - 1] = '\0';
               } else if (hit->type == NODE_TYPE_IMAGE && hit->image_path[0]) {
                 ds->is_cropping = 1;
                 ds->crop_start_x = ui->mouse_x;
@@ -3236,8 +3343,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
             strncpy(ui->editing_node->text, ui->edit_buffer,
                     sizeof(ui->editing_node->text) - 1);
             ui->editing_node = NULL;
-            SDL_StartTextInput(); // keep text input alive for Nuklear edit
-                                  // widgets
           }
           // Start panning in no_limits mode when clicking background
           if (dd->no_limits && ds->tool != CANVAS_TOOL_PEN &&
@@ -3682,6 +3787,89 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
     // --- Right-click context menu ---
     render_node_context_menu(ui, ctx, nk_window_get_canvas(ctx), block);
+
+    // --- Native Inline Text Editor Overlay ---
+    if (ui->editing_node && ui->editing_node->type == NODE_TYPE_TEXT &&
+        is_active_design) {
+      Node *enode = ui->editing_node;
+      struct nk_rect ebounds = ui->editing_node_rect;
+
+      struct nk_color txt_color = {(enode->stroke_color >> 24) & 0xFF,
+                                   (enode->stroke_color >> 16) & 0xFF,
+                                   (enode->stroke_color >> 8) & 0xFF,
+                                   enode->stroke_color & 0xFF};
+
+      char overlay_id[64];
+      snprintf(overlay_id, sizeof(overlay_id), "edit_overlay_%u", enode->id);
+
+      nk_style_push_style_item(ctx, &ctx->style.window.fixed_background,
+                               nk_style_item_color(nk_rgba(0, 0, 0, 0)));
+      if (nk_popup_begin(ctx, NK_POPUP_STATIC, overlay_id, 0,
+                         nk_rect(ebounds.x - ws_bounds.x,
+                                 ebounds.y - ws_bounds.y, ebounds.w + 40,
+                                 ebounds.h + 20))) {
+
+        nk_layout_row_dynamic(ctx, ebounds.h, 1);
+
+        struct nk_style_edit style = ctx->style.edit;
+        ctx->style.edit.normal = nk_style_item_color(
+            nk_rgba(0, 0, 0, 10)); // Slight hint it's editable
+        ctx->style.edit.hover = nk_style_item_color(nk_rgba(0, 0, 0, 15));
+        ctx->style.edit.active =
+            nk_style_item_color(nk_rgba(255, 255, 255, 200));
+        ctx->style.edit.border = 0;
+        ctx->style.edit.text_normal = txt_color;
+        ctx->style.edit.text_hover = txt_color;
+        ctx->style.edit.text_active = txt_color;
+
+        // Get correct font
+        const struct nk_user_font *font = ctx->style.font;
+        if (enode->font_type == 4 && ui->font_icons) {
+          font = &ui->font_icons->handle;
+        } else {
+          float scaled_size = enode->font_size * scale;
+          float available_sizes[] = {12.0f, 14.0f, 16.0f, 20.0f, 24.0f,
+                                     32.0f, 48.0f, 64.0f, 96.0f};
+          int best_idx = -1;
+          float best_diff = 1000.0f;
+          for (int i = 0; i < 9; i++) {
+            if (fabsf(available_sizes[i] - scaled_size) < best_diff) {
+              best_diff = fabsf(available_sizes[i] - scaled_size);
+              best_idx = i;
+            }
+          }
+          if (best_idx >= 0 && ui->font_inter_sizes[best_idx])
+            font = &ui->font_inter_sizes[best_idx]->handle;
+          else if (ui->font_inter)
+            font = &ui->font_inter->handle;
+        }
+
+        nk_style_push_font(ctx, font);
+
+        if (ui->rename_needs_focus) {
+          nk_edit_focus(ctx, NK_EDIT_DEFAULT);
+          ui->rename_needs_focus = 0;
+        }
+
+        int edit_state = nk_edit_string_zero_terminated(
+            ctx, NK_EDIT_BOX | NK_EDIT_MULTILINE, ui->edit_buffer,
+            sizeof(ui->edit_buffer) - 1, nk_filter_default);
+
+        nk_style_pop_font(ctx);
+        ctx->style.edit = style;
+
+        strncpy(enode->text, ui->edit_buffer, sizeof(enode->text) - 1);
+
+        if (edit_state & NK_EDIT_COMMITED || edit_state & NK_EDIT_DEACTIVATED) {
+          ui->editing_node = NULL;
+        }
+
+        nk_popup_end(ctx);
+      } else {
+        ui->editing_node = NULL; // Failsafe
+      }
+      nk_style_pop_style_item(ctx);
+    }
 
     // Close Workspace group (Column 1)
     nk_group_end(ctx);

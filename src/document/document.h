@@ -136,6 +136,9 @@ typedef struct Node {
   // Linked text (design only): if non-empty, display value from this column
   char linked_col_name[64];
 
+  // Linked image (design only): if non-empty, use this column for image path
+  char linked_image_col_name[64];
+
   // Line Styles
   int line_start_style; // 0=None, 1=Circle, 2=Arrow
   int line_end_style;   // 0=None, 1=Circle, 2=Arrow

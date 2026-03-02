@@ -29,6 +29,8 @@ const char *table_col_type_icon(AslanColumnType type) {
     return ICON_COL_FORMULA;
   case ASLAN_COL_FILE:
     return ICON_COL_FILE;
+  case ASLAN_COL_IMAGE:
+    return ICON_COL_IMAGE;
   case ASLAN_COL_LINK:
     return ICON_COL_LINK;
   default:
@@ -55,6 +57,8 @@ const char *table_col_type_name(AslanColumnType type) {
     return "Formula";
   case ASLAN_COL_FILE:
     return "File";
+  case ASLAN_COL_IMAGE:
+    return "Image";
   case ASLAN_COL_LINK:
     return "Link";
   default:
@@ -1378,6 +1382,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             }
             break;
           }
+          case ASLAN_COL_IMAGE:
           case ASLAN_COL_FILE: {
             const char *val = aslan_table_get_text(tbl, (int)c, row_id);
             const char *display_name = "Choose file...";
@@ -2086,10 +2091,10 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         nk_layout_row_dynamic(ctx, 28, 1);
         const char *types[] = {"Text", "Number", "Checkbox", "Select",
                                "Date", "File",   "Link",     "Formula"};
-        AslanColumnType type_vals[] = {ASLAN_COL_TEXT,     ASLAN_COL_NUMBER,
-                                       ASLAN_COL_CHECKBOX, ASLAN_COL_SELECT,
-                                       ASLAN_COL_DATE,     ASLAN_COL_FILE,
-                                       ASLAN_COL_LINK,     ASLAN_COL_FORMULA};
+        AslanColumnType type_vals[] = {
+            ASLAN_COL_TEXT,   ASLAN_COL_NUMBER, ASLAN_COL_CHECKBOX,
+            ASLAN_COL_SELECT, ASLAN_COL_DATE,   ASLAN_COL_FILE,
+            ASLAN_COL_IMAGE,  ASLAN_COL_LINK,   ASLAN_COL_FORMULA};
         for (int i = 0; i < 8; i++) {
           struct nk_rect item_rect = nk_widget_bounds(ctx);
           if (nk_button_label_styled(ctx, &menu_btn, "")) {
@@ -2107,6 +2112,44 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               }
 
               aslan_table_add_column(tbl, col_name, type_vals[i]);
+
+              if (type_vals[i] == ASLAN_COL_IMAGE && ui->engine &&
+                  ui->engine->doc) {
+                Page *pg = doc_page_get_active(ui->engine->doc);
+                if (pg) {
+                  Block *design_block = NULL;
+                  for (Block *b = pg->first_block; b; b = b->next) {
+                    if (b->type == BLOCK_DESIGN) {
+                      design_block = b;
+                      break;
+                    }
+                  }
+                  if (design_block) {
+                    uint32_t node_id = design_block->data.design.next_node_id;
+                    char cmd_buf[256];
+                    snprintf(cmd_buf, sizeof(cmd_buf),
+                             "block_design_node %u %u create %u image \"\"",
+                             pg->id, design_block->id, node_id);
+                    engine_execute_command(ui->engine, cmd_buf);
+
+                    snprintf(cmd_buf, sizeof(cmd_buf),
+                             "block_design_node %u %u resize %u 200 200",
+                             pg->id, design_block->id, node_id);
+                    engine_execute_command(ui->engine, cmd_buf);
+
+                    snprintf(
+                        cmd_buf, sizeof(cmd_buf),
+                        "block_design_node %u %u linked_image_col %u \"%s\"",
+                        pg->id, design_block->id, node_id, col_name);
+                    engine_execute_command(ui->engine, cmd_buf);
+
+                    snprintf(cmd_buf, sizeof(cmd_buf),
+                             "block_design_link %u %u %u", pg->id,
+                             design_block->id, block->id);
+                    engine_execute_command(ui->engine, cmd_buf);
+                  }
+                }
+              }
             }
             ui->table_state.show_col_menu = 0;
             nk_popup_close(ctx);
