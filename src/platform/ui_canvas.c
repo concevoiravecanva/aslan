@@ -103,13 +103,9 @@ void render_node_context_menu(UIHost *ui, struct nk_context *ctx,
       if (i == 0) {
         // Duplicate
         Node *dup = NULL;
-        if (0) { // Canvas removed
+        if (block->type == BLOCK_DESIGN)
           dup = node_create(block->data.design.next_node_id++, node->type,
                             node->name);
-        } else if (block->type == BLOCK_DESIGN) {
-          dup = node_create(block->data.design.next_node_id++, node->type,
-                            node->name);
-        }
         if (dup) {
           dup->x = node->x + 20.0f;
           dup->y = node->y + 20.0f;
@@ -129,13 +125,8 @@ void render_node_context_menu(UIHost *ui, struct nk_context *ctx,
           strncpy(dup->text, node->text, sizeof(dup->text) - 1);
           strncpy(dup->image_path, node->image_path,
                   sizeof(dup->image_path) - 1);
-
-          Node *root = NULL;
-          if (0) // Canvas removed
-            root = block->data.design.root;
-          else if (block->type == BLOCK_DESIGN)
-            root = block->data.design.root;
-          if (root) {
+          if (block->type == BLOCK_DESIGN) {
+            Node *root = block->data.design.root;
             dup->parent = root;
             node_add_child(root, dup);
             ui->selected_node = dup;
@@ -143,9 +134,7 @@ void render_node_context_menu(UIHost *ui, struct nk_context *ctx,
         }
       } else if (i == 1) {
         // Delete
-        if (0) // Canvas removed
-          block_design_delete_node(block, node->id);
-        else if (block->type == BLOCK_DESIGN)
+        if (block->type == BLOCK_DESIGN)
           block_design_delete_node(block, node->id);
         ui->selected_node = NULL;
       } else if (i == 2) {
@@ -1559,12 +1548,9 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
         cs->bezier_mode = !cs->bezier_mode;
 
         // Convert ALL shapes in the current document to paths
-        if (cs->bezier_mode) {
-          if (block->type == 0 /* Canvas removed */) {
-            recursive_convert_to_path(block->data.design.root);
-          } else if (block->type == BLOCK_DESIGN && block->data.design.root) {
-            recursive_convert_to_path(block->data.design.root);
-          }
+        if (cs->bezier_mode && block->type == BLOCK_DESIGN &&
+            block->data.design.root) {
+          recursive_convert_to_path(block->data.design.root);
         }
 
         cs->active_cat = CANVAS_CAT_SELECT;

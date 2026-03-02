@@ -393,9 +393,6 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
   struct nk_color footer_text_col =
       ui->dark_mode ? nk_rgb(140, 142, 148) : nk_rgb(140, 140, 145);
 
-  // Expand/collapse toggle
-  ui_render_expand_toggle(ui, ctx, block);
-
   if (block->is_collapsed)
     return;
 

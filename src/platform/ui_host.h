@@ -552,8 +552,6 @@ extern struct nk_color COLOR_ACCENT;
 // Shared UI Components
 // -----------------------------------------------------------------------------
 
-void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx, Block *block);
-
 // -----------------------------------------------------------------------------
 // UI Event Handling & Rendering
 // -----------------------------------------------------------------------------

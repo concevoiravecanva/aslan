@@ -2500,8 +2500,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     dd->root = dd->pages[dd->current_page].root;
   }
 
-  ui_render_expand_toggle(ui, ctx, block);
-
   int is_fullscreen = (ui->expanded_block_id == block->id);
 
   // Initialize zoom for no_limits mode

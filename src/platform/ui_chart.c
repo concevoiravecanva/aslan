@@ -495,8 +495,6 @@ void ui_render_block_chart(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
   ChartData *cd = &block->data.chart;
 
-  // Expand/collapse toggle
-  ui_render_expand_toggle(ui, ctx, block);
   if (block->is_collapsed)
     return;
 

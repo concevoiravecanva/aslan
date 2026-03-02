@@ -1816,14 +1816,6 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
 #undef OVERLAY_ICON_BTN
 }
 
-// Legacy wrapper (kept for header compatibility, but now a no-op for layout)
-void ui_render_expand_toggle(UIHost *ui, struct nk_context *ctx, Block *block) {
-  (void)ui;
-  (void)ctx;
-  (void)block;
-  // Icons are now drawn as overlays in ui_render_block — no layout consumed
-  // here
-}
 
 void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
                           Page *page, Block *block, float width) {
@@ -1836,9 +1828,6 @@ void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
   if (ui->font_inter) {
     nk_style_set_font(ctx, &ui->font_inter->handle);
   }
-
-  // Header with Hand/Expand icons
-  ui_render_expand_toggle(ui, ctx, block);
 
   const float line_h = 22.0f;
 
@@ -1932,12 +1921,6 @@ void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
 
   float row_h =
       is_page_title ? 60.0f : 50.0f; // Taller row to accommodate large fonts
-
-  // Header with Hand/Expand icons (skip for page title)
-  // Render BEFORE setting H1 font so icons use normal font
-  if (!is_page_title) {
-    ui_render_expand_toggle(ui, ctx, block);
-  }
 
   if (font) {
     nk_style_set_font(ctx, &font->handle);
