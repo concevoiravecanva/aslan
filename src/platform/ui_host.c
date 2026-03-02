@@ -2604,11 +2604,13 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
                        nk_rect(hr.x + 10, hr.y + 12, hr.w - 56, 18),
                        opt_lbl, opt_lbl_len, &ui->font_inter->handle,
                        nk_rgba(0, 0, 0, 0), name_col);
-          // Count badge (rounded pill, right-aligned)
+          // Count badge (rounded pill, right-aligned, number centered)
           char badge[8];
           snprintf(badge, sizeof(badge), "%d", card_counts[opt]);
           int blen = (int)strlen(badge);
-          float bw = 8.0f + (float)blen * 8.0f;
+          struct nk_user_font *bf = &ui->font_inter->handle;
+          float text_w = bf->width(bf->userdata, bf->height, badge, blen);
+          float bw = text_w + 12.0f;
           if (bw < 22.0f) bw = 22.0f;
           float bx = hr.x + hr.w - bw - 8.0f;
           float by = hr.y + (hr.h - 20.0f) * 0.5f + 2.0f;
@@ -2616,8 +2618,9 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
               header_col.r, header_col.g, header_col.b,
               ui->dark_mode ? 95 : 65);
           nk_fill_rect(cv, nk_rect(bx, by, bw, 20), 10, badge_bg);
-          nk_draw_text(cv, nk_rect(bx, by + 3, bw, 14),
-                       badge, blen, &ui->font_inter->handle,
+          float text_x = bx + (bw - text_w) * 0.5f;
+          nk_draw_text(cv, nk_rect(text_x, by + 3, text_w + 1, 14),
+                       badge, blen, bf,
                        nk_rgba(0, 0, 0, 0), name_col);
         }
 
@@ -2647,7 +2650,7 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
               snprintf(title, sizeof(title), "%s", txt);
           }
           if (title[0] == '\0')
-            snprintf(title, sizeof(title), "Ligne %d", (int)r + 1);
+            snprintf(title, sizeof(title), "Row %d", (int)r + 1);
 
           char subtitle[128] = "";
           if (subtitle_col >= 0) {
@@ -2759,7 +2762,7 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
     }
   } else {
     nk_layout_row_dynamic(ctx, swimlane_h, 1);
-    nk_label(ctx, "Toutes les colonnes sont masquées", NK_TEXT_CENTERED);
+    nk_label(ctx, "All columns hidden", NK_TEXT_CENTERED);
   }
 
   // ---- Drag tracking, drop target detection, commit, ghost card ----
@@ -2856,7 +2859,7 @@ static void ui_render_view_kanban(UIHost *ui, Engine *engine,
           snprintf(ghost_title, sizeof(ghost_title), "%s", gt);
       }
       if (ghost_title[0] == '\0')
-        snprintf(ghost_title, sizeof(ghost_title), "Carte");
+        snprintf(ghost_title, sizeof(ghost_title), "Card");
       struct nk_color gt_col =
           ui->dark_mode ? nk_rgb(218, 218, 226) : nk_rgb(32, 34, 44);
       nk_draw_text(gcv, nk_rect(gx + 10, gy + 10, ghost_w - 20, 17),
@@ -3640,7 +3643,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
 
           // ── Header "Paramètres" ────────────────────────────────────────
           nk_layout_row_dynamic(ctx, 22, 1);
-          nk_label_colored(ctx, "  Paramètres", NK_TEXT_LEFT,
+          nk_label_colored(ctx, "  Settings", NK_TEXT_LEFT,
                            ui->dark_mode ? nk_rgb(200, 201, 210)
                                          : nk_rgb(55, 57, 68));
           // Divider
@@ -3669,7 +3672,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
             mb.border = 0;
             if (nk_button_label_styled(
                     ctx, &mb,
-                    ui->dark_mode ? "  Mode clair" : "  Mode sombre")) {
+                    ui->dark_mode ? "  Light mode" : "  Dark mode")) {
               ui->dark_mode = !ui->dark_mode;
               ui_apply_theme(ui);
             }
@@ -3680,7 +3683,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
             Block *t_block = page_find_first_block_of_type(page, BLOCK_TABLE);
             if (t_block && t_block->data.table.columnar) {
               nk_layout_row_dynamic(ctx, 28, 1);
-              if (nk_button_label(ctx, "  Importer CSV")) {
+              if (nk_button_label(ctx, "  Import CSV")) {
                 char filename[1024];
                 if (open_csv_file_dialog(filename, sizeof(filename))) {
                   aslan_table_import_csv(t_block->data.table.columnar,
@@ -3692,7 +3695,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
                 ui->view_settings.show_popup = 0;
               }
               nk_layout_row_dynamic(ctx, 28, 1);
-              if (nk_button_label(ctx, "  Exporter CSV")) {
+              if (nk_button_label(ctx, "  Export CSV")) {
                 char filename[1024];
                 char default_name[256];
                 snprintf(default_name, sizeof(default_name), "%s.csv",
@@ -3727,8 +3730,8 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
                   ui->dark_mode ? nk_rgb(215, 216, 224) : nk_rgb(36, 38, 48);
               if (nk_button_label_styled(
                       ctx, &mb,
-                      ui->calendar_state.show_week ? "  Vue mensuelle"
-                                                   : "  Vue hebdomadaire")) {
+                      ui->calendar_state.show_week ? "  Month view"
+                                                   : "  Week view")) {
                 ui->calendar_state.show_week =
                     !ui->calendar_state.show_week;
                 nk_popup_close(ctx);
@@ -3756,7 +3759,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
             nk_layout_row_dynamic(ctx, 20, 1);
             {
               char sec[40];
-              snprintf(sec, sizeof(sec), "  Colonnes (%d/%d)",
+              snprintf(sec, sizeof(sec), "  Columns (%d/%d)",
                        kn_vis, ks_opt_count);
               nk_label_colored(ctx, sec, NK_TEXT_LEFT, section_col);
             }
