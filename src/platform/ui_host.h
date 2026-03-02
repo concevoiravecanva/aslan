@@ -389,7 +389,6 @@ typedef struct UIHost {
     int font_type;
     int line_start_style, line_end_style;
     char image_path[256];
-    int from_canvas; // 1=canvas block, 0=design block
   } clipboard_node;
 
   // Block clipboard (Cmd+C / Cmd+V on text/heading blocks)
@@ -652,8 +651,6 @@ void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
 #define ICON_LOCK_UNLOCK "\xEE\xB7\xD9"     // ri-lock-unlock-line
 #define ICON_MORE "\xEE\xAB\xA3"            // ri-settings-4-line
 #define ICON_SETTINGS "\xEE\xBD\x92"        // ri-settings-3-line
-#define ICON_KANBAN_COL_SHOW "\xEE\xB2\xB5" // U+ECB5  column visible
-#define ICON_KANBAN_COL_HIDE "\xEE\xB2\xB7" // U+ECB7  column hidden
 #define ICON_VIEW_SETTINGS "\xEE\xB8\xA8"   // U+EE28  view settings gear
 
 // Canvas tools icons

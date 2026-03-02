@@ -166,8 +166,6 @@ void ui_host_copy_node(UIHost *ui, Engine *engine) {
     Node *src = ui->selected_node;
     ui->clipboard_node.has_data = 1;
     ui->clipboard_node.type = src->type;
-    // Determine if the node comes from a canvas block (vs design block)
-    ui->clipboard_node.from_canvas = 0; // Canvas block removed
     strncpy(ui->clipboard_node.name, src->name,
             sizeof(ui->clipboard_node.name) - 1);
     ui->clipboard_node.x = src->x;

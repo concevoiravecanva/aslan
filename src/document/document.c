@@ -58,8 +58,6 @@ BlockType block_type_from_string(const char *str) {
     return BLOCK_HEADING_1;
   if (strcmp(str, "table") == 0)
     return BLOCK_TABLE;
-  if (strcmp(str, "canvas") == 0)
-    return BLOCK_DESIGN; // Canvas type removed, treat as Design
   if (strcmp(str, "design") == 0)
     return BLOCK_DESIGN;
   if (strcmp(str, "chart") == 0)

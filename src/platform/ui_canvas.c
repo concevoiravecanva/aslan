@@ -2057,12 +2057,3 @@ Node *design_find_node_at(DesignData *dd, float x, float y) {
   return hit;
 }
 
-// =============================================================================
-// Test Function
-// =============================================================================
-
-int test_ui_canvas(void) {
-  ASLAN_INFO("Running ui_canvas tests...");
-  ASLAN_INFO("ui_canvas tests PASSED");
-  return 0;
-}

@@ -76,6 +76,4 @@ int is_form_tool(CanvasToolMode tool);
 // Test Function
 // -----------------------------------------------------------------------------
 
-int test_ui_canvas(void);
-
 #endif // UI_CANVAS_H

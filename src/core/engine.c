@@ -178,19 +178,6 @@ static void engine_emit_command(Engine *engine, const char *line) {
   fflush(engine->history_file);
 }
 
-__attribute__((unused)) static void escape_and_emit(Engine *engine,
-                                                    const char *fmt, ...) {
-  if (!engine || !engine->history_file)
-    return;
-
-  char buf[2048];
-  va_list args;
-  va_start(args, fmt);
-  vsnprintf(buf, sizeof(buf), fmt, args);
-  va_end(args);
-
-  engine_emit_command(engine, buf);
-}
 
 // -----------------------------------------------------------------------------
 // Comment/Empty Line Detection
