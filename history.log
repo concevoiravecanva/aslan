@@ -845,3 +845,8 @@ block_chart_init 1 106 pie 104 0 1
 -- Session started --
 -- Session started --
 -- Session started --
+-- Session started --
+block_table_cell 1 104 0 2 "1"
+-- Session started --
+block_table_cell 1 104 4 2 "2"
+block_table_cell 1 104 5 2 "2"
