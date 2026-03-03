@@ -302,14 +302,11 @@ typedef struct UIHost {
   struct nk_rect doc_menu_rect;
 
   // Split View (Data-Driven layout)
-  // View indices: 0=Table, 1=Design, 2=Kanban, 3=Calendar, 4=Chart
   struct {
     int active;               // 1 = split view mode is on
     float ratio;              // 0.0-1.0 — left panel portion (0.5 = 50/50)
     int is_dragging_splitter; // 1 = currently dragging the splitter
     int mode;                 // 0=collab(50/50), 1=design(3/97), 2=data(97/3)
-    int left_view;            // View shown in left panel (default: 0=Table)
-    int right_view;           // View shown in right panel (default: 1=Design)
     int selected_row;         // Selected row in table (-1=none)
   } split_view;
 
@@ -331,55 +328,6 @@ typedef struct UIHost {
     uint32_t drop_target_id;
     int drop_position; // 0=above, 1=below, 2=left, 3=right
   } block_drag;
-
-  // Kanban card drag-and-drop
-  struct {
-    int is_active;           // 1 = drag in progress or threshold not yet met
-    int threshold_met;       // 1 = moved past 5px dead zone
-    uint64_t dragged_row_id; // AslanTable persistent row ID
-    int source_opt;          // SELECT option index the card came from
-    uint32_t block_id;       // Table block ID being dragged from
-    float start_x, start_y;  // Screen coords where drag began
-    int drop_target_opt;     // Swimlane option index mouse hovers (-1=none)
-  } kanban_drag;
-
-  // Kanban column visibility state
-  struct {
-    uint32_t block_id;      // Reset state when block changes
-    uint8_t col_hidden[32]; // col_hidden[i]=1 → option i is hidden
-  } kanban_state;
-
-  // View settings popup (shared across all views)
-  struct {
-    int show_popup;     // 1 = popup visible
-    int active_view;    // which view's settings (0-4)
-    float btn_x, btn_y; // settings button screen position (popup anchor)
-  } view_settings;
-
-  // Calendar view state
-  struct {
-    int show_week;   // 0 = month view, 1 = week view
-    int week_offset; // weeks from current week (0 = this week)
-  } calendar_state;
-
-  // Gantt view state
-  struct {
-    int64_t view_start_day; // Days since Unix epoch for leftmost column (0 = not yet init)
-    float   day_w;          // Pixels per day (0 = not yet init, default 40.0f)
-  } gantt_state;
-
-  // Calendar event drag-and-drop
-  struct {
-    int is_active;
-    int threshold_met;
-    uint64_t dragged_row_id;
-    uint32_t block_id;
-    int date_col;   // Column index of the DATE column
-    int title_col;  // Column index of the TEXT column (for ghost label)
-    int source_day; // Day the event came from (1-31)
-    float start_x, start_y;
-    int drop_target_day; // Day the mouse is hovering over (-1=none)
-  } calendar_drag;
 
   // Node clipboard (Cmd+C / Cmd+V)
   struct {

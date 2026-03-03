@@ -1683,11 +1683,7 @@ void doc_save_aof(const Document *doc, FILE *fp) {
           size_t cols = td->columnar->column_count;
           fprintf(fp, "block_table_init %u %u %zu %zu\n", page->id, b->id, rows,
                   cols);
-          fprintf(fp, "block_table_view %u %u %s\n", page->id, b->id,
-                  td->view_mode == TABLE_VIEW_LIST       ? "list"
-                  : td->view_mode == TABLE_VIEW_BOARD    ? "board"
-                  : td->view_mode == TABLE_VIEW_CALENDAR ? "calendar"
-                                                         : "table");
+          fprintf(fp, "block_table_view %u %u table\n", page->id, b->id);
           // Save column info (type + name) for non-default columns
           for (size_t ci = 0; ci < cols; ci++) {
             AslanColumn *acol = &td->columnar->columns[ci];

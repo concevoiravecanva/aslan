@@ -642,17 +642,9 @@ static bool handle_block_table_view(Engine *engine, const AofCommand *cmd,
     return false;
   uint32_t page_id = (uint32_t)atoi(cmd->argv[1]);
   uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
-  const char *view_str = cmd->argv[3];
   Block *block = find_block(engine, page_id, block_id);
   if (block && block->type == BLOCK_TABLE) {
-    TableViewMode mode = TABLE_VIEW_TABLE;
-    if (strcmp(view_str, "list") == 0)
-      mode = TABLE_VIEW_LIST;
-    else if (strcmp(view_str, "board") == 0)
-      mode = TABLE_VIEW_BOARD;
-    else if (strcmp(view_str, "calendar") == 0)
-      mode = TABLE_VIEW_CALENDAR;
-    block_table_set_view(block, mode);
+    block_table_set_view(block, TABLE_VIEW_TABLE);
     engine_emit_command(engine, command_line);
     return true;
   }

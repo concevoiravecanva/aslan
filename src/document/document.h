@@ -40,10 +40,6 @@ typedef enum {
 // Table view modes
 typedef enum {
   TABLE_VIEW_TABLE = 0, // Standard table grid
-  TABLE_VIEW_LIST,      // Vertical list
-  TABLE_VIEW_BOARD,     // Kanban-style board
-  TABLE_VIEW_CALENDAR,  // Calendar view
-  TABLE_VIEW_GANTT      // Gantt chart (requires DATE + DURATION columns)
 } TableViewMode;
 
 // =============================================================================
