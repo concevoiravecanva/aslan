@@ -2186,7 +2186,8 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
 // =============================================================================
 
 static void design_draw_grid(struct nk_command_buffer *buf, struct nk_rect art,
-                             float scale, const DesignPage *dp) {
+                             float scale, const DesignPage *dp, float pan_x,
+                             float pan_y, int no_limits) {
   if (!dp || dp->grid_type == 0)
     return;
 
@@ -2195,17 +2196,33 @@ static void design_draw_grid(struct nk_command_buffer *buf, struct nk_rect art,
   float spacing =
       (dp->grid_type == 5 && dp->grid_spacing > 1) ? dp->grid_spacing : 40.0f;
   float step = spacing * scale;
-  if (step < 8.0f)
-    return; // Too dense — skip to avoid vertex overflow
 
-  // Compute max iterations to stay under Nuklear's 65535 vertex limit
-  // Each circle ~16 verts, each line ~8 verts. Budget ~2000 primitives max.
   int max_cols = (int)(art.w / step) + 1;
   int max_rows = (int)(art.h / step) + 1;
   if (max_cols > 80)
     max_cols = 80;
   if (max_rows > 80)
     max_rows = 80;
+
+  if (step < 8.0f)
+    return; // Too dense — skip to avoid vertex overflow
+
+  if (no_limits) {
+    // Dotted grid for infinite canvas
+    float ox = fmodf(-pan_x * scale, step);
+    float oy = fmodf(-pan_y * scale, step);
+    if (ox < 0)
+      ox += step;
+    if (oy < 0)
+      oy += step;
+
+    for (float y = art.y + oy; y < art.y + art.h; y += step) {
+      for (float x = art.x + ox; x < art.x + art.w; x += step) {
+        nk_fill_circle(buf, nk_rect(x - 1, y - 1, 1.5f, 1.5f), dot_col);
+      }
+    }
+    return;
+  }
 
   switch (dp->grid_type) {
   case 1: { // Dots — cap at 50x50 = 2500 circles
@@ -2525,7 +2542,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                                  c1); // Reverse for center-ish feel if possible
       }
       DesignPage *cur_dp = &dd->pages[dd->current_page];
-      design_draw_grid(canvas_buf, sc_bounds, zoom, cur_dp);
+      design_draw_grid(canvas_buf, sc_bounds, zoom, cur_dp, cam_x, cam_y, 1);
       design_draw_guides(canvas_buf, sc_bounds, zoom, cur_dp);
       design_draw_rulers(canvas_buf, sc_bounds, zoom, cur_dp, dd->width,
                          dd->height);
@@ -2580,7 +2597,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       nk_stroke_rect(canvas_buf, art_rect, 0, 1.0f, nk_rgb(200, 200, 200));
       {
         DesignPage *cur_dp = &dd->pages[dd->current_page];
-        design_draw_grid(canvas_buf, art_rect, scale, cur_dp);
+        design_draw_grid(canvas_buf, art_rect, scale, cur_dp, 0, 0, 0);
         design_draw_guides(canvas_buf, art_rect, scale, cur_dp);
         design_draw_rulers(canvas_buf, art_rect, scale, cur_dp, dd->width,
                            dd->height);
@@ -2637,8 +2654,16 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       // --- Handle pending element creation ---
       if (is_active_design && ds->pending_create > 0) {
-        float nx = (float)dd->width / 2.0f - 50.0f;
-        float ny = (float)dd->height / 2.0f - 40.0f;
+        float nx, ny;
+        if (dd->no_limits) {
+          // Center in current infinite viewport (scale = zoom here)
+          nx = ds->cam_x + (ws_bounds.w / scale) / 2.0f - 50.0f;
+          ny = ds->cam_y + (ws_bounds.h / scale) / 2.0f - 40.0f;
+        } else {
+          // Center in fixed artboard
+          nx = (float)dd->width / 2.0f - 50.0f;
+          ny = (float)dd->height / 2.0f - 40.0f;
+        }
         Node *new_node = NULL;
         float def_w = 100.0f, def_h = 80.0f;
 
