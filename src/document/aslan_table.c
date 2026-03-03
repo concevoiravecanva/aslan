@@ -87,6 +87,7 @@ static size_t column_element_size(AslanColumnType type) {
   case ASLAN_COL_SELECT:
     return sizeof(int32_t);
   case ASLAN_COL_DATE:
+  case ASLAN_COL_DURATION:
     return sizeof(int64_t);
   case ASLAN_COL_RELATION:
     return sizeof(uint64_t);
@@ -833,6 +834,23 @@ bool aslan_table_set_cell(AslanTable *table, int col_idx, uint64_t row_id,
     uint64_t target = value_str ? strtoull(value_str, NULL, 10) : 0;
     return aslan_table_set_relation(table, col_idx, row_id, target);
   }
+  case ASLAN_COL_DURATION: {
+    // Input is days (float), stored as minutes
+    double days = value_str ? strtod(value_str, NULL) : 0.0;
+    int64_t mins = (int64_t)(days * 1440.0 + 0.5);
+    if (mins < 0) mins = 0;
+    int ri = aslan_table_row_index(table, row_id);
+    if (ri < 0) return false;
+    int64_t *data = (int64_t *)col->data;
+    data[ri] = mins;
+    if (table->log_callback) {
+      char cmd[256];
+      snprintf(cmd, sizeof(cmd), "TABLE_SET_CELL %u %lu %d %lld", table->id,
+               (unsigned long)row_id, col_idx, (long long)mins);
+      table->log_callback(cmd, table->log_userdata);
+    }
+    return true;
+  }
   case ASLAN_COL_FORMULA:
     return false; // Formulas are read-only
   default:
@@ -884,7 +902,8 @@ double aslan_table_get_number(const AslanTable *table, int col_idx,
     const int32_t *data = (const int32_t *)col->data;
     return (double)data[row_idx];
   }
-  case ASLAN_COL_DATE: {
+  case ASLAN_COL_DATE:
+  case ASLAN_COL_DURATION: {
     const int64_t *data = (const int64_t *)col->data;
     return (double)data[row_idx];
   }
@@ -935,6 +954,22 @@ int64_t aslan_table_get_date(const AslanTable *table, int col_idx,
 
   const AslanColumn *col = &table->columns[col_idx];
   if (col->type != ASLAN_COL_DATE)
+    return 0;
+
+  const int64_t *data = (const int64_t *)col->data;
+  return data[row_idx];
+}
+
+int64_t aslan_table_get_duration(const AslanTable *table, int col_idx,
+                                 uint64_t row_id) {
+  if (!table || col_idx < 0 || col_idx >= (int)table->column_count)
+    return 0;
+  int row_idx = aslan_table_row_index(table, row_id);
+  if (row_idx < 0)
+    return 0;
+
+  const AslanColumn *col = &table->columns[col_idx];
+  if (col->type != ASLAN_COL_DURATION)
     return 0;
 
   const int64_t *data = (const int64_t *)col->data;
@@ -1022,6 +1057,20 @@ const char *aslan_table_get_cell_display(const AslanTable *table, int col_idx,
     } else {
       buf[0] = '\0';
     }
+    break;
+  }
+  case ASLAN_COL_DURATION: {
+    int64_t mins = ((int64_t *)col->data)[row_idx];
+    if (mins <= 0) { buf[0] = '\0'; break; }
+    double days = mins / 1440.0;
+    if (mins % 1440 == 0)
+      snprintf(buf, buf_size, "%.0fd", days);
+    else if (days >= 1.0)
+      snprintf(buf, buf_size, "%.1fd", days);
+    else if (mins % 60 == 0)
+      snprintf(buf, buf_size, "%lldh", (long long)(mins / 60));
+    else
+      snprintf(buf, buf_size, "%lldm", (long long)mins);
     break;
   }
   case ASLAN_COL_RELATION: {
@@ -1473,6 +1522,8 @@ static int compare_wrapper_checkbox(void *ctx, const void *a, const void *b) {
 }
 #endif
 
+// DURATION reuses compare_date (same int64_t storage, same comparison logic)
+
 void aslan_table_sort(AslanTable *table, int col_idx, bool ascending) {
   if (!table || col_idx < 0 || col_idx >= (int)table->column_count)
     return;
@@ -1512,6 +1563,7 @@ void aslan_table_sort(AslanTable *table, int col_idx, bool ascending) {
             compare_wrapper_text);
     break;
   case ASLAN_COL_DATE:
+  case ASLAN_COL_DURATION:
   case ASLAN_COL_RELATION:
     qsort_r(table->view_index, view_count, sizeof(size_t), &ctx,
             compare_wrapper_date);
@@ -1541,6 +1593,7 @@ void aslan_table_sort(AslanTable *table, int col_idx, bool ascending) {
     qsort_r(table->view_index, view_count, sizeof(size_t), compare_text, &ctx);
     break;
   case ASLAN_COL_DATE:
+  case ASLAN_COL_DURATION:
   case ASLAN_COL_RELATION:
     qsort_r(table->view_index, view_count, sizeof(size_t), compare_date, &ctx);
     break;
@@ -1896,6 +1949,8 @@ static const char *column_type_name(AslanColumnType type) {
     return "SEL";
   case ASLAN_COL_DATE:
     return "DATE";
+  case ASLAN_COL_DURATION:
+    return "DUR";
   case ASLAN_COL_RELATION:
     return "REL";
   case ASLAN_COL_FORMULA:

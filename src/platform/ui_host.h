@@ -362,6 +362,12 @@ typedef struct UIHost {
     int week_offset; // weeks from current week (0 = this week)
   } calendar_state;
 
+  // Gantt view state
+  struct {
+    int64_t view_start_day; // Days since Unix epoch for leftmost column (0 = not yet init)
+    float   day_w;          // Pixels per day (0 = not yet init, default 40.0f)
+  } gantt_state;
+
   // Calendar event drag-and-drop
   struct {
     int is_active;
