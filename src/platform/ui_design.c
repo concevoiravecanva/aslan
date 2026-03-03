@@ -2188,7 +2188,7 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
 static void design_draw_grid(struct nk_command_buffer *buf, struct nk_rect art,
                              float scale, const DesignPage *dp, float pan_x,
                              float pan_y, int no_limits) {
-  if (!dp || dp->grid_type == 0)
+  if (!dp)
     return;
 
   struct nk_color grid_col = nk_rgba(120, 120, 120, 50);
@@ -2208,7 +2208,7 @@ static void design_draw_grid(struct nk_command_buffer *buf, struct nk_rect art,
     return; // Too dense — skip to avoid vertex overflow
 
   if (no_limits) {
-    // Dotted grid for infinite canvas
+    // Dotted grid for infinite canvas (always on in infinite mode)
     float ox = fmodf(-pan_x * scale, step);
     float oy = fmodf(-pan_y * scale, step);
     if (ox < 0)
@@ -2218,11 +2218,15 @@ static void design_draw_grid(struct nk_command_buffer *buf, struct nk_rect art,
 
     for (float y = art.y + oy; y < art.y + art.h; y += step) {
       for (float x = art.x + ox; x < art.x + art.w; x += step) {
-        nk_fill_circle(buf, nk_rect(x - 1, y - 1, 1.5f, 1.5f), dot_col);
+        // Draw slightly larger/clearer dots
+        nk_fill_circle(buf, nk_rect(x - 1, y - 1, 2.0f, 2.0f), dot_col);
       }
     }
     return;
   }
+
+  if (dp->grid_type == 0)
+    return;
 
   switch (dp->grid_type) {
   case 1: { // Dots — cap at 50x50 = 2500 circles
