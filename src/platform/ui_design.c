@@ -321,13 +321,13 @@ static void design_generate_smart_layout(DesignData *dd, int layout_id,
     node_add_child(main_h, right_v);
   } else if (layout_id == 3) {
     // Project Timeline
-    Node *line = design_create_styled_node(dd, NODE_STYLE_LINE, 50, h / 2,
-                                           w - 100, 4, 0x444444FF);
+    design_create_styled_node(dd, NODE_STYLE_LINE, 50, h / 2, w - 100, 4,
+                              0x444444FF);
 
     for (int i = 0; i < 5; i++) {
-      Node *dot = design_create_styled_node(dd, NODE_STYLE_ELLIPSE,
-                                            50 + i * ((w - 100) / 4) - 10,
-                                            h / 2 - 10, 20, 20, 0x4285F4FF);
+      design_create_styled_node(dd, NODE_STYLE_ELLIPSE,
+                                50 + i * ((w - 100) / 4) - 10, h / 2 - 10, 20,
+                                20, 0x4285F4FF);
       Node *text = design_create_styled_node(
           dd, NODE_STYLE_TEXT, 50 + i * ((w - 100) / 4) - 50,
           (i % 2 == 0) ? h / 2 - 60 : h / 2 + 20, 100, 30, color);
@@ -619,6 +619,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           }
         }
         nk_layout_row_dynamic(ctx, 24, 1);
+        if (cur_shape < 0 || cur_shape >= 11)
+          cur_shape = 0;
         int new_shape =
             nk_combo(ctx, shape_labels, 11, cur_shape, 24, nk_vec2(220, 300));
         if (new_shape != cur_shape && new_shape >= 0) {
@@ -640,8 +642,10 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         // Gradient Options
         nk_layout_row_dynamic(ctx, 24, 2);
         const char *fill_types[] = {"Solid", "Gradient"};
+        if (node->fill_type < 0 || node->fill_type >= 2)
+          node->fill_type = 0;
         node->fill_type = nk_combo(ctx, fill_types, 2, node->fill_type, 24,
-                                   nk_vec2(150, 200));
+                                   nk_vec2(220, 200));
 
         if (node->fill_type == 1) {
           ds_color(ctx, "Gradient To", &node->fill_color_2);
@@ -684,6 +688,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
             const char *layout_modes[] = {"None", "V-Stack", "H-Stack"};
             nk_layout_row_dynamic(ctx, 24, 2);
             nk_label(ctx, "Auto Layout:", NK_TEXT_LEFT);
+            if (node->layout_type < 0 || node->layout_type >= 3)
+              node->layout_type = 0;
             node->layout_type = nk_combo(
                 ctx, layout_modes, 3, node->layout_type, 24, nk_vec2(150, 200));
 
@@ -780,17 +786,21 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           nk_property_float(ctx, "Font size:", 6.f, &node->font_size, 200.f,
                             1.f, 0.5f);
           nk_layout_row_dynamic(ctx, 24, 2);
-          const char *font_types[] = {"Inter", "Inter Bold", "Courier",
-                                      "Serif"};
+          const char *font_types[] = {"Inter", "Inter Bold", "Courier", "Serif",
+                                      "Icons"};
           int cur_font = node->font_type;
+          if (cur_font < 0 || cur_font >= 5)
+            cur_font = 0;
           int new_font =
-              nk_combo(ctx, font_types, 4, cur_font, 24, nk_vec2(150, 150));
+              nk_combo(ctx, font_types, 5, cur_font, 24, nk_vec2(150, 200));
           if (new_font != cur_font) {
             node->font_type = new_font;
           }
           // Alignment
           const char *aligns[] = {"Left", "Center", "Right"};
           int cur_align = node->text_align;
+          if (cur_align < 0 || cur_align >= 3)
+            cur_align = 0;
           int new_align =
               nk_combo(ctx, aligns, 3, cur_align, 24, nk_vec2(100, 100));
           if (new_align != cur_align) {
@@ -849,6 +859,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
             if (text_tids[i] == dd->linked_table_id)
               cur_tidx = i;
           }
+          if (cur_tidx < 0 || cur_tidx >= text_tcount)
+            cur_tidx = 0;
           int new_tidx = nk_combo(ctx, text_tnames_ptr, text_tcount, cur_tidx,
                                   24, nk_vec2(220, 200));
           if (new_tidx != cur_tidx) {
@@ -895,6 +907,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
             nk_layout_row_dynamic(ctx, 20, 1);
             nk_label(ctx, "Data Column:", NK_TEXT_LEFT);
             nk_layout_row_dynamic(ctx, 24, 1);
+            if (cur_sel < 0 || cur_sel >= col_count + 1)
+              cur_sel = 0;
             int new_sel = nk_combo(ctx, col_names, col_count + 1, cur_sel, 24,
                                    nk_vec2(220, 200));
             if (new_sel != cur_sel) {
@@ -941,7 +955,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
   // TAB 1 — LAYERS  (toolbar | scrollable tree | fixed inspector)
   // =========================================================================
   if (ui->design_bottom_tab == 1) {
-    // Inspector height: base rows (name+opacity+fill/stroke+type-specific+buttons): ~148px
+    // Inspector height: base rows
+    // (name+opacity+fill/stroke+type-specific+buttons): ~148px
     float inspector_h = ui->selected_node ? 148.0f : 0.0f;
     float tree_h = sb_avail - inspector_h -
                    (ui->selected_node ? 4.0f : 0.0f); // Nuklear row spacing
@@ -1018,6 +1033,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
             static const char *unit_names[] = {"PX", "CM", "IN"};
             nk_layout_row_dynamic(ctx, 24, 2);
             nk_label(ctx, "Units:", NK_TEXT_LEFT);
+            if (dd->units < 0 || dd->units >= 3)
+              dd->units = 0;
             dd->units =
                 nk_combo(ctx, unit_names, 3, dd->units, 24, nk_vec2(80, 100));
 
@@ -1046,107 +1063,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           }
         }
 
-        // ── DATA NAVIGATION (Template Mode) ─────────────────────────────
-        ds_section(ctx, "DATA NAVIGATION");
-
-        static char tnames[32][64];
-        uint32_t table_ids[32];
-        const char *table_names[32];
-        int table_count = 0;
-        table_names[table_count] = "None";
-        table_ids[table_count] = 0;
-        table_count++;
-
-        AslanTable *linked_tbl = NULL;
-        if (engine && engine->doc) {
-          for (int i = 0; i < 32; i++) {
-            Page *p = &engine->doc->pages[i];
-            if (!p->in_use)
-              continue;
-            for (Block *b = p->first_block; b; b = b->next) {
-              if (b->type == BLOCK_TABLE && b->data.table.columnar) {
-                if (table_count < 32) {
-                  table_ids[table_count] = b->id;
-                  snprintf(tnames[table_count], 64, "Table %u (Page %u)", b->id,
-                           p->id);
-                  table_names[table_count] = tnames[table_count];
-                  table_count++;
-                }
-                if (b->id == dd->linked_table_id) {
-                  linked_tbl = b->data.table.columnar;
-                }
-              }
-            }
-          }
-        }
-
-        nk_layout_row_dynamic(ctx, 24, 1);
-        int cur_table_idx = 0;
-        for (int i = 0; i < table_count; i++) {
-          if (table_ids[i] == dd->linked_table_id)
-            cur_table_idx = i;
-        }
-        int new_table_idx = nk_combo(ctx, table_names, table_count,
-                                     cur_table_idx, 24, nk_vec2(220, 200));
-        if (new_table_idx != cur_table_idx) {
-          dd->linked_table_id = table_ids[new_table_idx];
-          ui->design_linked_row_idx = 0; // reset row when table changes
-          // Refresh linked table pointer if changed
-          linked_tbl = NULL;
-          if (dd->linked_table_id && engine && engine->doc) {
-            for (int i = 0; i < 32; i++) {
-              Page *p = &engine->doc->pages[i];
-              if (!p->in_use)
-                continue;
-              Block *tb = page_find_block_by_id(p, dd->linked_table_id);
-              if (tb && tb->type == BLOCK_TABLE && tb->data.table.columnar) {
-                linked_tbl = tb->data.table.columnar;
-                break;
-              }
-            }
-          }
-        }
-
-        if (linked_tbl) {
-          nk_layout_row_dynamic(ctx, 4, 1);
-          nk_spacing(ctx, 1);
-          int total_rows = (int)linked_tbl->active_count;
-          nk_layout_row_template_begin(ctx, 28);
-          nk_layout_row_template_push_static(ctx, 28); // <
-          nk_layout_row_template_push_dynamic(ctx);    // counter
-          nk_layout_row_template_push_static(ctx, 28); // >
-          nk_layout_row_template_end(ctx);
-
-          int prev_ok = (ui->design_linked_row_idx > 0);
-          int next_ok = (ui->design_linked_row_idx < total_rows - 1);
-          struct nk_style_button arr = ctx->style.button;
-          arr.padding = nk_vec2(2, 2);
-
-          struct nk_style_button arr_prev = arr;
-          if (!prev_ok)
-            arr_prev.text_normal = nk_rgb(200, 200, 215);
-          if (nk_button_label_styled(ctx, &arr_prev, "<") && prev_ok) {
-            ui->design_linked_row_idx--;
-          }
-          char pg_str[32];
-          snprintf(pg_str, sizeof(pg_str), "Row %d / %d",
-                   ui->design_linked_row_idx + 1, total_rows);
-          nk_label(ctx, pg_str, NK_TEXT_CENTERED);
-
-          struct nk_style_button arr_next = arr;
-          if (!next_ok)
-            arr_next.text_normal = nk_rgb(200, 200, 215);
-          if (nk_button_label_styled(ctx, &arr_next, ">") && next_ok) {
-            ui->design_linked_row_idx++;
-          }
-        } else {
-          nk_layout_row_dynamic(ctx, 24, 1);
-          nk_label_colored(ctx, "No table linked", NK_TEXT_CENTERED,
-                           nk_rgb(160, 160, 175));
-          nk_layout_row_dynamic(ctx, 18, 1);
-          nk_label_colored(ctx, "Design is a single template", NK_TEXT_CENTERED,
-                           nk_rgb(195, 195, 210));
-        }
+        // Data navigation removed at user request
 
         // ── SMART LAYOUTS ────────────────────────────────────────────────
         ds_section(ctx, "SMART LAYOUTS (BETA)");
@@ -1157,6 +1074,9 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
             "6 - Kanban Board Light",  "7 - Feedback Feed",
             "8 - Sales Funnel",        "9 - Clean Page (Export)"};
         nk_layout_row_dynamic(ctx, 24, 1);
+        if (ui->design_smart_layout_sel < 0 ||
+            ui->design_smart_layout_sel >= 10)
+          ui->design_smart_layout_sel = 0;
         ui->design_smart_layout_sel =
             nk_combo(ctx, layout_names, 10, ui->design_smart_layout_sel, 24,
                      nk_vec2(220, 300));
@@ -1191,18 +1111,6 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         ds_section(ctx, "LAYOUT AIDS");
         {
           DesignPage *dp = &dd->pages[dd->current_page];
-          nk_layout_row_dynamic(ctx, 22, 1);
-          nk_label(ctx, "Grid:", NK_TEXT_LEFT);
-          static const char *grid_labels[] = {"None",    "Dots", "Lines",
-                                              "Columns", "Iso",  "Custom"};
-          nk_layout_row_dynamic(ctx, 24, 1);
-          dp->grid_type = nk_combo(ctx, grid_labels, 6, dp->grid_type, 20,
-                                   nk_vec2(nk_widget_width(ctx), 140));
-          if (dp->grid_type == 5) { // Custom
-            nk_layout_row_dynamic(ctx, 20, 1);
-            nk_property_float(ctx, "Spacing", 10.0f, &dp->grid_spacing, 200.0f,
-                              5.0f, 1.0f);
-          }
 
           nk_spacing(ctx, 1);
           nk_layout_row_dynamic(ctx, 22, 1);
@@ -2014,8 +1922,7 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     // Text node
 
     // Render background for sticky notes / text with bg
-    if (fill.a > 0)
-
+    if (fill.a > 0) {
       if (node->fill_type == 1) { // Gradient
         struct nk_color fill2 = nk_rgba(
             (node->fill_color_2 >> 24) & 0xFF,
@@ -2026,6 +1933,7 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
       } else {
         nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, fill);
       }
+    }
 
     const char *display_text = node->text;
     static char linked_val_buf[256];
@@ -2902,7 +2810,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           }
           float sw = node->width * scale;
           float sh = node->height * scale;
-          struct nk_rect nr = nk_rect(sx, sy, sw, sh);
+          // struct nk_rect nr = nk_rect(sx, sy, sw, sh);
 
           float sel_off = 2.0f + (node->stroke_width * scale) / 2.0f;
           float rad = node->rotation * 3.14159f / 180.0f;
@@ -3179,6 +3087,65 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
             }
           }
         }
+      }
+
+      // --- Check guide dragging ---
+      if (mouse_in_design && is_active_design && !handle_hit &&
+          !on_resize_handle && !on_rotate_handle) {
+        int hit_h_guide = -1;
+        int hit_v_guide = -1;
+        DesignPage *dp = &dd->pages[dd->current_page];
+        float hit_tol = 6.0f; // relatively small hit area in screen space
+        for (int i = 0; i < dp->h_guide_count; i++) {
+          float sy = bounds.y + dp->h_guides[i] * scale;
+          if (fabsf(ui->mouse_y - sy) < hit_tol) {
+            hit_h_guide = i;
+            break;
+          }
+        }
+        if (hit_h_guide == -1) {
+          for (int i = 0; i < dp->v_guide_count; i++) {
+            float sx = bounds.x + dp->v_guides[i] * scale;
+            if (fabsf(ui->mouse_x - sx) < hit_tol) {
+              hit_v_guide = i;
+              break;
+            }
+          }
+        }
+
+        if (ds->mouse_just_pressed &&
+            (hit_h_guide != -1 || hit_v_guide != -1)) {
+          if (hit_h_guide != -1) {
+            ds->dragging_guide_type = 1;
+            ds->dragging_guide_idx = hit_h_guide;
+          } else {
+            ds->dragging_guide_type = 2;
+            ds->dragging_guide_idx = hit_v_guide;
+          }
+          handle_hit = 1; // consume click
+        }
+
+        // Also update cursor
+        if (hit_h_guide != -1 || ds->dragging_guide_type == 1) {
+          ui_set_cursor(ui, UI_CURSOR_SIZENS);
+        } else if (hit_v_guide != -1 || ds->dragging_guide_type == 2) {
+          ui_set_cursor(ui, UI_CURSOR_SIZEWE);
+        }
+      }
+
+      if (ds->dragging_guide_type != 0 && is_active_design) {
+        DesignPage *dp = &dd->pages[dd->current_page];
+        if (ds->dragging_guide_type == 1) { // H guide
+          dp->h_guides[ds->dragging_guide_idx] =
+              (ui->mouse_y - bounds.y) / scale;
+        } else if (ds->dragging_guide_type == 2) { // V guide
+          dp->v_guides[ds->dragging_guide_idx] =
+              (ui->mouse_x - bounds.x) / scale;
+        }
+        if (ds->mouse_just_released) {
+          ds->dragging_guide_type = 0;
+        }
+        handle_hit = 1; // prevent other interactions while dragging guide
       }
 
       // Handle click in design area

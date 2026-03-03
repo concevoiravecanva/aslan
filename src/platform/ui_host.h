@@ -216,6 +216,10 @@ typedef struct {
   // Snap guide positions (screen-space, -1 = none)
   float snap_guide_x;
   float snap_guide_y;
+
+  // Guide dragging
+  int dragging_guide_type; // 0=none, 1=horizontal, 2=vertical
+  int dragging_guide_idx;
 } DesignInteraction;
 
 // -----------------------------------------------------------------------------

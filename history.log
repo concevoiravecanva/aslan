@@ -875,3 +875,44 @@ block_table_cell 1 104 2 2 "1"
 -- Session started --
 -- Session started --
 -- Session started --
+-- Session started --
+-- Session started --
+block_design_nolimits 1 105 1
+block_design_nolimits 1 105 0
+block_design_resize 1 105 1080 1080 0
+block_design_resize 1 105 1080 1920 0
+block_design_resize 1 105 1080 1350 0
+block_design_resize 1 105 1920 480 0
+block_design_resize 1 105 1920 483 0
+block_design_resize 1 105 1920 482 0
+block_design_resize 1 105 1920 481 0
+block_design_resize 1 105 1920 480 0
+block_design_resize 1 105 1920 479 0
+block_design_resize 1 105 1920 478 0
+block_design_resize 1 105 1920 477 0
+block_design_resize 1 105 1920 476 0
+block_design_resize 1 105 1920 475 0
+block_design_resize 1 105 1920 474 0
+block_design_resize 1 105 1920 473 0
+block_design_resize 1 105 1920 472 0
+block_design_resize 1 105 1920 471 0
+block_design_resize 1 105 1920 470 0
+block_design_resize 1 105 1920 469 0
+block_design_resize 1 105 1920 468 0
+block_design_resize 1 105 1920 467 0
+block_design_resize 1 105 1920 466 0
+block_design_resize 1 105 1920 465 0
+block_design_resize 1 105 1920 464 0
+block_design_resize 1 105 1920 463 0
+block_design_resize 1 105 1920 462 0
+block_design_resize 1 105 1920 461 0
+block_design_nolimits 1 105 1
+block_design_nolimits 1 105 0
+block_design_nolimits 1 105 1
+block_design_nolimits 1 105 0
+block_design_nolimits 1 105 1
+-- Session started --
+block_design_nolimits 1 105 0
+block_design_nolimits 1 105 1
+block_design_nolimits 1 105 0
+block_design_nolimits 1 105 1
