@@ -19,8 +19,6 @@
 
 // Forward declarations
 union SDL_Event;
-struct SpatialIndex;
-typedef struct SpatialIndex SpatialIndex;
 struct Document;
 struct Block;
 struct Page;
@@ -35,7 +33,6 @@ typedef enum {
   BLOCK_HEADING_1, // H1 title
   BLOCK_TABLE,     // Notion-style table with views
   BLOCK_DESIGN,    // Finite design surface (Canva-style)
-  BLOCK_CHART,     // Data-driven chart (linked to Table block)
 
   BLOCK_COUNT
 } BlockType;
@@ -472,13 +469,6 @@ void block_design_set_bg_color(Block *block, uint32_t color);
 int block_design_add_page(Block *block);
 bool block_design_delete_page(Block *block, int page_idx);
 void block_design_goto_page(Block *block, int page_idx);
-
-// =============================================================================
-// CHART BLOCK API
-// =============================================================================
-
-void block_chart_init(Block *block);
-void block_chart_destroy(Block *block);
 
 // =============================================================================
 // NODE API (for Canvas/Design blocks)

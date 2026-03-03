@@ -42,8 +42,6 @@ const char *block_type_to_string(BlockType type) {
     return "table";
   case BLOCK_DESIGN:
     return "design";
-  case BLOCK_CHART:
-    return "chart";
   default:
     return "unknown";
   }
@@ -60,8 +58,6 @@ BlockType block_type_from_string(const char *str) {
     return BLOCK_TABLE;
   if (strcmp(str, "design") == 0)
     return BLOCK_DESIGN;
-  if (strcmp(str, "chart") == 0)
-    return BLOCK_CHART;
   return BLOCK_TEXT;
 }
 
@@ -513,9 +509,6 @@ void block_destroy(Block *block) {
   case BLOCK_DESIGN:
     block_design_destroy(block);
     break;
-  case BLOCK_CHART:
-    block_chart_destroy(block);
-    break;
   default:
     break;
   }
@@ -794,9 +787,6 @@ void block_convert_to(Block *block, BlockType new_type) {
     break;
   case BLOCK_DESIGN:
     block_design_destroy(block);
-    break;
-  case BLOCK_CHART:
-    block_chart_destroy(block);
     break;
   default:
     break;
@@ -1618,27 +1608,6 @@ static void save_node_recursive(FILE *fp, uint32_t page_id, uint32_t block_id,
 }
 
 // -----------------------------------------------------------------------------
-// Chart Block API
-// -----------------------------------------------------------------------------
-
-void block_chart_init(Block *block) {
-  if (!block || block->type != BLOCK_CHART)
-    return;
-  ChartData *cd = &block->data.chart;
-  cd->type = CHART_BAR;
-  cd->source_table_id = 0;
-  cd->label_col_idx = 0;
-  cd->value_col_idx = 1;
-  cd->color = 0x3778FAFF; // Aslan accent blue
-  cd->show_values = true;
-}
-
-void block_chart_destroy(Block *block) {
-  // ChartData is inline in the Block union, no heap allocations to free
-  (void)block;
-}
-
-// -----------------------------------------------------------------------------
 // Persistence
 // -----------------------------------------------------------------------------
 
@@ -1788,23 +1757,6 @@ void doc_save_aof(const Document *doc, FILE *fp) {
           for (Node *n = dd->root->first_child; n; n = n->next_sibling) {
             save_node_recursive(fp, page->id, b->id, "block_design", n);
           }
-        }
-        break;
-      }
-      case BLOCK_CHART: {
-        const ChartData *cd = &b->data.chart;
-        const char *type_str = cd->type == CHART_LINE  ? "line"
-                               : cd->type == CHART_PIE ? "pie"
-                                                       : "bar";
-        fprintf(fp, "block_chart_init %u %u %s %u %d %d\n", page->id, b->id,
-                type_str, cd->source_table_id, cd->label_col_idx,
-                cd->value_col_idx);
-        if (cd->color != 0x3778FAFF) {
-          fprintf(fp, "block_chart_color %u %u %u\n", page->id, b->id,
-                  cd->color);
-        }
-        if (!cd->show_values) {
-          fprintf(fp, "block_chart_show_values %u %u 0\n", page->id, b->id);
         }
         break;
       }

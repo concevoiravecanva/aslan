@@ -856,3 +856,13 @@ block_table_cell 1 104 2 2 "1"
 block_table_cell 1 104 0 2 "2"
 block_table_cell 1 104 2 2 "0"
 block_table_cell 1 104 3 2 "0"
+-- Session started --
+block_design_nolimits 1 105 1
+block_design_nolimits 1 105 0
+block_design_nolimits 1 105 1
+block_design_nolimits 1 105 0
+block_table_insert_row 1 104 0
+block_table_cell 1 104 9 2 "1772362800000"
+block_table_cell 1 104 2 2 "1773226800000"
+block_table_cell 1 104 0 2 "1773399600000"
+block_chart_init 1 106 pie 104 0 1

@@ -12,7 +12,6 @@ SDL_LIB = -L/opt/homebrew/lib -lSDL2
 # Core, Document & Platform sources
 CORE_OBJS = src/core/engine.o
 DOC_OBJS = src/document/document.o \
-           src/document/spatial_index.o \
            src/document/aslan_table.o
 PLATFORM_OBJS = src/platform/platform.o \
            src/platform/renderer.o \

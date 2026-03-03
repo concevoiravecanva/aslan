@@ -1592,8 +1592,7 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
   int allow_export =
       (block->type == BLOCK_TABLE || block->type == BLOCK_DESIGN);
   int allow_resize =
-      (block->type == BLOCK_TABLE || block->type == BLOCK_DESIGN ||
-       block->type == BLOCK_CHART);
+      (block->type == BLOCK_TABLE || block->type == BLOCK_DESIGN);
 
   // Count buttons
   int n = 1; // hand always
@@ -2045,9 +2044,6 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
   case BLOCK_DESIGN:
     ui_render_block_design(ui, engine, ctx, block, width);
     break;
-  case BLOCK_CHART:
-    ui_render_block_chart(ui, engine, ctx, page, block, width);
-    break;
   default:
     break;
   }
@@ -2206,9 +2202,6 @@ float ui_measure_block_height(UIHost *ui, Block *block, float width) {
     return (aspect_h + 52.0f + 250.0f) * vs;
   }
 
-  case BLOCK_CHART:
-    return 420.0f * vs;
-
   default:
     return 100.0f;
   }
@@ -2232,11 +2225,10 @@ static Block *page_find_first_block_of_type(Page *page, BlockType type) {
 // panel_id: "L" or "R" for unique Nuklear IDs
 static void ui_render_view_tabs(UIHost *ui, struct nk_context *ctx, float width,
                                 int *active_view_ptr, const char *panel_id) {
-  const char *tab_labels[] = {"Table", "Design", "Kanban", "Calendar",
-                              "Charts"};
+  const char *tab_labels[] = {"Table", "Design", "Kanban", "Calendar"};
   const char *tab_icons[] = {ICON_TABLE, ICON_DESIGN, ICON_KANBAN,
-                             ICON_CALENDAR, ICON_CHART};
-  int tab_count = 5;
+                             ICON_CALENDAR};
+  int tab_count = 4;
   (void)panel_id;
 
   struct nk_color active_col = COLOR_ACCENT;
@@ -2423,27 +2415,6 @@ static void ui_render_panel_view(UIHost *ui, Engine *engine,
                  NK_TEXT_CENTERED);
       }
       nk_group_end(ctx);
-    }
-  } else if (view == 4) {
-    // Chart
-    Block *chart = page_find_first_block_of_type(page, BLOCK_CHART);
-    if (chart) {
-      snprintf(grp_name, sizeof(grp_name), "%sChartView", prefix);
-      nk_layout_row_dynamic(ctx, view_h, 1);
-      if (nk_group_begin(ctx, grp_name, 0)) {
-        ui_render_block_chart(ui, engine, ctx, page, chart, view_w);
-        nk_group_end(ctx);
-      }
-    } else {
-      nk_layout_row_dynamic(ctx, 60, 1);
-      nk_label(ctx, "No Chart block on this page", NK_TEXT_CENTERED);
-      nk_layout_row_dynamic(ctx, 32, 1);
-      if (nk_button_label(ctx, "+ Create Chart")) {
-        char cmd[128];
-        snprintf(cmd, sizeof(cmd), "block_create %u %u chart", page->id,
-                 page->next_block_id);
-        engine_execute_command(engine, cmd);
-      }
     }
   }
 }

@@ -70,8 +70,8 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
   float btn_x = toolbar_x + 12.0f;
   float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
 
-  const char *tool_icons[] = {ICON_TABLE, ICON_DESIGN, ICON_CHART};
-  int tool_count = 3;
+  const char *tool_icons[] = {ICON_TABLE, ICON_DESIGN};
+  int tool_count = 2;
 
   Page *page = doc_page_get_active(engine->doc);
   uint32_t page_id = page ? page->id : 0;
@@ -105,8 +105,8 @@ void ui_render_document_toolbar(UIHost *ui, Engine *engine,
 
     if (clicked && page) {
       ASLAN_DEBUG("Toolbar click: button %d", i);
-      static const char *block_types[] = {"table", "design", "chart"};
-      if (i >= 0 && i < 3) {
+      static const char *block_types[] = {"table", "design"};
+      if (i >= 0 && i < 2) {
         char cmd[128];
         snprintf(cmd, sizeof(cmd), "block_create %u %u %s", page_id,
                  page->next_block_id, block_types[i]);
