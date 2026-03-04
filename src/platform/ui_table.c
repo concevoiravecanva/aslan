@@ -485,6 +485,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       total_w += w;
     }
     const float add_col_w = 32.0f;
+    const float csv_btn_w = 28.0f;
 
     // Save and Push Global Table Styles (Zero Padding/Spacing for "Simple
     // Grid")
@@ -625,7 +626,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
 
       // HEADER ROW (+ Add Column button at end)
-      nk_layout_row_begin(ctx, NK_STATIC, header_h, (int)col_count + 2);
+      nk_layout_row_begin(ctx, NK_STATIC, header_h, (int)col_count + 3);
 
       // Row number header
       nk_layout_row_push(ctx, row_num_w);
@@ -930,6 +931,24 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         ui->table_state.menu_pos_y = hdr_bounds.y + hdr_bounds.h;
       }
 
+      // CSV menu button (...)
+      nk_layout_row_push(ctx, csv_btn_w);
+      hdr_bounds = nk_widget_bounds(ctx);
+      nk_fill_rect(nk_window_get_canvas(ctx), hdr_bounds, 0, header_bg);
+      nk_stroke_line(nk_window_get_canvas(ctx), hdr_bounds.x,
+                     hdr_bounds.y + hdr_bounds.h - 1,
+                     hdr_bounds.x + hdr_bounds.w,
+                     hdr_bounds.y + hdr_bounds.h - 1, 1.0f, border_color);
+      if (nk_button_label_styled(ctx, &add_col_btn, "...")) {
+        ui->table_state.active_block_id = block->id;
+        ui->active_block_id = block->id;
+        ui->table_state.show_csv_menu = !ui->table_state.show_csv_menu;
+        ui->table_state.show_col_menu = 0;
+        ui->table_state.show_footer_menu = 0;
+        ui->table_state.menu_pos_x = hdr_bounds.x;
+        ui->table_state.menu_pos_y = hdr_bounds.y + hdr_bounds.h;
+      }
+
       nk_layout_row_end(ctx);
 
       // --- Column Drag-and-Drop tracking & visual indicator ---
@@ -1037,7 +1056,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       float first_row_y = -1.0f;
       float table_left_x = 0.0f;
-      float table_full_w = row_num_w + add_col_w;
+      float table_full_w = row_num_w + add_col_w + csv_btn_w;
       for (size_t c = 0; c < col_count; c++)
         table_full_w += col_widths[c];
 
@@ -1061,7 +1080,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           continue;
 
         // Data Row Layout using nk_layout_row_begin/push/end (consistent API)
-        nk_layout_row_begin(ctx, NK_STATIC, row_h, (int)col_count + 2);
+        nk_layout_row_begin(ctx, NK_STATIC, row_h, (int)col_count + 3);
 
         // Calculate row hover state
         struct nk_rect row_bounds = nk_layout_widget_bounds(ctx);
@@ -1835,6 +1854,11 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               1.0f, notion_border);
         }
 
+        // Fill empty space for the ... csv button column
+        nk_layout_row_push(ctx, csv_btn_w);
+        cell_bounds = nk_widget_bounds(ctx);
+        nk_fill_rect(canvas, cell_bounds, 0, current_row_bg);
+
         nk_layout_row_end(ctx);
       }
 
@@ -1905,7 +1929,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       // -----------------------------------------------------------------------
       // FOOTER ROW (Aggregations)
       // -----------------------------------------------------------------------
-      nk_layout_row_begin(ctx, NK_STATIC, footer_h, (int)col_count + 2);
+      nk_layout_row_begin(ctx, NK_STATIC, footer_h, (int)col_count + 3);
 
       // Footer row number cell - Use as + Add Row button
       nk_layout_row_push(ctx, row_num_w);
@@ -1985,6 +2009,11 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
       nk_stroke_line(nk_window_get_canvas(ctx), ftr_bounds.x, ftr_bounds.y,
                      ftr_bounds.x + ftr_bounds.w, ftr_bounds.y, 0.5f,
                      border_color);
+
+      // Small empty space for the ... csv button column in footer
+      nk_layout_row_push(ctx, csv_btn_w);
+      ftr_bounds = nk_widget_bounds(ctx);
+      nk_fill_rect(nk_window_get_canvas(ctx), ftr_bounds, 0, footer_bg);
 
       nk_layout_row_end(ctx);
       nk_group_end(ctx);
@@ -2076,8 +2105,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       nk_style_push_style_item(ctx, &ctx->style.window.fixed_background,
                                nk_style_item_color(menu_bg));
-      // Height: header (28) + 9 types × 28 + divider (12) + 2 CSV buttons × 28 + padding (12)
-      float col_popup_h = 28.0f + 9 * 28.0f + 12.0f + 2 * 28.0f + 12.0f;
+      // Height: header (28) + 9 types × 28px + border/padding (12)
+      float col_popup_h = 28.0f + 9 * 28.0f + 12.0f;
       struct nk_rect popup_rect =
           table_smart_popup_rect(ui, ui->table_state.menu_pos_x - 100,
                                  ui->table_state.menu_pos_y + 4, 180,
@@ -2171,62 +2200,93 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
               nk_rgba(0, 0, 0, 0), menu_text);
         }
 
-        // Divider
-        nk_layout_row_dynamic(ctx, 1, 1);
-        {
-          struct nk_rect dr = nk_widget_bounds(ctx);
-          nk_spacing(ctx, 1);
-          nk_fill_rect(nk_window_get_canvas(ctx),
-                       nk_rect(dr.x, dr.y, dr.w, 1), 0,
-                       ui->dark_mode ? nk_rgba(255,255,255,18)
-                                     : nk_rgba(0,0,0,12));
-        }
-        nk_layout_row_dynamic(ctx, 10, 1);
-        nk_spacing(ctx, 1);
-
-        // Import / Export CSV
-        nk_layout_row_dynamic(ctx, 28, 1);
-        {
-          struct nk_rect ir = nk_widget_bounds(ctx);
-          if (nk_button_label_styled(ctx, &menu_btn, "")) {
-            char path[1024];
-            if (open_csv_file_dialog(path, sizeof(path))) {
-              aslan_table_import_csv(tbl, path);
-              ui_request_redraw(ui);
-            }
-            ui->table_state.show_col_menu = 0;
-            nk_popup_close(ctx);
-          }
-          struct nk_command_buffer *cv = nk_window_get_canvas(ctx);
-          nk_draw_text(cv, nk_rect(ir.x + 8, ir.y + 6, ir.w - 12, 18),
-                       "Import CSV", 10, &ui->font_inter->handle,
-                       nk_rgba(0,0,0,0), menu_text);
-        }
-        nk_layout_row_dynamic(ctx, 28, 1);
-        {
-          struct nk_rect er = nk_widget_bounds(ctx);
-          if (nk_button_label_styled(ctx, &menu_btn, "")) {
-            if (tbl) {
-              char filename[1024];
-              char default_name[256];
-              snprintf(default_name, sizeof(default_name), "%s.csv", tbl->name);
-              if (save_csv_file_dialog(filename, sizeof(filename),
-                                       default_name)) {
-                aslan_table_export_csv(tbl, filename);
-              }
-            }
-            ui->table_state.show_col_menu = 0;
-            nk_popup_close(ctx);
-          }
-          struct nk_command_buffer *cv = nk_window_get_canvas(ctx);
-          nk_draw_text(cv, nk_rect(er.x + 8, er.y + 6, er.w - 12, 18),
-                       "Export CSV", 10, &ui->font_inter->handle,
-                       nk_rgba(0,0,0,0), menu_text);
-        }
-
         nk_popup_end(ctx);
       } else {
         ui->table_state.show_col_menu = 0;
+      }
+      nk_style_pop_style_item(ctx);
+    }
+
+    if (ui->table_state.show_csv_menu) {
+      struct nk_color menu_text =
+          ui->dark_mode ? COLOR_TEXT : nk_rgb(30, 30, 35);
+      struct nk_color menu_bg =
+          ui->dark_mode ? nk_rgb(45, 47, 52) : nk_rgb(255, 255, 255);
+
+      struct nk_style_button menu_btn = ctx->style.button;
+      menu_btn.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+      menu_btn.hover = nk_style_item_color(
+          ui->dark_mode ? nk_rgba(255, 255, 255, 15) : nk_rgba(0, 0, 0, 10));
+      menu_btn.active = nk_style_item_color(
+          ui->dark_mode ? nk_rgba(255, 255, 255, 25) : nk_rgba(0, 0, 0, 20));
+      menu_btn.border = 0.0f;
+      menu_btn.rounding = 4.0f;
+      menu_btn.text_normal = menu_text;
+      menu_btn.text_hover = menu_text;
+      menu_btn.text_active = menu_text;
+
+      nk_style_push_style_item(ctx, &ctx->style.window.fixed_background,
+                               nk_style_item_color(menu_bg));
+      float csv_popup_h = 28.0f + 2 * 28.0f + 12.0f;
+      struct nk_rect popup_rect =
+          table_smart_popup_rect(ui, ui->table_state.menu_pos_x - 120,
+                                 ui->table_state.menu_pos_y + 4, 160,
+                                 csv_popup_h);
+      if (nk_popup_begin(ctx, NK_POPUP_STATIC, "CSV",
+                         NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER,
+                         popup_rect)) {
+        if (table_popup_header(ui, ctx, "CSV")) {
+          ui->table_state.show_csv_menu = 0;
+          nk_popup_close(ctx);
+        }
+        nk_layout_row_dynamic(ctx, 28, 1);
+
+        // Import CSV
+        struct nk_rect item_rect = nk_widget_bounds(ctx);
+        if (nk_button_label_styled(ctx, &menu_btn, "")) {
+          char csv_path[512];
+          if (open_csv_file_dialog(csv_path, sizeof(csv_path)) && tbl) {
+            aslan_table_import_csv(tbl, csv_path);
+          }
+          ui->table_state.show_csv_menu = 0;
+          nk_popup_close(ctx);
+        }
+        nk_draw_text(nk_window_get_canvas(ctx),
+                     nk_rect(item_rect.x + 12, item_rect.y + 4,
+                             item_rect.w - 16, 20),
+                     "Import CSV", 10, &ui->font_inter->handle,
+                     nk_rgba(0, 0, 0, 0), menu_text);
+
+        // Export CSV
+        item_rect = nk_widget_bounds(ctx);
+        if (nk_button_label_styled(ctx, &menu_btn, "")) {
+          if (tbl) {
+            char filename[512];
+            char default_name[128];
+            time_t now = time(NULL);
+            struct tm *t = localtime(&now);
+            const char *tname =
+                (tbl->name[0] != '\0') ? tbl->name : "Table";
+            snprintf(default_name, sizeof(default_name),
+                     "%s_%04d%02d%02d.csv", tname, t->tm_year + 1900,
+                     t->tm_mon + 1, t->tm_mday);
+            if (save_csv_file_dialog(filename, sizeof(filename),
+                                     default_name)) {
+              aslan_table_export_csv(tbl, filename);
+            }
+          }
+          ui->table_state.show_csv_menu = 0;
+          nk_popup_close(ctx);
+        }
+        nk_draw_text(nk_window_get_canvas(ctx),
+                     nk_rect(item_rect.x + 12, item_rect.y + 4,
+                             item_rect.w - 16, 20),
+                     "Export CSV", 10, &ui->font_inter->handle,
+                     nk_rgba(0, 0, 0, 0), menu_text);
+
+        nk_popup_end(ctx);
+      } else {
+        ui->table_state.show_csv_menu = 0;
       }
       nk_style_pop_style_item(ctx);
     }

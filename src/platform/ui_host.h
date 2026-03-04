@@ -402,6 +402,7 @@ typedef struct UIHost {
     int show_col_menu;
     int show_col_settings;
     int show_footer_menu;
+    int show_csv_menu;
     int show_select_popup;     // Select cell popup open
     uint64_t select_popup_row; // Row ID for Select popup
     int active_col_idx;
