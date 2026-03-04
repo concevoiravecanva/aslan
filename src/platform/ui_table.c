@@ -61,6 +61,8 @@ const char *table_col_type_name(AslanColumnType type) {
     return "Image";
   case ASLAN_COL_LINK:
     return "Link";
+  case ASLAN_COL_DURATION:
+    return "Duration";
   default:
     return "Text";
   }
@@ -1807,6 +1809,53 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             }
             break;
           }
+          case ASLAN_COL_DURATION: {
+            // Display stored value in human-readable form (e.g. "4d", "1.5d")
+            // Editing: user types days as a decimal number (e.g. "1.5")
+            char buf[32], val_str[32];
+            aslan_table_get_cell_display(tbl, (int)c, row_id, val_str,
+                                         sizeof(val_str));
+            // When not editing show formatted display; when editing show raw days
+            int is_this_active =
+                (ui->table_state.active_block_id == block->id &&
+                 ui->table_state.active_row_idx == (int)v &&
+                 ui->table_state.active_col_idx == (int)c &&
+                 ui->table_state.is_editing_cell);
+            if (is_this_active) {
+              // Show decimal days for editing
+              int64_t mins = aslan_table_get_duration(tbl, (int)c, row_id);
+              if (mins == 0) {
+                buf[0] = '\0';
+              } else {
+                double days = (double)mins / 1440.0;
+                if (days == (int64_t)days)
+                  snprintf(buf, sizeof(buf), "%d", (int)days);
+                else
+                  snprintf(buf, sizeof(buf), "%.2g", days);
+              }
+            } else {
+              strncpy(buf, val_str, sizeof(buf) - 1);
+              buf[sizeof(buf) - 1] = '\0';
+            }
+
+            nk_flags res = nk_edit_string_zero_terminated(
+                ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT | NK_EDIT_SIG_ENTER,
+                buf, sizeof(buf) - 1, nk_filter_decimal);
+
+            if (res & NK_EDIT_ACTIVATED) {
+              ui->table_state.active_row_idx = (int)v;
+              ui->table_state.active_col_idx = (int)c;
+              ui->table_state.is_editing_cell = 1;
+            }
+            if (res & (NK_EDIT_COMMITED | NK_EDIT_DEACTIVATED))
+              ui->table_state.is_editing_cell = 0;
+
+            if (is_this_active && strcmp(buf, "") != 0 &&
+                strcmp(buf, val_str) != 0) {
+              aslan_table_set_cell(tbl, (int)c, row_id, buf);
+            }
+            break;
+          }
           default: {
             char buf[256];
             aslan_table_get_cell_display(tbl, (int)c, row_id, buf, sizeof(buf));
@@ -2086,13 +2135,14 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
           nk_popup_close(ctx);
         }
         nk_layout_row_dynamic(ctx, 28, 1);
-        const char *types[] = {"Text", "Number", "Checkbox", "Select",
-                               "Date", "File",   "Link",     "Formula"};
+        const char *types[] = {"Text",  "Number", "Checkbox", "Select", "Date",
+                               "File",  "Image",  "Link",     "Formula","Duration"};
         AslanColumnType type_vals[] = {
-            ASLAN_COL_TEXT,   ASLAN_COL_NUMBER, ASLAN_COL_CHECKBOX,
-            ASLAN_COL_SELECT, ASLAN_COL_DATE,   ASLAN_COL_FILE,
-            ASLAN_COL_IMAGE,  ASLAN_COL_LINK,   ASLAN_COL_FORMULA};
-        for (int i = 0; i < 8; i++) {
+            ASLAN_COL_TEXT,     ASLAN_COL_NUMBER,  ASLAN_COL_CHECKBOX,
+            ASLAN_COL_SELECT,   ASLAN_COL_DATE,    ASLAN_COL_FILE,
+            ASLAN_COL_IMAGE,    ASLAN_COL_LINK,    ASLAN_COL_FORMULA,
+            ASLAN_COL_DURATION};
+        for (int i = 0; i < 10; i++) {
           struct nk_rect item_rect = nk_widget_bounds(ctx);
           if (nk_button_label_styled(ctx, &menu_btn, "")) {
             if (tbl) {
