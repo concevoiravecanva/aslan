@@ -87,10 +87,7 @@ static size_t column_element_size(AslanColumnType type) {
   case ASLAN_COL_SELECT:
     return sizeof(int32_t);
   case ASLAN_COL_DATE:
-  case ASLAN_COL_DURATION:
     return sizeof(int64_t);
-  case ASLAN_COL_RELATION:
-    return sizeof(uint64_t);
   case ASLAN_COL_FORMULA:
     return sizeof(double); // Cached result (C parser)
   case ASLAN_COL_FILE:
@@ -236,8 +233,6 @@ int aslan_table_add_column(AslanTable *table, const char *name,
   col->is_nullable = true;
   col->footer_agg = ASLAN_AGG_NONE;
   col->option_count = 0;
-  col->relation_table_id = 0;
-  col->relation_display_col = -1;
   col->formula = NULL;
 
   // If table already has rows, allocate space
@@ -775,29 +770,6 @@ bool aslan_table_set_date(AslanTable *table, int col_idx, uint64_t row_id,
   return true;
 }
 
-bool aslan_table_set_relation(AslanTable *table, int col_idx, uint64_t row_id,
-                              uint64_t target_row_id) {
-  if (!table || col_idx < 0 || col_idx >= (int)table->column_count)
-    return false;
-  int row_idx = aslan_table_row_index(table, row_id);
-  if (row_idx < 0)
-    return false;
-
-  AslanColumn *col = &table->columns[col_idx];
-  if (col->type != ASLAN_COL_RELATION)
-    return false;
-
-  uint64_t *data = (uint64_t *)col->data;
-  data[row_idx] = target_row_id;
-
-  if (table->log_callback) {
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd), "TABLE_SET_CELL %u %lu %d %lu", table->id,
-             (unsigned long)row_id, col_idx, (unsigned long)target_row_id);
-    table->log_callback(cmd, table->log_userdata);
-  }
-  return true;
-}
 
 bool aslan_table_set_cell(AslanTable *table, int col_idx, uint64_t row_id,
                           const char *value_str) {
@@ -829,27 +801,6 @@ bool aslan_table_set_cell(AslanTable *table, int col_idx, uint64_t row_id,
   case ASLAN_COL_DATE: {
     int64_t ts = value_str ? strtoll(value_str, NULL, 10) : 0;
     return aslan_table_set_date(table, col_idx, row_id, ts);
-  }
-  case ASLAN_COL_RELATION: {
-    uint64_t target = value_str ? strtoull(value_str, NULL, 10) : 0;
-    return aslan_table_set_relation(table, col_idx, row_id, target);
-  }
-  case ASLAN_COL_DURATION: {
-    // Input is days (float), stored as minutes
-    double days = value_str ? strtod(value_str, NULL) : 0.0;
-    int64_t mins = (int64_t)(days * 1440.0 + 0.5);
-    if (mins < 0) mins = 0;
-    int ri = aslan_table_row_index(table, row_id);
-    if (ri < 0) return false;
-    int64_t *data = (int64_t *)col->data;
-    data[ri] = mins;
-    if (table->log_callback) {
-      char cmd[256];
-      snprintf(cmd, sizeof(cmd), "TABLE_SET_CELL %u %lu %d %lld", table->id,
-               (unsigned long)row_id, col_idx, (long long)mins);
-      table->log_callback(cmd, table->log_userdata);
-    }
-    return true;
   }
   case ASLAN_COL_FORMULA:
     return false; // Formulas are read-only
@@ -902,8 +853,7 @@ double aslan_table_get_number(const AslanTable *table, int col_idx,
     const int32_t *data = (const int32_t *)col->data;
     return (double)data[row_idx];
   }
-  case ASLAN_COL_DATE:
-  case ASLAN_COL_DURATION: {
+  case ASLAN_COL_DATE: {
     const int64_t *data = (const int64_t *)col->data;
     return (double)data[row_idx];
   }
@@ -960,39 +910,7 @@ int64_t aslan_table_get_date(const AslanTable *table, int col_idx,
   return data[row_idx];
 }
 
-int64_t aslan_table_get_duration(const AslanTable *table, int col_idx,
-                                 uint64_t row_id) {
-  if (!table || col_idx < 0 || col_idx >= (int)table->column_count)
-    return 0;
-  int row_idx = aslan_table_row_index(table, row_id);
-  if (row_idx < 0)
-    return 0;
 
-  const AslanColumn *col = &table->columns[col_idx];
-  if (col->type != ASLAN_COL_DURATION)
-    return 0;
-
-  const int64_t *data = (const int64_t *)col->data;
-  return data[row_idx];
-}
-
-uint64_t aslan_table_get_relation(const AslanTable *table, int col_idx,
-                                  uint64_t row_id) {
-  if (!table || col_idx < 0 || col_idx >= (int)table->column_count)
-    return 0;
-  int row_idx = aslan_table_row_index(table, row_id);
-  if (row_idx < 0)
-    return 0;
-
-  const AslanColumn *col = &table->columns[col_idx];
-  if (col->type != ASLAN_COL_RELATION)
-    return 0;
-
-  const uint64_t *data = (const uint64_t *)col->data;
-  return data[row_idx];
-}
-
-// Thread-local buffer for display strings
 static __thread char display_buffer[256];
 
 const char *aslan_table_get_cell_display(const AslanTable *table, int col_idx,
@@ -1054,29 +972,6 @@ const char *aslan_table_get_cell_display(const AslanTable *table, int col_idx,
       time_t t = (time_t)(ts / 1000);
       struct tm *tm = localtime(&t);
       strftime(buf, buf_size, "%Y-%m-%d", tm);
-    } else {
-      buf[0] = '\0';
-    }
-    break;
-  }
-  case ASLAN_COL_DURATION: {
-    int64_t mins = ((int64_t *)col->data)[row_idx];
-    if (mins <= 0) { buf[0] = '\0'; break; }
-    double days = mins / 1440.0;
-    if (mins % 1440 == 0)
-      snprintf(buf, buf_size, "%.0fd", days);
-    else if (days >= 1.0)
-      snprintf(buf, buf_size, "%.1fd", days);
-    else if (mins % 60 == 0)
-      snprintf(buf, buf_size, "%lldh", (long long)(mins / 60));
-    else
-      snprintf(buf, buf_size, "%lldm", (long long)mins);
-    break;
-  }
-  case ASLAN_COL_RELATION: {
-    uint64_t target = ((uint64_t *)col->data)[row_idx];
-    if (target > 0) {
-      snprintf(buf, buf_size, "#%lu", (unsigned long)target);
     } else {
       buf[0] = '\0';
     }
@@ -1205,59 +1100,6 @@ uint32_t aslan_table_get_option_color(const AslanTable *table, int col_idx,
   return col->options[option_idx].color;
 }
 
-// -----------------------------------------------------------------------------
-// Relation Column Helpers
-// -----------------------------------------------------------------------------
-
-void aslan_table_set_relation_target(AslanTable *table, int col_idx,
-                                     uint32_t target_table_id,
-                                     int display_col) {
-  if (!table || col_idx < 0 || col_idx >= (int)table->column_count)
-    return;
-
-  AslanColumn *col = &table->columns[col_idx];
-  if (col->type != ASLAN_COL_RELATION)
-    return;
-
-  col->relation_table_id = target_table_id;
-  col->relation_display_col = display_col;
-}
-
-const char *aslan_table_get_relation_display(const AslanTable *table,
-                                             int col_idx, uint64_t row_id,
-                                             const AslanTable *target_table,
-                                             char *buf, size_t buf_size) {
-  if (!buf || buf_size == 0) {
-    buf = display_buffer;
-    buf_size = sizeof(display_buffer);
-  }
-
-  buf[0] = '\0';
-  if (!table || col_idx < 0 || col_idx >= (int)table->column_count)
-    return buf;
-
-  const AslanColumn *col = &table->columns[col_idx];
-  if (col->type != ASLAN_COL_RELATION)
-    return buf;
-
-  uint64_t target_row_id = aslan_table_get_relation(table, col_idx, row_id);
-  if (target_row_id == 0)
-    return buf;
-
-  if (!target_table) {
-    snprintf(buf, buf_size, "#%lu", (unsigned long)target_row_id);
-    return buf;
-  }
-
-  int display_col = col->relation_display_col;
-  if (display_col >= 0 && display_col < (int)target_table->column_count) {
-    return aslan_table_get_cell_display(target_table, display_col,
-                                        target_row_id, buf, buf_size);
-  }
-
-  snprintf(buf, buf_size, "#%lu", (unsigned long)target_row_id);
-  return buf;
-}
 
 // -----------------------------------------------------------------------------
 // Formula Column
@@ -1507,6 +1349,28 @@ static int compare_checkbox(const void *a, const void *b, void *ctx_ptr) {
   return ctx->ascending ? cmp : -cmp;
 }
 
+static int compare_select(const void *a, const void *b, void *ctx_ptr) {
+  const SortContext *ctx = (const SortContext *)ctx_ptr;
+  size_t idx_a = *(const size_t *)a;
+  size_t idx_b = *(const size_t *)b;
+
+  const AslanColumn *col = &ctx->table->columns[ctx->col_idx];
+  const int32_t *data = (const int32_t *)col->data;
+  int32_t opt_a = data[idx_a];
+  int32_t opt_b = data[idx_b];
+
+  // Empty (-1) sorts last
+  if (opt_a < 0 && opt_b < 0) return 0;
+  if (opt_a < 0) return ctx->ascending ? 1 : -1;
+  if (opt_b < 0) return ctx->ascending ? -1 : 1;
+
+  // Sort by option label alphabetically
+  const char *la = (opt_a < col->option_count) ? col->options[opt_a].label : "";
+  const char *lb = (opt_b < col->option_count) ? col->options[opt_b].label : "";
+  int cmp = strcmp(la, lb);
+  return ctx->ascending ? cmp : -cmp;
+}
+
 #if defined(__APPLE__)
 static int compare_wrapper_number(void *ctx, const void *a, const void *b) {
   return compare_number(a, b, ctx);
@@ -1520,9 +1384,11 @@ static int compare_wrapper_date(void *ctx, const void *a, const void *b) {
 static int compare_wrapper_checkbox(void *ctx, const void *a, const void *b) {
   return compare_checkbox(a, b, ctx);
 }
+static int compare_wrapper_select(void *ctx, const void *a, const void *b) {
+  return compare_select(a, b, ctx);
+}
 #endif
 
-// DURATION reuses compare_date (same int64_t storage, same comparison logic)
 
 void aslan_table_sort(AslanTable *table, int col_idx, bool ascending) {
   if (!table || col_idx < 0 || col_idx >= (int)table->column_count)
@@ -1563,8 +1429,6 @@ void aslan_table_sort(AslanTable *table, int col_idx, bool ascending) {
             compare_wrapper_text);
     break;
   case ASLAN_COL_DATE:
-  case ASLAN_COL_DURATION:
-  case ASLAN_COL_RELATION:
     qsort_r(table->view_index, view_count, sizeof(size_t), &ctx,
             compare_wrapper_date);
     break;
@@ -1574,7 +1438,7 @@ void aslan_table_sort(AslanTable *table, int col_idx, bool ascending) {
     break;
   case ASLAN_COL_SELECT:
     qsort_r(table->view_index, view_count, sizeof(size_t), &ctx,
-            compare_wrapper_date);
+            compare_wrapper_select);
     break;
   default:
     break;
@@ -1593,8 +1457,6 @@ void aslan_table_sort(AslanTable *table, int col_idx, bool ascending) {
     qsort_r(table->view_index, view_count, sizeof(size_t), compare_text, &ctx);
     break;
   case ASLAN_COL_DATE:
-  case ASLAN_COL_DURATION:
-  case ASLAN_COL_RELATION:
     qsort_r(table->view_index, view_count, sizeof(size_t), compare_date, &ctx);
     break;
   case ASLAN_COL_CHECKBOX:
@@ -1602,7 +1464,7 @@ void aslan_table_sort(AslanTable *table, int col_idx, bool ascending) {
             &ctx);
     break;
   case ASLAN_COL_SELECT:
-    qsort_r(table->view_index, view_count, sizeof(size_t), compare_date, &ctx);
+    qsort_r(table->view_index, view_count, sizeof(size_t), compare_select, &ctx);
     break;
   default:
     break;
@@ -1949,10 +1811,6 @@ static const char *column_type_name(AslanColumnType type) {
     return "SEL";
   case ASLAN_COL_DATE:
     return "DATE";
-  case ASLAN_COL_DURATION:
-    return "DUR";
-  case ASLAN_COL_RELATION:
-    return "REL";
   case ASLAN_COL_FORMULA:
     return "CALC";
   default:

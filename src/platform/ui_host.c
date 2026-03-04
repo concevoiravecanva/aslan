@@ -56,7 +56,7 @@ int open_image_file_dialog(char *out_path, size_t path_size) {
 }
 
 // Opens a native file dialog to select a CSV file for import
-static int open_csv_file_dialog(char *out_path, size_t path_size) {
+int open_csv_file_dialog(char *out_path, size_t path_size) {
   const char *script =
       "osascript -e 'set theFile to choose file of type "
       "{\"public.comma-separated-values-text\", \"public.text\"} "

@@ -36,12 +36,10 @@ typedef enum {
   ASLAN_COL_CHECKBOX, // uint8_t - Done/Not done, Paid/Unpaid
   ASLAN_COL_SELECT,   // int32_t - Index into options array (categories)
   ASLAN_COL_DATE,     // int64_t - Unix timestamp (for timeline linking)
-  ASLAN_COL_RELATION, // uint64_t - Row ID reference (same or other table)
   ASLAN_COL_FORMULA,  // double - C shunting-yard parser (simple math)
   ASLAN_COL_FILE,     // char* - Path to a local file
   ASLAN_COL_LINK,     // char* - URL/Link (Label|URL)
   ASLAN_COL_IMAGE,    // char* - Path to an image in assets/
-  ASLAN_COL_DURATION, // int64_t - Duration in minutes (input: days, e.g. 4 = 4 days)
   ASLAN_COL_TYPE_COUNT
 } AslanColumnType;
 
@@ -96,10 +94,6 @@ typedef struct {
   // For SELECT columns: dropdown options
   AslanSelectOption options[ASLAN_MAX_SELECT_OPTIONS];
   int option_count;
-
-  // For RELATION columns: target table info
-  uint32_t relation_table_id; // Target table ID (0 = same table)
-  int relation_display_col;   // Column to display from target (-1 = row ID)
 
   // For FORMULA columns: expression
   char *formula; // C formula: "[Price] * 1.20"
@@ -238,9 +232,6 @@ bool aslan_table_set_select(AslanTable *table, int col_idx, uint64_t row_id,
                             int option_idx);
 bool aslan_table_set_date(AslanTable *table, int col_idx, uint64_t row_id,
                           int64_t timestamp_ms);
-bool aslan_table_set_relation(AslanTable *table, int col_idx, uint64_t row_id,
-                              uint64_t target_row_id);
-
 // Generic setter (auto-converts based on column type)
 bool aslan_table_set_cell(AslanTable *table, int col_idx, uint64_t row_id,
                           const char *value_str);
@@ -259,11 +250,6 @@ int aslan_table_get_select(const AslanTable *table, int col_idx,
                            uint64_t row_id);
 int64_t aslan_table_get_date(const AslanTable *table, int col_idx,
                              uint64_t row_id);
-int64_t aslan_table_get_duration(const AslanTable *table, int col_idx,
-                                 uint64_t row_id);
-uint64_t aslan_table_get_relation(const AslanTable *table, int col_idx,
-                                  uint64_t row_id);
-
 // Get cell as string (for display)
 const char *aslan_table_get_cell_display(const AslanTable *table, int col_idx,
                                          uint64_t row_id, char *buf,
@@ -295,20 +281,6 @@ uint32_t aslan_table_get_option_color(const AslanTable *table, int col_idx,
 // Set option color by index
 bool aslan_table_set_option_color(AslanTable *table, int col_idx,
                                   int option_idx, uint32_t color);
-
-// -----------------------------------------------------------------------------
-// Relation Column Helpers
-// -----------------------------------------------------------------------------
-
-// Set relation target table (0 = same table)
-void aslan_table_set_relation_target(AslanTable *table, int col_idx,
-                                     uint32_t target_table_id, int display_col);
-
-// Get display value for a relation (looks up target row)
-const char *aslan_table_get_relation_display(const AslanTable *table,
-                                             int col_idx, uint64_t row_id,
-                                             const AslanTable *target_table,
-                                             char *buf, size_t buf_size);
 
 // Formula Column (C parser)
 // -----------------------------------------------------------------------------
