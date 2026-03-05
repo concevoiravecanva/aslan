@@ -174,6 +174,130 @@ static void fill_rounded_polygon(struct nk_command_buffer *canvas,
     nk_fill_polygon(canvas, out_pts, out_count, col);
 }
 
+// Proper thick polygon stroke: each edge as a filled quad + round cap at every
+// vertex. Eliminates the gap/overlap artifacts of nk_stroke_polygon at large
+// thicknesses. pts = interleaved x0,y0,x1,y1,... , count = vertex count.
+static void draw_thick_polygon_stroke(struct nk_command_buffer *canvas,
+                                      const float *pts, int count,
+                                      float thickness, struct nk_color col) {
+  if (count < 2 || thickness < 0.5f) {
+    nk_stroke_polygon(canvas, pts, count, thickness, col);
+    return;
+  }
+  float r = thickness / 2.0f;
+  for (int i = 0; i < count; i++) {
+    float x1 = pts[i * 2];
+    float y1 = pts[i * 2 + 1];
+    float x2 = pts[((i + 1) % count) * 2];
+    float y2 = pts[((i + 1) % count) * 2 + 1];
+    float dx = x2 - x1, dy = y2 - y1;
+    float len = sqrtf(dx * dx + dy * dy);
+    if (len < 0.001f) continue;
+    float nx = -dy / len * r, ny = dx / len * r;
+    float quad[8] = {x1 + nx, y1 + ny, x2 + nx, y2 + ny,
+                     x2 - nx, y2 - ny, x1 - nx, y1 - ny};
+    nk_fill_polygon(canvas, quad, 4, col);
+    nk_fill_circle(canvas, nk_rect(x1 - r, y1 - r, r * 2, r * 2), col);
+  }
+}
+
+// nk_vec2 variant
+static void draw_thick_polygon_stroke_v(struct nk_command_buffer *canvas,
+                                        const struct nk_vec2 *pts, int count,
+                                        float thickness, struct nk_color col) {
+  float flat[128];
+  int n = (count < 64) ? count : 64;
+  for (int i = 0; i < n; i++) {
+    flat[i * 2] = pts[i].x;
+    flat[i * 2 + 1] = pts[i].y;
+  }
+  draw_thick_polygon_stroke(canvas, flat, n, thickness, col);
+}
+
+// Rounded rect as single polygon — avoids alpha seam artifacts from overlapping
+// primitives when opacity < 1.  12 segments per quarter arc = 48 total points.
+static void gen_rounded_rect_polygon(struct nk_rect r, float cr,
+                                     float *pts, int *out_count) {
+  float max_cr = (r.w < r.h ? r.w : r.h) * 0.5f;
+  if (cr > max_cr) cr = max_cr;
+  const int segs = 12;
+  const float step = 1.5707963f / segs; // PI/2 / segs
+  int n = 0;
+  float ax, ay, t;
+  // TL: 180° → 270°
+  ax = r.x + cr; ay = r.y + cr;
+  for (int i = 0; i < segs; i++) { t = 3.14159265f + i * step; pts[n++] = ax + cosf(t)*cr; pts[n++] = ay + sinf(t)*cr; }
+  // TR: 270° → 360°
+  ax = r.x + r.w - cr; ay = r.y + cr;
+  for (int i = 0; i < segs; i++) { t = 4.71238898f + i * step; pts[n++] = ax + cosf(t)*cr; pts[n++] = ay + sinf(t)*cr; }
+  // BR: 0° → 90°
+  ax = r.x + r.w - cr; ay = r.y + r.h - cr;
+  for (int i = 0; i < segs; i++) { t = i * step; pts[n++] = ax + cosf(t)*cr; pts[n++] = ay + sinf(t)*cr; }
+  // BL: 90° → 180°
+  ax = r.x + cr; ay = r.y + r.h - cr;
+  for (int i = 0; i < segs; i++) { t = 1.5707963f + i * step; pts[n++] = ax + cosf(t)*cr; pts[n++] = ay + sinf(t)*cr; }
+  *out_count = segs * 4;
+}
+
+static void fill_smooth_rounded_rect(struct nk_command_buffer *canvas,
+                                     struct nk_rect r, float cr,
+                                     struct nk_color col) {
+  if (cr < 0.5f) { nk_fill_rect(canvas, r, 0, col); return; }
+  float pts[48 * 2]; int count;
+  gen_rounded_rect_polygon(r, cr, pts, &count);
+  nk_fill_polygon(canvas, pts, count, col);
+}
+
+static void stroke_smooth_rounded_rect(struct nk_command_buffer *canvas,
+                                       struct nk_rect r, float cr,
+                                       float thickness, struct nk_color col) {
+  if (cr < 0.5f) { nk_stroke_rect(canvas, r, 0, thickness, col); return; }
+  float pts[48 * 2]; int count;
+  gen_rounded_rect_polygon(r, cr, pts, &count);
+  if (thickness < 1.5f)
+    nk_stroke_polygon(canvas, pts, count, thickness, col);
+  else
+    draw_thick_polygon_stroke(canvas, pts, count, thickness, col);
+}
+
+// Linear interpolation between two colors
+static struct nk_color lerp_color(struct nk_color a, struct nk_color b, float t) {
+  if (t < 0.0f) t = 0.0f;
+  if (t > 1.0f) t = 1.0f;
+  return nk_rgba((int)(a.r + (b.r - a.r) * t), (int)(a.g + (b.g - a.g) * t),
+                 (int)(a.b + (b.b - a.b) * t), (int)(a.a + (b.a - a.a) * t));
+}
+
+// Gradient-filled rounded rect at any angle (0=left→right, 90=top→bottom).
+// Uses horizontal strips to support corner_radius correctly.
+// nk_fill_rect_multi_color corner mapping: left=TL, top=TR, right=BR, bottom=BL
+static void fill_gradient_rounded_rect(struct nk_command_buffer *canvas,
+                                       struct nk_rect r, float cr,
+                                       struct nk_color c1, struct nk_color c2,
+                                       float angle_deg) {
+  float rad = angle_deg * 3.14159265f / 180.0f;
+  float gx = cosf(rad), gy = sinf(rad);
+  float hw = r.w * 0.5f, hh = r.h * 0.5f;
+  float cx_r = r.x + hw, cy_r = r.y + hh;
+  (void)cx_r; (void)cy_r;
+
+  // Project all 4 corners onto gradient axis to find t range
+  float p_tl = -hw * gx - hh * gy, p_tr = hw * gx - hh * gy;
+  float p_br =  hw * gx + hh * gy, p_bl = -hw * gx + hh * gy;
+  float lo = p_tl, hi = p_tl;
+  if (p_tr < lo) lo = p_tr; if (p_tr > hi) hi = p_tr;
+  if (p_br < lo) lo = p_br; if (p_br > hi) hi = p_br;
+  if (p_bl < lo) lo = p_bl; if (p_bl > hi) hi = p_bl;
+  float range = (hi - lo > 0.001f) ? (hi - lo) : 0.001f;
+
+  nk_fill_rect_multi_color(canvas, r,
+      lerp_color(c1, c2, (p_tl - lo) / range),  // left  = TL
+      lerp_color(c1, c2, (p_tr - lo) / range),  // top   = TR
+      lerp_color(c1, c2, (p_br - lo) / range),  // right = BR
+      lerp_color(c1, c2, (p_bl - lo) / range)); // bottom= BL
+  (void)cr;
+}
+
 // =============================================================================
 // DESIGN SIDEBAR — Properties | Layers | Page
 // =============================================================================
@@ -1217,10 +1341,10 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     if (b > 0) {
       struct nk_rect srb =
           nk_rect(sh_x - b / 2, sh_y - b / 2, nr.w + b, nr.h + b);
-      nk_fill_rect(canvas_buf, srb, (node->corner_radius + b / 2) * scale,
-                   nk_rgba(sh_col.r, sh_col.g, sh_col.b, sh_col.a / 2));
+      fill_smooth_rounded_rect(canvas_buf, srb, (node->corner_radius + b / 2) * scale,
+                               nk_rgba(sh_col.r, sh_col.g, sh_col.b, sh_col.a / 2));
     }
-    nk_fill_rect(canvas_buf, sr, node->corner_radius * scale, sh_col);
+    fill_smooth_rounded_rect(canvas_buf, sr, node->corner_radius * scale, sh_col);
   }
   struct nk_color fill =
       nk_rgba((f32 >> 24) & 0xFF, (f32 >> 16) & 0xFF, (f32 >> 8) & 0xFF,
@@ -1422,13 +1546,12 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
       nk_fill_rect(canvas_buf, nr, 0, nk_rgb(200, 200, 200));
     }
     if (node->stroke_width > 0)
-      nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale,
-                     node->stroke_width * scale, stroke);
+      stroke_smooth_rounded_rect(canvas_buf, nr, node->corner_radius * scale,
+                                 node->stroke_width * scale, stroke);
   } else if (node->type == NODE_TYPE_RECT) {
     if (node->is_container && !node->image_path[0]) {
       struct nk_color cst = nk_rgba(0, 0, 0, 25); // Subtle grey border
-      nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale, 1.0f, cst);
-      nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale, 1.0f, cst);
+      stroke_smooth_rounded_rect(canvas_buf, nr, node->corner_radius * scale, 1.0f, cst);
       if (ui->font_icons) {
         struct nk_rect ir =
             nk_rect(nr.x + nr.w / 2 - 10, nr.y + nr.h / 2 - 10, 20, 20);
@@ -1451,10 +1574,10 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
                       (node->fill_color_2 >> 16) & 0xFF,
                       (node->fill_color_2 >> 8) & 0xFF,
                       (int)((node->fill_color_2 & 0xFF) * opacity));
-          nk_fill_rect_multi_color(canvas_buf, nr, fill, fill, fill2,
-                                   fill2); // simplistic projection
+          fill_gradient_rounded_rect(canvas_buf, nr, 0,
+                                     fill, fill2, node->gradient_angle);
         } else {
-          nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, fill);
+          fill_smooth_rounded_rect(canvas_buf, nr, node->corner_radius * scale, fill);
         }
       }
     }
@@ -1465,8 +1588,8 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
             node->rotation * 3.14159f / 180.0f, node->corner_radius * scale,
             stroke, 1, node->stroke_width * scale);
       } else {
-        nk_stroke_rect(canvas_buf, nr, node->corner_radius * scale,
-                       node->stroke_width, stroke);
+        stroke_smooth_rounded_rect(canvas_buf, nr, node->corner_radius * scale,
+                                   node->stroke_width, stroke);
       }
     }
 
@@ -1728,12 +1851,35 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
       if (!drawn_image && has_fill)
         nk_fill_polygon(canvas_buf, pts, 64, fill);
       if (node->stroke_width > 0)
-        nk_stroke_polygon(canvas_buf, pts, 64, node->stroke_width, stroke);
+        draw_thick_polygon_stroke(canvas_buf, pts, 64, node->stroke_width,
+                                  stroke);
     } else {
-      if (!drawn_image && has_fill)
-        nk_fill_circle(canvas_buf, nr, fill);
-      if (node->stroke_width > 0)
-        nk_stroke_circle(canvas_buf, nr, node->stroke_width, stroke);
+      if (node->stroke_width > 0 && has_fill) {
+        // Ring technique: outer filled circle (stroke color), inner (fill)
+        float hsw = node->stroke_width / 2.0f;
+        struct nk_rect outer =
+            nk_rect(nr.x - hsw, nr.y - hsw, nr.w + node->stroke_width,
+                    nr.h + node->stroke_width);
+        nk_fill_circle(canvas_buf, outer, stroke);
+        if (!drawn_image)
+          nk_fill_circle(canvas_buf, nr, fill);
+      } else {
+        if (!drawn_image && has_fill)
+          nk_fill_circle(canvas_buf, nr, fill);
+        if (node->stroke_width > 0) {
+          // No fill: generate 64-pt polygon and use thick stroke
+          float ecx = nr.x + nr.w / 2.0f, ecy = nr.y + nr.h / 2.0f;
+          float ehw = nr.w / 2.0f, ehh = nr.h / 2.0f;
+          float epts[128];
+          for (int i = 0; i < 64; i++) {
+            float th = i * 2.0f * 3.14159f / 64.0f;
+            epts[i * 2] = ecx + cosf(th) * ehw;
+            epts[i * 2 + 1] = ecy + sinf(th) * ehh;
+          }
+          draw_thick_polygon_stroke(canvas_buf, epts, 64, node->stroke_width,
+                                    stroke);
+        }
+      }
     }
   } else if (node->type == NODE_TYPE_TRIANGLE) {
     if (node->is_container && !node->image_path[0]) {
@@ -1764,8 +1910,8 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
       fill_rounded_polygon(canvas_buf, pts, 3, node->corner_radius * scale,
                            fill, 0, 0);
     if (node->stroke_width > 0)
-      fill_rounded_polygon(canvas_buf, pts, 3, node->corner_radius * scale,
-                           stroke, 1, node->stroke_width);
+      draw_thick_polygon_stroke_v(canvas_buf, pts, 3, node->stroke_width,
+                                  stroke);
   } else if (node->type == NODE_TYPE_PENTAGON) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;
@@ -1783,8 +1929,8 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
       fill_rounded_polygon(canvas_buf, pts, 5, node->corner_radius * scale,
                            fill, 0, 0);
     if (node->stroke_width > 0)
-      fill_rounded_polygon(canvas_buf, pts, 5, node->corner_radius * scale,
-                           stroke, 1, node->stroke_width);
+      draw_thick_polygon_stroke_v(canvas_buf, pts, 5, node->stroke_width,
+                                  stroke);
   } else if (node->type == NODE_TYPE_HEXAGON) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;
@@ -1802,8 +1948,8 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
       fill_rounded_polygon(canvas_buf, pts, 6, node->corner_radius * scale,
                            fill, 0, 0);
     if (node->stroke_width > 0)
-      fill_rounded_polygon(canvas_buf, pts, 6, node->corner_radius * scale,
-                           stroke, 1, node->stroke_width);
+      draw_thick_polygon_stroke_v(canvas_buf, pts, 6, node->stroke_width,
+                                  stroke);
   } else if (node->type == NODE_TYPE_OCTAGON) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;
@@ -1821,8 +1967,8 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
       fill_rounded_polygon(canvas_buf, pts, 8, node->corner_radius * scale,
                            fill, 0, 0);
     if (node->stroke_width > 0)
-      fill_rounded_polygon(canvas_buf, pts, 8, node->corner_radius * scale,
-                           stroke, 1, node->stroke_width);
+      draw_thick_polygon_stroke_v(canvas_buf, pts, 8, node->stroke_width,
+                                  stroke);
   } else if (node->type == NODE_TYPE_STAR) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;
@@ -1875,10 +2021,10 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
             (node->fill_color_2 >> 24) & 0xFF,
             (node->fill_color_2 >> 16) & 0xFF, (node->fill_color_2 >> 8) & 0xFF,
             (int)((node->fill_color_2 & 0xFF) * opacity));
-        nk_fill_rect_multi_color(canvas_buf, nr, fill, fill, fill2,
-                                 fill2); // simplistic projection
+        fill_gradient_rounded_rect(canvas_buf, nr, 0,
+                                   fill, fill2, node->gradient_angle);
       } else {
-        nk_fill_rect(canvas_buf, nr, node->corner_radius * scale, fill);
+        fill_smooth_rounded_rect(canvas_buf, nr, node->corner_radius * scale, fill);
       }
     }
 
