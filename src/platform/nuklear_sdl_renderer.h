@@ -131,9 +131,9 @@ NK_API void nk_sdl_render(enum nk_anti_aliasing AA) {
     config.vertex_size = sizeof(struct nk_sdl_vertex);
     config.vertex_alignment = NK_ALIGNOF(struct nk_sdl_vertex);
     config.tex_null = dev->tex_null;
-    config.circle_segment_count = 22;
-    config.curve_segment_count = 22;
-    config.arc_segment_count = 22;
+    config.circle_segment_count = 64;
+    config.curve_segment_count = 64;
+    config.arc_segment_count = 64;
     config.global_alpha = 1.0f;
     config.shape_AA = AA;
     config.line_AA = AA;

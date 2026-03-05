@@ -551,78 +551,31 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
       } else {
         Node *node = ui->selected_node;
 
-        // ── TRANSFORM ────────────────────────────────────────────────────
-        ds_section(ctx, "TRANSFORM");
-        nk_layout_row_dynamic(ctx, 24, 2);
-        nk_property_float(ctx, "X:", -10000.f, &node->x, 10000.f, 1.f, 0.5f);
-        nk_property_float(ctx, "Y:", -10000.f, &node->y, 10000.f, 1.f, 0.5f);
-        nk_layout_row_dynamic(ctx, 24, 2);
-        float old_w = node->width;
-        float old_h = node->height;
-        nk_property_float(ctx, "W:", 1.f, &node->width, 10000.f, 1.f, 0.5f);
-        nk_property_float(ctx, "H:", 1.f, &node->height, 10000.f, 1.f, 0.5f);
-
-        // Aspect Ratio Lock Logic
-        if (node->lock_ratio && (old_w > 0 && old_h > 0)) {
-          if (node->width != old_w) {
-            node->height = (node->width / old_w) * old_h;
-          } else if (node->height != old_h) {
-            node->width = (node->height / old_h) * old_w;
-          }
-        }
-
-        nk_layout_row_dynamic(ctx, 24, 2);
-        nk_property_float(ctx, "Rotation:", -360.f, &node->rotation, 360.f, 1.f,
-                          0.5f);
-        nk_checkbox_label(ctx, "Lock Ratio", &node->lock_ratio);
-
-        // Alignment Buttons
-        nk_layout_row_dynamic(ctx, 24, 3);
-        if (nk_button_label(ctx, "L-Align")) {
-          node->x = 0;
-        }
-        if (nk_button_label(ctx, "C-Align")) {
-          node->x = (800.0f - node->width) / 2.0f; // Approx artboard width
-        }
-        if (nk_button_label(ctx, "R-Align")) {
-          node->x = 800.0f - node->width;
-        }
-        nk_layout_row_dynamic(ctx, 24, 3);
-        if (nk_button_label(ctx, "T-Align")) {
-          node->y = 0;
-        }
-        if (nk_button_label(ctx, "M-Align")) {
-          node->y = (600.0f - node->height) / 2.0f; // Approx artboard height
-        }
-        if (nk_button_label(ctx, "B-Align")) {
-          node->y = 600.0f - node->height;
-        }
-
         // ── APPEARANCE ───────────────────────────────────────────────────
         ds_section(ctx, "APPEARANCE");
+        nk_layout_row_dynamic(ctx, 24, 1);
+        nk_checkbox_label(ctx, "Lock Ratio", &node->lock_ratio);
 
         // Shape type selection
         const char *shape_labels[] = {"Rectangle", "Ellipse", "Triangle",
                                       "Pentagon",  "Hexagon", "Octagon",
-                                      "Star",      "Heart",   "Text",
-                                      "Line",      "Image"};
+                                      "Line"};
         NodeType shape_types[] = {
             NODE_TYPE_RECT,     NODE_TYPE_ELLIPSE, NODE_TYPE_TRIANGLE,
             NODE_TYPE_PENTAGON, NODE_TYPE_HEXAGON, NODE_TYPE_OCTAGON,
-            NODE_TYPE_STAR,     NODE_TYPE_HEART,   NODE_TYPE_TEXT,
-            NODE_TYPE_LINE,     NODE_TYPE_IMAGE};
+            NODE_TYPE_LINE};
         int cur_shape = -1;
-        for (int i = 0; i < 11; i++) {
+        for (int i = 0; i < 7; i++) {
           if (node->type == shape_types[i]) {
             cur_shape = i;
             break;
           }
         }
         nk_layout_row_dynamic(ctx, 24, 1);
-        if (cur_shape < 0 || cur_shape >= 11)
+        if (cur_shape < 0 || cur_shape >= 7)
           cur_shape = 0;
         int new_shape =
-            nk_combo(ctx, shape_labels, 11, cur_shape, 24, nk_vec2(220, 300));
+            nk_combo(ctx, shape_labels, 7, cur_shape, 24, nk_vec2(220, 220));
         if (new_shape != cur_shape && new_shape >= 0) {
           node->type = shape_types[new_shape];
         }
@@ -657,24 +610,6 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         nk_layout_row_dynamic(ctx, 24, 1);
         nk_property_float(ctx, "Opacity %:", 0.f, &node->opacity, 1.0f, 0.01f,
                           0.005f);
-
-        // ── SHADOW ───────────────────────────────────────────────────────
-        if (node->type != NODE_TYPE_TEXT || node->font_type != 4) {
-          ds_section(ctx, "SHADOW");
-          nk_layout_row_dynamic(ctx, 24, 1);
-          nk_checkbox_label(ctx, "Drop Shadow", &node->has_shadow);
-          if (node->has_shadow) {
-            ds_color(ctx, "Shadow Color", &node->shadow_color);
-            nk_layout_row_dynamic(ctx, 24, 2);
-            nk_property_float(ctx, "Offset X:", -50.f, &node->shadow_offset_x,
-                              50.f, 1.f, 0.5f);
-            nk_property_float(ctx, "Offset Y:", -50.f, &node->shadow_offset_y,
-                              50.f, 1.f, 0.5f);
-            nk_layout_row_dynamic(ctx, 24, 1);
-            nk_property_float(ctx, "Blur:", 0.f, &node->shadow_blur, 100.f, 1.f,
-                              0.5f);
-          }
-        }
 
         // ── CONTAINER ────────────────────────────────────────────────────
         if (node->type != NODE_TYPE_TEXT || node->font_type != 4) {
@@ -1244,9 +1179,21 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     float rad_h = node->rotation * 3.14159f / 180.0f;
     float cx_h = sx + sw / 2.0f;
     float cy_h = sy + sh / 2.0f;
-    fill_rotated_rounded_rect(canvas_buf, cx_h, cy_h, sw + 2, sh + 2, rad_h,
-                              node->corner_radius * scale, highlight_col, 1,
-                              2.0f);
+    if (node->type == NODE_TYPE_ELLIPSE) {
+      nk_stroke_circle(canvas_buf,
+                       nk_rect(sx - 2, sy - 2, sw + 4, sh + 4),
+                       2.0f, highlight_col);
+    } else if (node->type == NODE_TYPE_RECT || node->type == NODE_TYPE_TEXT ||
+               node->type == NODE_TYPE_IMAGE || node->type == NODE_TYPE_LINE) {
+      fill_rotated_rounded_rect(canvas_buf, cx_h, cy_h, sw + 2, sh + 2, rad_h,
+                                node->corner_radius * scale, highlight_col, 1,
+                                2.0f);
+    } else {
+      // Polygon shapes (triangle, pentagon, hexagon, octagon): rect outline
+      // is acceptable as bounding box indicator
+      fill_rotated_rounded_rect(canvas_buf, cx_h, cy_h, sw + 2, sh + 2, rad_h,
+                                0, highlight_col, 1, 2.0f);
+    }
   }
 
   if (node->is_container && node->clip_content) {
@@ -1770,18 +1717,18 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
       float cy = nr.y + nr.h / 2.0f;
       float hw = nr.w / 2.0f;
       float hh = nr.h / 2.0f;
-      float pts[64];
-      for (int i = 0; i < 32; i++) {
-        float th = i * 2.0f * 3.14159f / 32.0f;
+      float pts[128];
+      for (int i = 0; i < 64; i++) {
+        float th = i * 2.0f * 3.14159f / 64.0f;
         float ex = cosf(th) * hw;
         float ey = sinf(th) * hh;
         pts[i * 2] = cx + ex * c - ey * s;
         pts[i * 2 + 1] = cy + ex * s + ey * c;
       }
       if (!drawn_image && has_fill)
-        nk_fill_polygon(canvas_buf, pts, 32, fill);
+        nk_fill_polygon(canvas_buf, pts, 64, fill);
       if (node->stroke_width > 0)
-        nk_stroke_polygon(canvas_buf, pts, 32, node->stroke_width, stroke);
+        nk_stroke_polygon(canvas_buf, pts, 64, node->stroke_width, stroke);
     } else {
       if (!drawn_image && has_fill)
         nk_fill_circle(canvas_buf, nr, fill);
@@ -2820,6 +2767,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
 
       // --- Render nodes ---
       if (dd->root) {
+        ui->hovered_node_id = 0; // Reset each frame so hover doesn't persist
         for (Node *node = dd->root->first_child; node;
              node = node->next_sibling) {
           ui_render_node_tree(ui, ctx, engine, block, dd, canvas_buf, node,
