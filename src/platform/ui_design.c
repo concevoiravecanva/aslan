@@ -381,28 +381,8 @@ static void design_insert_tableau_layout(DesignData *dd) {
     }
   }
 
-  // ── Chart node below table ─────────────────────────────────────────────────
-  float chart_y = tbl_y + tbl_h + pad;
-  float chart_h = h - chart_y - pad;
-  if (chart_h < 80.0f) chart_h = 80.0f;
-
-  Node *chart_node = node_create(dd->next_node_id++, NODE_TYPE_CHART, "Chart");
-  if (chart_node) {
-    chart_node->x       = tbl_x;
-    chart_node->y       = chart_y;
-    chart_node->width   = col_w;
-    chart_node->height  = chart_h;
-    chart_node->visible = 1;
-    chart_node->parent  = dd->root;
-
-    Node *last = dd->root->first_child;
-    if (!last) {
-      dd->root->first_child = chart_node;
-    } else {
-      while (last->next_sibling) last = last->next_sibling;
-      last->next_sibling = chart_node;
-    }
-  }
+  // Table only — no chart
+  (void)h;
 }
 
 #if 0
@@ -3466,11 +3446,14 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
             if (!ui->editing_node &&
                 !(ds->is_cropping && hit->type == NODE_TYPE_IMAGE)) {
               ui->selected_node = hit;
-              ds->is_dragging_node = 1;
-              ds->drag_offset_x = design_x - hit->x;
-              ds->drag_offset_y = design_y - hit->y;
-              ds->drag_press_x = ui->mouse_x;
-              ds->drag_press_y = ui->mouse_y;
+              // In bezier mode, only select — don't drag so handles take priority
+              if (!ds->bezier_mode) {
+                ds->is_dragging_node = 1;
+                ds->drag_offset_x = design_x - hit->x;
+                ds->drag_offset_y = design_y - hit->y;
+                ds->drag_press_x = ui->mouse_x;
+                ds->drag_press_y = ui->mouse_y;
+              }
             }
           }
         } else {

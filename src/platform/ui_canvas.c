@@ -2017,6 +2017,7 @@ void node_convert_to_path(Node *node) {
       free(node->path_points);
     node->path_points = pts;
     node->path_point_count = count;
+    node->type = NODE_TYPE_PATH;  // must be set so bezier handles activate
   }
 }
 
