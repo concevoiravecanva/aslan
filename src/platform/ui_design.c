@@ -762,22 +762,49 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
 
         // ── IMAGE CROP ───────────────────────────────────────────────────
         if (node->type == NODE_TYPE_IMAGE && node->image_path[0]) {
-          ds_section(ctx, "IMAGE CROP");
-          nk_layout_row_dynamic(ctx, 24, 1);
+          ds_section(ctx, "IMAGE");
+          DesignInteraction *ds_img = &ui->design_state;
+          int is_crop_active = ds_img->is_cropping &&
+                               ui->selected_node == node;
+          nk_layout_row_template_begin(ctx, 28);
+          nk_layout_row_template_push_static(ctx, 32.0f); // crop icon btn
+          nk_layout_row_template_push_dynamic(ctx);       // scale
+          nk_layout_row_template_end(ctx);
+
+          // Crop toggle button
+          {
+            struct nk_style_button cb = ctx->style.button;
+            cb.rounding = 4.0f;
+            if (is_crop_active) {
+              cb.normal = cb.hover = cb.active =
+                  nk_style_item_color(COLOR_ACCENT);
+              cb.text_normal = cb.text_hover = cb.text_active =
+                  nk_rgb(255, 255, 255);
+            } else {
+              cb.normal = nk_style_item_color(nk_rgba(0,0,0,0));
+              cb.hover  = nk_style_item_color(nk_rgba(0,0,0,12));
+              cb.text_normal = cb.text_hover = cb.text_active = COLOR_ACCENT;
+              cb.border_color = COLOR_ACCENT;
+            }
+            if (ui->font_icons)
+              nk_style_set_font(ctx, &ui->font_icons->handle);
+            if (nk_button_label_styled(ctx, &cb, "\xEE\xB0\x82")) {
+              if (is_crop_active) {
+                ds_img->is_cropping = 0;
+              } else {
+                ds_img->is_cropping = 1;
+                ds_img->crop_start_x = 0;
+                ds_img->crop_start_y = 0;
+                ds_img->crop_start_node_x = node->image_crop_x;
+                ds_img->crop_start_node_y = node->image_crop_y;
+              }
+            }
+            if (ui->font_inter)
+              nk_style_set_font(ctx, &ui->font_inter->handle);
+          }
+
           nk_property_float(ctx, "Scale:", 0.1f, &node->image_scale, 10.0f,
                             0.1f, 0.05f);
-          nk_layout_row_dynamic(ctx, 24, 2);
-          nk_property_float(ctx, "Off X:", -2000.f, &node->image_crop_x, 2000.f,
-                            5.f, 1.f);
-          nk_property_float(ctx, "Off Y:", -2000.f, &node->image_crop_y, 2000.f,
-                            5.f, 1.f);
-
-          nk_layout_row_dynamic(ctx, 24, 1);
-          if (nk_button_label(ctx, "Reset Crop")) {
-            node->image_scale = 1.0f;
-            node->image_crop_x = 0.0f;
-            node->image_crop_y = 0.0f;
-          }
         }
 
         // ── LAYERS ───────────────────────────────────────────────────────
@@ -3351,7 +3378,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                 ui->edit_buffer[sizeof(ui->edit_buffer) - 1] = '\0';
               }
             }
-            if (!ui->editing_node && !ds->is_cropping) {
+            if (!ui->editing_node &&
+                !(ds->is_cropping && hit->type == NODE_TYPE_IMAGE)) {
               ui->selected_node = hit;
               ds->is_dragging_node = 1;
               ds->drag_offset_x = design_x - hit->x;
@@ -3381,19 +3409,25 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
       }
 
-      // Handle image cropping dragging
+      // Handle image cropping dragging (active until user clicks crop btn again)
       if (ds->is_cropping && ui->selected_node &&
           ui->selected_node->type == NODE_TYPE_IMAGE && is_active_design) {
         Node *sel = ui->selected_node;
-        float dx = (ui->mouse_x - ds->crop_start_x) / scale;
-        float dy = (ui->mouse_y - ds->crop_start_y) / scale;
-
-        sel->image_crop_x = ds->crop_start_node_x + dx;
-        sel->image_crop_y = ds->crop_start_node_y + dy;
-
-        if (ds->mouse_just_released) {
-          ds->is_cropping = 0;
+        // Init start pos on each new press
+        if (ds->mouse_just_pressed && mouse_in_design) {
+          ds->crop_start_x       = ui->mouse_x;
+          ds->crop_start_y       = ui->mouse_y;
+          ds->crop_start_node_x  = sel->image_crop_x;
+          ds->crop_start_node_y  = sel->image_crop_y;
         }
+        if (nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT) &&
+            mouse_in_design && (ds->crop_start_x != 0 || ds->crop_start_y != 0)) {
+          float dx = (ui->mouse_x - ds->crop_start_x) / scale;
+          float dy = (ui->mouse_y - ds->crop_start_y) / scale;
+          sel->image_crop_x = ds->crop_start_node_x + dx;
+          sel->image_crop_y = ds->crop_start_node_y + dy;
+        }
+        // Crop mode stays active — toggled off only via the button in Properties
       }
       // Handle node dragging
       else if (ds->is_dragging_node && ui->selected_node && is_active_design) {
