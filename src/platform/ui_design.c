@@ -2814,6 +2814,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                 }
 
                 new_node->visible = 1;
+                new_node->lock_ratio = 1;
                 new_node->parent = dd->root;
                 strncpy(new_node->image_path, rel,
                         sizeof(new_node->image_path) - 1);
@@ -3348,12 +3349,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                         sizeof(ui->edit_buffer) - 1);
                 ui->rename_needs_focus = 1;
                 ui->edit_buffer[sizeof(ui->edit_buffer) - 1] = '\0';
-              } else if (hit->type == NODE_TYPE_IMAGE && hit->image_path[0]) {
-                ds->is_cropping = 1;
-                ds->crop_start_x = ui->mouse_x;
-                ds->crop_start_y = ui->mouse_y;
-                ds->crop_start_node_x = hit->image_crop_x;
-                ds->crop_start_node_y = hit->image_crop_y;
               }
             }
             if (!ui->editing_node && !ds->is_cropping) {
@@ -3361,6 +3356,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
               ds->is_dragging_node = 1;
               ds->drag_offset_x = design_x - hit->x;
               ds->drag_offset_y = design_y - hit->y;
+              ds->drag_press_x = ui->mouse_x;
+              ds->drag_press_y = ui->mouse_y;
             }
           }
         } else {
@@ -3400,6 +3397,14 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       }
       // Handle node dragging
       else if (ds->is_dragging_node && ui->selected_node && is_active_design) {
+        // 5px threshold to prevent accidental drag on simple click
+        float pdx = ui->mouse_x - ds->drag_press_x;
+        float pdy = ui->mouse_y - ds->drag_press_y;
+        if (fabsf(pdx) < 5.0f && fabsf(pdy) < 5.0f) {
+          if (ds->mouse_just_released) ds->is_dragging_node = 0;
+          goto after_drag;
+        }
+
         float design_x = (ui->mouse_x - bounds.x) / scale;
         float design_y = (ui->mouse_y - bounds.y) / scale;
         Node *sel = ui->selected_node;
@@ -3482,16 +3487,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
           ds->is_dragging_node = 0;
           ds->snap_guide_x = -1;
           ds->snap_guide_y = -1;
-
-          // Auto-delete if 100% out of bounds
-          if (sel->x + sel->width < 0 || sel->x > dd->width ||
-              sel->y + sel->height < 0 || sel->y > dd->height) {
-            uint32_t nid = sel->id;
-            block_design_delete_node(block, nid);
-            ui->selected_node = NULL;
-          }
         }
       }
+      after_drag:;
 
       // --- Right-click context menu detection ---
       if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_RIGHT) &&

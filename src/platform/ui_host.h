@@ -110,6 +110,7 @@ typedef struct {
   // Dragging state
   int is_dragging_node;
   float drag_offset_x, drag_offset_y; // Offset from node origin
+  float drag_press_x, drag_press_y;   // Screen pos at mouse-down (threshold)
 
   // Mouse state for click detection
   int mouse_just_pressed;  // Left button just pressed this frame
@@ -166,6 +167,7 @@ typedef struct {
   int mouse_just_released;
   int is_dragging_node;
   float drag_offset_x, drag_offset_y;
+  float drag_press_x, drag_press_y;
   int is_resizing;
   int resize_handle;
   float resize_start_w, resize_start_h;
