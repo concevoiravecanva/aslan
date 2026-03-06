@@ -1231,7 +1231,7 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
 
   // ── Row 2: opacity slider ──────────────────────────────────────────────────
   nk_layout_row_dynamic(ctx, 20, 1);
-  nk_property_float(ctx, "Opacite", 0.0f, &node->opacity, 1.0f, 0.05f, 0.01f);
+  nk_property_float(ctx, "Opacity", 0.0f, &node->opacity, 1.0f, 0.05f, 0.01f);
 
   // ── Row 3: fill swatch | label  + stroke swatch | width ───────────────────
   nk_layout_row_template_begin(ctx, 22);
@@ -1256,7 +1256,7 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
     nk_stroke_rect(insp_cb, nk_rect(fx, fy, s, s), 2.0f, 0.5f,
                    nk_rgba(0, 0, 0, 40));
   }
-  nk_label_colored(ctx, "Fond", NK_TEXT_LEFT, nk_rgb(120, 120, 135));
+  nk_label_colored(ctx, "Fill", NK_TEXT_LEFT, nk_rgb(120, 120, 135));
 
   // Stroke swatch
   {
@@ -1276,12 +1276,12 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
   // ── Row 4: type-specific property ─────────────────────────────────────────
   nk_layout_row_dynamic(ctx, 24, 1);
   if (node->type == NODE_TYPE_TEXT) {
-    nk_property_float(ctx, "Taille", 6.0f, &node->font_size, 200.0f, 1.0f,
+    nk_property_float(ctx, "Size", 6.0f, &node->font_size, 200.0f, 1.0f,
                       0.5f);
   } else if (node->is_container) {
-    nk_checkbox_label(ctx, "Decouper le contenu", &node->clip_content);
+    nk_checkbox_label(ctx, "Clip content", &node->clip_content);
   } else {
-    nk_property_float(ctx, "Rayon", 0.0f, &node->corner_radius, 200.0f, 1.0f,
+    nk_property_float(ctx, "Radius", 0.0f, &node->corner_radius, 200.0f, 1.0f,
                       0.5f);
   }
 
@@ -1298,7 +1298,7 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
     ab.text_normal = nk_rgb(110, 110, 125);
     ab.text_hover = nk_rgb(60, 60, 75);
     ab.border_color = nk_rgba(0, 0, 0, 30);
-    if (nk_button_label_styled(ctx, &ab, "Copier"))
+    if (nk_button_label_styled(ctx, &ab, "Duplicate"))
       block_design_duplicate_node(block, node->id);
   }
 
@@ -1312,7 +1312,7 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
     db.text_normal = nk_rgb(200, 80, 80);
     db.text_hover = nk_rgb(230, 50, 50);
     db.border_color = nk_rgba(200, 80, 80, 100);
-    if (nk_button_label_styled(ctx, &db, "Supprimer")) {
+    if (nk_button_label_styled(ctx, &db, "Delete")) {
       ui->selected_node = NULL;
       block_design_delete_node(block, node->id);
     }

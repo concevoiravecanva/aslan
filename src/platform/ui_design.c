@@ -3097,25 +3097,41 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         float dy = (ui->mouse_y - ds->resize_start_y) / scale;
         Node *sel = ui->selected_node;
 
+        int lr = sel->lock_ratio && ds->resize_start_h > 0.1f;
+        float ratio = lr ? ds->resize_start_w / ds->resize_start_h : 1.0f;
+        float nw, nh;
+
         switch (ds->resize_handle) {
         case 0: // SE
-          sel->width = fmaxf(20.0f, ds->resize_start_w + dx);
-          sel->height = fmaxf(20.0f, ds->resize_start_h + dy);
+          nw = ds->resize_start_w + dx;
+          nh = ds->resize_start_h + dy;
+          if (lr) { if (fabsf(dx) >= fabsf(dy)) nh = nw / ratio; else nw = nh * ratio; }
+          sel->width  = fmaxf(20.0f, nw);
+          sel->height = fmaxf(20.0f, nh);
           break;
         case 1: // SW
-          sel->width = fmaxf(20.0f, ds->resize_start_w - dx);
-          sel->height = fmaxf(20.0f, ds->resize_start_h + dy);
+          nw = ds->resize_start_w - dx;
+          nh = ds->resize_start_h + dy;
+          if (lr) { if (fabsf(dx) >= fabsf(dy)) nh = nw / ratio; else nw = nh * ratio; }
+          sel->width  = fmaxf(20.0f, nw);
+          sel->height = fmaxf(20.0f, nh);
           sel->x = ds->resize_start_node_x + (ds->resize_start_w - sel->width);
           break;
         case 2: // NW
-          sel->width = fmaxf(20.0f, ds->resize_start_w - dx);
-          sel->height = fmaxf(20.0f, ds->resize_start_h - dy);
+          nw = ds->resize_start_w - dx;
+          nh = ds->resize_start_h - dy;
+          if (lr) { if (fabsf(dx) >= fabsf(dy)) nh = nw / ratio; else nw = nh * ratio; }
+          sel->width  = fmaxf(20.0f, nw);
+          sel->height = fmaxf(20.0f, nh);
           sel->x = ds->resize_start_node_x + (ds->resize_start_w - sel->width);
           sel->y = ds->resize_start_node_y + (ds->resize_start_h - sel->height);
           break;
         case 3: // NE
-          sel->width = fmaxf(20.0f, ds->resize_start_w + dx);
-          sel->height = fmaxf(20.0f, ds->resize_start_h - dy);
+          nw = ds->resize_start_w + dx;
+          nh = ds->resize_start_h - dy;
+          if (lr) { if (fabsf(dx) >= fabsf(dy)) nh = nw / ratio; else nw = nh * ratio; }
+          sel->width  = fmaxf(20.0f, nw);
+          sel->height = fmaxf(20.0f, nh);
           sel->y = ds->resize_start_node_y + (ds->resize_start_h - sel->height);
           break;
         }
