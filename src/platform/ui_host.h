@@ -459,6 +459,12 @@ typedef struct UIHost {
     char link_url_buffer[1024];  // Editable URL
   } table_state;
 
+  // Gantt view state (per session — not persisted)
+  struct {
+    int64_t view_start_day; // Days since Unix epoch for leftmost column (0 = auto)
+    float   day_w;          // Pixels per day (0 = default 40px)
+  } gantt_state;
+
   // Layer sidebar state
   uint32_t renaming_node_id;
   char node_rename_buffer[64];

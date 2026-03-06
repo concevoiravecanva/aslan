@@ -40,6 +40,7 @@ typedef enum {
   ASLAN_COL_FILE,     // char* - Path to a local file
   ASLAN_COL_LINK,     // char* - URL/Link (Label|URL)
   ASLAN_COL_IMAGE,    // char* - Path to an image in assets/
+  ASLAN_COL_DURATION, // int64_t - Duration in days * 1000 (e.g. 2500 = 2.5 days)
   ASLAN_COL_TYPE_COUNT
 } AslanColumnType;
 
@@ -250,6 +251,9 @@ int aslan_table_get_select(const AslanTable *table, int col_idx,
                            uint64_t row_id);
 int64_t aslan_table_get_date(const AslanTable *table, int col_idx,
                              uint64_t row_id);
+// Duration stored as days * 1000 (integer millidays)
+int64_t aslan_table_get_duration(const AslanTable *table, int col_idx,
+                                 uint64_t row_id);
 // Get cell as string (for display)
 const char *aslan_table_get_cell_display(const AslanTable *table, int col_idx,
                                          uint64_t row_id, char *buf,

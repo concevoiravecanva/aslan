@@ -87,6 +87,7 @@ static size_t column_element_size(AslanColumnType type) {
   case ASLAN_COL_SELECT:
     return sizeof(int32_t);
   case ASLAN_COL_DATE:
+  case ASLAN_COL_DURATION:
     return sizeof(int64_t);
   case ASLAN_COL_FORMULA:
     return sizeof(double); // Cached result (C parser)
@@ -802,6 +803,14 @@ bool aslan_table_set_cell(AslanTable *table, int col_idx, uint64_t row_id,
     int64_t ts = value_str ? strtoll(value_str, NULL, 10) : 0;
     return aslan_table_set_date(table, col_idx, row_id, ts);
   }
+  case ASLAN_COL_DURATION: {
+    // Accept decimal days, store as days * 1000 (millidays)
+    double days = value_str ? strtod(value_str, NULL) : 0.0;
+    int row_idx = aslan_table_row_index(table, row_id);
+    if (row_idx < 0) return false;
+    ((int64_t *)col->data)[row_idx] = (int64_t)(days * 1000.0 + 0.5);
+    return true;
+  }
   case ASLAN_COL_FORMULA:
     return false; // Formulas are read-only
   default:
@@ -853,7 +862,8 @@ double aslan_table_get_number(const AslanTable *table, int col_idx,
     const int32_t *data = (const int32_t *)col->data;
     return (double)data[row_idx];
   }
-  case ASLAN_COL_DATE: {
+  case ASLAN_COL_DATE:
+  case ASLAN_COL_DURATION: {
     const int64_t *data = (const int64_t *)col->data;
     return (double)data[row_idx];
   }
@@ -910,6 +920,19 @@ int64_t aslan_table_get_date(const AslanTable *table, int col_idx,
   return data[row_idx];
 }
 
+
+int64_t aslan_table_get_duration(const AslanTable *table, int col_idx,
+                                 uint64_t row_id) {
+  if (!table || col_idx < 0 || col_idx >= (int)table->column_count)
+    return 0;
+  int row_idx = aslan_table_row_index(table, row_id);
+  if (row_idx < 0)
+    return 0;
+  const AslanColumn *col = &table->columns[col_idx];
+  if (col->type != ASLAN_COL_DURATION)
+    return 0;
+  return ((const int64_t *)col->data)[row_idx]; // millidays
+}
 
 static __thread char display_buffer[256];
 
@@ -975,6 +998,16 @@ const char *aslan_table_get_cell_display(const AslanTable *table, int col_idx,
     } else {
       buf[0] = '\0';
     }
+    break;
+  }
+  case ASLAN_COL_DURATION: {
+    int64_t md = ((int64_t *)col->data)[row_idx]; // millidays
+    if (md <= 0) { buf[0] = '\0'; break; }
+    double days = md / 1000.0;
+    if (md % 1000 == 0)
+      snprintf(buf, buf_size, "%.0fj", days);       // "4j"
+    else
+      snprintf(buf, buf_size, "%.1fj", days);       // "2.5j"
     break;
   }
   case ASLAN_COL_FORMULA: {

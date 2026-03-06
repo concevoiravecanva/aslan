@@ -40,6 +40,7 @@ typedef enum {
 // Table view modes
 typedef enum {
   TABLE_VIEW_TABLE = 0, // Standard table grid
+  TABLE_VIEW_GANTT = 1, // Gantt timeline (requires DATE + DURATION columns)
 } TableViewMode;
 
 // =============================================================================
@@ -266,7 +267,7 @@ typedef struct {
 
 // --- Chart Block Data (Data-Driven) ---
 
-typedef enum { CHART_BAR = 0, CHART_LINE, CHART_PIE } ChartType;
+typedef enum { CHART_BAR = 0, CHART_LINE, CHART_PIE, CHART_GANTT } ChartType;
 
 struct ChartData {
   ChartType type;

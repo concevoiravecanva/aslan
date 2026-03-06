@@ -717,6 +717,83 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           goto props_end;
         }
 
+        // ── CHART: type + data binding ───────────────────────────────────
+        if (node->type == NODE_TYPE_CHART && node->chart_data) {
+          ChartData *cd = node->chart_data;
+          Page *cp = doc_page_get_active(engine->doc);
+
+          ds_section(ctx, "CHART TYPE");
+          static const char *ct_labels[] = {"Bar", "Line", "Pie", "Gantt"};
+          nk_layout_row_dynamic(ctx, 28, 4);
+          for (int _ct = 0; _ct < 4; _ct++) {
+            struct nk_style_button bs = ctx->style.button;
+            if ((int)cd->type == _ct) {
+              bs.normal = nk_style_item_color(COLOR_ACCENT);
+              bs.hover  = nk_style_item_color(COLOR_ACCENT);
+              bs.text_normal = nk_rgb(255, 255, 255);
+            }
+            if (nk_button_label_styled(ctx, &bs, ct_labels[_ct]))
+              cd->type = (ChartType)_ct;
+          }
+
+          if (cp) {
+            // Source table picker
+            ds_section(ctx, "DATA SOURCE");
+            char src_lbl[64] = "None";
+            Block *cur_tbl_blk = NULL;
+            for (Block *b = cp->first_block; b; b = b->next) {
+              if (b->type == BLOCK_TABLE && b->id == cd->source_table_id) {
+                cur_tbl_blk = b;
+                snprintf(src_lbl, sizeof(src_lbl), "Table #%u", b->id);
+                break;
+              }
+            }
+            nk_layout_row_dynamic(ctx, 24, 1);
+            if (nk_button_label(ctx, src_lbl)) {
+              // Cycle to next table block
+              Block *first_t = NULL, *next_t = NULL;
+              int found = 0;
+              for (Block *b = cp->first_block; b; b = b->next) {
+                if (b->type != BLOCK_TABLE || !b->data.table.columnar) continue;
+                if (!first_t) first_t = b;
+                if (found && !next_t) { next_t = b; break; }
+                if (b->id == cd->source_table_id) found = 1;
+              }
+              if (!next_t) next_t = first_t;
+              if (next_t) cd->source_table_id = next_t->id;
+            }
+
+            // Column pickers (Label + Value)
+            AslanTable *ct = cur_tbl_blk ? cur_tbl_blk->data.table.columnar : NULL;
+            if (ct && ct->column_count > 0) {
+              ds_section(ctx, "COLUMNS");
+              nk_layout_row_dynamic(ctx, 24, 2);
+              // Label column
+              char lbl_c[48] = "Label: —";
+              if (cd->label_col_idx >= 0 && cd->label_col_idx < (int)ct->column_count)
+                snprintf(lbl_c, sizeof(lbl_c), "L: %.10s",
+                         ct->columns[cd->label_col_idx].name);
+              if (nk_button_label(ctx, lbl_c))
+                cd->label_col_idx = (cd->label_col_idx + 1) % (int)ct->column_count;
+              // Value column (cycle only NUMBER columns)
+              char val_c[48] = "Value: —";
+              if (cd->value_col_idx >= 0 && cd->value_col_idx < (int)ct->column_count)
+                snprintf(val_c, sizeof(val_c), "V: %.10s",
+                         ct->columns[cd->value_col_idx].name);
+              if (nk_button_label(ctx, val_c)) {
+                int start = cd->value_col_idx;
+                for (int _a = 0; _a < (int)ct->column_count; _a++) {
+                  int cand = (start + 1 + _a) % (int)ct->column_count;
+                  if (ct->columns[cand].type == ASLAN_COL_NUMBER) {
+                    cd->value_col_idx = cand; break;
+                  }
+                }
+              }
+            }
+          }
+          goto props_end;
+        }
+
         // ── PEN / MARKER STROKES: only color ─────────────────────────────
         if (node->type == NODE_TYPE_STROKE || node->type == NODE_TYPE_PATH) {
           ds_section(ctx, "STROKE");

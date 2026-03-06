@@ -36,6 +36,8 @@ const char *table_col_type_icon(AslanColumnType type) {
     return ICON_COL_IMAGE;
   case ASLAN_COL_LINK:
     return ICON_COL_LINK;
+  case ASLAN_COL_DURATION:
+    return "\xEF\x8C\xB8"; // U+F338 ri-timer-line (Gantt icon)
   default:
     return ICON_COL_TEXT;
   }
@@ -62,6 +64,8 @@ const char *table_col_type_name(AslanColumnType type) {
     return "Image";
   case ASLAN_COL_LINK:
     return "Link";
+  case ASLAN_COL_DURATION:
+    return "Duration";
   default:
     return "Text";
   }
@@ -1399,6 +1403,38 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
             }
             break;
           }
+          case ASLAN_COL_DURATION: {
+            // Display current value as days string; accept a decimal number of days
+            char buf[32], val_str[32];
+            aslan_table_get_cell_display(tbl, (int)c, row_id, val_str, sizeof(val_str));
+            // Strip trailing 'd' for editing: show raw number
+            char edit_buf[32];
+            int64_t cur_md = aslan_table_get_duration(tbl, (int)c, row_id);
+            if (cur_md > 0)
+              snprintf(edit_buf, sizeof(edit_buf), "%.4g", cur_md / 1000.0);
+            else
+              edit_buf[0] = '\0';
+            strncpy(buf, edit_buf, sizeof(buf) - 1);
+            buf[sizeof(buf)-1] = '\0';
+
+            struct nk_vec2 old_edit_pad = ctx->style.edit.padding;
+            ctx->style.edit.padding = nk_vec2(6, 4);
+            nk_flags res = nk_edit_string_zero_terminated(
+                ctx, NK_EDIT_FIELD | NK_EDIT_AUTO_SELECT | NK_EDIT_SIG_ENTER,
+                buf, sizeof(buf) - 1, nk_filter_decimal);
+            ctx->style.edit.padding = old_edit_pad;
+
+            if (res & NK_EDIT_ACTIVATED) {
+              ui->table_state.active_row_idx = (int)v;
+              ui->table_state.active_col_idx = (int)c;
+              ui->table_state.is_editing_cell = 1;
+            }
+            if (res & NK_EDIT_COMMITED)
+              ui->table_state.is_editing_cell = 0;
+            if (strcmp(buf, edit_buf) != 0)
+              aslan_table_set_cell(tbl, (int)c, row_id, buf);
+            break;
+          }
           case ASLAN_COL_IMAGE:
           case ASLAN_COL_FILE: {
             const char *val = aslan_table_get_text(tbl, (int)c, row_id);
@@ -2120,12 +2156,13 @@ void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
         }
         nk_layout_row_dynamic(ctx, 28, 1);
         const char *types[] = {"Text",  "Number", "Checkbox", "Select", "Date",
-                               "File",  "Image",  "Link",     "Formula"};
+                               "Duration", "File", "Image",  "Link",  "Formula"};
         AslanColumnType type_vals[] = {
-            ASLAN_COL_TEXT,   ASLAN_COL_NUMBER,  ASLAN_COL_CHECKBOX,
-            ASLAN_COL_SELECT, ASLAN_COL_DATE,    ASLAN_COL_FILE,
-            ASLAN_COL_IMAGE,  ASLAN_COL_LINK,    ASLAN_COL_FORMULA};
-        for (int i = 0; i < 9; i++) {
+            ASLAN_COL_TEXT,     ASLAN_COL_NUMBER,   ASLAN_COL_CHECKBOX,
+            ASLAN_COL_SELECT,   ASLAN_COL_DATE,     ASLAN_COL_DURATION,
+            ASLAN_COL_FILE,     ASLAN_COL_IMAGE,    ASLAN_COL_LINK,
+            ASLAN_COL_FORMULA};
+        for (int i = 0; i < 10; i++) {
           struct nk_rect item_rect = nk_widget_bounds(ctx);
           if (nk_button_label_styled(ctx, &menu_btn, "")) {
             if (tbl) {
