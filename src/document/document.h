@@ -63,7 +63,8 @@ typedef enum {
   NODE_TYPE_STAR = 13,
   NODE_TYPE_PATH = 14,
   NODE_TYPE_STROKE = 15,
-  NODE_TYPE_CHART = 16
+  NODE_TYPE_CHART = 16,
+  NODE_TYPE_TABLE_VIEW = 17  // Embedded live-table (read-only content, resizable)
 } NodeType;
 
 // -----------------------------------------------------------------------------
@@ -159,6 +160,9 @@ typedef struct Node {
 
   // Chart data (for NODE_TYPE_CHART)
   ChartData *chart_data;
+
+  // Linked block id (for NODE_TYPE_TABLE_VIEW: references the table block to display)
+  uint32_t linked_block_id;
 
   // Hierarchy (linked list tree)
   struct Node *parent;

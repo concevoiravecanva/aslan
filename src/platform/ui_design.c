@@ -345,22 +345,69 @@ static void ds_color(struct nk_context *ctx, const char *label, uint32_t *c32) {
 }
 
 // =============================================================================
-// DESIGN SMART LAYOUT GENERATOR
+// DESIGN SMART LAYOUT — TABLEAU (live table top-left + chart below)
 // =============================================================================
-static void design_generate_smart_layout(DesignData *dd, int layout_id,
-                                         AslanTable *linked_tbl) {
+static void design_insert_tableau_layout(DesignData *dd) {
   if (!dd || !dd->root)
     return;
 
-  // Optional: Clear existing nodes first?
-  // For now we just safely append. We can clear children of root:
-  dd->root->first_child = NULL;
-
   float w = dd->width > 0 ? dd->width : 800.0f;
   float h = dd->height > 0 ? dd->height : 600.0f;
-  uint32_t color = 0xCCCCCCFF;
 
-  if (layout_id == 0) {
+  float pad    = 20.0f;
+  float col_w  = w * 0.48f;   // left half
+  float tbl_x  = pad;
+  float tbl_y  = pad;
+  float tbl_h  = h * 0.50f;   // table takes top half
+
+  // ── Live table view node ───────────────────────────────────────────────────
+  Node *tv = node_create(dd->next_node_id++, NODE_TYPE_TABLE_VIEW, "Table");
+  if (tv) {
+    tv->x               = tbl_x;
+    tv->y               = tbl_y;
+    tv->width           = col_w;
+    tv->height          = tbl_h;
+    tv->visible         = 1;
+    tv->opacity         = 1.0f;
+    tv->linked_block_id = dd->linked_table_id;  // 0 = fallback to design's linked table
+    tv->parent          = dd->root;
+
+    Node *last = dd->root->first_child;
+    if (!last) {
+      dd->root->first_child = tv;
+    } else {
+      while (last->next_sibling) last = last->next_sibling;
+      last->next_sibling = tv;
+    }
+  }
+
+  // ── Chart node below table ─────────────────────────────────────────────────
+  float chart_y = tbl_y + tbl_h + pad;
+  float chart_h = h - chart_y - pad;
+  if (chart_h < 80.0f) chart_h = 80.0f;
+
+  Node *chart_node = node_create(dd->next_node_id++, NODE_TYPE_CHART, "Chart");
+  if (chart_node) {
+    chart_node->x       = tbl_x;
+    chart_node->y       = chart_y;
+    chart_node->width   = col_w;
+    chart_node->height  = chart_h;
+    chart_node->visible = 1;
+    chart_node->parent  = dd->root;
+
+    Node *last = dd->root->first_child;
+    if (!last) {
+      dd->root->first_child = chart_node;
+    } else {
+      while (last->next_sibling) last = last->next_sibling;
+      last->next_sibling = chart_node;
+    }
+  }
+}
+
+#if 0
+  // Old smart layouts removed — replaced by design_insert_tableau_layout above.
+  if (0) {
     // Executive Scorecard
     Node *main_v =
         design_create_styled_node(dd, NODE_STYLE_RECT, 0, 0, w, h, color);
@@ -604,6 +651,7 @@ static void design_generate_smart_layout(DesignData *dd, int layout_id,
     node_add_child(main_v, footer);
   }
 }
+#endif // old layouts disabled
 // ── Main sidebar ─────────────────────────────────────────────────────────────
 static void design_render_sidebar(UIHost *ui, Engine *engine,
                                   struct nk_context *ctx, Block *block) {
@@ -674,6 +722,27 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
                          nk_rgb(195, 195, 210));
       } else {
         Node *node = ui->selected_node;
+
+        // ── TABLE VIEW: size/position only, content is read-only ─────────
+        if (node->type == NODE_TYPE_TABLE_VIEW) {
+          ds_section(ctx, "TABLE VIEW");
+          nk_layout_row_dynamic(ctx, 24, 2);
+          nk_property_float(ctx, "X:", -9999.f, &node->x, 9999.f, 1.f, 0.5f);
+          nk_property_float(ctx, "Y:", -9999.f, &node->y, 9999.f, 1.f, 0.5f);
+          nk_property_float(ctx, "W:", 10.f, &node->width,  9999.f, 1.f, 0.5f);
+          nk_property_float(ctx, "H:", 10.f, &node->height, 9999.f, 1.f, 0.5f);
+          nk_layout_row_dynamic(ctx, 18, 1);
+          nk_label_colored(ctx, "Content mirrors the linked table",
+                           NK_TEXT_LEFT, nk_rgb(160, 160, 175));
+          goto props_end;
+        }
+
+        // ── PEN / MARKER STROKES: only color ─────────────────────────────
+        if (node->type == NODE_TYPE_STROKE || node->type == NODE_TYPE_PATH) {
+          ds_section(ctx, "STROKE");
+          ds_color(ctx, "Color", &node->stroke_color);
+          goto props_end;
+        }
 
         // ── APPEARANCE ───────────────────────────────────────────────────
         ds_section(ctx, "APPEARANCE");
@@ -820,48 +889,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           if (nk_button_label(ctx, "Bwd"))
             node_move_down(node);
         }
-        // ── ICON (ASSET) ─────────────────────────────────────────────────
-        if (node->type == NODE_TYPE_TEXT && node->font_type == 4) {
-          ds_section(ctx, "ICON / ASSET");
-          nk_layout_row_dynamic(ctx, 24, 1);
-          nk_property_float(ctx, "Size:", 8.f, &node->font_size, 300.f, 1.f,
-                            0.5f);
-
-          nk_layout_row_dynamic(ctx, 20, 1);
-          nk_label(ctx, "Quick Select:", NK_TEXT_LEFT);
-
-          const char *icon_gallery[] = {
-              "\xF3\x87\xAF", // Remixicon (default)
-              "\xEE\xBA\x82", // Layout
-              "\xEE\xBE\xA1", // Paint
-              "\xEE\xBA\xA6", // Lightbulb
-              "\xEE\xB1\xA0", // Hand
-              "\xEF\x81\x8B", // Quill pen
-              "\xEE\xBD\x92", // Settings
-              "\xEE\xB7\xD1", // Lock
-              "\xEE\xB2\xB5", // Eye
-              "\xEE\xA9\xB8", // Arrow up
-              "\xEE\xA9\x8B", // Arrow down
-              "\xEE\xA8\x93", // Add
-              "\xEF\x83\xBC", // Sticky
-              "\xEE\xBA\xB2", // Link
-              "\xEE\xAB\xA3", // Shapes
-          };
-          int icon_count = sizeof(icon_gallery) / sizeof(icon_gallery[0]);
-
-          nk_layout_row_dynamic(ctx, 32, 5); // 5 icons per row
-          if (ui->font_icons)
-            nk_style_set_font(ctx, &ui->font_icons->handle);
-          for (int i = 0; i < icon_count; i++) {
-            if (nk_button_label(ctx, icon_gallery[i])) {
-              strncpy(node->text, icon_gallery[i], sizeof(node->text) - 1);
-            }
-          }
-          if (ui->font_inter)
-            nk_style_set_font(ctx, &ui->font_inter->handle);
-        }
         // ── TEXT CONTENT ─────────────────────────────────────────────────
-        else if (node->type == NODE_TYPE_TEXT) {
+        if (node->type == NODE_TYPE_TEXT) {
           ds_section(ctx, "TEXT CONTENT");
           nk_layout_row_dynamic(ctx, 100, 1);
           nk_edit_string_zero_terminated(
@@ -1033,6 +1062,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           }
         }
       }
+      props_end:;
       nk_group_end(ctx);
     }
   }
@@ -1147,50 +1177,6 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
               engine_execute_command(engine, cmd);
             }
           }
-        }
-
-        // Data navigation removed at user request
-
-        // ── SMART LAYOUTS ────────────────────────────────────────────────
-        ds_section(ctx, "SMART LAYOUTS (BETA)");
-        static const char *layout_names[] = {
-            "0 - Executive Scorecard", "1 - CRM Card Grid",
-            "2 - Comparison Matrix",   "3 - Project Timeline",
-            "4 - Financial Split",     "5 - Technical Spec Sheet",
-            "6 - Kanban Board Light",  "7 - Feedback Feed",
-            "8 - Sales Funnel",        "9 - Clean Page (Export)"};
-        nk_layout_row_dynamic(ctx, 24, 1);
-        if (ui->design_smart_layout_sel < 0 ||
-            ui->design_smart_layout_sel >= 10)
-          ui->design_smart_layout_sel = 0;
-        ui->design_smart_layout_sel =
-            nk_combo(ctx, layout_names, 10, ui->design_smart_layout_sel, 24,
-                     nk_vec2(220, 300));
-
-        struct nk_style_button gen_btn = ctx->style.button;
-        gen_btn.normal = nk_style_item_color(COLOR_ACCENT);
-        gen_btn.hover = nk_style_item_color(COLOR_ACCENT);
-        gen_btn.active = nk_style_item_color(nk_rgb(45, 100, 210));
-        gen_btn.text_normal = nk_rgb(255, 255, 255);
-        if (nk_button_label_styled(ctx, &gen_btn, "Generate Layout")) {
-          // Need linked table for data-driven parts
-          AslanTable *linked_tbl = NULL;
-          for (int i = 0; i < engine->doc->page_count; i++) {
-            Page *p = &engine->doc->pages[i];
-            if (!p->in_use)
-              continue;
-            for (Block *b = p->first_block; b; b = b->next) {
-              if (b->id == dd->linked_table_id && b->type == BLOCK_TABLE &&
-                  b->data.table.columnar) {
-                linked_tbl = b->data.table.columnar;
-                break;
-              }
-            }
-          }
-          design_generate_smart_layout(dd, ui->design_smart_layout_sel,
-                                       linked_tbl);
-          ui->selected_node =
-              NULL; // Reset selection to avoid dangling pointers
         }
 
         // ── LAYOUT AIDS ──────────────────────────────────────────────────
@@ -1405,6 +1391,102 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     // Rendering configuration bar if selected
     if (ui->selected_node == node) {
       ui_render_chart_node_config_bar(ui, engine, ctx, node, nr, curr_page);
+    }
+  } else if (node->type == NODE_TYPE_TABLE_VIEW) {
+    // ── Embedded live-table (read-only) ──────────────────────────────────
+    // Find the linked table block
+    AslanTable *tv_tbl = NULL;
+    for (int _pi = 0; _pi < engine->doc->page_count && !tv_tbl; _pi++) {
+      Page *_p = &engine->doc->pages[_pi];
+      if (!_p->in_use) continue;
+      for (Block *_b = _p->first_block; _b && !tv_tbl; _b = _b->next) {
+        if (_b->type == BLOCK_TABLE && _b->data.table.columnar &&
+            (_b->id == node->linked_block_id ||
+             (node->linked_block_id == 0 && _b->id == dd->linked_table_id)))
+          tv_tbl = _b->data.table.columnar;
+      }
+    }
+
+    // White card background
+    nk_fill_rect(canvas_buf, nr, 4.0f * scale, nk_rgba(255, 255, 255, 255));
+    nk_stroke_rect(canvas_buf, nr, 4.0f * scale, 1.0f, nk_rgba(220, 220, 230, 255));
+
+    if (tv_tbl && tv_tbl->column_count > 0) {
+      int   ncols  = tv_tbl->column_count;
+      int   nrows  = (int)aslan_table_view_count(tv_tbl);
+      float hdr_h  = 26.0f * scale;
+      float row_h  = 22.0f * scale;
+      float col_w  = nr.w / (float)ncols;
+      const struct nk_user_font *fnt = ctx->style.font;
+
+      // ── Header ──────────────────────────────────────────────────────────
+      for (int c = 0; c < ncols; c++) {
+        struct nk_rect hcell = nk_rect(nr.x + c * col_w, nr.y, col_w, hdr_h);
+        // Clip to node bounds
+        if (hcell.x + hcell.w > nr.x + nr.w)
+          hcell.w = nr.x + nr.w - hcell.x;
+        if (hcell.w <= 0) continue;
+
+        nk_fill_rect(canvas_buf, hcell, 0, nk_rgba(26, 115, 232, 255));
+        // Separator
+        if (c > 0)
+          nk_stroke_line(canvas_buf, hcell.x, hcell.y, hcell.x,
+                         hcell.y + hdr_h, 1.0f, nk_rgba(255, 255, 255, 60));
+        // Column name
+        struct nk_rect txt_r = nk_rect(hcell.x + 4, hcell.y + (hdr_h - fnt->height) / 2.0f,
+                                       hcell.w - 8, fnt->height);
+        const char *col_nm = tv_tbl->columns[c].name;
+        nk_draw_text(canvas_buf, txt_r, col_nm, (int)strlen(col_nm),
+                     fnt, nk_rgba(0, 0, 0, 0), nk_rgba(255, 255, 255, 255));
+      }
+
+      // ── Data rows ───────────────────────────────────────────────────────
+      int max_vis = (int)((nr.h - hdr_h) / row_h) + 1;
+      int draw_rows = nrows < max_vis ? nrows : max_vis;
+
+      for (int r = 0; r < draw_rows; r++) {
+        float ry = nr.y + hdr_h + r * row_h;
+        if (ry >= nr.y + nr.h) break;
+
+        uint64_t row_id = aslan_table_view_row_id(tv_tbl, r);
+        struct nk_color row_bg = (r % 2 == 0) ? nk_rgba(248, 249, 250, 255)
+                                               : nk_rgba(255, 255, 255, 255);
+
+        for (int c = 0; c < ncols; c++) {
+          struct nk_rect cell = nk_rect(nr.x + c * col_w, ry, col_w, row_h);
+          if (cell.x + cell.w > nr.x + nr.w)
+            cell.w = nr.x + nr.w - cell.x;
+          if (cell.w <= 0 || cell.y + cell.h > nr.y + nr.h + 2) continue;
+
+          nk_fill_rect(canvas_buf, cell, 0, row_bg);
+          // Horizontal line
+          nk_stroke_line(canvas_buf, cell.x, cell.y + cell.h - 1,
+                         cell.x + cell.w, cell.y + cell.h - 1,
+                         1.0f, nk_rgba(230, 230, 235, 255));
+          // Vertical separator
+          if (c > 0)
+            nk_stroke_line(canvas_buf, cell.x, cell.y, cell.x,
+                           cell.y + cell.h, 1.0f, nk_rgba(220, 220, 230, 255));
+
+          // Cell value
+          char _cbuf[128];
+          const char *val = aslan_table_get_cell_display(tv_tbl, c, row_id,
+                                                         _cbuf, sizeof(_cbuf));
+          if (val && val[0]) {
+            struct nk_rect txt_r = nk_rect(cell.x + 4,
+                                           cell.y + (cell.h - fnt->height) / 2.0f,
+                                           cell.w - 8, fnt->height);
+            nk_draw_text(canvas_buf, txt_r, val, (int)strlen(val),
+                         fnt, nk_rgba(0, 0, 0, 0), nk_rgba(40, 40, 50, 255));
+          }
+        }
+      }
+    } else {
+      // No table linked — placeholder
+      struct nk_rect ph = nk_rect(nr.x + 8, nr.y + nr.h / 2.0f - 8, nr.w - 16, 16);
+      const char *msg = "Link a table in the Page tab";
+      nk_draw_text(canvas_buf, ph, msg, (int)strlen(msg),
+                   ctx->style.font, nk_rgba(0, 0, 0, 0), nk_rgba(160, 160, 175, 255));
     }
   } else if (node->type == NODE_TYPE_STROKE && node->stroke_data) {
     Stroke *s = node->stroke_data;
@@ -2880,6 +2962,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
               }
             }
           }
+        } else if (ds->pending_create == 20) { // Table layout (from toolbar)
+          design_insert_tableau_layout(dd);
+          ds->pending_create = 0;
         } else if (ds->pending_create == 12) { // Icon
           new_node = design_create_styled_node(
               dd, NODE_STYLE_TEXT, nx, ny, 60.0f, 60.0f, ds->selected_color);
@@ -3509,11 +3594,26 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         float ddy = new_y - sel->y;
         sel->x = new_x;
         sel->y = new_y;
+        // Stroke nodes: also translate all stroke points
+        if (sel->type == NODE_TYPE_STROKE && sel->stroke_data) {
+          Stroke *s = sel->stroke_data;
+          for (int _k = 0; _k < s->count; _k++) {
+            s->points[_k].x += ddx;
+            s->points[_k].y += ddy;
+          }
+        }
         for (int _mi = 0; _mi < ui->selected_count; _mi++) {
           Node *mn = ui->selected_nodes[_mi];
           if (mn && mn != sel) {
             mn->x += ddx;
             mn->y += ddy;
+            if (mn->type == NODE_TYPE_STROKE && mn->stroke_data) {
+              Stroke *s = mn->stroke_data;
+              for (int _k = 0; _k < s->count; _k++) {
+                s->points[_k].x += ddx;
+                s->points[_k].y += ddy;
+              }
+            }
           }
         }
 

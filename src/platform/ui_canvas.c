@@ -1436,12 +1436,10 @@ void recursive_convert_to_path(Node *node) {
 
 void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
                            struct nk_rect bounds, Block *block) {
-  int is_design = (block && block->type == BLOCK_DESIGN);
-
   const float btn_size = 36.0f;
   const float btn_spacing = 8.0f;
-  // Design gets an extra "Linked text" button (8 total), canvas has 7
-  int tool_count = is_design ? 8 : 7;
+  // Design gets an extra "Table layout" button (8 total), canvas has 7
+  int tool_count = (block->type == BLOCK_DESIGN) ? 8 : 7;
   const float toolbar_w =
       tool_count * btn_size + (tool_count - 1) * btn_spacing + 24.0f;
   const float toolbar_h = 52.0f;
@@ -1474,7 +1472,8 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
   // 7 buttons (canvas) or 8 buttons (design): last button is Linked Text
   const char *brush_icon = cs->pen_is_marker ? ICON_MARKER : ICON_BRUSH;
   const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT,  ICON_IMAGE, brush_icon,
-                              "",         ICON_MAGIC, ICON_CHART, ICON_ICON};
+                              "",         ICON_MAGIC, ICON_CHART,
+                              "\xEF\x87\x9E"}; // U+F1DE sliders — insert table layout
 
   for (int i = 0; i < tool_count; i++) {
     struct nk_rect btn = nk_rect(btn_x + i * (btn_size + btn_spacing), btn_y,
@@ -1491,7 +1490,7 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     if (i == 6)
       is_active = (cs->pending_create == 11); // Chart active state (transient)
     if (i == 7)
-      is_active = (cs->pending_create == 7); // Linked text (transient)
+      is_active = 0; // Table layout — one-shot, never stays active
 
     int hovered = (ui->mouse_x >= btn.x && ui->mouse_x < btn.x + btn.w &&
                    ui->mouse_y >= btn.y && ui->mouse_y < btn.y + btn.h);
@@ -1572,8 +1571,8 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
         } else if (i == 6) { // Chart button (direct action)
           cs->pending_create = 11;
           cs->show_sub_menu = 0;
-        } else if (i == 7) { // Icon button (design only, direct action)
-          cs->pending_create = 12;
+        } else if (i == 7) { // Table layout button (direct action)
+          cs->pending_create = 20;
           cs->show_sub_menu = 0;
         } else if (cs->active_cat == cat) {
           cs->show_sub_menu = !cs->show_sub_menu;
@@ -2030,10 +2029,14 @@ Node *design_find_node_at(DesignData *dd, float x, float y) {
     if (!node->visible)
       continue;
 
+    // Stroke/path nodes have thin bounding boxes — add hit padding
+    float pad = (node->type == NODE_TYPE_STROKE || node->type == NODE_TYPE_PATH)
+                    ? 8.0f : 0.0f;
+
     float rad = node->rotation * 3.14159f / 180.0f;
     if (rad == 0.0f) {
-      if (x >= node->x && x < node->x + node->width && y >= node->y &&
-          y < node->y + node->height) {
+      if (x >= node->x - pad && x < node->x + node->width + pad &&
+          y >= node->y - pad && y < node->y + node->height + pad) {
         hit = node;
       }
     } else {
@@ -2046,8 +2049,8 @@ Node *design_find_node_at(DesignData *dd, float x, float y) {
       float sin_r = sinf(-rad);
       float lx = dx * cos_r - dy * sin_r;
       float ly = dx * sin_r + dy * cos_r;
-      float hw = node->width / 2.0f;
-      float hh = node->height / 2.0f;
+      float hw = node->width / 2.0f + pad;
+      float hh = node->height / 2.0f + pad;
 
       if (lx >= -hw && lx < hw && ly >= -hh && ly < hh) {
         hit = node;
