@@ -412,6 +412,23 @@ static void ds_color(UIHost *ui, struct nk_context *ctx, const char *label,
   nk_label(ctx, label, NK_TEXT_LEFT);
 }
 
+// ── Clean Numeric Field: [Label | [ Value ]] (no buttons) ───────────────────
+static void ds_num_field(struct nk_context *ctx, const char *label,
+                         float *value) {
+  nk_layout_row_begin(ctx, NK_DYNAMIC, 22, 2);
+  nk_layout_row_push(ctx, 0.35f);
+  nk_label(ctx, label, NK_TEXT_LEFT);
+  nk_layout_row_push(ctx, 0.65f);
+  char buf[32];
+  snprintf(buf, sizeof(buf), "%.1f", *value);
+  nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, buf, sizeof(buf) - 1,
+                                 nk_filter_float);
+  float v = (float)atof(buf);
+  if (v != *value)
+    *value = v;
+  nk_layout_row_end(ctx);
+}
+
 // =============================================================================
 // DESIGN SMART LAYOUT — TABLEAU (live table top-left + chart below)
 // =============================================================================
@@ -1213,6 +1230,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
       if (1) {
         if (page) {
           // ── CANVAS SIZE ──────────────────────────────────────────────────
+          // ── CANVAS SIZE ──────────────────────────────────────────────────
           ds_section(ctx, "CANVAS SIZE");
           {
             int no_limits = dd->no_limits;
@@ -1230,13 +1248,16 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
             }
 
             if (!dd->no_limits) {
-              nk_layout_row_dynamic(ctx, 4, 1); // Spacing after presets
+              nk_layout_row_dynamic(ctx, 4, 1);
               nk_spacing(ctx, 1);
 
-              // Unit Selection
+              // Unit Selection (Cycle)
               static const char *unit_names[] = {"PX", "CM", "IN"};
-              nk_layout_row_dynamic(ctx, 24, 2);
-              nk_label(ctx, "Units:", NK_TEXT_LEFT);
+              nk_layout_row_template_begin(ctx, 24);
+              nk_layout_row_template_push_dynamic(ctx);
+              nk_layout_row_template_push_static(ctx, 50);
+              nk_layout_row_template_end(ctx);
+              nk_label(ctx, "Canvas Units:", NK_TEXT_LEFT);
               if (dd->units < 0 || dd->units >= 3)
                 dd->units = 0;
               if (nk_button_label(ctx, unit_names[dd->units]))
@@ -1252,8 +1273,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
               float val_h = (float)dd->height / to_px;
 
               nk_layout_row_dynamic(ctx, 24, 2);
-              nk_property_float(ctx, "W:", 1.0f, &val_w, 5000.f, 1.f, 0.1f);
-              nk_property_float(ctx, "H:", 1.0f, &val_h, 5000.f, 1.f, 0.1f);
+              ds_num_field(ctx, "W", &val_w);
+              ds_num_field(ctx, "H", &val_h);
 
               int new_w = (int)(val_w * to_px);
               int new_h = (int)(val_h * to_px);
@@ -1268,91 +1289,111 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           }
 
           // ── LAYOUT AIDS ──────────────────────────────────────────────────
+          // ── LAYOUT AIDS ──────────────────────────────────────────────────
           ds_section(ctx, "LAYOUT AIDS");
           {
             DesignPage *dp = &dd->pages[dd->current_page];
 
-            nk_layout_row_dynamic(ctx, 18, 1);
-            nk_checkbox_label(ctx, "Show Rulers", &dp->show_rulers);
+            nk_layout_row_dynamic(ctx, 22, 1);
+            nk_checkbox_label(ctx, "Show Rulers & Guides", &dp->show_rulers);
 
-            nk_layout_row_dynamic(ctx, 18, 2);
-            if (nk_button_label(ctx, "+ H Guide") && dp->h_guide_count < 16) {
-              dp->h_guides[dp->h_guide_count++] = (float)dd->height / 2.0f;
+            nk_layout_row_dynamic(ctx, 4, 1);
+            nk_spacing(ctx, 1);
+
+            nk_layout_row_dynamic(ctx, 24, 2);
+            if (nk_button_label(ctx, "+ Horiz Guide")) {
+              if (dp->h_guide_count < 16)
+                dp->h_guides[dp->h_guide_count++] = (float)dd->height / 2.0f;
             }
-            if (nk_button_label(ctx, "+ V Guide") && dp->v_guide_count < 16) {
-              dp->v_guides[dp->v_guide_count++] = (float)dd->width / 2.0f;
+            if (nk_button_label(ctx, "+ Vert Guide")) {
+              if (dp->v_guide_count < 16)
+                dp->v_guides[dp->v_guide_count++] = (float)dd->width / 2.0f;
             }
-            for (int gi = 0; gi < dp->h_guide_count; gi++) {
-              nk_layout_row_begin(ctx, NK_DYNAMIC, 18, 3);
-              nk_layout_row_push(ctx, 0.20f);
-              nk_labelf(ctx, NK_TEXT_LEFT, "H%d", gi + 1);
-              nk_layout_row_push(ctx, 0.65f);
-              nk_property_float(ctx, "#", 0, &dp->h_guides[gi],
-                                (float)dd->height, 1, 1);
-              nk_layout_row_push(ctx, 0.15f);
-              if (nk_button_label(ctx, "X")) {
-                for (int k = gi; k < dp->h_guide_count - 1; k++)
-                  dp->h_guides[k] = dp->h_guides[k + 1];
-                dp->h_guide_count--;
-                gi--;
+
+            // Guide List
+            if (dp->h_guide_count > 0 || dp->v_guide_count > 0) {
+              nk_layout_row_dynamic(ctx, 8, 1);
+              nk_spacing(ctx, 1);
+
+              // Horizontal Guides
+              for (int gi = 0; gi < dp->h_guide_count; gi++) {
+                nk_layout_row_template_begin(ctx, 22);
+                nk_layout_row_template_push_static(ctx, 30);
+                nk_layout_row_template_push_dynamic(ctx);
+                nk_layout_row_template_push_static(ctx, 30);
+                nk_layout_row_template_end(ctx);
+
+                nk_label(ctx, "H:", NK_TEXT_LEFT);
+                ds_num_field(ctx, "#", &dp->h_guides[gi]);
+                if (nk_button_label(ctx, "X")) {
+                  for (int k = gi; k < dp->h_guide_count - 1; k++)
+                    dp->h_guides[k] = dp->h_guides[k + 1];
+                  dp->h_guide_count--;
+                  gi--;
+                }
               }
-              nk_layout_row_end(ctx);
-            }
-            for (int gi = 0; gi < dp->v_guide_count; gi++) {
-              nk_layout_row_begin(ctx, NK_DYNAMIC, 18, 3);
-              nk_layout_row_push(ctx, 0.20f);
-              nk_labelf(ctx, NK_TEXT_LEFT, "V%d", gi + 1);
-              nk_layout_row_push(ctx, 0.65f);
-              nk_property_float(ctx, "#", 0, &dp->v_guides[gi],
-                                (float)dd->width, 1, 1);
-              nk_layout_row_push(ctx, 0.15f);
-              if (nk_button_label(ctx, "X")) {
-                for (int k = gi; k < dp->v_guide_count - 1; k++)
-                  dp->v_guides[k] = dp->v_guides[k + 1];
-                dp->v_guide_count--;
-                gi--;
+
+              // Vertical Guides
+              for (int gi = 0; gi < dp->v_guide_count; gi++) {
+                nk_layout_row_template_begin(ctx, 22);
+                nk_layout_row_template_push_static(ctx, 30);
+                nk_layout_row_template_push_dynamic(ctx);
+                nk_layout_row_template_push_static(ctx, 30);
+                nk_layout_row_template_end(ctx);
+
+                nk_label(ctx, "V:", NK_TEXT_LEFT);
+                ds_num_field(ctx, "#", &dp->v_guides[gi]);
+                if (nk_button_label(ctx, "X")) {
+                  for (int k = gi; k < dp->v_guide_count - 1; k++)
+                    dp->v_guides[k] = dp->v_guides[k + 1];
+                  dp->v_guide_count--;
+                  gi--;
+                }
               }
-              nk_layout_row_end(ctx);
             }
           }
 
           // ── EXPORT ───────────────────────────────────────────────────────
           ds_section(ctx, "EXPORT");
-          nk_layout_row_dynamic(ctx, 24, 4);
-          if (nk_button_label(ctx, "SVG")) {
-            if (dd->linked_table_id > 0) {
-              AslanTable *linked_tbl = NULL;
-              for (int i = 0; i < engine->doc->page_count; i++) {
-                Page *p = &engine->doc->pages[i];
-                if (!p->in_use)
-                  continue;
-                for (Block *b = p->first_block; b; b = b->next) {
-                  if (b->type == BLOCK_TABLE && b->data.table.columnar &&
-                      b->id == dd->linked_table_id) {
-                    linked_tbl = b->data.table.columnar;
-                    break;
+          {
+            nk_layout_row_dynamic(ctx, 28, 2);
+            if (nk_button_label(ctx, "Export SVG")) {
+              if (dd->linked_table_id > 0) {
+                AslanTable *linked_tbl = NULL;
+                for (int i = 0; i < engine->doc->page_count; i++) {
+                  Page *p = &engine->doc->pages[i];
+                  if (!p->in_use)
+                    continue;
+                  for (Block *b = p->first_block; b; b = b->next) {
+                    if (b->type == BLOCK_TABLE && b->data.table.columnar &&
+                        b->id == dd->linked_table_id) {
+                      linked_tbl = b->data.table.columnar;
+                      break;
+                    }
                   }
+                  if (linked_tbl)
+                    break;
                 }
-                if (linked_tbl)
-                  break;
-              }
-              if (linked_tbl) {
-                ui_host_export_svg_merge(ui, engine, linked_tbl);
+                if (linked_tbl) {
+                  ui_host_export_svg_merge(ui, engine, linked_tbl);
+                } else {
+                  ui_host_export_svg(ui, engine);
+                }
               } else {
                 ui_host_export_svg(ui, engine);
               }
-            } else {
-              ui_host_export_svg(ui, engine);
             }
-          }
-          if (nk_button_label(ctx, "PNG")) {
-            ui_host_export_png_jpeg(ui, engine, 0);
-          }
-          if (nk_button_label(ctx, "JPEG")) {
-            ui_host_export_png_jpeg(ui, engine, 1);
-          }
-          if (nk_button_label(ctx, "PDF")) {
-            ui_host_export_pdf(ui, engine);
+            if (nk_button_label(ctx, "Export PDF")) {
+              ui_host_export_pdf(ui, engine);
+            }
+
+            nk_layout_row_dynamic(ctx, 28, 2);
+            if (nk_button_label(ctx, "Export PNG")) {
+              ui_host_export_png_jpeg(ui, engine, 0);
+            }
+            if (nk_button_label(ctx, "Export JPEG")) {
+              ui_host_export_png_jpeg(ui, engine, 1);
+            }
           }
         }
         nk_tree_pop(ctx);
