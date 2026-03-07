@@ -842,10 +842,6 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         }
 
         ds_color(ctx, "Fill", &node->fill_color);
-        ds_color(ctx, "Stroke", &node->stroke_color);
-        nk_layout_row_dynamic(ctx, 24, 1);
-        nk_property_float(ctx, "Stroke width:", 0.f, &node->stroke_width, 100.f,
-                          0.5f, 0.25f);
 
         if (node->type != NODE_TYPE_TEXT && node->type != NODE_TYPE_LINE) {
           nk_layout_row_dynamic(ctx, 24, 1);
@@ -1747,9 +1743,6 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     if (!drawn) {
       nk_fill_rect(canvas_buf, nr, 0, nk_rgb(200, 200, 200));
     }
-    if (node->stroke_width > 0)
-      stroke_smooth_rounded_rect(canvas_buf, nr, node->corner_radius * scale,
-                                 node->stroke_width * scale, stroke);
   } else if (node->type == NODE_TYPE_RECT) {
     if (node->is_container && !node->image_path[0]) {
       struct nk_color cst = nk_rgba(0, 0, 0, 25); // Subtle grey border
@@ -1781,17 +1774,6 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
         } else {
           fill_smooth_rounded_rect(canvas_buf, nr, node->corner_radius * scale, fill);
         }
-      }
-    }
-    if (node->stroke_width > 0) {
-      if (node->rotation != 0.0f && node->type == NODE_TYPE_RECT) {
-        fill_rotated_rounded_rect(
-            canvas_buf, nr.x + nr.w / 2, nr.y + nr.h / 2, nr.w, nr.h,
-            node->rotation * 3.14159f / 180.0f, node->corner_radius * scale,
-            stroke, 1, node->stroke_width * scale);
-      } else {
-        stroke_smooth_rounded_rect(canvas_buf, nr, node->corner_radius * scale,
-                                   node->stroke_width, stroke);
       }
     }
 
@@ -2052,36 +2034,9 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
       }
       if (!drawn_image && has_fill)
         nk_fill_polygon(canvas_buf, pts, 64, fill);
-      if (node->stroke_width > 0)
-        draw_thick_polygon_stroke(canvas_buf, pts, 64, node->stroke_width,
-                                  stroke);
     } else {
-      if (node->stroke_width > 0 && has_fill) {
-        // Ring technique: outer filled circle (stroke color), inner (fill)
-        float hsw = node->stroke_width / 2.0f;
-        struct nk_rect outer =
-            nk_rect(nr.x - hsw, nr.y - hsw, nr.w + node->stroke_width,
-                    nr.h + node->stroke_width);
-        nk_fill_circle(canvas_buf, outer, stroke);
-        if (!drawn_image)
-          nk_fill_circle(canvas_buf, nr, fill);
-      } else {
-        if (!drawn_image && has_fill)
-          nk_fill_circle(canvas_buf, nr, fill);
-        if (node->stroke_width > 0) {
-          // No fill: generate 64-pt polygon and use thick stroke
-          float ecx = nr.x + nr.w / 2.0f, ecy = nr.y + nr.h / 2.0f;
-          float ehw = nr.w / 2.0f, ehh = nr.h / 2.0f;
-          float epts[128];
-          for (int i = 0; i < 64; i++) {
-            float th = i * 2.0f * 3.14159f / 64.0f;
-            epts[i * 2] = ecx + cosf(th) * ehw;
-            epts[i * 2 + 1] = ecy + sinf(th) * ehh;
-          }
-          draw_thick_polygon_stroke(canvas_buf, epts, 64, node->stroke_width,
-                                    stroke);
-        }
-      }
+      if (!drawn_image && has_fill)
+        nk_fill_circle(canvas_buf, nr, fill);
     }
   } else if (node->type == NODE_TYPE_TRIANGLE) {
     if (node->is_container && !node->image_path[0]) {
@@ -2111,9 +2066,6 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     if (!drawn_image && has_fill)
       fill_rounded_polygon(canvas_buf, pts, 3, node->corner_radius * scale,
                            fill, 0, 0);
-    if (node->stroke_width > 0)
-      draw_thick_polygon_stroke_v(canvas_buf, pts, 3, node->stroke_width,
-                                  stroke);
   } else if (node->type == NODE_TYPE_PENTAGON) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;
@@ -2130,9 +2082,6 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     if (!drawn_image && has_fill)
       fill_rounded_polygon(canvas_buf, pts, 5, node->corner_radius * scale,
                            fill, 0, 0);
-    if (node->stroke_width > 0)
-      draw_thick_polygon_stroke_v(canvas_buf, pts, 5, node->stroke_width,
-                                  stroke);
   } else if (node->type == NODE_TYPE_HEXAGON) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;
@@ -2149,9 +2098,6 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     if (!drawn_image && has_fill)
       fill_rounded_polygon(canvas_buf, pts, 6, node->corner_radius * scale,
                            fill, 0, 0);
-    if (node->stroke_width > 0)
-      draw_thick_polygon_stroke_v(canvas_buf, pts, 6, node->stroke_width,
-                                  stroke);
   } else if (node->type == NODE_TYPE_OCTAGON) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;
@@ -2168,9 +2114,6 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     if (!drawn_image && has_fill)
       fill_rounded_polygon(canvas_buf, pts, 8, node->corner_radius * scale,
                            fill, 0, 0);
-    if (node->stroke_width > 0)
-      draw_thick_polygon_stroke_v(canvas_buf, pts, 8, node->stroke_width,
-                                  stroke);
   } else if (node->type == NODE_TYPE_STAR) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;
@@ -2188,9 +2131,6 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     if (!drawn_image && has_fill)
       fill_rounded_polygon(canvas_buf, pts, 10, node->corner_radius * scale,
                            fill, 0, 0);
-    if (node->stroke_width > 0)
-      fill_rounded_polygon(canvas_buf, pts, 10, node->corner_radius * scale,
-                           stroke, 1, node->stroke_width);
   } else if (node->type == NODE_TYPE_HEART) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;
@@ -2210,9 +2150,6 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     }
     if (!drawn_image && has_fill)
       nk_fill_polygon(canvas_buf, (const float *)hpts, hcount, fill);
-    if (node->stroke_width > 0)
-      nk_stroke_polygon(canvas_buf, (const float *)hpts, hcount,
-                        node->stroke_width, stroke);
   } else if (node->type == NODE_TYPE_TEXT) {
     // Text node
 
