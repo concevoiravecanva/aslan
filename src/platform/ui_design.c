@@ -967,13 +967,12 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
             nk_layout_row_dynamic(ctx, 24, 1);
             nk_checkbox_label(ctx, "Clip Content", &node->clip_content);
 
-            const char *layout_modes[] = {"None", "V-Stack", "H-Stack"};
-            nk_layout_row_dynamic(ctx, 24, 2);
-            nk_label(ctx, "Auto Layout:", NK_TEXT_LEFT);
+            static const char *layout_modes[] = {"None", "V-Stack", "H-Stack"};
             if (node->layout_type < 0 || node->layout_type >= 3)
               node->layout_type = 0;
-            node->layout_type = nk_combo(
-                ctx, layout_modes, 3, node->layout_type, 24, nk_vec2(150, 200));
+            nk_layout_row_dynamic(ctx, 24, 1);
+            if (nk_button_label(ctx, layout_modes[node->layout_type]))
+              node->layout_type = (node->layout_type + 1) % 3;
 
             if (node->layout_type > 0) {
               nk_layout_row_dynamic(ctx, 24, 1);
@@ -1040,27 +1039,24 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           nk_layout_row_dynamic(ctx, 24, 1);
           nk_property_float(ctx, "Font size:", 6.f, &node->font_size, 200.f,
                             1.f, 0.5f);
-          nk_layout_row_dynamic(ctx, 24, 2);
-          const char *font_types[] = {"Inter", "Inter Bold", "Courier", "Serif",
-                                      "Icons"};
+          static const char *font_types[] = {"Inter", "Inter Bold", "Courier",
+                                             "Serif", "Icons"};
           int cur_font = node->font_type;
           if (cur_font < 0 || cur_font >= 5)
             cur_font = 0;
-          int new_font =
-              nk_combo(ctx, font_types, 5, cur_font, 24, nk_vec2(150, 200));
-          if (new_font != cur_font) {
-            node->font_type = new_font;
-          }
+          nk_layout_row_dynamic(ctx, 24, 2);
+          nk_label(ctx, "Font:", NK_TEXT_LEFT);
+          if (nk_button_label(ctx, font_types[cur_font]))
+            node->font_type = (cur_font + 1) % 5;
           // Alignment
-          const char *aligns[] = {"Left", "Center", "Right"};
+          static const char *aligns[] = {"Left", "Center", "Right"};
           int cur_align = node->text_align;
           if (cur_align < 0 || cur_align >= 3)
             cur_align = 0;
-          int new_align =
-              nk_combo(ctx, aligns, 3, cur_align, 24, nk_vec2(100, 100));
-          if (new_align != cur_align) {
-            node->text_align = new_align;
-          }
+          nk_layout_row_dynamic(ctx, 24, 2);
+          nk_label(ctx, "Align:", NK_TEXT_LEFT);
+          if (nk_button_label(ctx, aligns[cur_align]))
+            node->text_align = (cur_align + 1) % 3;
 
           nk_layout_row_dynamic(ctx, 24, 2);
           nk_property_float(ctx, "Line height:", 0.5f, &node->line_height, 3.0f,
@@ -1116,9 +1112,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           }
           if (cur_tidx < 0 || cur_tidx >= text_tcount)
             cur_tidx = 0;
-          int new_tidx = nk_combo(ctx, text_tnames_ptr, text_tcount, cur_tidx,
-                                  24, nk_vec2(220, 200));
-          if (new_tidx != cur_tidx) {
+          if (nk_button_label(ctx, text_tnames_ptr[cur_tidx])) {
+            int new_tidx = (cur_tidx + 1) % text_tcount;
             dd->linked_table_id = text_tids[new_tidx];
             ui->design_linked_row_idx = 0;
             node->linked_col_name[0] = '\0'; // reset column selection
@@ -1164,9 +1159,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
             nk_layout_row_dynamic(ctx, 24, 1);
             if (cur_sel < 0 || cur_sel >= col_count + 1)
               cur_sel = 0;
-            int new_sel = nk_combo(ctx, col_names, col_count + 1, cur_sel, 24,
-                                   nk_vec2(220, 200));
-            if (new_sel != cur_sel) {
+            if (nk_button_label(ctx, col_names[cur_sel])) {
+              int new_sel = (cur_sel + 1) % (col_count + 1);
               if (new_sel == 0) {
                 active_col_name[0] = '\0';
               } else {
@@ -1236,25 +1230,6 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
             }
 
             if (!dd->no_limits) {
-              static const struct {
-                const char *l;
-                int w, h;
-              } presets[] = {
-                  {"A4", 794, 1123},    {"A3", 1123, 1587},
-                  {"HD", 1920, 1080},   {"4K", 3840, 2160},
-                  {"Sq.", 1080, 1080},  {"Story", 1080, 1920},
-                  {"Post", 1080, 1350}, {"Banner", 1920, 480},
-              };
-              nk_layout_row_dynamic(ctx, 22, 4);
-              for (int i = 0; i < 8; i++) {
-                if (nk_button_label(ctx, presets[i].l)) {
-                  char cmd[128];
-                  snprintf(cmd, sizeof(cmd),
-                           "block_design_resize %u %u %d %d 0", page->id,
-                           block->id, presets[i].w, presets[i].h);
-                  engine_execute_command(engine, cmd);
-                }
-              }
               nk_layout_row_dynamic(ctx, 4, 1); // Spacing after presets
               nk_spacing(ctx, 1);
 
@@ -1264,8 +1239,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
               nk_label(ctx, "Units:", NK_TEXT_LEFT);
               if (dd->units < 0 || dd->units >= 3)
                 dd->units = 0;
-              dd->units =
-                  nk_combo(ctx, unit_names, 3, dd->units, 24, nk_vec2(80, 100));
+              if (nk_button_label(ctx, unit_names[dd->units]))
+                dd->units = (dd->units + 1) % 3;
 
               float to_px = 1.0f;
               if (dd->units == 1)
@@ -1297,14 +1272,10 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           {
             DesignPage *dp = &dd->pages[dd->current_page];
 
-            nk_spacing(ctx, 1);
-            nk_layout_row_dynamic(ctx, 22, 1);
+            nk_layout_row_dynamic(ctx, 18, 1);
             nk_checkbox_label(ctx, "Show Rulers", &dp->show_rulers);
 
-            nk_spacing(ctx, 1);
-            nk_layout_row_dynamic(ctx, 22, 1);
-            nk_label(ctx, "Guides:", NK_TEXT_LEFT);
-            nk_layout_row_dynamic(ctx, 22, 2);
+            nk_layout_row_dynamic(ctx, 18, 2);
             if (nk_button_label(ctx, "+ H Guide") && dp->h_guide_count < 16) {
               dp->h_guides[dp->h_guide_count++] = (float)dd->height / 2.0f;
             }
@@ -1312,13 +1283,13 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
               dp->v_guides[dp->v_guide_count++] = (float)dd->width / 2.0f;
             }
             for (int gi = 0; gi < dp->h_guide_count; gi++) {
-              nk_layout_row_begin(ctx, NK_DYNAMIC, 20, 3);
-              nk_layout_row_push(ctx, 0.25f);
+              nk_layout_row_begin(ctx, NK_DYNAMIC, 18, 3);
+              nk_layout_row_push(ctx, 0.20f);
               nk_labelf(ctx, NK_TEXT_LEFT, "H%d", gi + 1);
-              nk_layout_row_push(ctx, 0.50f);
+              nk_layout_row_push(ctx, 0.65f);
               nk_property_float(ctx, "#", 0, &dp->h_guides[gi],
                                 (float)dd->height, 1, 1);
-              nk_layout_row_push(ctx, 0.25f);
+              nk_layout_row_push(ctx, 0.15f);
               if (nk_button_label(ctx, "X")) {
                 for (int k = gi; k < dp->h_guide_count - 1; k++)
                   dp->h_guides[k] = dp->h_guides[k + 1];
@@ -1328,13 +1299,13 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
               nk_layout_row_end(ctx);
             }
             for (int gi = 0; gi < dp->v_guide_count; gi++) {
-              nk_layout_row_begin(ctx, NK_DYNAMIC, 20, 3);
-              nk_layout_row_push(ctx, 0.25f);
+              nk_layout_row_begin(ctx, NK_DYNAMIC, 18, 3);
+              nk_layout_row_push(ctx, 0.20f);
               nk_labelf(ctx, NK_TEXT_LEFT, "V%d", gi + 1);
-              nk_layout_row_push(ctx, 0.50f);
+              nk_layout_row_push(ctx, 0.65f);
               nk_property_float(ctx, "#", 0, &dp->v_guides[gi],
                                 (float)dd->width, 1, 1);
-              nk_layout_row_push(ctx, 0.25f);
+              nk_layout_row_push(ctx, 0.15f);
               if (nk_button_label(ctx, "X")) {
                 for (int k = gi; k < dp->v_guide_count - 1; k++)
                   dp->v_guides[k] = dp->v_guides[k + 1];
@@ -1349,23 +1320,27 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           ds_section(ctx, "EXPORT");
           nk_layout_row_dynamic(ctx, 24, 4);
           if (nk_button_label(ctx, "SVG")) {
-            // Check for linked table manually find first available
-            AslanTable *linked_tbl = NULL;
-            for (int i = 0; i < engine->doc->page_count; i++) {
-              Page *p = &engine->doc->pages[i];
-              if (!p->in_use)
-                continue;
-              for (Block *b = p->first_block; b; b = b->next) {
-                if (b->type == BLOCK_TABLE && b->data.table.columnar) {
-                  linked_tbl = b->data.table.columnar;
-                  break;
+            if (dd->linked_table_id > 0) {
+              AslanTable *linked_tbl = NULL;
+              for (int i = 0; i < engine->doc->page_count; i++) {
+                Page *p = &engine->doc->pages[i];
+                if (!p->in_use)
+                  continue;
+                for (Block *b = p->first_block; b; b = b->next) {
+                  if (b->type == BLOCK_TABLE && b->data.table.columnar &&
+                      b->id == dd->linked_table_id) {
+                    linked_tbl = b->data.table.columnar;
+                    break;
+                  }
                 }
+                if (linked_tbl)
+                  break;
               }
-              if (linked_tbl)
-                break;
-            }
-            if (linked_tbl) {
-              ui_host_export_svg_merge(ui, engine, linked_tbl);
+              if (linked_tbl) {
+                ui_host_export_svg_merge(ui, engine, linked_tbl);
+              } else {
+                ui_host_export_svg(ui, engine);
+              }
             } else {
               ui_host_export_svg(ui, engine);
             }

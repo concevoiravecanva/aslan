@@ -916,7 +916,6 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
   nk_layout_row_template_push_static(ctx, 16.0f);    // fold toggle
   nk_layout_row_template_push_static(ctx, 24.0f);    // type icon
   nk_layout_row_template_push_dynamic(ctx);          // name (flexible)
-  nk_layout_row_template_push_static(ctx, 16.0f);    // fill color swatch
   nk_layout_row_template_push_static(ctx, 24.0f);    // visibility
   nk_layout_row_template_push_static(ctx, 24.0f);    // lock
   nk_layout_row_template_push_static(ctx, 24.0f);    // trash
@@ -1030,13 +1029,6 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
     if (ui->font_inter)
       nk_style_set_font(ctx, &ui->font_inter->handle);
   } else {
-    // Subtle indentation guide line
-    if (depth > 0) {
-      struct nk_command_buffer *cb = nk_window_get_canvas(ctx);
-      float lx = row_bounds.x - 8;
-      nk_stroke_line(cb, lx, row_bounds.y, lx, row_bounds.y + row_bounds.h,
-                     1.0f, nk_rgba(0, 0, 0, 15));
-    }
     nk_spacing(ctx, 1);
   }
 
@@ -1119,23 +1111,6 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
         ui->renaming_node_id = 0;
       }
     }
-  }
-
-  // 4. Fill color swatch
-  {
-    struct nk_rect sw = nk_widget_bounds(ctx);
-    nk_spacing(ctx, 1); // consume the slot
-    uint32_t fc =
-        (node->type == NODE_TYPE_STROKE || node->type == NODE_TYPE_PATH)
-            ? node->stroke_color
-            : node->fill_color;
-    uint8_t sr = (fc >> 24) & 0xFF, sg = (fc >> 16) & 0xFF,
-            sb2 = (fc >> 8) & 0xFF;
-    struct nk_command_buffer *cb2 = nk_window_get_canvas(ctx);
-    float s = 10.0f;
-    float sx2 = sw.x + (sw.w - s) * 0.5f, sy2 = sw.y + (sw.h - s) * 0.5f;
-    nk_fill_circle(cb2, nk_rect(sx2, sy2, s, s), nk_rgba(sr, sg, sb2, 255));
-    nk_stroke_circle(cb2, nk_rect(sx2, sy2, s, s), 1.0f, nk_rgba(0, 0, 0, 40));
   }
 
   // 5. Visibility Toggle

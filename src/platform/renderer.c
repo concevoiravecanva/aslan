@@ -43,8 +43,10 @@ Renderer *renderer_create(const char *title, int width, int height) {
     return NULL;
   }
 
-  r->sdl_renderer = SDL_CreateRenderer(
-      r->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+  r->sdl_renderer =
+      SDL_CreateRenderer(r->window, -1,
+                         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC |
+                             SDL_RENDERER_TARGETTEXTURE);
 
   if (!r->sdl_renderer) {
     printf("Renderer could not be created! SDL_Error: %s\n", SDL_GetError());
