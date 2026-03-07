@@ -412,21 +412,70 @@ static void ds_color(UIHost *ui, struct nk_context *ctx, const char *label,
   nk_label(ctx, label, NK_TEXT_LEFT);
 }
 
-// ── Clean Numeric Field: [Label | [ Value ]] (no buttons) ───────────────────
-static void ds_num_field(struct nk_context *ctx, const char *label,
-                         float *value) {
+// ── Professional Numeric Input: [Label | [ Value ]] (no buttons) ────────────
+// Committed only on Enter or Loss of focus to prevent jitter.
+// Clears on focus for radical ease of use, reverts if empty/blur.
+int ds_num_input(UIHost *ui, struct nk_context *ctx, const char *label,
+                 float *value, float min_v, float max_v) {
+  int changed = 0;
   nk_layout_row_begin(ctx, NK_DYNAMIC, 22, 2);
-  nk_layout_row_push(ctx, 0.35f);
+  nk_layout_row_push(ctx, 0.25f);
   nk_label(ctx, label, NK_TEXT_LEFT);
-  nk_layout_row_push(ctx, 0.65f);
-  char buf[32];
-  snprintf(buf, sizeof(buf), "%.1f", *value);
-  nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, buf, sizeof(buf) - 1,
-                                 nk_filter_float);
-  float v = (float)atof(buf);
-  if (v != *value)
-    *value = v;
+  nk_layout_row_push(ctx, 0.75f);
+
+  void *ptr = (void *)value;
+  char *shared_buf = ui->ds_num_edit_buf;
+  char local_buf[64];
+  char *current_buf = local_buf;
+
+  // 1. Buffer Ownership Logic:
+  // ONLY the active field uses the shared buffer.
+  // Others use a local display buffer to avoid cross-field overwrites.
+  if (ui->ds_num_edit_ptr == ptr) {
+    current_buf = shared_buf;
+  } else {
+    snprintf(local_buf, 63, "%g", *value);
+  }
+
+  // 2. Render Edit Widget
+  nk_flags state = nk_edit_string_zero_terminated(
+      ctx, NK_EDIT_FIELD | NK_EDIT_SIG_ENTER, current_buf, 63, nk_filter_float);
+
+  // 3. Focus Detection: Detect if we JUST became active
+  if (state & NK_EDIT_ACTIVE) {
+    if (ui->ds_num_edit_ptr != ptr) {
+      ui->ds_num_edit_ptr = ptr;
+      ui->ds_num_orig_val = *value;
+      shared_buf[0] = '\0'; // Clear the shared buffer immediately
+    }
+  }
+
+  // 4. Commitment Logic
+  int committed = (state & NK_EDIT_COMMITED);
+  int lost_focus = (!(state & NK_EDIT_ACTIVE) && ui->ds_num_edit_ptr == ptr);
+
+  if (committed || lost_focus) {
+    if (shared_buf[0] == '\0') {
+      *value = ui->ds_num_orig_val; // Revert if empty
+    } else {
+      float v = (float)atof(shared_buf);
+      if (v < min_v)
+        v = min_v;
+      else if (v > max_v)
+        v = max_v;
+
+      if (v != *value) {
+        *value = v;
+        changed = 1;
+      }
+    }
+    if (committed)
+      nk_edit_unfocus(ctx);
+    ui->ds_num_edit_ptr = NULL;
+  }
+
   nk_layout_row_end(ctx);
+  return changed;
 }
 
 // =============================================================================
@@ -759,10 +808,10 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         if (node->type == NODE_TYPE_TABLE_VIEW) {
           ds_section(ctx, "TABLE VIEW");
           nk_layout_row_dynamic(ctx, 24, 2);
-          nk_property_float(ctx, "X:", -9999.f, &node->x, 9999.f, 1.f, 0.5f);
-          nk_property_float(ctx, "Y:", -9999.f, &node->y, 9999.f, 1.f, 0.5f);
-          nk_property_float(ctx, "W:", 10.f, &node->width, 9999.f, 1.f, 0.5f);
-          nk_property_float(ctx, "H:", 10.f, &node->height, 9999.f, 1.f, 0.5f);
+          ds_num_input(ui, ctx, "X:", &node->x, -9999.f, 9999.f);
+          ds_num_input(ui, ctx, "Y:", &node->y, -9999.f, 9999.f);
+          ds_num_input(ui, ctx, "W:", &node->width, 1.f, 9999.f);
+          ds_num_input(ui, ctx, "H:", &node->height, 1.f, 9999.f);
           nk_layout_row_dynamic(ctx, 18, 1);
           nk_label_colored(ctx, "Content mirrors the linked table",
                            NK_TEXT_LEFT, nk_rgb(160, 160, 175));
@@ -915,9 +964,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         ds_color(ui, ctx, "Fill", &node->fill_color);
 
         if (node->type != NODE_TYPE_TEXT && node->type != NODE_TYPE_LINE) {
-          nk_layout_row_dynamic(ctx, 24, 1);
-          nk_property_float(ctx, "Corner radius:", 0.f, &node->corner_radius,
-                            200.f, 1.f, 0.5f);
+          ds_num_input(ui, ctx, "Corner:", &node->corner_radius, 0.f, 500.f);
         }
 
         // Gradient Options — buttons instead of combo (avoids ROM mode)
@@ -941,14 +988,10 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
 
         if (node->fill_type == 1) {
           ds_color(ui, ctx, "Gradient To", &node->fill_color_2);
-          nk_layout_row_dynamic(ctx, 24, 1);
-          nk_property_float(ctx, "Angle:", 0.f, &node->gradient_angle, 360.f,
-                            1.f, 0.5f);
+          ds_num_input(ui, ctx, "Angle:", &node->gradient_angle, 0.f, 360.f);
         }
 
-        nk_layout_row_dynamic(ctx, 24, 1);
-        nk_property_float(ctx, "Opacity %:", 0.f, &node->opacity, 1.0f, 0.01f,
-                          0.005f);
+        ds_num_input(ui, ctx, "Opacity:", &node->opacity, 0.f, 1.0f);
 
         // ── PATH EDITING ─────────────────────────────────────────────────
         {
@@ -992,9 +1035,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
               node->layout_type = (node->layout_type + 1) % 3;
 
             if (node->layout_type > 0) {
-              nk_layout_row_dynamic(ctx, 24, 1);
-              nk_property_float(ctx, "Spacing:", 0.f, &node->layout_padding,
-                                200.f, 1.f, 0.5f);
+              ds_num_input(ui, ctx, "Spacing:", &node->layout_padding, 0.f,
+                           500.f);
             }
           }
         }
@@ -1041,8 +1083,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
               nk_style_set_font(ctx, &ui->font_inter->handle);
           }
 
-          nk_property_float(ctx, "Scale:", 0.1f, &node->image_scale, 10.0f,
-                            0.1f, 0.05f);
+          ds_num_input(ui, ctx, "Scale:", &node->image_scale, 0.1f, 10.0f);
         }
 
         // ── TEXT CONTENT ─────────────────────────────────────────────────
@@ -1054,8 +1095,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
               node->text, sizeof(node->text), nk_filter_default);
 
           nk_layout_row_dynamic(ctx, 24, 1);
-          nk_property_float(ctx, "Font size:", 6.f, &node->font_size, 200.f,
-                            1.f, 0.5f);
+          ds_num_input(ui, ctx, "Size:", &node->font_size, 6.f, 200.f);
           static const char *font_types[] = {"Inter", "Inter Bold", "Courier",
                                              "Serif", "Icons"};
           int cur_font = node->font_type;
@@ -1075,11 +1115,9 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           if (nk_button_label(ctx, aligns[cur_align]))
             node->text_align = (cur_align + 1) % 3;
 
-          nk_layout_row_dynamic(ctx, 24, 2);
-          nk_property_float(ctx, "Line height:", 0.5f, &node->line_height, 3.0f,
-                            0.1f, 0.05f);
-          nk_property_float(ctx, "Letter spacing:", -10.0f,
-                            &node->letter_spacing, 50.0f, 0.5f, 0.1f);
+          ds_num_input(ui, ctx, "L-Height:", &node->line_height, 0.5f, 3.0f);
+          ds_num_input(ui, ctx, "L-Spacing:", &node->letter_spacing, -10.0f,
+                       50.0f);
 
           // Link to table and column
           if (node->type == NODE_TYPE_TEXT && node->font_type != 4) {
@@ -1251,18 +1289,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
               nk_layout_row_dynamic(ctx, 4, 1);
               nk_spacing(ctx, 1);
 
-              // Unit Selection (Cycle)
-              static const char *unit_names[] = {"PX", "CM", "IN"};
-              nk_layout_row_template_begin(ctx, 24);
-              nk_layout_row_template_push_dynamic(ctx);
-              nk_layout_row_template_push_static(ctx, 50);
-              nk_layout_row_template_end(ctx);
-              nk_label(ctx, "Canvas Units:", NK_TEXT_LEFT);
-              if (dd->units < 0 || dd->units >= 3)
-                dd->units = 0;
-              if (nk_button_label(ctx, unit_names[dd->units]))
-                dd->units = (dd->units + 1) % 3;
-
+              // ── Dimensions Row (W/H side-by-side)
+              nk_layout_row_dynamic(ctx, 24, 2);
               float to_px = 1.0f;
               if (dd->units == 1)
                 to_px = 37.795f;
@@ -1272,23 +1300,38 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
               float val_w = (float)dd->width / to_px;
               float val_h = (float)dd->height / to_px;
 
-              nk_layout_row_dynamic(ctx, 24, 2);
-              ds_num_field(ctx, "W", &val_w);
-              ds_num_field(ctx, "H", &val_h);
-
-              int new_w = (int)(val_w * to_px);
-              int new_h = (int)(val_h * to_px);
-
-              if (new_w != dd->width || new_h != dd->height) {
+              if (ds_num_input(ui, ctx, "W", &val_w, 10.0f, 10000.0f) ||
+                  ds_num_input(ui, ctx, "H", &val_h, 10.0f, 10000.0f)) {
+                int new_w = (int)(val_w * to_px);
+                int new_h = (int)(val_h * to_px);
                 char cmd[128];
                 snprintf(cmd, sizeof(cmd), "block_design_resize %u %u %d %d 0",
                          page->id, block->id, new_w, new_h);
                 engine_execute_command(engine, cmd);
               }
+
+              // ── Unit Selection (Professional Dropdown)
+              static const char *unit_names[] = {
+                  "Pixels (px)", "Centimeters (cm)", "Inches (in)"};
+              nk_layout_row_template_begin(ctx, 24);
+              nk_layout_row_template_push_static(ctx, 40);
+              nk_layout_row_template_push_dynamic(ctx);
+              nk_layout_row_template_end(ctx);
+              nk_label(ctx, "Unit:", NK_TEXT_LEFT);
+              if (dd->units < 0 || dd->units >= 3)
+                dd->units = 0;
+              if (nk_combo_begin_label(ctx, unit_names[dd->units],
+                                       nk_vec2(nk_widget_width(ctx), 120))) {
+                nk_layout_row_dynamic(ctx, 22, 1);
+                for (int i = 0; i < 3; i++) {
+                  if (nk_combo_item_label(ctx, unit_names[i], NK_TEXT_LEFT))
+                    dd->units = i;
+                }
+                nk_combo_end(ctx);
+              }
             }
           }
 
-          // ── LAYOUT AIDS ──────────────────────────────────────────────────
           // ── LAYOUT AIDS ──────────────────────────────────────────────────
           ds_section(ctx, "LAYOUT AIDS");
           {
@@ -1324,7 +1367,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
                 nk_layout_row_template_end(ctx);
 
                 nk_label(ctx, "H:", NK_TEXT_LEFT);
-                ds_num_field(ctx, "#", &dp->h_guides[gi]);
+                ds_num_input(ui, ctx, "#", &dp->h_guides[gi], 0,
+                             (float)dd->height);
                 if (nk_button_label(ctx, "X")) {
                   for (int k = gi; k < dp->h_guide_count - 1; k++)
                     dp->h_guides[k] = dp->h_guides[k + 1];
@@ -1342,7 +1386,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
                 nk_layout_row_template_end(ctx);
 
                 nk_label(ctx, "V:", NK_TEXT_LEFT);
-                ds_num_field(ctx, "#", &dp->v_guides[gi]);
+                ds_num_input(ui, ctx, "#", &dp->v_guides[gi], 0,
+                             (float)dd->width);
                 if (nk_button_label(ctx, "X")) {
                   for (int k = gi; k < dp->v_guide_count - 1; k++)
                     dp->v_guides[k] = dp->v_guides[k + 1];

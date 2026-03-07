@@ -461,15 +461,18 @@ typedef struct UIHost {
 
   // Gantt view state (per session — not persisted)
   struct {
-    int64_t view_start_day; // Days since Unix epoch for leftmost column (0 = auto)
-    float   day_w;          // Pixels per day (0 = default 40px)
+    int64_t
+        view_start_day; // Days since Unix epoch for leftmost column (0 = auto)
+    float day_w;        // Pixels per day (0 = default 40px)
   } gantt_state;
 
   // Artboard rects used for scissor + border rendering
   struct nk_rect artboard_clip; // = art_rect, set before layout
-  struct nk_rect artboard_rect; // same art_rect, used for border stroke after group
+  struct nk_rect
+      artboard_rect; // same art_rect, used for border stroke after group
 
-  // Floating color picker (avoids ROM-mode issue from combo popups inside groups)
+  // Floating color picker (avoids ROM-mode issue from combo popups inside
+  // groups)
   int color_picker_open;      // 1 = picker window is visible
   uint32_t *color_picker_ptr; // pointer to the RGBA32 color being edited
   float color_picker_x;       // screen position of the picker window
@@ -498,6 +501,11 @@ typedef struct UIHost {
   uint32_t pending_export_block_id;
   char pending_export_path[1024];
 
+  // Professional Numeric Input State
+  char ds_num_edit_buf[64];
+  void *ds_num_edit_ptr;
+  float ds_num_orig_val;
+
   // Event-driven rendering: redraw only when needed
   int needs_redraw;         // 1 = re-render needed, 0 = idle
   int has_active_animation; // 1 = cursor blink, transitions, etc.
@@ -507,6 +515,11 @@ typedef struct UIHost {
 // -----------------------------------------------------------------------------
 // UI Lifecycle
 // -----------------------------------------------------------------------------
+
+// Professionals Numeric Input Utility (shared across ui_design.c, ui_canvas.c,
+// etc.)
+int ds_num_input(UIHost *ui, struct nk_context *ctx, const char *label,
+                 float *value, float min_v, float max_v);
 
 UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer);
 void ui_shutdown(UIHost *ui);

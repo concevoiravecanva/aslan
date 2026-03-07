@@ -600,8 +600,8 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
       }
 
       nk_layout_row_dynamic(ctx, 28, 2);
-      nk_property_float(ctx, "W:", min_val, &val_w, max_val, step, step / 2.0f);
-      nk_property_float(ctx, "H:", min_val, &val_h, max_val, step, step / 2.0f);
+      ds_num_input(ui, ctx, "W:", &val_w, min_val, max_val);
+      ds_num_input(ui, ctx, "H:", &val_h, min_val, max_val);
 
       int new_w = old_w, new_h = old_h;
       if (cur_units == 0) {
@@ -716,7 +716,7 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
     if (node->font_size < 8.0f)
       node->font_size = 12.0f;
     nk_layout_row_dynamic(ctx, 28, 1);
-    nk_property_float(ctx, "Size:", 8.0f, &node->font_size, 200.0f, 1.0f, 1.0f);
+    ds_num_input(ui, ctx, "Size:", &node->font_size, 8.0f, 200.0f);
 
     sidebar_section_divider(ctx);
     ui_render_color_property(ctx, "Color", &node->stroke_color);
@@ -827,18 +827,17 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
   sidebar_section_header(ctx, "POSITION");
 
   nk_layout_row_dynamic(ctx, 28, 2);
-  nk_property_float(ctx, "X:", -10000.0f, &node->x, 10000.0f, 1.0f, 0.5f);
-  nk_property_float(ctx, "Y:", -10000.0f, &node->y, 10000.0f, 1.0f, 0.5f);
+  ds_num_input(ui, ctx, "X:", &node->x, -10000.0f, 10000.0f);
+  ds_num_input(ui, ctx, "Y:", &node->y, -10000.0f, 10000.0f);
 
   sidebar_section_header(ctx, "SIZE");
   nk_layout_row_dynamic(ctx, 28, 2);
-  nk_property_float(ctx, "W:", 1.0f, &node->width, 10000.0f, 1.0f, 0.5f);
-  nk_property_float(ctx, "H:", 1.0f, &node->height, 10000.0f, 1.0f, 0.5f);
+  ds_num_input(ui, ctx, "W:", &node->width, 1.0f, 10000.0f);
+  ds_num_input(ui, ctx, "H:", &node->height, 1.0f, 10000.0f);
 
   // Rotation
   nk_layout_row_dynamic(ctx, 28, 1);
-  nk_property_float(ctx, "Rotation:", -360.0f, &node->rotation, 360.0f, 1.0f,
-                    0.5f);
+  ds_num_input(ui, ctx, "Rot:", &node->rotation, -360.0f, 360.0f);
 
   // =====================================================================
   // LINE ENDPOINTS — for lines, strokes, thin rects
@@ -880,8 +879,7 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
   sidebar_section_divider(ctx);
   sidebar_section_header(ctx, "STROKE");
   nk_layout_row_dynamic(ctx, 28, 1);
-  nk_property_float(ctx, "Width:", 0.0f, &node->stroke_width, 100.0f, 0.5f,
-                    0.25f);
+  ds_num_input(ui, ctx, "Width:", &node->stroke_width, 0.0f, 100.0f);
   ui_render_color_property(ctx, "Color", &node->stroke_color);
 
   // =====================================================================
@@ -1222,7 +1220,7 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
 
   // ── Row 2: opacity slider ──────────────────────────────────────────────────
   nk_layout_row_dynamic(ctx, 20, 1);
-  nk_property_float(ctx, "Opacity", 0.0f, &node->opacity, 1.0f, 0.05f, 0.01f);
+  ds_num_input(ui, ctx, "Opacity", &node->opacity, 0.0f, 1.0f);
 
   // ── Row 3: fill swatch | label  + stroke swatch | width ───────────────────
   nk_layout_row_template_begin(ctx, 22);
@@ -1262,17 +1260,16 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
     nk_stroke_rect(insp_cb, nk_rect(fx, fy, s, s), 2.0f, 0.5f,
                    nk_rgba(0, 0, 0, 40));
   }
-  nk_property_float(ctx, "W:", 0.0f, &node->stroke_width, 100.0f, 0.5f, 0.25f);
+  ds_num_input(ui, ctx, "W:", &node->stroke_width, 0.0f, 100.0f);
 
   // ── Row 4: type-specific property ─────────────────────────────────────────
   nk_layout_row_dynamic(ctx, 24, 1);
   if (node->type == NODE_TYPE_TEXT) {
-    nk_property_float(ctx, "Size", 6.0f, &node->font_size, 200.0f, 1.0f, 0.5f);
+    ds_num_input(ui, ctx, "Size", &node->font_size, 6.0f, 200.0f);
   } else if (node->is_container) {
     nk_checkbox_label(ctx, "Clip content", &node->clip_content);
   } else {
-    nk_property_float(ctx, "Radius", 0.0f, &node->corner_radius, 200.0f, 1.0f,
-                      0.5f);
+    ds_num_input(ui, ctx, "Radius", &node->corner_radius, 0.0f, 200.0f);
   }
 
   // ── Row 5: action buttons ─────────────────────────────────────────────────
