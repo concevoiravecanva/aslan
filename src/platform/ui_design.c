@@ -1031,9 +1031,9 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         // ── TEXT CONTENT ─────────────────────────────────────────────────
         if (node->type == NODE_TYPE_TEXT) {
           ds_section(ctx, "TEXT CONTENT");
-          nk_layout_row_dynamic(ctx, 100, 1);
+          nk_layout_row_dynamic(ctx, 24, 1);
           nk_edit_string_zero_terminated(
-              ctx, NK_EDIT_BOX | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD,
+              ctx, NK_EDIT_FIELD | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD,
               node->text, sizeof(node->text), nk_filter_default);
 
           nk_layout_row_dynamic(ctx, 24, 1);
@@ -3525,8 +3525,10 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
             }
             ui->selected_node = hit;
           } else {
-            // Double-click: edit text / crop image
-            if (hit == ui->selected_node) {
+            // Double-click: edit text / crop image (requires real double-click)
+            int is_double = nk_input_is_mouse_click_in_rect(
+                &ctx->input, NK_BUTTON_DOUBLE, bounds);
+            if (is_double && hit == ui->selected_node) {
               if (hit->type == NODE_TYPE_TEXT) {
                 // Edit existing text node inline natively
                 ui->editing_node = hit;
