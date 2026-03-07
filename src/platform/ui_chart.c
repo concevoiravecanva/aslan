@@ -8,6 +8,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 // -----------------------------------------------------------------------------
 // Constants
@@ -369,9 +370,12 @@ void ui_render_chart_impl(UIHost *ui, struct nk_context *ctx, ChartData *cd,
     // Find DATE and DURATION columns in source table
     int date_col = -1, dur_col = -1, name_col = cd->label_col_idx;
     for (int c = 0; c < (int)tbl->column_count; c++) {
-      if (tbl->columns[c].type == ASLAN_COL_DATE     && date_col < 0) date_col = c;
-      if (tbl->columns[c].type == ASLAN_COL_DURATION && dur_col  < 0) dur_col  = c;
-      if (name_col < 0 && tbl->columns[c].type == ASLAN_COL_TEXT) name_col = c;
+      if (tbl->columns[c].type == ASLAN_COL_DATE && date_col < 0)
+        date_col = c;
+      if (tbl->columns[c].type == ASLAN_COL_DURATION && dur_col < 0)
+        dur_col = c;
+      if (name_col < 0 && tbl->columns[c].type == ASLAN_COL_TEXT)
+        name_col = c;
     }
     if (date_col < 0 || dur_col < 0) {
       nk_draw_text(canvas,
@@ -383,7 +387,8 @@ void ui_render_chart_impl(UIHost *ui, struct nk_context *ctx, ChartData *cd,
     }
 
     // Init navigation state
-    if (ui->gantt_state.day_w <= 0.0f) ui->gantt_state.day_w = 40.0f;
+    if (ui->gantt_state.day_w <= 0.0f)
+      ui->gantt_state.day_w = 40.0f;
     if (ui->gantt_state.view_start_day == 0) {
       time_t now = time(NULL);
       ui->gantt_state.view_start_day = (int64_t)(now / 86400) - 3;
@@ -392,8 +397,8 @@ void ui_render_chart_impl(UIHost *ui, struct nk_context *ctx, ChartData *cd,
     int64_t vsd = ui->gantt_state.view_start_day;
 
     const float label_w = 140.0f;
-    const float hdr_h   = 28.0f;
-    const float row_h   = 28.0f;
+    const float hdr_h = 28.0f;
+    const float row_h = 28.0f;
     const struct nk_user_font *font = &ui->font_inter->handle;
 
     size_t view_count = aslan_table_view_count(tbl);
@@ -401,22 +406,28 @@ void ui_render_chart_impl(UIHost *ui, struct nk_context *ctx, ChartData *cd,
     float total_h = bounds.h;
     int visible_days = (int)((bounds.w - label_w) / day_w) + 2;
 
-    static const char *day_names[] = {"Su","Mo","Tu","We","Th","Fr","Sa"};
-    static const char *mon_names[] = {"Jan","Feb","Mar","Apr","May","Jun",
-                                      "Jul","Aug","Sep","Oct","Nov","Dec"};
+    static const char *day_names[] = {"Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"};
+    static const char *mon_names[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
 
     // Zoom buttons (top-right corner)
     {
       float bx = bounds.x + bounds.w - 54.0f, by = bounds.y + 4.0f;
-      struct nk_rect bm = nk_rect(bx,      by, 22.0f, 20.0f);
-      struct nk_rect bp = nk_rect(bx+24.f, by, 22.0f, 20.0f);
+      struct nk_rect bm = nk_rect(bx, by, 22.0f, 20.0f);
+      struct nk_rect bp = nk_rect(bx + 24.f, by, 22.0f, 20.0f);
       float mx = ctx->input.mouse.pos.x, my2 = ctx->input.mouse.pos.y;
-      int hm = (mx>=bm.x&&mx<bm.x+bm.w&&my2>=bm.y&&my2<bm.y+bm.h);
-      int hp = (mx>=bp.x&&mx<bp.x+bp.w&&my2>=bp.y&&my2<bp.y+bp.h);
-      nk_fill_rect(canvas, bm, 4, hm ? nk_rgba(0,0,0,18):nk_rgba(0,0,0,8));
-      nk_fill_rect(canvas, bp, 4, hp ? nk_rgba(0,0,0,18):nk_rgba(0,0,0,8));
-      nk_draw_text(canvas, bm, "-", 1, font, nk_rgba(0,0,0,0), nk_rgb(60,60,80));
-      nk_draw_text(canvas, bp, "+", 1, font, nk_rgba(0,0,0,0), nk_rgb(60,60,80));
+      int hm =
+          (mx >= bm.x && mx < bm.x + bm.w && my2 >= bm.y && my2 < bm.y + bm.h);
+      int hp =
+          (mx >= bp.x && mx < bp.x + bp.w && my2 >= bp.y && my2 < bp.y + bp.h);
+      nk_fill_rect(canvas, bm, 4,
+                   hm ? nk_rgba(0, 0, 0, 18) : nk_rgba(0, 0, 0, 8));
+      nk_fill_rect(canvas, bp, 4,
+                   hp ? nk_rgba(0, 0, 0, 18) : nk_rgba(0, 0, 0, 8));
+      nk_draw_text(canvas, bm, "-", 1, font, nk_rgba(0, 0, 0, 0),
+                   nk_rgb(60, 60, 80));
+      nk_draw_text(canvas, bp, "+", 1, font, nk_rgba(0, 0, 0, 0),
+                   nk_rgb(60, 60, 80));
       if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT, bm))
         ui->gantt_state.day_w = day_w > 15.0f ? day_w - 5.0f : day_w;
       if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT, bp))
@@ -429,12 +440,18 @@ void ui_render_chart_impl(UIHost *ui, struct nk_context *ctx, ChartData *cd,
       struct nk_rect bl = nk_rect(bounds.x + label_w + 2.f, by, 22.f, 20.f);
       struct nk_rect br = nk_rect(bounds.x + bounds.w - 82.f, by, 22.f, 20.f);
       float mx = ctx->input.mouse.pos.x, my2 = ctx->input.mouse.pos.y;
-      int hl = (mx>=bl.x&&mx<bl.x+bl.w&&my2>=bl.y&&my2<bl.y+bl.h);
-      int hr = (mx>=br.x&&mx<br.x+br.w&&my2>=br.y&&my2<br.y+br.h);
-      nk_fill_rect(canvas, bl, 4, hl ? nk_rgba(0,0,0,18):nk_rgba(0,0,0,8));
-      nk_fill_rect(canvas, br, 4, hr ? nk_rgba(0,0,0,18):nk_rgba(0,0,0,8));
-      nk_draw_text(canvas, bl, "<", 1, font, nk_rgba(0,0,0,0), nk_rgb(60,60,80));
-      nk_draw_text(canvas, br, ">", 1, font, nk_rgba(0,0,0,0), nk_rgb(60,60,80));
+      int hl =
+          (mx >= bl.x && mx < bl.x + bl.w && my2 >= bl.y && my2 < bl.y + bl.h);
+      int hr =
+          (mx >= br.x && mx < br.x + br.w && my2 >= br.y && my2 < br.y + br.h);
+      nk_fill_rect(canvas, bl, 4,
+                   hl ? nk_rgba(0, 0, 0, 18) : nk_rgba(0, 0, 0, 8));
+      nk_fill_rect(canvas, br, 4,
+                   hr ? nk_rgba(0, 0, 0, 18) : nk_rgba(0, 0, 0, 8));
+      nk_draw_text(canvas, bl, "<", 1, font, nk_rgba(0, 0, 0, 0),
+                   nk_rgb(60, 60, 80));
+      nk_draw_text(canvas, br, ">", 1, font, nk_rgba(0, 0, 0, 0),
+                   nk_rgb(60, 60, 80));
       if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT, bl))
         ui->gantt_state.view_start_day -= 7;
       if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT, br))
@@ -446,105 +463,147 @@ void ui_render_chart_impl(UIHost *ui, struct nk_context *ctx, ChartData *cd,
     for (int d = 0; d < visible_days; d++) {
       int64_t abs_day = vsd + d;
       float cx = hx + d * day_w;
-      if (cx + day_w < bounds.x + label_w || cx > bounds.x + bounds.w) continue;
+      if (cx + day_w < bounds.x + label_w || cx > bounds.x + bounds.w)
+        continue;
 
       time_t t = (time_t)(abs_day * 86400LL);
       struct tm *tm_p = localtime(&t);
       int wday = tm_p->tm_wday, mday = tm_p->tm_mday;
 
-      // Weekend tint (full column height)
+      // Weekend tint (full column height) - softer
       if (wday == 0 || wday == 6)
-        nk_fill_rect(canvas, nk_rect(cx, bounds.y, day_w, total_h),
-                     0, nk_rgba(0,0,0,6));
+        nk_fill_rect(canvas, nk_rect(cx, bounds.y, day_w, total_h), 0,
+                     nk_rgba(0, 0, 0, 4));
 
-      // Month label on 1st
-      struct nk_color dcol = ui->dark_mode ? nk_rgb(160,162,170) : nk_rgb(100,100,110);
+      // Month label on 1st - bolder/more professional
+      struct nk_color dcol =
+          ui->dark_mode ? nk_rgb(140, 142, 150) : nk_rgb(110, 110, 120);
       if (mday == 1) {
         char mon_lbl[16];
-        snprintf(mon_lbl, sizeof(mon_lbl), "%s %d",
-                 mon_names[tm_p->tm_mon], 1900 + tm_p->tm_year);
-        nk_draw_text(canvas, nk_rect(cx+2, bounds.y+1, day_w*3, hdr_h/2),
-                     mon_lbl, (int)strlen(mon_lbl), font, nk_rgba(0,0,0,0),
-                     nk_rgba(26,115,232,200));
+        snprintf(mon_lbl, sizeof(mon_lbl), "%s %d", mon_names[tm_p->tm_mon],
+                 1900 + tm_p->tm_year);
+        nk_draw_text(canvas, nk_rect(cx + 4, bounds.y, day_w * 4, hdr_h / 2),
+                     mon_lbl, (int)strlen(mon_lbl), font, nk_rgba(0, 0, 0, 0),
+                     nk_rgba(26, 115, 232, 255));
       }
       // Day name + number
       char dlbl[8];
       snprintf(dlbl, sizeof(dlbl), "%s %d", day_names[wday], mday);
-      nk_draw_text(canvas, nk_rect(cx+2, bounds.y + hdr_h/2, day_w-2, hdr_h/2),
-                   dlbl, (int)strlen(dlbl), font, nk_rgba(0,0,0,0), dcol);
-      // Vertical grid line
-      nk_stroke_line(canvas, cx, bounds.y + hdr_h, cx, bounds.y + total_h,
-                     1.0f, nk_rgba(0,0,0,12));
+      nk_draw_text(canvas,
+                   nk_rect(cx + 2, bounds.y + hdr_h / 2, day_w - 2, hdr_h / 2),
+                   dlbl, (int)strlen(dlbl), font, nk_rgba(0, 0, 0, 0), dcol);
+      // Vertical grid line - very subtle
+      nk_stroke_line(canvas, cx, bounds.y + hdr_h, cx, bounds.y + total_h, 1.0f,
+                     nk_rgba(0, 0, 0, 6));
     }
-    // Header separator
-    nk_stroke_line(canvas, bounds.x, bounds.y + hdr_h,
-                   bounds.x + bounds.w, bounds.y + hdr_h,
-                   1.0f, nk_rgba(0,0,0,25));
+    // Header separator - clean
+    nk_stroke_line(canvas, bounds.x, bounds.y + hdr_h, bounds.x + bounds.w,
+                   bounds.y + hdr_h, 1.0f, nk_rgba(0, 0, 0, 20));
     // Label column separator
-    nk_stroke_line(canvas, bounds.x + label_w, bounds.y,
-                   bounds.x + label_w, bounds.y + total_h,
-                   1.0f, nk_rgba(0,0,0,25));
+    nk_stroke_line(canvas, bounds.x + label_w, bounds.y, bounds.x + label_w,
+                   bounds.y + total_h, 1.0f, nk_rgba(0, 0, 0, 20));
 
     // Task rows
     for (int r = 0; r < draw_rows; r++) {
       float ry = bounds.y + hdr_h + r * row_h;
-      if (ry + row_h > bounds.y + total_h) break;
+      if (ry + row_h > bounds.y + total_h)
+        break;
 
       uint64_t rid = aslan_table_view_row_id(tbl, r);
+      // Soft Zebra Striping
       if (r % 2 == 0)
-        nk_fill_rect(canvas, nk_rect(bounds.x, ry, bounds.w, row_h),
-                     0, ui->dark_mode ? nk_rgba(255,255,255,4) : nk_rgba(0,0,0,3));
+        nk_fill_rect(canvas, nk_rect(bounds.x, ry, bounds.w, row_h), 0,
+                     ui->dark_mode ? nk_rgba(255, 255, 255, 2)
+                                   : nk_rgba(0, 0, 0, 2));
 
-      // Task name
+      // Task name - Vertically centered
       char nbuf[128] = {0};
       const char *nm = name_col >= 0
-        ? aslan_table_get_cell_display(tbl, name_col, rid, nbuf, sizeof(nbuf))
-        : "";
-      if (!nm || !nm[0]) nm = "—";
+                           ? aslan_table_get_cell_display(tbl, name_col, rid,
+                                                          nbuf, sizeof(nbuf))
+                           : "";
+      if (!nm || !nm[0])
+        nm = "—";
       nk_draw_text(canvas,
-                   nk_rect(bounds.x+4, ry+(row_h-font->height)/2.f, label_w-8, row_h),
-                   nm, (int)strlen(nm), font, nk_rgba(0,0,0,0),
-                   ui->dark_mode ? nk_rgb(200,202,210) : nk_rgb(40,40,50));
+                   nk_rect(bounds.x + 10, ry + (row_h - font->height) / 2.0f,
+                           label_w - 15, font->height),
+                   nm, (int)strlen(nm), font, nk_rgba(0, 0, 0, 0),
+                   ui->dark_mode ? nk_rgb(210, 212, 220) : nk_rgb(50, 50, 60));
 
-      // Horizontal separator
-      nk_stroke_line(canvas, bounds.x, ry+row_h-1, bounds.x+bounds.w, ry+row_h-1,
-                     1.0f, nk_rgba(0,0,0,10));
+      // Horizontal separator - very subtle
+      nk_stroke_line(canvas, bounds.x, ry + row_h - 1, bounds.x + bounds.w,
+                     ry + row_h - 1, 1.0f, nk_rgba(0, 0, 0, 6));
 
       // Bar
       int64_t ts_ms = aslan_table_get_date(tbl, date_col, rid);
-      int64_t md    = aslan_table_get_duration(tbl, dur_col, rid);
+      int64_t md = aslan_table_get_duration(tbl, dur_col, rid);
       if (ts_ms > 0 && md > 0) {
         double start_day = (double)(ts_ms / 1000LL) / 86400.0;
-        double dur_days  = md / 1000.0;
-        float bx = bounds.x + label_w + (float)(start_day - (double)vsd) * day_w;
+        double dur_days = md / 1000.0;
+        float bx =
+            bounds.x + label_w + (float)(start_day - (double)vsd) * day_w;
         float bw2 = (float)(dur_days * day_w);
-        if (bw2 < 4.0f) bw2 = 4.0f;
+        if (bw2 < 4.0f)
+          bw2 = 4.0f;
         float clip_l = bounds.x + label_w, clip_r = bounds.x + bounds.w;
-        if (bx < clip_l) { bw2 -= (clip_l - bx); bx = clip_l; }
-        if (bx + bw2 > clip_r) bw2 = clip_r - bx;
+
+        // Visual "Pill" config
+        struct nk_color b_col =
+            rgba_from_u32(chart_palette[r % CHART_PALETTE_COUNT]);
+        b_col.a = 230; // High opacity but not solid
+
+        if (bx < clip_l) {
+          bw2 -= (clip_l - bx);
+          bx = clip_l;
+        }
+        if (bx + bw2 > clip_r)
+          bw2 = clip_r - bx;
         if (bw2 > 0) {
-          nk_fill_rect(canvas, nk_rect(bx, ry+4, bw2, row_h-8), 4.0f,
-                       nk_rgba(26,115,232,220));
-          if (bw2 > 30) {
+          // Main Task Bar (Rounded Pill)
+          struct nk_rect bar_r = nk_rect(bx, ry + 6, bw2, row_h - 12);
+          nk_fill_rect(canvas, bar_r, bar_r.h / 2.0f, b_col);
+
+          // Subtle internal shadow/gradient
+          nk_stroke_rect(canvas, bar_r, bar_r.h / 2.0f, 1.0f,
+                         nk_rgba(0, 0, 0, 20));
+
+          if (bw2 > 40) {
             char dbuf[16];
-            snprintf(dbuf, sizeof(dbuf), "%.4g d", dur_days);
-            nk_draw_text(canvas,
-                         nk_rect(bx+4, ry+(row_h-font->height)/2.f, bw2-8, row_h),
-                         dbuf, (int)strlen(dbuf), font,
-                         nk_rgba(0,0,0,0), nk_rgb(255,255,255));
+            if (dur_days >= 1.0)
+              snprintf(dbuf, sizeof(dbuf), "%.1f d", dur_days);
+            else
+              snprintf(dbuf, sizeof(dbuf), "%.0f h", dur_days * 24.0);
+
+            int dlen = (int)strlen(dbuf);
+            float tw = font->width(font->userdata, font->height, dbuf, dlen);
+            nk_draw_text(
+                canvas,
+                nk_rect(bx + (bw2 - tw) / 2.0f,
+                        ry + (row_h - font->height) / 2.0f, tw, font->height),
+                dbuf, dlen, font, nk_rgba(0, 0, 0, 0), nk_rgb(255, 255, 255));
           }
         }
       }
     }
 
-    // Today marker (red vertical line)
+    // Today marker (dashed style with top circle)
     {
       int64_t today = (int64_t)(time(NULL) / 86400);
       float tx = bounds.x + label_w + (float)(today - vsd) * day_w;
-      if (tx >= bounds.x + label_w && tx <= bounds.x + bounds.w)
-        nk_stroke_line(canvas, tx, bounds.y + hdr_h, tx, bounds.y + total_h,
-                       2.0f, nk_rgba(234,67,53,200));
+      if (tx >= bounds.x + label_w && tx <= bounds.x + bounds.w) {
+        struct nk_color today_col = nk_rgba(234, 67, 53, 255);
+        // Vertical line
+        for (float y = bounds.y + hdr_h; y < bounds.y + total_h; y += 8) {
+          float dy =
+              (y + 4 > bounds.y + total_h) ? (bounds.y + total_h - y) : 4;
+          nk_stroke_line(canvas, tx, y, tx, y + dy, 2.0f, today_col);
+        }
+        // Top circle indicator
+        nk_fill_circle(canvas, nk_rect(tx - 4, bounds.y + hdr_h - 4, 8, 8),
+                       today_col);
+      }
     }
+    return;
     return;
   }
 
