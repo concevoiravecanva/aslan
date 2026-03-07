@@ -9,6 +9,17 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Intersection of two rects — used to clip node scissors to artboard bounds
+static struct nk_rect rect_intersect(struct nk_rect a, struct nk_rect b) {
+  float x1 = a.x > b.x ? a.x : b.x;
+  float y1 = a.y > b.y ? a.y : b.y;
+  float x2 = (a.x+a.w) < (b.x+b.w) ? (a.x+a.w) : (b.x+b.w);
+  float y2 = (a.y+a.h) < (b.y+b.h) ? (a.y+a.h) : (b.y+b.h);
+  if (x2 < x1) x2 = x1;
+  if (y2 < y1) y2 = y1;
+  return nk_rect(x1, y1, x2-x1, y2-y1);
+}
+
 int node_get_path_polygon(Node *node, float *out_pts, int max_pts, float sx,
                           float sy, float zoom);
 int open_image_file_dialog(char *out_path, size_t path_size);
@@ -1416,7 +1427,7 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
   }
 
   if (node->is_container && node->clip_content) {
-    nk_push_scissor(canvas_buf, nr);
+    nk_push_scissor(canvas_buf, rect_intersect(nr, ui->artboard_clip));
   }
 
   // --- Inject Shadow ---
@@ -1715,8 +1726,8 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
         // Image Cropping implementation
         struct nk_image img = nk_image_ptr(tex);
 
-        // Use Scissor to clip image to node bounds
-        nk_push_scissor(canvas_buf, nr);
+        // Clip image to node bounds intersected with artboard
+        nk_push_scissor(canvas_buf, rect_intersect(nr, ui->artboard_clip));
 
         // Calculate transformed image rect
         float img_w = nr.w * node->image_scale;

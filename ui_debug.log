@@ -35,3 +35,5 @@ Font Icons: 0x134997170 (path: assets/remixicon.ttf)
 [DEBUG] mac_load_image_rgba called for: assets/1772782747_parking.png
 [DEBUG] mac_load_image_rgba called for: assets/1772869223_Maison actuelle.png
 [DEBUG] mac_load_image_rgba called for: assets/1772870111_Maison actuelle.png
+[DEBUG] mac_load_image_rgba called for: assets/1772870785_Maison actuelle-2.png
+[DEBUG] mac_load_image_rgba called for: assets/1772874430_Maison actuelle.png
