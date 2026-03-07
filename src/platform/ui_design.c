@@ -2859,9 +2859,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       float sx = ws_bounds.x + (ws_bounds.w - art_w) / 2.0f;
       float sy = ws_bounds.y + (display_h - art_h) / 2.0f;
 
-      struct nk_rect shadow_rect = nk_rect(sx + 2, sy + 2, art_w, art_h);
-      nk_fill_rect(canvas_buf, shadow_rect, 2, nk_rgba(0, 0, 0, 40));
-
       struct nk_rect art_rect = nk_rect(sx, sy, art_w, art_h);
       struct nk_color c1 =
           nk_rgba((dd->pages[dd->current_page].bg_color >> 24) & 0xFF,
@@ -2882,7 +2879,10 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         // Simple Radial approximation for artboard
         nk_fill_rect_multi_color(canvas_buf, art_rect, c2, c2, c1, c1);
       }
-      // Border drawn AFTER content (see below, post nk_layout_space_end)
+      // Store art_rect so border + scissor are identical after the group ends
+      ui->artboard_clip = art_rect;
+      ui->artboard_rect = art_rect;
+
       {
         DesignPage *cur_dp = &dd->pages[dd->current_page];
         design_draw_grid(canvas_buf, art_rect, scale, cur_dp, 0, 0, 0);
@@ -2899,8 +2899,10 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     // --- Shared content rendering (both modes) ---
     nk_style_push_style_item(ctx, &ctx->style.window.fixed_background,
                              nk_style_item_color(nk_rgba(0, 0, 0, 0)));
+    nk_style_push_float(ctx, &ctx->style.window.border, 0.0f);
     int group_res =
         nk_group_begin(ctx, "design_content", NK_WINDOW_NO_SCROLLBAR);
+    nk_style_pop_float(ctx);
     nk_style_pop_style_item(ctx);
     if (group_res) {
       struct nk_rect bounds_raw = nk_window_get_content_region(ctx);
@@ -3106,14 +3108,13 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                      nk_rgb(200, 200, 200));
       }
 
-      // --- Set artboard clip for this frame ---
-      // In fixed artboard mode, bounds_raw == artboard screen rect.
-      // In free (no_limits) mode, use infinite so nothing clips.
+      // --- Apply artboard scissor ---
+      // artboard_clip was set to art_rect (fixed) or infinite (free) above.
       if (dd->no_limits) {
         ui->artboard_clip = nk_rect(-8192, -8192, 16384, 16384);
       } else {
-        ui->artboard_clip = bounds_raw; // = artboard screen rect
-        nk_push_scissor(canvas_buf, bounds_raw);
+        // artboard_clip already set to art_rect — apply it now
+        nk_push_scissor(canvas_buf, ui->artboard_clip);
       }
 
       // --- Render nodes ---
@@ -3946,24 +3947,10 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
     }
     nk_layout_space_end(ctx);
 
-    // --- Fixed artboard: redraw border on top of content ---
-    // This covers any pixel bleed at the edges, giving a clean professional look.
+    // --- Fixed artboard: draw border on top of clipped content ---
     if (!dd->no_limits) {
       struct nk_command_buffer *ws_canvas = nk_window_get_canvas(ctx);
-      struct nk_rect ac = ui->artboard_clip;
-      // Thin shadow (already drawn before, but redraw for depth)
-      nk_stroke_rect(ws_canvas, nk_rect(ac.x+2, ac.y+2, ac.w, ac.h),
-                     0, 6.0f, nk_rgba(0, 0, 0, 18));
-      // Mask: draw 4 thin border-covering strips in the workspace background
-      // color to cleanly hide any node pixels that escaped the scissor.
-      struct nk_color ws_bg = nk_rgb(241, 241, 239);
-      float bw = 1.5f; // cover width in px
-      nk_fill_rect(ws_canvas, nk_rect(ac.x - bw, ac.y - bw, ac.w + bw*2, bw), 0, ws_bg);
-      nk_fill_rect(ws_canvas, nk_rect(ac.x - bw, ac.y + ac.h, ac.w + bw*2, bw), 0, ws_bg);
-      nk_fill_rect(ws_canvas, nk_rect(ac.x - bw, ac.y, bw, ac.h), 0, ws_bg);
-      nk_fill_rect(ws_canvas, nk_rect(ac.x + ac.w, ac.y, bw, ac.h), 0, ws_bg);
-      // Clean border on top
-      nk_stroke_rect(ws_canvas, ac, 0, 1.0f, nk_rgba(180, 180, 185, 255));
+      nk_stroke_rect(ws_canvas, ui->artboard_rect, 0, 1.0f, nk_rgba(0, 0, 0, 60));
     }
 
     // --- Toolbar (same as Canvas) ---

@@ -465,8 +465,9 @@ typedef struct UIHost {
     float   day_w;          // Pixels per day (0 = default 40px)
   } gantt_state;
 
-  // Artboard scissor clip used by ui_render_node_tree to restore after containers
-  struct nk_rect artboard_clip;
+  // Artboard rects used for scissor + border rendering
+  struct nk_rect artboard_clip; // = art_rect, set before layout
+  struct nk_rect artboard_rect; // same art_rect, used for border stroke after group
 
   // Layer sidebar state
   uint32_t renaming_node_id;
