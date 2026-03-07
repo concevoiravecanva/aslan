@@ -1439,7 +1439,7 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
   const float btn_size = 36.0f;
   const float btn_spacing = 8.0f;
   // Design gets an extra "Table layout" button (8 total), canvas has 7
-  int tool_count = (block->type == BLOCK_DESIGN) ? 8 : 7;
+  int tool_count = (block->type == BLOCK_DESIGN) ? 7 : 6;
   const float toolbar_w =
       tool_count * btn_size + (tool_count - 1) * btn_spacing + 24.0f;
   const float toolbar_h = 52.0f;
@@ -1472,7 +1472,7 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
   // 7 buttons (canvas) or 8 buttons (design): last button is Linked Text
   const char *brush_icon = cs->pen_is_marker ? ICON_MARKER : ICON_BRUSH;
   const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT,  ICON_IMAGE, brush_icon,
-                              "",         ICON_MAGIC, ICON_CHART,
+                              "",         ICON_CHART,
                               "\xEF\x87\x9E"}; // U+F1DE sliders — insert table layout
 
   for (int i = 0; i < tool_count; i++) {
@@ -1486,10 +1486,8 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     if (i == 4)
       is_active = (cs->active_cat == CANVAS_CAT_COLOR);
     if (i == 5)
-      is_active = cs->bezier_mode;
-    if (i == 6)
       is_active = (cs->pending_create == 11); // Chart active state (transient)
-    if (i == 7)
+    if (i == 6)
       is_active = 0; // Table layout — one-shot, never stays active
 
     int hovered = (ui->mouse_x >= btn.x && ui->mouse_x < btn.x + btn.w &&
@@ -1510,10 +1508,6 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     }
 
     if (hovered && cs->mouse_just_pressed) {
-      if (i == 5) {
-        ASLAN_DEBUG("Bezier button hovered and mouse_just_pressed=%d",
-                    cs->mouse_just_pressed);
-      }
       if (i ==
           3) { // Brush button - toggles between brush, marker and deselected
         ASLAN_DEBUG("Clicked Brush/Marker button. Current tool: %d, marker: %d",
@@ -1543,17 +1537,6 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
       } else if (i == 4) { // Color swatch button
         // Toggle the robust color picker popup
         cs->show_color_picker_popup = !cs->show_color_picker_popup;
-      } else if (i == 5) { // Bezier (Magic) button
-        cs->bezier_mode = !cs->bezier_mode;
-
-        // Convert ALL shapes in the current document to paths
-        if (cs->bezier_mode && block->type == BLOCK_DESIGN &&
-            block->data.design.root) {
-          recursive_convert_to_path(block->data.design.root);
-        }
-
-        cs->active_cat = CANVAS_CAT_SELECT;
-        cs->show_sub_menu = 0;
       } else {
         CanvasCategory cat = (CanvasCategory)(i + 1); // Skip CANVAS_CAT_SELECT
         if (cat == CANVAS_CAT_SHAPES) {
@@ -1568,10 +1551,10 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
           // DIRECT ACTION: Open image dialog
           cs->pending_create = 3; // 3 = Image
           cs->show_sub_menu = 0;
-        } else if (i == 6) { // Chart button (direct action)
+        } else if (i == 5) { // Chart button (direct action)
           cs->pending_create = 11;
           cs->show_sub_menu = 0;
-        } else if (i == 7) { // Table layout button (direct action)
+        } else if (i == 6) { // Table layout button (direct action)
           cs->pending_create = 20;
           cs->show_sub_menu = 0;
         } else if (cs->active_cat == cat) {

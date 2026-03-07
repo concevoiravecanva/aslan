@@ -861,6 +861,31 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         nk_property_float(ctx, "Opacity %:", 0.f, &node->opacity, 1.0f, 0.01f,
                           0.005f);
 
+        // ── PATH EDITING ─────────────────────────────────────────────────
+        {
+          DesignInteraction *ds_p = &ui->design_state;
+          int is_path = (node->type == NODE_TYPE_PATH);
+          ds_section(ctx, "PATH EDITING");
+          nk_layout_row_dynamic(ctx, 28, 1);
+          struct nk_style_button bs_p = ctx->style.button;
+          if (ds_p->bezier_mode) {
+            bs_p.normal = nk_style_item_color(COLOR_ACCENT);
+            bs_p.hover  = nk_style_item_color(COLOR_ACCENT);
+            bs_p.text_normal = nk_rgb(255, 255, 255);
+            bs_p.text_hover  = nk_rgb(255, 255, 255);
+          }
+          const char *btn_lbl = is_path ? "Edit Path" : "Convert to Path";
+          if (nk_button_label_styled(ctx, &bs_p, btn_lbl)) {
+            if (!is_path) {
+              // Convert the selected node to path then enable bezier mode
+              recursive_convert_to_path(node);
+              ds_p->bezier_mode = 1;
+            } else {
+              ds_p->bezier_mode = !ds_p->bezier_mode;
+            }
+          }
+        }
+
         // ── CONTAINER ────────────────────────────────────────────────────
         if (node->type != NODE_TYPE_TEXT || node->font_type != 4) {
           ds_section(ctx, "CONTAINER");
@@ -1702,8 +1727,8 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
 
         nk_draw_image(canvas_buf, ir, &img, nk_rgb(255, 255, 255));
 
-        // Pop scissor (use a giant rect to reset it)
-        nk_push_scissor(canvas_buf, nk_rect(-8192, -8192, 16384, 16384));
+        // Pop scissor back to artboard clip (infinite in free mode)
+        nk_push_scissor(canvas_buf, ui->artboard_clip);
 
         drawn = 1;
       }
@@ -2436,7 +2461,7 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
   }
 
   if (node->is_container && node->clip_content) {
-    nk_push_scissor(canvas_buf, nk_rect(-8192, -8192, 16384, 16384));
+    nk_push_scissor(canvas_buf, ui->artboard_clip);
   }
 }
 
@@ -2857,7 +2882,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
         // Simple Radial approximation for artboard
         nk_fill_rect_multi_color(canvas_buf, art_rect, c2, c2, c1, c1);
       }
-      nk_stroke_rect(canvas_buf, art_rect, 0, 1.0f, nk_rgb(200, 200, 200));
+      // Border drawn AFTER content (see below, post nk_layout_space_end)
       {
         DesignPage *cur_dp = &dd->pages[dd->current_page];
         design_draw_grid(canvas_buf, art_rect, scale, cur_dp, 0, 0, 0);
@@ -3079,6 +3104,16 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
                              bounds.y + bounds.h / 2.0f - 10.0f, hint_w, 20),
                      hint, strlen(hint), ctx->style.font, nk_rgba(0, 0, 0, 0),
                      nk_rgb(200, 200, 200));
+      }
+
+      // --- Set artboard clip for this frame ---
+      // In fixed artboard mode, bounds_raw == artboard screen rect.
+      // In free (no_limits) mode, use infinite so nothing clips.
+      if (dd->no_limits) {
+        ui->artboard_clip = nk_rect(-8192, -8192, 16384, 16384);
+      } else {
+        ui->artboard_clip = bounds_raw; // = artboard screen rect
+        nk_push_scissor(canvas_buf, bounds_raw);
       }
 
       // --- Render nodes ---
@@ -3910,6 +3945,26 @@ void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
       nk_group_end(ctx);
     }
     nk_layout_space_end(ctx);
+
+    // --- Fixed artboard: redraw border on top of content ---
+    // This covers any pixel bleed at the edges, giving a clean professional look.
+    if (!dd->no_limits) {
+      struct nk_command_buffer *ws_canvas = nk_window_get_canvas(ctx);
+      struct nk_rect ac = ui->artboard_clip;
+      // Thin shadow (already drawn before, but redraw for depth)
+      nk_stroke_rect(ws_canvas, nk_rect(ac.x+2, ac.y+2, ac.w, ac.h),
+                     0, 6.0f, nk_rgba(0, 0, 0, 18));
+      // Mask: draw 4 thin border-covering strips in the workspace background
+      // color to cleanly hide any node pixels that escaped the scissor.
+      struct nk_color ws_bg = nk_rgb(241, 241, 239);
+      float bw = 1.5f; // cover width in px
+      nk_fill_rect(ws_canvas, nk_rect(ac.x - bw, ac.y - bw, ac.w + bw*2, bw), 0, ws_bg);
+      nk_fill_rect(ws_canvas, nk_rect(ac.x - bw, ac.y + ac.h, ac.w + bw*2, bw), 0, ws_bg);
+      nk_fill_rect(ws_canvas, nk_rect(ac.x - bw, ac.y, bw, ac.h), 0, ws_bg);
+      nk_fill_rect(ws_canvas, nk_rect(ac.x + ac.w, ac.y, bw, ac.h), 0, ws_bg);
+      // Clean border on top
+      nk_stroke_rect(ws_canvas, ac, 0, 1.0f, nk_rgba(180, 180, 185, 255));
+    }
 
     // --- Toolbar (same as Canvas) ---
     // Rendered in workspace coordinate space, not artboard space
