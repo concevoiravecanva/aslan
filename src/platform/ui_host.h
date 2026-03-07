@@ -469,6 +469,12 @@ typedef struct UIHost {
   struct nk_rect artboard_clip; // = art_rect, set before layout
   struct nk_rect artboard_rect; // same art_rect, used for border stroke after group
 
+  // Floating color picker (avoids ROM-mode issue from combo popups inside groups)
+  int color_picker_open;      // 1 = picker window is visible
+  uint32_t *color_picker_ptr; // pointer to the RGBA32 color being edited
+  float color_picker_x;       // screen position of the picker window
+  float color_picker_y;
+
   // Layer sidebar state
   uint32_t renaming_node_id;
   char node_rename_buffer[64];

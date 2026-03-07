@@ -336,21 +336,33 @@ static void ds_section(struct nk_context *ctx, const char *label) {
 }
 
 // ── Compact color row: [label ........ ■ swatch_combo] ──────────────────────
-static void ds_color(struct nk_context *ctx, const char *label, uint32_t *c32) {
+// ds_color: color swatch button — clicking opens a floating picker window
+// (avoids nk_combo popup which puts the Properties group in ROM/read-only mode)
+static void ds_color(UIHost *ui, struct nk_context *ctx, const char *label,
+                     uint32_t *c32) {
   nk_layout_row_template_begin(ctx, 26);
   nk_layout_row_template_push_static(ctx, 60);
   nk_layout_row_template_push_dynamic(ctx);
   nk_layout_row_template_end(ctx);
   struct nk_color c = nk_rgba((*c32 >> 24) & 0xFF, (*c32 >> 16) & 0xFF,
                               (*c32 >> 8) & 0xFF, *c32 & 0xFF);
-  if (nk_combo_begin_color(ctx, c, nk_vec2(220, 380))) {
-    struct nk_colorf cf = nk_color_cf(c);
-    cf = ui_render_color_picker_content(ctx, cf);
-    nk_combo_end(ctx);
-    c = nk_rgba((int)(cf.r * 255), (int)(cf.g * 255), (int)(cf.b * 255),
-                (int)(cf.a * 255));
-    *c32 = ((uint32_t)c.r << 24) | ((uint32_t)c.g << 16) |
-           ((uint32_t)c.b << 8) | c.a;
+  struct nk_rect btn_r = nk_widget_bounds(ctx);
+  // Highlight border when this specific picker is open
+  struct nk_style_button sbs = ctx->style.button;
+  if (ui->color_picker_open && ui->color_picker_ptr == c32) {
+    sbs.border_color = COLOR_ACCENT;
+    sbs.border       = 2.0f;
+  }
+  if (nk_button_color(ctx, c)) {
+    if (ui->color_picker_open && ui->color_picker_ptr == c32) {
+      ui->color_picker_open = 0;
+      ui->color_picker_ptr  = NULL;
+    } else {
+      ui->color_picker_open = 1;
+      ui->color_picker_ptr  = c32;
+      ui->color_picker_x    = btn_r.x + btn_r.w + 4.0f;
+      ui->color_picker_y    = btn_r.y;
+    }
   }
   nk_label(ctx, label, NK_TEXT_LEFT);
 }
@@ -702,6 +714,9 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
   snprintf(gp_page, sizeof(gp_page), "ds_page_%u", block->id);
 
   if (ui->design_bottom_tab == 0) {
+    // Close floating color picker when no node is selected (avoids dangling ptr)
+    if (!ui->selected_node && ui->color_picker_open)
+      ui->color_picker_open = 0;
     nk_layout_row_dynamic(ctx, sb_avail, 1);
     if (nk_group_begin(ctx, gp_props, NK_WINDOW_BORDER)) {
       if (!ui->selected_node) {
@@ -808,7 +823,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         // ── PEN / MARKER STROKES: only color ─────────────────────────────
         if (node->type == NODE_TYPE_STROKE || node->type == NODE_TYPE_PATH) {
           ds_section(ctx, "STROKE");
-          ds_color(ctx, "Color", &node->stroke_color);
+          ds_color(ui, ctx, "Color", &node->stroke_color);
           goto props_end;
         }
 
@@ -817,10 +832,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         nk_layout_row_dynamic(ctx, 24, 1);
         nk_checkbox_label(ctx, "Lock Ratio", &node->lock_ratio);
 
-        // Shape type selection
-        const char *shape_labels[] = {"Rectangle", "Ellipse", "Triangle",
-                                      "Pentagon",  "Hexagon", "Octagon",
-                                      "Line"};
+        // Shape type selection (buttons, no combo popup)
         NodeType shape_types[] = {
             NODE_TYPE_RECT,     NODE_TYPE_ELLIPSE, NODE_TYPE_TRIANGLE,
             NODE_TYPE_PENTAGON, NODE_TYPE_HEXAGON, NODE_TYPE_OCTAGON,
@@ -832,16 +844,35 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
             break;
           }
         }
-        nk_layout_row_dynamic(ctx, 24, 1);
-        if (cur_shape < 0 || cur_shape >= 7)
-          cur_shape = 0;
-        int new_shape =
-            nk_combo(ctx, shape_labels, 7, cur_shape, 24, nk_vec2(220, 220));
-        if (new_shape != cur_shape && new_shape >= 0) {
-          node->type = shape_types[new_shape];
+        // Buttons instead of combo (combo creates popup → ROM mode in parent group)
+        static const char *shape_lbl_short[] = {"Rect","Ell","Tri","Pent",
+                                                 "Hex","Oct","Line"};
+        nk_layout_row_dynamic(ctx, 24, 4);
+        for (int si = 0; si < 4; si++) {
+          struct nk_style_button bs = ctx->style.button;
+          if (cur_shape == si) {
+            bs.normal = nk_style_item_color(COLOR_ACCENT);
+            bs.hover  = nk_style_item_color(COLOR_ACCENT);
+            bs.text_normal = nk_rgb(255,255,255);
+            bs.text_hover  = nk_rgb(255,255,255);
+          }
+          if (nk_button_label_styled(ctx, &bs, shape_lbl_short[si]))
+            node->type = shape_types[si];
+        }
+        nk_layout_row_dynamic(ctx, 24, 3);
+        for (int si = 4; si < 7; si++) {
+          struct nk_style_button bs = ctx->style.button;
+          if (cur_shape == si) {
+            bs.normal = nk_style_item_color(COLOR_ACCENT);
+            bs.hover  = nk_style_item_color(COLOR_ACCENT);
+            bs.text_normal = nk_rgb(255,255,255);
+            bs.text_hover  = nk_rgb(255,255,255);
+          }
+          if (nk_button_label_styled(ctx, &bs, shape_lbl_short[si]))
+            node->type = shape_types[si];
         }
 
-        ds_color(ctx, "Fill", &node->fill_color);
+        ds_color(ui, ctx, "Fill", &node->fill_color);
 
         if (node->type != NODE_TYPE_TEXT && node->type != NODE_TYPE_LINE) {
           nk_layout_row_dynamic(ctx, 24, 1);
@@ -849,16 +880,27 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
                             200.f, 1.f, 0.5f);
         }
 
-        // Gradient Options
-        nk_layout_row_dynamic(ctx, 24, 2);
-        const char *fill_types[] = {"Solid", "Gradient"};
+        // Gradient Options — buttons instead of combo (avoids ROM mode)
         if (node->fill_type < 0 || node->fill_type >= 2)
           node->fill_type = 0;
-        node->fill_type = nk_combo(ctx, fill_types, 2, node->fill_type, 24,
-                                   nk_vec2(220, 200));
+        nk_layout_row_dynamic(ctx, 24, 2);
+        {
+          static const char *fill_types[] = {"Solid", "Gradient"};
+          for (int ft = 0; ft < 2; ft++) {
+            struct nk_style_button bsf = ctx->style.button;
+            if (node->fill_type == ft) {
+              bsf.normal = nk_style_item_color(COLOR_ACCENT);
+              bsf.hover  = nk_style_item_color(COLOR_ACCENT);
+              bsf.text_normal = nk_rgb(255,255,255);
+              bsf.text_hover  = nk_rgb(255,255,255);
+            }
+            if (nk_button_label_styled(ctx, &bsf, fill_types[ft]))
+              node->fill_type = ft;
+          }
+        }
 
         if (node->fill_type == 1) {
-          ds_color(ctx, "Gradient To", &node->fill_color_2);
+          ds_color(ui, ctx, "Gradient To", &node->fill_color_2);
           nk_layout_row_dynamic(ctx, 24, 1);
           nk_property_float(ctx, "Angle:", 0.f, &node->gradient_angle, 360.f,
                             1.f, 0.5f);

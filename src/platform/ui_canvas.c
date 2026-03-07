@@ -1438,8 +1438,8 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
                            struct nk_rect bounds, Block *block) {
   const float btn_size = 36.0f;
   const float btn_spacing = 8.0f;
-  // Design gets an extra "Table layout" button (8 total), canvas has 7
-  int tool_count = (block->type == BLOCK_DESIGN) ? 7 : 6;
+  // Design gets an extra "Table layout" button, canvas has one fewer
+  int tool_count = (block->type == BLOCK_DESIGN) ? 5 : 4;
   const float toolbar_w =
       tool_count * btn_size + (tool_count - 1) * btn_spacing + 24.0f;
   const float toolbar_h = 52.0f;
@@ -1470,9 +1470,7 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
   float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
 
   // 7 buttons (canvas) or 8 buttons (design): last button is Linked Text
-  const char *brush_icon = cs->pen_is_marker ? ICON_MARKER : ICON_BRUSH;
-  const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT,  ICON_IMAGE, brush_icon,
-                              "",         ICON_CHART,
+  const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT, ICON_IMAGE, ICON_CHART,
                               "\xEF\x87\x9E"}; // U+F1DE sliders — insert table layout
 
   for (int i = 0; i < tool_count; i++) {
@@ -1482,12 +1480,8 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     // Map button index to category (skip CANVAS_CAT_SELECT)
     int is_active = (cs->active_cat == (CanvasCategory)(i + 1));
     if (i == 3)
-      is_active = (cs->tool == CANVAS_TOOL_PEN); // Brush/Marker combined
-    if (i == 4)
-      is_active = (cs->active_cat == CANVAS_CAT_COLOR);
-    if (i == 5)
       is_active = (cs->pending_create == 11); // Chart active state (transient)
-    if (i == 6)
+    if (i == 4)
       is_active = 0; // Table layout — one-shot, never stays active
 
     int hovered = (ui->mouse_x >= btn.x && ui->mouse_x < btn.x + btn.w &&
@@ -1508,74 +1502,31 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     }
 
     if (hovered && cs->mouse_just_pressed) {
-      if (i ==
-          3) { // Brush button - toggles between brush, marker and deselected
-        ASLAN_DEBUG("Clicked Brush/Marker button. Current tool: %d, marker: %d",
-                    cs->tool, cs->pen_is_marker);
-        if (cs->tool == CANVAS_TOOL_PEN) {
-          if (!cs->pen_is_marker) {
-            // State 1 (Pen) -> State 2 (Marker)
-            cs->pen_is_marker = 1;
-            ASLAN_DEBUG("Switched to Marker mode");
-          } else {
-            // State 2 (Marker) -> State 3 (None/Select)
-            cs->tool = CANVAS_TOOL_SELECT;
-            cs->pen_is_marker = 0; // Reset for next time
-            ASLAN_DEBUG("Deselected pen tool");
-          }
-        } else {
-          // State 3 (None) -> State 1 (Pen)
-          cs->tool = CANVAS_TOOL_PEN;
-          cs->pen_is_marker = 0;
-          ASLAN_DEBUG("Set tool to CANVAS_TOOL_PEN");
-        }
-        cs->active_cat =
-            (cs->tool == CANVAS_TOOL_PEN)
-                ? (cs->pen_is_marker ? CANVAS_CAT_MARKER : CANVAS_CAT_BRUSH)
-                : CANVAS_CAT_SELECT;
+      CanvasCategory cat = (CanvasCategory)(i + 1); // Skip CANVAS_CAT_SELECT
+      if (cat == CANVAS_CAT_SHAPES) {
+        // DEFAULT: Just create a rectangle
+        cs->pending_create = 10;
         cs->show_sub_menu = 0;
-      } else if (i == 4) { // Color swatch button
-        // Toggle the robust color picker popup
-        cs->show_color_picker_popup = !cs->show_color_picker_popup;
+      } else if (cat == CANVAS_CAT_TEXT) {
+        // DIRECT ACTION: Create paragraph
+        cs->pending_create = 1; // 1 = Body Text
+        cs->show_sub_menu = 0;
+      } else if (cat == CANVAS_CAT_MEDIA) {
+        // DIRECT ACTION: Open image dialog
+        cs->pending_create = 3; // 3 = Image
+        cs->show_sub_menu = 0;
+      } else if (i == 3) { // Chart button (direct action)
+        cs->pending_create = 11;
+        cs->show_sub_menu = 0;
+      } else if (i == 4) { // Table layout button (direct action)
+        cs->pending_create = 20;
+        cs->show_sub_menu = 0;
+      } else if (cs->active_cat == cat) {
+        cs->show_sub_menu = !cs->show_sub_menu;
       } else {
-        CanvasCategory cat = (CanvasCategory)(i + 1); // Skip CANVAS_CAT_SELECT
-        if (cat == CANVAS_CAT_SHAPES) {
-          // DEFAULT: Just create a rectangle
-          cs->pending_create = 10;
-          cs->show_sub_menu = 0;
-        } else if (cat == CANVAS_CAT_TEXT) {
-          // DIRECT ACTION: Create paragraph
-          cs->pending_create = 1; // 1 = Body Text
-          cs->show_sub_menu = 0;
-        } else if (cat == CANVAS_CAT_MEDIA) {
-          // DIRECT ACTION: Open image dialog
-          cs->pending_create = 3; // 3 = Image
-          cs->show_sub_menu = 0;
-        } else if (i == 5) { // Chart button (direct action)
-          cs->pending_create = 11;
-          cs->show_sub_menu = 0;
-        } else if (i == 6) { // Table layout button (direct action)
-          cs->pending_create = 20;
-          cs->show_sub_menu = 0;
-        } else if (cs->active_cat == cat) {
-          cs->show_sub_menu = !cs->show_sub_menu;
-        } else {
-          cs->active_cat = cat;
-          cs->show_sub_menu = 1; // Open sub-menu for others
-        }
+        cs->active_cat = cat;
+        cs->show_sub_menu = 1; // Open sub-menu for others
       }
-    }
-
-    // Special rendering for color swatch (button 4)
-    if (i == 4) {
-      // Draw color swatch instead of icon
-      struct nk_color swatch_color = nk_rgba(
-          (cs->selected_color >> 24) & 0xFF, (cs->selected_color >> 16) & 0xFF,
-          (cs->selected_color >> 8) & 0xFF, cs->selected_color & 0xFF);
-      struct nk_rect swatch_rect =
-          nk_rect(btn.x + 8, btn.y + 8, btn_size - 16, btn_size - 16);
-      nk_fill_circle(canvas_buf, swatch_rect, swatch_color);
-      nk_stroke_circle(canvas_buf, swatch_rect, 1.5f, nk_rgb(100, 100, 100));
     }
 
     // Render sub-menu if active
@@ -1585,56 +1536,6 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
     }
   }
 
-  // Render Color Picker Popup if active (Positioned above the color button)
-  if (cs->show_color_picker_popup) {
-    float btn4_x = toolbar_x + 12.0f + 4 * (btn_size + btn_spacing);
-    struct nk_rect btn4_rect = nk_rect(btn4_x, btn_y, btn_size, btn_size);
-    // Position popup above the button (toolbar is at bottom)
-    struct nk_rect popup_rect = nk_rect(btn4_x - 90, btn_y - 310, 220, 300);
-
-    if (nk_popup_begin(ctx, NK_POPUP_STATIC, "ColorPickerPopup",
-                       NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER, popup_rect)) {
-
-      // Unpack color
-      struct nk_color selected_col = nk_rgba(
-          (cs->selected_color >> 24) & 0xFF, (cs->selected_color >> 16) & 0xFF,
-          (cs->selected_color >> 8) & 0xFF, cs->selected_color & 0xFF);
-      struct nk_colorf col_f = nk_color_cf(selected_col);
-
-      // Render Content directly
-      col_f = ui_render_color_picker_content(ctx, col_f);
-
-      // Update back
-      selected_col = nk_rgba((int)(col_f.r * 255.0f), (int)(col_f.g * 255.0f),
-                             (int)(col_f.b * 255.0f), (int)(col_f.a * 255.0f));
-      cs->selected_color =
-          ((uint32_t)selected_col.r << 24) | ((uint32_t)selected_col.g << 16) |
-          ((uint32_t)selected_col.b << 8) | (uint32_t)selected_col.a;
-
-      // Apply to selected node immediately if one is selected
-      if (ui->selected_node) {
-        ui->selected_node->fill_color = cs->selected_color;
-        // Also stroke if it's a line/stroke/text/path
-        if (ui->selected_node->type == NODE_TYPE_STROKE ||
-            ui->selected_node->type == NODE_TYPE_LINE ||
-            ui->selected_node->type == NODE_TYPE_TEXT ||
-            ui->selected_node->type == NODE_TYPE_PATH) {
-          ui->selected_node->stroke_color = cs->selected_color;
-        }
-      }
-
-      nk_popup_end(ctx);
-
-      // Close if mouse clicked outside
-      if (cs->mouse_just_pressed &&
-          !nk_input_is_mouse_hovering_rect(&ctx->input, popup_rect) &&
-          !nk_input_is_mouse_hovering_rect(&ctx->input, btn4_rect)) {
-        cs->show_color_picker_popup = 0;
-      }
-    } else {
-      cs->show_color_picker_popup = 0;
-    }
-  }
 }
 
 // -----------------------------------------------------------------------------

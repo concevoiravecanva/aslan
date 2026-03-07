@@ -2567,6 +2567,46 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     }
     nk_end(ctx);
     ctx->style.window.padding = old_padding_sv;
+
+    // --- Floating color picker window (Properties panel colors) ---
+    // Rendered as a separate Nuklear window so it does NOT put the Properties
+    // group into ROM mode (which happens when combos/popups are inside a group).
+    if (ui->color_picker_open && ui->color_picker_ptr) {
+      float px = ui->color_picker_x;
+      float py = ui->color_picker_y;
+      float pw = 220.0f, ph = 370.0f;
+      if (py + ph > (float)win_h) py = (float)win_h - ph - 4.0f;
+      if (px + pw > (float)win_w) px = (float)win_w - pw - 4.0f;
+      if (py < 0) py = 0;
+      if (px < 0) px = 0;
+
+      struct nk_style_window sw_save = ctx->style.window;
+      ctx->style.window.padding = nk_vec2(8, 8);
+      if (nk_begin(ctx, "##ds_color_picker",
+                   nk_rect(px, py, pw, ph),
+                   NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER | NK_WINDOW_MOVABLE)) {
+        uint32_t *cp = ui->color_picker_ptr;
+        struct nk_color c = nk_rgba((*cp >> 24) & 0xFF, (*cp >> 16) & 0xFF,
+                                    (*cp >> 8) & 0xFF, *cp & 0xFF);
+        struct nk_colorf cf = nk_color_cf(c);
+        cf = ui_render_color_picker_content(ctx, cf);
+        c = nk_rgba((int)(cf.r * 255.0f), (int)(cf.g * 255.0f),
+                    (int)(cf.b * 255.0f), (int)(cf.a * 255.0f));
+        *cp = ((uint32_t)c.r << 24) | ((uint32_t)c.g << 16) |
+              ((uint32_t)c.b << 8) | (uint32_t)c.a;
+      }
+      nk_end(ctx);
+      ctx->style.window = sw_save;
+
+      // Close when the user clicks outside the picker window
+      if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+        struct nk_rect pr = nk_rect(px, py, pw, ph);
+        if (!nk_input_is_mouse_hovering_rect(&ctx->input, pr)) {
+          ui->color_picker_open = 0;
+          ui->color_picker_ptr  = NULL;
+        }
+      }
+    }
   }
 
   // Reset per-frame input state (after all processing is done)
