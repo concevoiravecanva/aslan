@@ -919,6 +919,7 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
   nk_layout_row_template_push_static(ctx, 16.0f);    // fill color swatch
   nk_layout_row_template_push_static(ctx, 24.0f);    // visibility
   nk_layout_row_template_push_static(ctx, 24.0f);    // lock
+  nk_layout_row_template_push_static(ctx, 24.0f);    // trash
   nk_layout_row_template_end(ctx);
 
   struct nk_rect row_bounds = nk_widget_bounds(ctx);
@@ -1157,6 +1158,22 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
                              node->locked ? ICON_LOCK : ICON_LOCK_UNLOCK)) {
     node->locked = !node->locked;
   }
+
+  // 7. Trash Button
+  if (ui->font_icons)
+    nk_style_set_font(ctx, &ui->font_icons->handle);
+  struct nk_style_button trash_style = icon_style;
+  trash_style.text_normal = nk_rgb(200, 100, 100);
+  trash_style.text_hover = nk_rgb(255, 50, 50);
+  // Add Trash Icon (which matches the &#xEC2A; specified by the user)
+  if (nk_button_label_styled(ctx, &trash_style, "\xEE\xB0\xAA")) {
+    if (ui->selected_node == node)
+      ui->selected_node = NULL;
+    block_design_delete_node(block, node->id);
+    if (ui->font_inter)
+      nk_style_set_font(ctx, &ui->font_inter->handle);
+    return; // Node deleted, stop processing it
+  }
   if (ui->font_inter)
     nk_style_set_font(ctx, &ui->font_inter->handle);
 
@@ -1179,7 +1196,6 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
     }
   }
 }
-
 
 // =============================================================================
 // LAYER INSPECTOR — fixed panel shown below the layer tree when a node is
@@ -1276,8 +1292,7 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
   // ── Row 4: type-specific property ─────────────────────────────────────────
   nk_layout_row_dynamic(ctx, 24, 1);
   if (node->type == NODE_TYPE_TEXT) {
-    nk_property_float(ctx, "Size", 6.0f, &node->font_size, 200.0f, 1.0f,
-                      0.5f);
+    nk_property_float(ctx, "Size", 6.0f, &node->font_size, 200.0f, 1.0f, 0.5f);
   } else if (node->is_container) {
     nk_checkbox_label(ctx, "Clip content", &node->clip_content);
   } else {
@@ -1470,8 +1485,9 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
   float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
 
   // 7 buttons (canvas) or 8 buttons (design): last button is Linked Text
-  const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT, ICON_IMAGE, ICON_CHART,
-                              "\xEF\x87\x9E"}; // U+F1DE sliders — insert table layout
+  const char *tool_icons[] = {
+      ICON_SHAPE, ICON_TEXT, ICON_IMAGE, ICON_CHART,
+      "\xEF\x87\x9E"}; // U+F1DE sliders — insert table layout
 
   for (int i = 0; i < tool_count; i++) {
     struct nk_rect btn = nk_rect(btn_x + i * (btn_size + btn_spacing), btn_y,
@@ -1535,7 +1551,6 @@ void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
                              (CanvasCategory)(i + 1)); // Skip CANVAS_CAT_SELECT
     }
   }
-
 }
 
 // -----------------------------------------------------------------------------
@@ -1901,7 +1916,7 @@ void node_convert_to_path(Node *node) {
       free(node->path_points);
     node->path_points = pts;
     node->path_point_count = count;
-    node->type = NODE_TYPE_PATH;  // must be set so bezier handles activate
+    node->type = NODE_TYPE_PATH; // must be set so bezier handles activate
   }
 }
 
@@ -1916,7 +1931,8 @@ Node *design_find_node_at(DesignData *dd, float x, float y) {
 
     // Stroke/path nodes have thin bounding boxes — add hit padding
     float pad = (node->type == NODE_TYPE_STROKE || node->type == NODE_TYPE_PATH)
-                    ? 8.0f : 0.0f;
+                    ? 8.0f
+                    : 0.0f;
 
     float rad = node->rotation * 3.14159f / 180.0f;
     if (rad == 0.0f) {
@@ -1944,4 +1960,3 @@ Node *design_find_node_at(DesignData *dd, float x, float y) {
   }
   return hit;
 }
-

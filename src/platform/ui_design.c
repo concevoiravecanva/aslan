@@ -1029,19 +1029,6 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
                             0.1f, 0.05f);
         }
 
-        // ── LAYERS ───────────────────────────────────────────────────────
-        if (node->type != NODE_TYPE_TEXT || node->font_type != 4) {
-          ds_section(ctx, "ORDER");
-          nk_layout_row_dynamic(ctx, 24, 4);
-          if (nk_button_label(ctx, "Front"))
-            node_bring_to_front(node);
-          if (nk_button_label(ctx, "Back"))
-            node_send_to_back(node);
-          if (nk_button_label(ctx, "Fwd"))
-            node_move_up(node);
-          if (nk_button_label(ctx, "Bwd"))
-            node_move_down(node);
-        }
         // ── TEXT CONTENT ─────────────────────────────────────────────────
         if (node->type == NODE_TYPE_TEXT) {
           ds_section(ctx, "TEXT CONTENT");
