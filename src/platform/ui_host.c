@@ -11,7 +11,9 @@
 #include "ui_core.h"
 #include "ui_design.h"
 #include <SDL.h>
-// errno.h removed
+
+// Nuklear SDL renderer backend (declaration)
+#include "nuklear_sdl_renderer.h"
 
 #include "../vendor/stb_image_write.h"
 #include <math.h>
@@ -306,8 +308,94 @@ void ui_host_paste_node(UIHost *ui, Engine *engine) {
   ASLAN_DEBUG("Clipboard: pasted node '%s' as id=%u", pasted->name, new_id);
 }
 
+// Pre-render chart/table nodes to temp PNG files for SVG/PDF export
+static void prerender_special_nodes(UIHost *ui, Engine *engine, Block *block) {
+  if (!ui || !engine || !block || block->type != BLOCK_DESIGN)
+    return;
+  DesignData *dd = &block->data.design;
+  if (!dd->pages || dd->current_page < 0 || dd->current_page >= dd->page_count)
+    return;
+  DesignPage *dp = &dd->pages[dd->current_page];
+  if (!dp->root)
+    return;
+
+  // Walk tree and render chart/table nodes to temp PNGs
+  for (Node *node = dp->root->first_child; node; node = node->next_sibling) {
+    if (node->type != NODE_TYPE_CHART && node->type != NODE_TYPE_TABLE_VIEW)
+      continue;
+    if (!node->visible)
+      continue;
+
+    int nw = (int)node->width;
+    int nh = (int)node->height;
+    if (nw < 1 || nh < 1)
+      continue;
+
+    SDL_Texture *tex = SDL_CreateTexture(ui->renderer, SDL_PIXELFORMAT_RGBA32,
+                                         SDL_TEXTUREACCESS_TARGET, nw, nh);
+    if (!tex)
+      continue;
+
+    SDL_SetRenderTarget(ui->renderer, tex);
+    SDL_SetRenderDrawColor(ui->renderer, 255, 255, 255, 255);
+    SDL_RenderClear(ui->renderer);
+
+    struct nk_context *ctx = ui->ctx;
+    nk_style_push_style_item(ctx, &ctx->style.window.fixed_background,
+                             nk_style_item_color(nk_rgba(255, 255, 255, 255)));
+    if (nk_begin(ctx, "node_snap", nk_rect(0, 0, nw, nh),
+                 NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_NO_INPUT |
+                     NK_WINDOW_BACKGROUND)) {
+      struct nk_command_buffer *buf = nk_window_get_canvas(ctx);
+      nk_fill_rect(buf, nk_rect(0, 0, nw, nh), 0, nk_rgb(255, 255, 255));
+      // Temporarily shift node to origin for rendering
+      float orig_x = node->x, orig_y = node->y;
+      node->x = 0;
+      node->y = 0;
+      ui_render_node_tree(ui, ctx, engine, block, dd, buf, node,
+                          nk_rect(0, 0, nw, nh), 1.0f, 0, 0);
+      node->x = orig_x;
+      node->y = orig_y;
+    }
+    nk_end(ctx);
+    nk_style_pop_style_item(ctx);
+    nk_sdl_render(NK_ANTI_ALIASING_ON);
+
+    int pitch = nw * 4;
+    void *pixels = malloc(nw * nh * 4);
+    if (pixels) {
+      SDL_RenderReadPixels(ui->renderer, NULL, SDL_PIXELFORMAT_RGBA32, pixels,
+                           pitch);
+      char tmp_path[256];
+      snprintf(tmp_path, sizeof(tmp_path), "/tmp/aslan_node_%u.png", node->id);
+      stbi_write_png(tmp_path, nw, nh, 4, pixels, pitch);
+      free(pixels);
+    }
+    SDL_SetRenderTarget(ui->renderer, NULL);
+    SDL_DestroyTexture(tex);
+  }
+}
+
+// Clean up temp PNGs after export
+static void cleanup_special_nodes(Block *block) {
+  if (!block || block->type != BLOCK_DESIGN)
+    return;
+  DesignData *dd = &block->data.design;
+  if (!dd->pages || dd->current_page < 0 || dd->current_page >= dd->page_count)
+    return;
+  DesignPage *dp = &dd->pages[dd->current_page];
+  if (!dp->root)
+    return;
+  for (Node *node = dp->root->first_child; node; node = node->next_sibling) {
+    if (node->type == NODE_TYPE_CHART || node->type == NODE_TYPE_TABLE_VIEW) {
+      char tmp_path[256];
+      snprintf(tmp_path, sizeof(tmp_path), "/tmp/aslan_node_%u.png", node->id);
+      remove(tmp_path);
+    }
+  }
+}
+
 void ui_host_export_svg(UIHost *ui, Engine *engine) {
-  (void)ui;
   Page *page = doc_page_get_active(engine->doc);
   if (!page)
     return;
@@ -328,15 +416,16 @@ void ui_host_export_svg(UIHost *ui, Engine *engine) {
   snprintf(default_name, sizeof(default_name), "%s.svg", page->name);
   if (save_native_file_dialog(filename, sizeof(filename), default_name,
                               "Export Design as SVG")) {
+    prerender_special_nodes(ui, engine, design_block);
     if (block_design_export_svg(design_block, filename, NULL, 0)) {
       ASLAN_DEBUG("Exported SVG to: %s", filename);
     }
+    cleanup_special_nodes(design_block);
   }
 }
 
 void ui_host_export_svg_merge(UIHost *ui, Engine *engine,
                               struct AslanTable *linked_tbl) {
-  (void)ui;
   Page *page = doc_page_get_active(engine->doc);
   if (!page || !linked_tbl || linked_tbl->active_count == 0)
     return;
@@ -377,6 +466,7 @@ void ui_host_export_svg_merge(UIHost *ui, Engine *engine,
     if (ext)
       *ext = '\0';
 
+    prerender_special_nodes(ui, engine, design_block);
     for (int i = 0; i < (int)linked_tbl->active_count; i++) {
       char out_file[512];
       snprintf(out_file, sizeof(out_file), "%s_%d.svg", prefix, i + 1);
@@ -385,6 +475,7 @@ void ui_host_export_svg_merge(UIHost *ui, Engine *engine,
         ASLAN_DEBUG("Exported SVG merge row %d to: %s", i + 1, out_file);
       }
     }
+    cleanup_special_nodes(design_block);
   }
 }
 
@@ -422,7 +513,6 @@ void ui_host_export_png_jpeg(UIHost *ui, Engine *engine, int is_jpeg) {
 }
 
 void ui_host_export_pdf(UIHost *ui, Engine *engine) {
-  (void)ui;
   Page *page = doc_page_get_active(engine->doc);
   if (!page)
     return;
@@ -442,9 +532,11 @@ void ui_host_export_pdf(UIHost *ui, Engine *engine) {
   snprintf(default_name, sizeof(default_name), "%s.pdf", page->name);
   if (save_native_file_dialog(filename, sizeof(filename), default_name,
                               "Export Design as PDF")) {
+    prerender_special_nodes(ui, engine, design_block);
     if (block_design_export_pdf(design_block, filename, NULL, 0)) {
       ASLAN_DEBUG("Exported PDF to: %s", filename);
     }
+    cleanup_special_nodes(design_block);
   }
 }
 
@@ -538,7 +630,7 @@ int copy_image_to_assets(const char *src_path, const char *doc_dir,
   return 1;
 }
 
-// Nuklear SDL renderer backend (external)
+// Nuklear SDL renderer implementation
 #define NK_SDL_RENDERER_IMPLEMENTATION
 #include "nuklear_sdl_renderer.h"
 
@@ -2463,7 +2555,8 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
                                    nk_style_item_color(nk_rgba(0, 0, 0, 0)));
 
           if (nk_begin(ctx, "export_canvas", nk_rect(0, 0, w, h),
-                       NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_NO_INPUT)) {
+                       NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_NO_INPUT |
+                           NK_WINDOW_BACKGROUND)) {
             struct nk_command_buffer *buf = nk_window_get_canvas(ctx);
             struct nk_rect art_rect = nk_rect(0, 0, w, h);
             int p_idx = dd->current_page;
@@ -2570,21 +2663,26 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
     // --- Floating color picker window (Properties panel colors) ---
     // Rendered as a separate Nuklear window so it does NOT put the Properties
-    // group into ROM mode (which happens when combos/popups are inside a group).
+    // group into ROM mode (which happens when combos/popups are inside a
+    // group).
     if (ui->color_picker_open && ui->color_picker_ptr) {
       float px = ui->color_picker_x;
       float py = ui->color_picker_y;
       float pw = 220.0f, ph = 370.0f;
-      if (py + ph > (float)win_h) py = (float)win_h - ph - 4.0f;
-      if (px + pw > (float)win_w) px = (float)win_w - pw - 4.0f;
-      if (py < 0) py = 0;
-      if (px < 0) px = 0;
+      if (py + ph > (float)win_h)
+        py = (float)win_h - ph - 4.0f;
+      if (px + pw > (float)win_w)
+        px = (float)win_w - pw - 4.0f;
+      if (py < 0)
+        py = 0;
+      if (px < 0)
+        px = 0;
 
       struct nk_style_window sw_save = ctx->style.window;
       ctx->style.window.padding = nk_vec2(8, 8);
-      if (nk_begin(ctx, "##ds_color_picker",
-                   nk_rect(px, py, pw, ph),
-                   NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER | NK_WINDOW_MOVABLE)) {
+      if (nk_begin(ctx, "##ds_color_picker", nk_rect(px, py, pw, ph),
+                   NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER |
+                       NK_WINDOW_MOVABLE)) {
         uint32_t *cp = ui->color_picker_ptr;
         struct nk_color c = nk_rgba((*cp >> 24) & 0xFF, (*cp >> 16) & 0xFF,
                                     (*cp >> 8) & 0xFF, *cp & 0xFF);
@@ -2603,7 +2701,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         struct nk_rect pr = nk_rect(px, py, pw, ph);
         if (!nk_input_is_mouse_hovering_rect(&ctx->input, pr)) {
           ui->color_picker_open = 0;
-          ui->color_picker_ptr  = NULL;
+          ui->color_picker_ptr = NULL;
         }
       }
     }

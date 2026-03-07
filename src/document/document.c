@@ -1990,8 +1990,113 @@ static void svg_write_node(FILE *fp, const Node *node,
     }
     break;
 
+  case NODE_TYPE_IMAGE: {
+    // Embed image as base64 data URI
+    if (node->image_path[0]) {
+      FILE *img = fopen(node->image_path, "rb");
+      if (img) {
+        fseek(img, 0, SEEK_END);
+        long img_size = ftell(img);
+        fseek(img, 0, SEEK_SET);
+        if (img_size > 0 && img_size < 10 * 1024 * 1024) {
+          unsigned char *img_data = (unsigned char *)malloc(img_size);
+          if (img_data &&
+              fread(img_data, 1, img_size, img) == (size_t)img_size) {
+            // Detect MIME type from extension
+            const char *mime = "image/png";
+            const char *ext = strrchr(node->image_path, '.');
+            if (ext) {
+              if (strcmp(ext, ".jpg") == 0 || strcmp(ext, ".jpeg") == 0)
+                mime = "image/jpeg";
+              else if (strcmp(ext, ".gif") == 0)
+                mime = "image/gif";
+              else if (strcmp(ext, ".webp") == 0)
+                mime = "image/webp";
+            }
+            // Base64 encode
+            static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn"
+                                      "opqrstuvwxyz0123456789+/";
+            fprintf(
+                fp,
+                "  <image x=\"%.1f\" y=\"%.1f\" width=\"%.1f\" height=\"%.1f\""
+                " href=\"data:%s;base64,",
+                node->x, node->y, node->width, node->height, mime);
+            for (long i = 0; i < img_size; i += 3) {
+              unsigned int n = (unsigned int)img_data[i] << 16;
+              if (i + 1 < img_size)
+                n |= (unsigned int)img_data[i + 1] << 8;
+              if (i + 2 < img_size)
+                n |= (unsigned int)img_data[i + 2];
+              fputc(b64[(n >> 18) & 0x3F], fp);
+              fputc(b64[(n >> 12) & 0x3F], fp);
+              fputc((i + 1 < img_size) ? b64[(n >> 6) & 0x3F] : '=', fp);
+              fputc((i + 2 < img_size) ? b64[n & 0x3F] : '=', fp);
+            }
+            fprintf(fp, "\" preserveAspectRatio=\"none\"%s/>\n", transform);
+          }
+          free(img_data);
+        }
+        fclose(img);
+      } else {
+        // Image file not found — draw placeholder
+        fprintf(fp,
+                "  <rect x=\"%.1f\" y=\"%.1f\" width=\"%.1f\" height=\"%.1f\""
+                " fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
+                node->x, node->y, node->width, node->height, fill, stroke,
+                node->stroke_width, transform);
+        fprintf(
+            fp,
+            "  <text x=\"%.1f\" y=\"%.1f\" font-size=\"12\""
+            " fill=\"rgb(120,120,120)\" text-anchor=\"middle\">Image</text>\n",
+            node->x + node->width / 2, node->y + node->height / 2 + 4);
+      }
+    }
+    break;
+  }
+
+  case NODE_TYPE_CHART:
+  case NODE_TYPE_TABLE_VIEW: {
+    // Try to embed pre-rendered snapshot from /tmp/
+    char snap_path[256];
+    snprintf(snap_path, sizeof(snap_path), "/tmp/aslan_node_%u.png", node->id);
+    FILE *snap = fopen(snap_path, "rb");
+    if (snap) {
+      fseek(snap, 0, SEEK_END);
+      long snap_size = ftell(snap);
+      fseek(snap, 0, SEEK_SET);
+      if (snap_size > 0 && snap_size < 10 * 1024 * 1024) {
+        unsigned char *snap_data = (unsigned char *)malloc(snap_size);
+        if (snap_data &&
+            fread(snap_data, 1, snap_size, snap) == (size_t)snap_size) {
+          static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnop"
+                                    "qrstuvwxyz0123456789+/";
+          fprintf(
+              fp,
+              "  <image x=\"%.1f\" y=\"%.1f\" width=\"%.1f\" height=\"%.1f\""
+              " href=\"data:image/png;base64,",
+              node->x, node->y, node->width, node->height);
+          for (long i = 0; i < snap_size; i += 3) {
+            unsigned int n = (unsigned int)snap_data[i] << 16;
+            if (i + 1 < snap_size)
+              n |= (unsigned int)snap_data[i + 1] << 8;
+            if (i + 2 < snap_size)
+              n |= (unsigned int)snap_data[i + 2];
+            fputc(b64[(n >> 18) & 0x3F], fp);
+            fputc(b64[(n >> 12) & 0x3F], fp);
+            fputc((i + 1 < snap_size) ? b64[(n >> 6) & 0x3F] : '=', fp);
+            fputc((i + 2 < snap_size) ? b64[n & 0x3F] : '=', fp);
+          }
+          fprintf(fp, "\" preserveAspectRatio=\"none\"%s/>\n", transform);
+        }
+        free(snap_data);
+      }
+      fclose(snap);
+    }
+    break;
+  }
+
   default:
-    // GROUP, ROOT, IMAGE, CHART — skip or render as rect placeholder
+    // GROUP, ROOT — skip
     break;
   }
 
@@ -2252,6 +2357,50 @@ static void pdf_write_node(HPDF_Page page, HPDF_Doc pdf, float page_h,
       }
     }
     break;
+
+  case NODE_TYPE_IMAGE: {
+    // Try to embed image via libharu
+    if (node->image_path[0]) {
+      HPDF_Image img = NULL;
+      const char *ext = strrchr(node->image_path, '.');
+      if (ext) {
+        if (strcmp(ext, ".png") == 0)
+          img = HPDF_LoadPngImageFromFile(pdf, node->image_path);
+        else if (strcmp(ext, ".jpg") == 0 || strcmp(ext, ".jpeg") == 0)
+          img = HPDF_LoadJpegImageFromFile(pdf, node->image_path);
+      }
+      if (img) {
+        HPDF_Page_DrawImage(page, img, x, y, w, h);
+      } else {
+        // Placeholder rectangle
+        pdf_set_fill_color(page, 0xF0F0F0FF);
+        HPDF_Page_Rectangle(page, x, y, w, h);
+        HPDF_Page_Fill(page);
+        pdf_set_stroke_color(page, 0xB4B4C3FF);
+        HPDF_Page_Rectangle(page, x, y, w, h);
+        HPDF_Page_Stroke(page);
+        HPDF_Font pfont = HPDF_GetFont(pdf, "Helvetica", NULL);
+        HPDF_Page_SetFontAndSize(page, pfont, 11.0f);
+        pdf_set_fill_color(page, 0x78788CFF);
+        HPDF_Page_BeginText(page);
+        HPDF_Page_TextOut(page, x + w / 2 - 14, y + h / 2 - 4, "Image");
+        HPDF_Page_EndText(page);
+      }
+    }
+    break;
+  }
+
+  case NODE_TYPE_CHART:
+  case NODE_TYPE_TABLE_VIEW: {
+    // Try to embed pre-rendered snapshot from /tmp/
+    char snap_path[256];
+    snprintf(snap_path, sizeof(snap_path), "/tmp/aslan_node_%u.png", node->id);
+    HPDF_Image snap_img = HPDF_LoadPngImageFromFile(pdf, snap_path);
+    if (snap_img) {
+      HPDF_Page_DrawImage(page, snap_img, x, y, w, h);
+    }
+    break;
+  }
 
   default:
     break;
