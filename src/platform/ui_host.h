@@ -519,7 +519,7 @@ typedef struct UIHost {
 // Professionals Numeric Input Utility (shared across ui_design.c, ui_canvas.c,
 // etc.)
 int ds_num_input(UIHost *ui, struct nk_context *ctx, const char *label,
-                 float *value, float min_v, float max_v);
+                 float *value, float min_v, float max_v, void *stable_id);
 
 UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer);
 void ui_shutdown(UIHost *ui);

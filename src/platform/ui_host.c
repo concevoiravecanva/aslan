@@ -2742,6 +2742,26 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   // Finalize cursor for this frame
   ui_commit_cursor(ui);
 
+  // Status bar at the bottom
+  if (ui->status[0] != '\0') {
+    struct nk_style_item old_bg = ctx->style.window.fixed_background;
+    ctx->style.window.fixed_background = nk_style_item_color(
+        ui->dark_mode ? nk_rgb(30, 30, 32) : nk_rgb(240, 240, 240));
+    if (nk_begin(ctx, "StatusBar",
+                 nk_rect(0, (float)win_h - 24, (float)win_w, 24),
+                 NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
+      nk_layout_row_dynamic(ctx, 16, 1);
+      nk_label(ctx, ui->status, NK_TEXT_LEFT);
+    }
+    nk_end(ctx);
+    ctx->style.window.fixed_background = old_bg;
+
+    // Clear status if clicked anywhere else
+    if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+      ui->status[0] = '\0';
+    }
+  }
+
   // Render Nuklear
   nk_sdl_render(NK_ANTI_ALIASING_ON);
 }

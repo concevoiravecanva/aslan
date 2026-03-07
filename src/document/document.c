@@ -1510,19 +1510,19 @@ Node *block_design_duplicate_node(Block *block, uint32_t node_id) {
   return dup;
 }
 
-void block_design_set_size(Block *block, int width, int height) {
+void block_design_set_size(Block *block, float width, float height) {
   if (!block || block->type != BLOCK_DESIGN)
     return;
 
   // Enforce min/max bounds (100x100 to 4000x4000)
-  if (width < 100)
-    width = 100;
-  if (width > 4000)
-    width = 4000;
-  if (height < 100)
-    height = 100;
-  if (height > 4000)
-    height = 4000;
+  if (width < 100.0f)
+    width = 100.0f;
+  if (width > 4000.0f)
+    width = 4000.0f;
+  if (height < 100.0f)
+    height = 100.0f;
+  if (height > 4000.0f)
+    height = 4000.0f;
 
   block->data.design.width = width;
   block->data.design.height = height;
@@ -1736,8 +1736,12 @@ void doc_save_aof(const Document *doc, FILE *fp) {
       }
       case BLOCK_DESIGN: {
         const DesignData *dd = &b->data.design;
-        fprintf(fp, "block_design_init %u %u %d %d\n", page->id, b->id,
+        fprintf(fp, "block_design_init %u %u %.2f %.2f\n", page->id, b->id,
                 dd->width, dd->height);
+        if (dd->units != 0) {
+          fprintf(fp, "block_design_resize %u %u %.2f %.2f %d\n", page->id,
+                  b->id, dd->width, dd->height, dd->units);
+        }
         fprintf(fp, "block_design_bg %u %u %u\n", page->id, b->id,
                 dd->bg_color);
         if (dd->no_limits) {

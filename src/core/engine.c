@@ -178,7 +178,6 @@ static void engine_emit_command(Engine *engine, const char *line) {
   fflush(engine->history_file);
 }
 
-
 // -----------------------------------------------------------------------------
 // Comment/Empty Line Detection
 // -----------------------------------------------------------------------------
@@ -812,7 +811,8 @@ static bool handle_block_design_init(Engine *engine, const AofCommand *cmd,
   Block *block = find_block(engine, page_id, block_id);
   if (block && block->type == BLOCK_DESIGN) {
     block_design_init(block);
-    block_design_set_size(block, atoi(cmd->argv[3]), atoi(cmd->argv[4]));
+    block_design_set_size(block, (float)atof(cmd->argv[3]),
+                          (float)atof(cmd->argv[4]));
     engine_emit_command(engine, command_line);
     return true;
   }
@@ -889,7 +889,8 @@ static bool handle_block_design_resize(Engine *engine, const AofCommand *cmd,
   uint32_t block_id = (uint32_t)atoi(cmd->argv[2]);
   Block *block = find_block(engine, page_id, block_id);
   if (block && block->type == BLOCK_DESIGN) {
-    block_design_set_size(block, atoi(cmd->argv[3]), atoi(cmd->argv[4]));
+    block_design_set_size(block, (float)atof(cmd->argv[3]),
+                          (float)atof(cmd->argv[4]));
     block->data.design.units = (cmd->argc >= 6) ? atoi(cmd->argv[5]) : 0;
     engine_emit_command(engine, command_line);
     return true;

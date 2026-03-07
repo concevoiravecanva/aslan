@@ -571,8 +571,8 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
 
       sidebar_section_header(ctx, "ARTBOARD");
 
-      int old_w = dd->width;
-      int old_h = dd->height;
+      float old_w = dd->width;
+      float old_h = dd->height;
       int old_units = dd->units;
 
       // Unit selector
@@ -584,42 +584,41 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
 
       // Dimension inputs
       float val_w = (float)old_w, val_h = (float)old_h;
-      float step = 1.0f, min_val = 100.0f, max_val = 4000.0f;
+      float min_val = 100.0f, max_val = 4000.0f;
       if (cur_units == 1) {
         val_w /= 37.795f;
         val_h /= 37.795f;
-        step = 0.1f;
         min_val = 2.0f;
         max_val = 100.0f;
       } else if (cur_units == 2) {
         val_w /= 96.0f;
         val_h /= 96.0f;
-        step = 0.1f;
         min_val = 1.0f;
         max_val = 40.0f;
       }
 
       nk_layout_row_dynamic(ctx, 28, 2);
-      ds_num_input(ui, ctx, "W:", &val_w, min_val, max_val);
-      ds_num_input(ui, ctx, "H:", &val_h, min_val, max_val);
+      ds_num_input(ui, ctx, "W:", &val_w, min_val, max_val, &block->id);
+      ds_num_input(ui, ctx, "H:", &val_h, min_val, max_val,
+                   &block->data.design.width);
 
-      int new_w = old_w, new_h = old_h;
+      float new_w = old_w, new_h = old_h;
       if (cur_units == 0) {
-        new_w = (int)val_w;
-        new_h = (int)val_h;
+        new_w = val_w;
+        new_h = val_h;
       } else if (cur_units == 1) {
-        new_w = (int)(val_w * 37.795f);
-        new_h = (int)(val_h * 37.795f);
+        new_w = val_w * 37.795f;
+        new_h = val_h * 37.795f;
       } else if (cur_units == 2) {
-        new_w = (int)(val_w * 96.0f);
-        new_h = (int)(val_h * 96.0f);
+        new_w = val_w * 96.0f;
+        new_h = val_h * 96.0f;
       }
 
       if (new_w != old_w || new_h != old_h || cur_units != old_units) {
         Page *page = doc_page_get_active(engine->doc);
         if (page) {
           char cmd[128];
-          snprintf(cmd, sizeof(cmd), "block_design_resize %u %u %d %d %d",
+          snprintf(cmd, sizeof(cmd), "block_design_resize %u %u %.2f %.2f %d",
                    page->id, block->id, new_w, new_h, cur_units);
           engine_execute_command(engine, cmd);
         }
@@ -716,7 +715,8 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
     if (node->font_size < 8.0f)
       node->font_size = 12.0f;
     nk_layout_row_dynamic(ctx, 28, 1);
-    ds_num_input(ui, ctx, "Size:", &node->font_size, 8.0f, 200.0f);
+    ds_num_input(ui, ctx, "Size:", &node->font_size, 8.0f, 200.0f,
+                 &node->font_size);
 
     sidebar_section_divider(ctx);
     ui_render_color_property(ctx, "Color", &node->stroke_color);
@@ -827,17 +827,18 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
   sidebar_section_header(ctx, "POSITION");
 
   nk_layout_row_dynamic(ctx, 28, 2);
-  ds_num_input(ui, ctx, "X:", &node->x, -10000.0f, 10000.0f);
-  ds_num_input(ui, ctx, "Y:", &node->y, -10000.0f, 10000.0f);
+  ds_num_input(ui, ctx, "X:", &node->x, -10000.0f, 10000.0f, &node->x);
+  ds_num_input(ui, ctx, "Y:", &node->y, -10000.0f, 10000.0f, &node->y);
 
   sidebar_section_header(ctx, "SIZE");
   nk_layout_row_dynamic(ctx, 28, 2);
-  ds_num_input(ui, ctx, "W:", &node->width, 1.0f, 10000.0f);
-  ds_num_input(ui, ctx, "H:", &node->height, 1.0f, 10000.0f);
+  ds_num_input(ui, ctx, "W:", &node->width, 1.0f, 10000.0f, &node->width);
+  ds_num_input(ui, ctx, "H:", &node->height, 1.0f, 10000.0f, &node->height);
 
   // Rotation
   nk_layout_row_dynamic(ctx, 28, 1);
-  ds_num_input(ui, ctx, "Rot:", &node->rotation, -360.0f, 360.0f);
+  ds_num_input(ui, ctx, "Rot:", &node->rotation, -360.0f, 360.0f,
+               &node->rotation);
 
   // =====================================================================
   // LINE ENDPOINTS — for lines, strokes, thin rects
@@ -872,14 +873,15 @@ void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
   if (node->type == NODE_TYPE_RECT || node->type == NODE_TYPE_IMAGE ||
       node->type == NODE_TYPE_FRAME) {
     nk_layout_row_dynamic(ctx, 28, 1);
-    nk_property_float(ctx, "Radius:", 0.0f, &node->corner_radius, 200.0f, 1.0f,
-                      0.5f);
+    ds_num_input(ui, ctx, "Radius:", &node->corner_radius, 0.0f, 200.0f,
+                 &node->corner_radius);
   }
 
   sidebar_section_divider(ctx);
   sidebar_section_header(ctx, "STROKE");
   nk_layout_row_dynamic(ctx, 28, 1);
-  ds_num_input(ui, ctx, "Width:", &node->stroke_width, 0.0f, 100.0f);
+  ds_num_input(ui, ctx, "Width:", &node->stroke_width, 0.0f, 100.0f,
+               &node->stroke_width);
   ui_render_color_property(ctx, "Color", &node->stroke_color);
 
   // =====================================================================
@@ -934,7 +936,7 @@ static void ui_render_layer_item(UIHost *ui, struct nk_context *ctx,
   // 2. Drag & Drop Detection
   int mouse_down = nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT);
   int mouse_pressed = nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT);
-  int mouse_released = nk_input_is_mouse_released(&ctx->input, NK_BUTTON_LEFT);
+  // mouse_released check removed as it was unused
 
   // Start dragging
   if (is_hovered_row && mouse_pressed && !is_renaming) {
@@ -1220,7 +1222,7 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
 
   // ── Row 2: opacity slider ──────────────────────────────────────────────────
   nk_layout_row_dynamic(ctx, 20, 1);
-  ds_num_input(ui, ctx, "Opacity", &node->opacity, 0.0f, 1.0f);
+  ds_num_input(ui, ctx, "Opacity", &node->opacity, 0.0f, 1.0f, &node->opacity);
 
   // ── Row 3: fill swatch | label  + stroke swatch | width ───────────────────
   nk_layout_row_template_begin(ctx, 22);
@@ -1260,16 +1262,19 @@ void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
     nk_stroke_rect(insp_cb, nk_rect(fx, fy, s, s), 2.0f, 0.5f,
                    nk_rgba(0, 0, 0, 40));
   }
-  ds_num_input(ui, ctx, "W:", &node->stroke_width, 0.0f, 100.0f);
+  ds_num_input(ui, ctx, "W:", &node->stroke_width, 0.0f, 100.0f,
+               &node->stroke_width);
 
   // ── Row 4: type-specific property ─────────────────────────────────────────
   nk_layout_row_dynamic(ctx, 24, 1);
   if (node->type == NODE_TYPE_TEXT) {
-    ds_num_input(ui, ctx, "Size", &node->font_size, 6.0f, 200.0f);
+    ds_num_input(ui, ctx, "Size", &node->font_size, 6.0f, 200.0f,
+                 &node->font_size);
   } else if (node->is_container) {
     nk_checkbox_label(ctx, "Clip content", &node->clip_content);
   } else {
-    ds_num_input(ui, ctx, "Radius", &node->corner_radius, 0.0f, 200.0f);
+    ds_num_input(ui, ctx, "Radius", &node->corner_radius, 0.0f, 200.0f,
+                 &node->corner_radius);
   }
 
   // ── Row 5: action buttons ─────────────────────────────────────────────────

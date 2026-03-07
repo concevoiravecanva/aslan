@@ -1072,3 +1072,44 @@ block_design_resize 1 105 568 56 0
 block_design_resize 1 105 568 67 0
 block_design_resize 1 105 568 66 0
 block_design_resize 1 105 568 789 0
+block_design_resize 1 105 3991 3991 0
+-- Session started --
+block_design_resize 1 105 3991 17234 0
+block_design_resize 1 105 3991 377 0
+block_design_resize 1 105 3991 56 0
+block_design_resize 1 105 56 100 0
+block_design_resize 1 105 567 100 0
+block_design_resize 1 105 567 567 0
+block_design_resize 1 105 960 567 0
+block_design_resize 1 105 54432 567 0
+-- Session started --
+block_design_resize 1 105 56 567 0
+block_design_resize 1 105 100 5677 0
+block_design_resize 1 105 56 4000 0
+block_design_resize 1 105 100 4000 1
+block_design_resize 1 105 377 3999 1
+block_design_resize 1 105 377 2116 1
+block_design_resize 1 105 377 17234 1
+block_design_resize 1 105 1209 3999 1
+block_design_resize 1 105 1209 1209 1
+-- Session started --
+block_design_resize 1 105 377.95 1209.00 1
+block_design_resize 1 105 377.95 1209.00 1
+block_design_resize 1 105 377.95 2116.52 1
+block_design_resize 1 105 21429.76 2116.52 1
+-- Session started --
+block_design_resize 1 105 377.95 2116.52 1
+block_design_resize 1 105 377.95 453.54 1
+block_design_resize 1 105 453.54 453.54 1
+block_design_resize 1 105 4535.40 453.54 1
+block_design_resize 1 105 7559.00 453.54 1
+block_design_resize 1 105 4000.00 7559.00 1
+block_design_resize 1 105 4000.00 377.95 1
+block_design_resize 1 105 377.95 377.95 1
+block_design_resize 1 105 377.95 377.95 0
+block_design_resize 1 105 37.00 377.95 0
+block_design_resize 1 105 100.00 37.00 0
+block_design_resize 1 105 1000.00 100.00 0
+block_design_resize 1 105 1000.00 100.00 2
+block_design_resize 1 105 38400.00 100.00 2
+block_design_resize 1 105 4000.00 54528.00 2

@@ -65,7 +65,8 @@ typedef enum {
   NODE_TYPE_PATH = 14,
   NODE_TYPE_STROKE = 15,
   NODE_TYPE_CHART = 16,
-  NODE_TYPE_TABLE_VIEW = 17  // Embedded live-table (read-only content, resizable)
+  NODE_TYPE_TABLE_VIEW =
+      17 // Embedded live-table (read-only content, resizable)
 } NodeType;
 
 // -----------------------------------------------------------------------------
@@ -162,7 +163,8 @@ typedef struct Node {
   // Chart data (for NODE_TYPE_CHART)
   ChartData *chart_data;
 
-  // Linked block id (for NODE_TYPE_TABLE_VIEW: references the table block to display)
+  // Linked block id (for NODE_TYPE_TABLE_VIEW: references the table block to
+  // display)
   uint32_t linked_block_id;
 
   // Hierarchy (linked list tree)
@@ -248,10 +250,10 @@ typedef struct {
   int page_capacity; // Allocated capacity
   int current_page;  // Currently displayed page index
   uint32_t next_node_id;
-  int width, height; // Fixed dimensions in pixels (same for all pages)
-  int units;         // 0=px, 1=cm, 2=in
-  float zoom;        // View zoom
-  uint32_t bg_color; // Default background color for new pages
+  float width, height; // Fixed dimensions in pixels (same for all pages)
+  int units;           // 0=px, 1=cm, 2=in
+  float zoom;          // View zoom
+  uint32_t bg_color;   // Default background color for new pages
 
   // Canvas mode toggle
   int no_limits; // 0 = fixed artboard (default), 1 = infinite canvas mode
@@ -455,8 +457,8 @@ void block_table_set_view(Block *block, TableViewMode mode);
 // DESIGN BLOCK API
 // =============================================================================
 
-#define DEFAULT_DESIGN_WIDTH 800
-#define DEFAULT_DESIGN_HEIGHT 600
+#define DEFAULT_DESIGN_WIDTH 800.0f
+#define DEFAULT_DESIGN_HEIGHT 600.0f
 
 void block_design_init(Block *block);
 void block_design_destroy(Block *block);
@@ -464,7 +466,7 @@ Node *block_design_create_node(Block *block, NodeType type, const char *name);
 Node *block_design_find_node(Block *block, uint32_t node_id);
 bool block_design_delete_node(Block *block, uint32_t node_id);
 Node *block_design_duplicate_node(Block *block, uint32_t node_id);
-void block_design_set_size(Block *block, int width, int height);
+void block_design_set_size(Block *block, float width, float height);
 void block_design_set_bg_color(Block *block, uint32_t color);
 
 // Multi-page support for presentations
