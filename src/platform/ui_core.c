@@ -30,90 +30,15 @@ int ui_icon_button(UIHost *ui, const char *icon) {
 // -----------------------------------------------------------------------------
 
 // -----------------------------------------------------------------------------
-// Document Toolbar - Floating Bottom Bar
+// Document Toolbar - now rendered by clay_host_render_toolbar() in clay_host.c
+// (after nk_sdl_render, so it floats on top of all NK content)
 // -----------------------------------------------------------------------------
 
 void ui_render_document_toolbar(UIHost *ui, Engine *engine,
                                 struct nk_context *ctx, int win_w, int win_h) {
-  if (!ui || !engine || !ctx)
-    return;
-
-  const float btn_size = 36.0f;
-  const float btn_spacing = 8.0f;
-  const float toolbar_w = 4 * btn_size + 3 * btn_spacing + 24.0f;
-  const float toolbar_h = 52.0f;
-
-  float toolbar_x = ((float)win_w - toolbar_w) / 2.0f;
-  float toolbar_y = (float)win_h - toolbar_h - 20.0f;
-
-  struct nk_command_buffer *canvas_buf = nk_window_get_canvas(ctx);
-  struct nk_color toolbar_bg =
-      ui->dark_mode ? nk_rgb(45, 45, 50) : nk_rgb(255, 255, 255);
-  struct nk_color toolbar_border =
-      ui->dark_mode ? nk_rgb(70, 70, 80) : nk_rgb(220, 220, 220);
-
-  // Layered shadow for depth
-  nk_fill_rect(canvas_buf,
-               nk_rect(toolbar_x + 0, toolbar_y + 6, toolbar_w, toolbar_h),
-               26.0f, nk_rgba(0, 0, 0, 12));
-  nk_fill_rect(canvas_buf,
-               nk_rect(toolbar_x + 1, toolbar_y + 3, toolbar_w, toolbar_h),
-               26.0f, nk_rgba(0, 0, 0, 18));
-
-  // Background
-  nk_fill_rect(canvas_buf, nk_rect(toolbar_x, toolbar_y, toolbar_w, toolbar_h),
-               26.0f, toolbar_bg);
-  nk_stroke_rect(canvas_buf,
-                 nk_rect(toolbar_x, toolbar_y, toolbar_w, toolbar_h), 26.0f,
-                 1.0f, toolbar_border);
-
-  float btn_x = toolbar_x + 12.0f;
-  float btn_y = toolbar_y + (toolbar_h - btn_size) / 2.0f;
-
-  const char *tool_icons[] = {ICON_TABLE, ICON_DESIGN};
-  int tool_count = 2;
-
-  Page *page = doc_page_get_active(engine->doc);
-  uint32_t page_id = page ? page->id : 0;
-
-  for (int i = 0; i < tool_count; i++) {
-    struct nk_rect btn_rect = nk_rect(btn_x + i * (btn_size + btn_spacing),
-                                      btn_y, btn_size, btn_size);
-
-    int hovered = nk_input_is_mouse_hovering_rect(&ctx->input, btn_rect);
-
-    if (hovered) {
-      struct nk_color bg =
-          ui->dark_mode ? nk_rgb(60, 60, 70) : nk_rgb(240, 240, 240);
-      nk_fill_rect(canvas_buf, btn_rect, 6.0f, bg);
-    }
-
-    struct nk_color icon_color =
-        ui->dark_mode ? nk_rgb(200, 200, 205) : nk_rgb(60, 60, 60);
-
-    if (ui->font_icons) {
-      nk_draw_text(
-          canvas_buf,
-          nk_rect(btn_rect.x + 8, btn_rect.y + 8, btn_size - 16, btn_size - 16),
-          tool_icons[i], strlen(tool_icons[i]), &ui->font_icons->handle,
-          nk_rgba(0, 0, 0, 0), icon_color);
-    }
-
-    int clicked =
-        (hovered && (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) ||
-                     ui->canvas_state.mouse_just_pressed));
-
-    if (clicked && page) {
-      ASLAN_DEBUG("Toolbar click: button %d", i);
-      static const char *block_types[] = {"table", "design"};
-      if (i >= 0 && i < 2) {
-        char cmd[128];
-        snprintf(cmd, sizeof(cmd), "block_create %u %u %s", page_id,
-                 page->next_block_id, block_types[i]);
-        engine_execute_command(engine, cmd);
-      }
-    }
-  }
+  // Replaced by Clay/SDL2 toolbar in clay_host.c — this stub is kept for ABI
+  // compatibility only.
+  (void)ui; (void)engine; (void)ctx; (void)win_w; (void)win_h;
 }
 
 // -----------------------------------------------------------------------------

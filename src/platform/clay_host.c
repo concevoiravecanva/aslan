@@ -35,6 +35,7 @@ struct ClayHost {
     SDL_Renderer  *renderer;
     AslanFont      fonts[ASLAN_FONT_COUNT];
     AslanSplitRects last_rects;
+    bool           last_mouse_left_down; // edge detection for toolbar clicks
 };
 
 // =============================================================================
@@ -512,4 +513,118 @@ float clay_host_render_tabs(ClayHost *ch, bool dark_mode,
     if (font) TTF_SetFontSize(font, 14);
 
     return ASLAN_TAB_BAR_H;
+}
+
+// =============================================================================
+// Floating bottom toolbar (Step 3) — rendered AFTER nk_sdl_render() so it
+// sits on top of all Nuklear content.
+// =============================================================================
+
+#define CLAY_TB_BTN   36.0f   // button size
+#define CLAY_TB_GAP    8.0f   // gap between buttons
+#define CLAY_TB_PAD   12.0f   // horizontal padding inside the pill
+#define CLAY_TB_H     52.0f   // pill height
+#define CLAY_TB_MB    20.0f   // margin from bottom of window
+
+AslanToolbarResult clay_host_render_toolbar(ClayHost *ch, bool dark_mode,
+                                             int win_w, int win_h,
+                                             const char **icons_utf8,
+                                             int btn_count) {
+    AslanToolbarResult result = {-1};
+    if (!ch || btn_count <= 0) return result;
+
+    SDL_Renderer *r = ch->renderer;
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+
+    // ── Mouse state & edge detection ────────────────────────────────────────
+    int mx, my;
+    Uint32 mstate = SDL_GetMouseState(&mx, &my);
+    bool mouse_down    = (mstate & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
+    bool mouse_pressed = mouse_down && !ch->last_mouse_left_down;
+    ch->last_mouse_left_down = mouse_down;
+
+    // ── Geometry ─────────────────────────────────────────────────────────────
+    float toolbar_w = (float)btn_count * CLAY_TB_BTN
+                    + (float)(btn_count - 1) * CLAY_TB_GAP
+                    + CLAY_TB_PAD * 2.0f;
+    float tx = ((float)win_w - toolbar_w) / 2.0f;
+    float ty = (float)win_h - CLAY_TB_H - CLAY_TB_MB;
+
+    // ── Colours ──────────────────────────────────────────────────────────────
+    SDL_Color bg, border_c, icon_c, icon_hov, btn_hov_bg;
+    if (dark_mode) {
+        bg         = (SDL_Color){ 42,  44,  52, 248};
+        border_c   = (SDL_Color){ 60,  62,  74, 255};
+        icon_c     = (SDL_Color){192, 194, 204, 255};
+        icon_hov   = (SDL_Color){230, 232, 242, 255};
+        btn_hov_bg = (SDL_Color){ 56,  58,  70, 255};
+    } else {
+        bg         = (SDL_Color){255, 255, 255, 248};
+        border_c   = (SDL_Color){215, 215, 222, 255};
+        icon_c     = (SDL_Color){ 70,  72,  84, 255};
+        icon_hov   = (SDL_Color){ 25,  27,  38, 255};
+        btn_hov_bg = (SDL_Color){240, 240, 246, 255};
+    }
+
+    // ── Layered drop shadow ──────────────────────────────────────────────────
+    sdl_fill_rounded_rect(r,
+        (SDL_FRect){tx,      ty + 8.0f, toolbar_w, CLAY_TB_H}, 26.0f,
+        (SDL_Color){0,0,0,10});
+    sdl_fill_rounded_rect(r,
+        (SDL_FRect){tx + 1,  ty + 4.0f, toolbar_w, CLAY_TB_H}, 26.0f,
+        (SDL_Color){0,0,0,18});
+    sdl_fill_rounded_rect(r,
+        (SDL_FRect){tx + 1,  ty + 2.0f, toolbar_w, CLAY_TB_H}, 26.0f,
+        (SDL_Color){0,0,0,8});
+
+    // ── Border (1px frame, slightly larger than the bg pill) ─────────────────
+    sdl_fill_rounded_rect(r,
+        (SDL_FRect){tx - 1, ty - 1, toolbar_w + 2, CLAY_TB_H + 2}, 27.0f,
+        border_c);
+
+    // ── Background pill ───────────────────────────────────────────────────────
+    sdl_fill_rounded_rect(r,
+        (SDL_FRect){tx, ty, toolbar_w, CLAY_TB_H}, 26.0f, bg);
+
+    // ── Buttons ───────────────────────────────────────────────────────────────
+    TTF_Font *icon_font = ch->fonts[ASLAN_FONT_ICONS].font;
+    if (icon_font) TTF_SetFontSize(icon_font, 20);
+
+    float btn_y = ty + (CLAY_TB_H - CLAY_TB_BTN) / 2.0f;
+
+    for (int i = 0; i < btn_count; i++) {
+        float bx = tx + CLAY_TB_PAD + (float)i * (CLAY_TB_BTN + CLAY_TB_GAP);
+        SDL_FRect btn = {bx, btn_y, CLAY_TB_BTN, CLAY_TB_BTN};
+
+        bool hovered = ((float)mx >= bx && (float)mx < bx + CLAY_TB_BTN &&
+                        (float)my >= btn_y && (float)my < btn_y + CLAY_TB_BTN);
+
+        if (hovered) {
+            sdl_fill_rounded_rect(r, btn, 8.0f, btn_hov_bg);
+            if (mouse_pressed)
+                result.clicked_btn = i;
+        }
+
+        // Icon via icon font
+        if (icon_font && icons_utf8 && icons_utf8[i]) {
+            SDL_Color ic = hovered ? icon_hov : icon_c;
+            SDL_Surface *surf = TTF_RenderUTF8_Blended(icon_font, icons_utf8[i], ic);
+            if (surf) {
+                SDL_Texture *tex = SDL_CreateTextureFromSurface(r, surf);
+                if (tex) {
+                    SDL_FRect dst = {
+                        bx  + (CLAY_TB_BTN - (float)surf->w) * 0.5f,
+                        btn_y + (CLAY_TB_BTN - (float)surf->h) * 0.5f,
+                        (float)surf->w, (float)surf->h
+                    };
+                    SDL_RenderCopyF(r, tex, NULL, &dst);
+                    SDL_DestroyTexture(tex);
+                }
+                SDL_FreeSurface(surf);
+            }
+        }
+    }
+
+    if (icon_font) TTF_SetFontSize(icon_font, 18);
+    return result;
 }

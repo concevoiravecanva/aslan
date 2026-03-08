@@ -3039,6 +3039,25 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
   // Render Nuklear
   nk_sdl_render(NK_ANTI_ALIASING_ON);
+
+  // ── Clay floating toolbar (drawn ON TOP of NK content) ───────────────────
+  // Rendered after nk_sdl_render so it is not occluded by any NK window.
+  if (ui->clay) {
+    Page *page = doc_page_get_active(engine->doc);
+    if (page) {
+      const char *icons[] = {ICON_TABLE, ICON_DESIGN};
+      AslanToolbarResult tr = clay_host_render_toolbar(
+          ui->clay, ui->dark_mode != 0, win_w, win_h, icons, 2);
+      if (tr.clicked_btn >= 0) {
+        static const char *block_types[] = {"table", "design"};
+        char cmd[128];
+        snprintf(cmd, sizeof(cmd), "block_create %u %u %s",
+                 page->id, page->next_block_id,
+                 block_types[tr.clicked_btn]);
+        engine_execute_command(engine, cmd);
+      }
+    }
+  }
 }
 
 // -----------------------------------------------------------------------------

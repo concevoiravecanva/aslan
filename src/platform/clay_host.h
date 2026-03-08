@@ -48,6 +48,23 @@ AslanSplitRects clay_host_render_split(
 );
 
 // -----------------------------------------------------------------------------
+// Floating bottom toolbar — call AFTER nk_sdl_render() so it overlays NK.
+//
+// icons_utf8[]: array of btn_count UTF-8 icon strings (RemixIcons font).
+// Returns the index of the clicked button, or -1 if none.
+// -----------------------------------------------------------------------------
+typedef struct { int clicked_btn; } AslanToolbarResult;
+
+AslanToolbarResult clay_host_render_toolbar(
+    ClayHost    *ch,
+    bool         dark_mode,
+    int          win_w,
+    int          win_h,
+    const char **icons_utf8,
+    int          btn_count
+);
+
+// -----------------------------------------------------------------------------
 // Per-frame tab bar for the left panel. Call after clay_host_render_split()
 // and before the Nuklear windows.
 //
