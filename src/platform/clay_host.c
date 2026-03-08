@@ -401,7 +401,115 @@ AslanSplitRects clay_host_render_split(ClayHost *ch,
         .right_x = left_w + spl_w,
         .right_w = right_w,
         .panel_h = (float)win_h,
+        .tab_h   = 0.0f,
     };
     ch->last_rects = rects;
     return rects;
+}
+
+// =============================================================================
+// Left-panel tab bar (Step 2)
+// =============================================================================
+
+#define ASLAN_TAB_BAR_H 38.0f
+
+float clay_host_render_tabs(ClayHost *ch, bool dark_mode,
+                             float panel_x, float panel_w,
+                             int *active_tab,
+                             float mouse_x, float mouse_y,
+                             bool mouse_clicked) {
+    if (!ch || !active_tab) return 0.0f;
+    if (*active_tab < 0) *active_tab = 0;
+
+    SDL_Renderer *r = ch->renderer;
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+
+    // ── Colour palette ───────────────────────────────────────────────────────
+    SDL_Color tab_bar_bg, active_pill, active_txt, inactive_txt, border_col;
+    if (dark_mode) {
+        tab_bar_bg   = (SDL_Color){ 28,  30,  36, 255};
+        active_pill  = (SDL_Color){ 50,  52,  62, 255};
+        active_txt   = (SDL_Color){220, 222, 230, 255};
+        inactive_txt = (SDL_Color){110, 112, 125, 255};
+        border_col   = (SDL_Color){ 48,  50,  60, 255};
+    } else {
+        tab_bar_bg   = (SDL_Color){252, 252, 253, 255};
+        active_pill  = (SDL_Color){255, 255, 255, 255};
+        active_txt   = (SDL_Color){ 30,  30,  40, 255};
+        inactive_txt = (SDL_Color){130, 130, 145, 255};
+        border_col   = (SDL_Color){220, 220, 225, 255};
+    }
+
+    // ── Tab bar background ───────────────────────────────────────────────────
+    SDL_FRect bar = {panel_x, 0.0f, panel_w, ASLAN_TAB_BAR_H};
+    SDL_SetRenderDrawColor(r, tab_bar_bg.r, tab_bar_bg.g, tab_bar_bg.b, tab_bar_bg.a);
+    SDL_RenderFillRectF(r, &bar);
+
+    // Bottom separator
+    SDL_SetRenderDrawColor(r, border_col.r, border_col.g, border_col.b, border_col.a);
+    SDL_FRect sep = {panel_x, ASLAN_TAB_BAR_H - 1.0f, panel_w, 1.0f};
+    SDL_RenderFillRectF(r, &sep);
+
+    // ── Tab pills ────────────────────────────────────────────────────────────
+    const char *tab_labels[] = {"Table", "Gantt"};
+    const int   tab_count    = 2;
+    const float pill_h       = 26.0f;
+    const float pill_y       = (ASLAN_TAB_BAR_H - pill_h) * 0.5f;
+    const float pad_x        = 14.0f;
+
+    // Use Inter font at 13px for tab labels
+    TTF_Font *font = ch->fonts[ASLAN_FONT_INTER].font;
+    if (font) TTF_SetFontSize(font, 13);
+
+    float tab_x = panel_x + 8.0f;
+    for (int i = 0; i < tab_count; i++) {
+        int tw = 0, th = 0;
+        if (font)
+            TTF_SizeUTF8(font, tab_labels[i], &tw, &th);
+        else
+            tw = (int)(strlen(tab_labels[i]) * 8), th = 14;
+
+        float pill_w = (float)tw + pad_x * 2.0f;
+        SDL_FRect pill = {tab_x, pill_y, pill_w, pill_h};
+
+        // Hit test
+        if (mouse_clicked &&
+            mouse_x >= pill.x && mouse_x < pill.x + pill.w &&
+            mouse_y >= 0.0f   && mouse_y < ASLAN_TAB_BAR_H) {
+            *active_tab = i;
+        }
+
+        bool is_active = (*active_tab == i);
+
+        // Pill background (active only)
+        if (is_active) {
+            sdl_fill_rounded_rect(r, pill, 6.0f, active_pill);
+        }
+
+        // Tab label via SDL_ttf
+        if (font) {
+            SDL_Color tc = is_active ? active_txt : inactive_txt;
+            SDL_Surface *surf = TTF_RenderUTF8_Blended(font, tab_labels[i], tc);
+            if (surf) {
+                SDL_Texture *tex = SDL_CreateTextureFromSurface(r, surf);
+                if (tex) {
+                    SDL_FRect dst = {
+                        pill.x + (pill.w - (float)surf->w) * 0.5f,
+                        pill.y + (pill.h - (float)surf->h) * 0.5f,
+                        (float)surf->w, (float)surf->h
+                    };
+                    SDL_RenderCopyF(r, tex, NULL, &dst);
+                    SDL_DestroyTexture(tex);
+                }
+                SDL_FreeSurface(surf);
+            }
+        }
+
+        tab_x += pill_w + 4.0f;
+    }
+
+    // Reset font size
+    if (font) TTF_SetFontSize(font, 14);
+
+    return ASLAN_TAB_BAR_H;
 }

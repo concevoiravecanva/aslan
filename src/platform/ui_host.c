@@ -2330,7 +2330,289 @@ static Block *page_find_first_block_of_type(Page *page, BlockType type) {
   return NULL;
 }
 
-// Render a single panel view: 0=Table (left), 1=Design (right)
+// =============================================================================
+// Gantt View
+// =============================================================================
+
+static void ui_render_view_gantt(UIHost *ui, Engine *engine,
+                                  struct nk_context *ctx, Block *block,
+                                  float w, float h) {
+  (void)engine;
+  AslanTable *tbl = block->data.table.columnar;
+  if (!tbl) {
+    nk_layout_row_dynamic(ctx, 40, 1);
+    nk_label(ctx, "No table data", NK_TEXT_CENTERED);
+    return;
+  }
+
+  // ── Detect required columns ─────────────────────────────────────────────
+  int title_col = -1, start_col = -1, dur_col = -1, color_col = -1;
+  for (int c = 0; c < (int)tbl->column_count; c++) {
+    AslanColumnType t = tbl->columns[c].type;
+    if (title_col < 0 && t == ASLAN_COL_TEXT)     title_col = c;
+    if (start_col < 0 && t == ASLAN_COL_DATE)     start_col = c;
+    if (dur_col   < 0 && t == ASLAN_COL_DURATION) dur_col   = c;
+    if (color_col < 0 && t == ASLAN_COL_SELECT)   color_col = c;
+  }
+
+  if (start_col < 0 || dur_col < 0) {
+    nk_layout_row_dynamic(ctx, h, 1);
+    nk_label(ctx, "Add DATE + DURATION columns to enable the Gantt view",
+             NK_TEXT_CENTERED);
+    return;
+  }
+
+  // ── Init gantt_state defaults ────────────────────────────────────────────
+  time_t now = time(NULL);
+  int64_t today_day = (int64_t)(now / 86400);
+  if (ui->gantt_state.view_start_day == 0)
+    ui->gantt_state.view_start_day = today_day - 7;
+  if (ui->gantt_state.day_w <= 0.0f)
+    ui->gantt_state.day_w = 40.0f;
+
+  float      day_w      = ui->gantt_state.day_w;
+  int64_t    view_start = ui->gantt_state.view_start_day;
+  const float label_w   = 150.0f;
+  const float ctrl_h    = 36.0f;
+  const float day_hdr_h = 24.0f;
+  const float row_h     = 30.0f;
+  int visible_days = (int)((w - label_w) / day_w) + 2;
+  int row_count    = aslan_table_view_count(tbl);
+
+  struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+
+  // ── Colours ──────────────────────────────────────────────────────────────
+  struct nk_color hdr_bg  = ui->dark_mode ? nk_rgb(33,35,43)   : nk_rgb(245,245,248);
+  struct nk_color row_bg0 = ui->dark_mode ? nk_rgb(28,30,36)   : nk_rgb(255,255,255);
+  struct nk_color row_bg1 = ui->dark_mode ? nk_rgb(32,34,40)   : nk_rgb(249,249,249);
+  struct nk_color border_c= ui->dark_mode ? nk_rgba(55,57,65,100) : nk_rgba(218,218,223,160);
+  struct nk_color text_c  = ui->dark_mode ? nk_rgb(200,202,210) : nk_rgb(50,50,60);
+  struct nk_color muted_c = ui->dark_mode ? nk_rgb(100,102,115) : nk_rgb(140,140,155);
+  struct nk_color bar_c   = ui->dark_mode ? nk_rgb(60,120,220)  : nk_rgb(45,127,249);
+  struct nk_color today_c = nk_rgb(45, 200, 200);
+  struct nk_color wkend_c = ui->dark_mode ? nk_rgba(255,255,255,8) : nk_rgba(0,0,0,5);
+
+  // ── Control bar ──────────────────────────────────────────────────────────
+  float nav_w = w - 30.0f - 30.0f - 64.0f - 72.0f - 16.0f;
+  if (nav_w < 60.0f) nav_w = 60.0f;
+
+  nk_layout_row_begin(ctx, NK_STATIC, (int)ctrl_h, 5);
+
+  nk_layout_row_push(ctx, 30);
+  if (nk_button_label(ctx, "-")) {
+    ui->gantt_state.day_w -= 5.0f;
+    if (ui->gantt_state.day_w < 15.0f) ui->gantt_state.day_w = 15.0f;
+    ui_request_redraw(ui);
+  }
+  nk_layout_row_push(ctx, 30);
+  if (nk_button_label(ctx, "+")) {
+    ui->gantt_state.day_w += 5.0f;
+    if (ui->gantt_state.day_w > 120.0f) ui->gantt_state.day_w = 120.0f;
+    ui_request_redraw(ui);
+  }
+  nk_layout_row_push(ctx, 64);
+  if (nk_button_label(ctx, "< Prev")) {
+    ui->gantt_state.view_start_day -= 7;
+    ui_request_redraw(ui);
+  }
+  nk_layout_row_push(ctx, nav_w);
+  {
+    time_t t = (time_t)(view_start * 86400);
+    struct tm *tm_ptr = localtime(&t);
+    char lbl[64];
+    strftime(lbl, sizeof(lbl), "Week of %b %d", tm_ptr);
+    nk_label(ctx, lbl, NK_TEXT_CENTERED);
+  }
+  nk_layout_row_push(ctx, 72);
+  if (nk_button_label(ctx, "Next >")) {
+    ui->gantt_state.view_start_day += 7;
+    ui_request_redraw(ui);
+  }
+  nk_layout_row_end(ctx);
+
+  // ── Day header row ───────────────────────────────────────────────────────
+  float row_area_w = label_w + (float)visible_days * day_w;
+  nk_layout_row_begin(ctx, NK_STATIC, (int)day_hdr_h, 1);
+  nk_layout_row_push(ctx, row_area_w);
+  {
+    struct nk_rect hb = nk_widget_bounds(ctx);
+    nk_fill_rect(canvas, hb, 0, hdr_bg);
+    // Bottom separator
+    nk_stroke_line(canvas, hb.x, hb.y + hb.h - 1, hb.x + hb.w, hb.y + hb.h - 1,
+                   0.5f, border_c);
+    // Label column separator
+    nk_stroke_line(canvas, hb.x + label_w, hb.y, hb.x + label_w, hb.y + hb.h,
+                   0.5f, border_c);
+
+    if (ui->font_inter) {
+      const char *day_names[7] = {"Mon","Tue","Wed","Thu","Fri","Sat","Sun"};
+      for (int d = 0; d < visible_days; d++) {
+        int64_t abs_day  = view_start + d;
+        int     weekday  = (int)((abs_day + 3) % 7); // 0=Mon, 6=Sun
+        float   dx       = hb.x + label_w + (float)d * day_w;
+        float   font_h   = ui->font_inter->handle.height;
+
+        if (weekday >= 5)
+          nk_fill_rect(canvas, nk_rect(dx, hb.y, day_w, hb.h), 0, wkend_c);
+
+        // Vertical grid line
+        nk_stroke_line(canvas, dx, hb.y, dx, hb.y + hb.h, 0.5f, border_c);
+
+        if (day_w >= 42.0f) {
+          time_t t2 = (time_t)(abs_day * 86400);
+          struct tm *tp = localtime(&t2);
+          char day_str[16];
+          snprintf(day_str, sizeof(day_str), "%s %d", day_names[weekday], tp->tm_mday);
+          nk_draw_text(canvas,
+                       nk_rect(dx + 4, hb.y + (hb.h - font_h) * 0.5f, day_w - 8, font_h),
+                       day_str, strlen(day_str),
+                       &ui->font_inter->handle, nk_rgba(0,0,0,0), muted_c);
+        } else {
+          time_t t2 = (time_t)(abs_day * 86400);
+          struct tm *tp = localtime(&t2);
+          char day_str[8];
+          snprintf(day_str, sizeof(day_str), "%d", tp->tm_mday);
+          nk_draw_text(canvas,
+                       nk_rect(dx + 2, hb.y + (hb.h - font_h) * 0.5f, day_w - 4, font_h),
+                       day_str, strlen(day_str),
+                       &ui->font_inter->handle, nk_rgba(0,0,0,0), muted_c);
+        }
+      }
+    }
+    nk_spacing(ctx, 1);
+  }
+  nk_layout_row_end(ctx);
+
+  // ── Task rows (scrollable) ───────────────────────────────────────────────
+  float content_h = h - ctrl_h - day_hdr_h;
+  nk_layout_row_dynamic(ctx, content_h, 1);
+  if (nk_group_begin(ctx, "GanttRows", NK_WINDOW_SCROLL_AUTO_HIDE)) {
+    float total_inner_h = (float)row_count * row_h + 8.0f;
+
+    nk_layout_row_begin(ctx, NK_STATIC, (int)total_inner_h, 1);
+    nk_layout_row_push(ctx, row_area_w);
+    {
+      struct nk_rect gb = nk_widget_bounds(ctx);
+      struct nk_command_buffer *gc = nk_window_get_canvas(ctx);
+
+      for (int v = 0; v < row_count; v++) {
+        uint64_t row_id = aslan_table_view_row_id(tbl, v);
+        if (!row_id) continue;
+
+        float ry = gb.y + (float)v * row_h;
+        struct nk_color rb = (v % 2 == 0) ? row_bg0 : row_bg1;
+        nk_fill_rect(gc, nk_rect(gb.x, ry, row_area_w, row_h), 0, rb);
+
+        // Bottom border
+        nk_stroke_line(gc, gb.x, ry + row_h - 1, gb.x + row_area_w, ry + row_h - 1,
+                       0.5f, border_c);
+        // Label column separator
+        nk_stroke_line(gc, gb.x + label_w, ry, gb.x + label_w, ry + row_h,
+                       0.5f, border_c);
+
+        // Weekend tint in data area
+        for (int d = 0; d < visible_days; d++) {
+          int weekday = (int)((view_start + d + 3) % 7);
+          if (weekday >= 5) {
+            float wx = gb.x + label_w + (float)d * day_w;
+            nk_fill_rect(gc, nk_rect(wx, ry, day_w, row_h), 0, wkend_c);
+          }
+        }
+
+        // Vertical grid lines
+        for (int d = 0; d < visible_days; d++) {
+          float gx = gb.x + label_w + (float)d * day_w;
+          nk_stroke_line(gc, gx, ry, gx, ry + row_h, 0.5f, border_c);
+        }
+
+        // Task title in label column
+        if (ui->font_inter) {
+          float font_h = ui->font_inter->handle.height;
+          const char *title = title_col >= 0
+              ? aslan_table_get_text(tbl, title_col, row_id) : NULL;
+          char fallback[24];
+          if (!title || !title[0]) {
+            snprintf(fallback, sizeof(fallback), "Task %d", v + 1);
+            title = fallback;
+          }
+          nk_draw_text(gc,
+                       nk_rect(gb.x + 8, ry + (row_h - font_h) * 0.5f,
+                               label_w - 16, font_h),
+                       title, strlen(title),
+                       &ui->font_inter->handle, nk_rgba(0,0,0,0), text_c);
+        }
+
+        // Gantt bar
+        int64_t ts_ms = aslan_table_get_date(tbl, start_col, row_id);
+        int64_t dur_md = aslan_table_get_duration(tbl, dur_col, row_id);
+
+        if (ts_ms > 0 && dur_md > 0) {
+          float start_off = (float)(ts_ms / 86400000.0 - (double)view_start);
+          float dur_days  = (float)dur_md / 1000.0f;
+
+          float bx = gb.x + label_w + start_off * day_w;
+          float bw = dur_days * day_w;
+          if (bw < 4.0f) bw = 4.0f;
+          float by = ry + 5.0f;
+          float bh = row_h - 10.0f;
+
+          // Bar color from SELECT column
+          struct nk_color bar_color = bar_c;
+          if (color_col >= 0) {
+            int sel = aslan_table_get_select(tbl, color_col, row_id);
+            AslanColumn *col = &tbl->columns[color_col];
+            if (sel >= 0 && sel < col->option_count) {
+              uint32_t rgba = col->options[sel].color;
+              bar_color = nk_rgb((rgba>>24)&0xFF, (rgba>>16)&0xFF, (rgba>>8)&0xFF);
+            }
+          }
+
+          // Clip to visible data area
+          float vis_x0 = gb.x + label_w;
+          float vis_x1 = gb.x + row_area_w;
+          float cx = bx, cw = bw;
+          if (cx < vis_x0) { cw -= (vis_x0 - cx); cx = vis_x0; }
+          if (cx + cw > vis_x1) cw = vis_x1 - cx;
+
+          if (cw > 0.0f) {
+            nk_fill_rect(gc, nk_rect(cx, by, cw, bh), 4.0f, bar_color);
+
+            // Title in bar if wide enough
+            if (bw > 50.0f && ui->font_inter) {
+              float font_h = ui->font_inter->handle.height;
+              const char *title = title_col >= 0
+                  ? aslan_table_get_text(tbl, title_col, row_id) : NULL;
+              char fb2[24];
+              if (!title || !title[0]) {
+                snprintf(fb2, sizeof(fb2), "Task %d", v + 1);
+                title = fb2;
+              }
+              nk_draw_text(gc,
+                           nk_rect(cx + 6, by + (bh - font_h) * 0.5f,
+                                   cw - 12, font_h),
+                           title, strlen(title),
+                           &ui->font_inter->handle, nk_rgba(0,0,0,0),
+                           nk_rgb(255,255,255));
+            }
+          }
+        }
+      }
+
+      // Today marker
+      float tx = gb.x + label_w + (float)(today_day - view_start) * day_w;
+      if (tx >= gb.x + label_w && tx <= gb.x + row_area_w) {
+        nk_stroke_line(gc, tx, gb.y, tx, gb.y + (float)row_count * row_h,
+                       1.5f, today_c);
+      }
+
+      nk_spacing(ctx, 1);
+    }
+    nk_layout_row_end(ctx);
+    nk_group_end(ctx);
+  }
+}
+
+/// Render a single panel view: 0=Table (left), 1=Design (right)
 static void ui_render_panel_view(UIHost *ui, Engine *engine,
                                  struct nk_context *ctx, Page *page, int view,
                                  float view_w, float view_h,
@@ -2338,8 +2620,19 @@ static void ui_render_panel_view(UIHost *ui, Engine *engine,
   char grp_name[64];
 
   if (view == 0) {
-    // Table
     Block *table = page_find_first_block_of_type(page, BLOCK_TABLE);
+    if (ui->split_view.left_panel_tab == 1) {
+      // Gantt view
+      if (table) {
+        ui_render_view_gantt(ui, engine, ctx, table, view_w, view_h);
+      } else {
+        nk_layout_row_dynamic(ctx, view_h, 1);
+        nk_label(ctx, "Create a Table block to use the Gantt view",
+                 NK_TEXT_CENTERED);
+      }
+      return;
+    }
+    // Table view (default tab 0)
     if (table) {
       ui_render_block_table(ui, engine, ctx, table, view_w - 8);
     } else {
@@ -2461,6 +2754,18 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
                            win_w, win_h);
   }
 
+  // ── Clay renders left-panel tab bar (Table / Gantt) ───────────────────────
+  float tab_h = 0.0f;
+  if (ui->clay) {
+    float mx = ctx->input.mouse.pos.x;
+    float my = ctx->input.mouse.pos.y;
+    bool clicked = nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) != 0;
+    tab_h = clay_host_render_tabs(ui->clay, ui->dark_mode != 0,
+                                  0.0f, left_w,
+                                  &ui->split_view.left_panel_tab,
+                                  mx, my, clicked);
+  }
+
   // ── Nuklear: Left panel (standalone window, transparent background) ───────
   struct nk_style_item saved_bg  = ctx->style.window.fixed_background;
   float                saved_brd = ctx->style.window.border;
@@ -2471,10 +2776,10 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
   ctx->style.window.padding = nk_vec2(4.0f, 4.0f);
 
   if (nk_begin(ctx, "SplitLeft",
-               nk_rect(0.0f, 0.0f, left_w, (float)win_h),
+               nk_rect(0.0f, tab_h, left_w, (float)win_h - tab_h),
                NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
     float view_w = left_w - 12.0f;
-    float view_h = (float)win_h - 10.0f;
+    float view_h = (float)win_h - tab_h - 10.0f;
     ui_render_panel_view(ui, engine, ctx, page, 0, view_w, view_h, "L");
     if (ratio < 0.20f) {
       float t = (0.20f - ratio) / 0.15f;

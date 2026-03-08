@@ -318,6 +318,7 @@ typedef struct UIHost {
     int is_dragging_splitter; // 1 = currently dragging the splitter
     int mode;                 // 0=collab(50/50), 1=design(3/97), 2=data(97/3)
     int selected_row;         // Selected row in table (-1=none)
+    int left_panel_tab;       // Active left-panel tab: 0=Table, 1=Gantt
   } split_view;
 
   // Block editing state
