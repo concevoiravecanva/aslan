@@ -2754,18 +2754,6 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
                            win_w, win_h);
   }
 
-  // ── Clay renders left-panel tab bar (Table / Gantt) ───────────────────────
-  float tab_h = 0.0f;
-  if (ui->clay) {
-    float mx = ctx->input.mouse.pos.x;
-    float my = ctx->input.mouse.pos.y;
-    bool clicked = nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) != 0;
-    tab_h = clay_host_render_tabs(ui->clay, ui->dark_mode != 0,
-                                  0.0f, left_w,
-                                  &ui->split_view.left_panel_tab,
-                                  mx, my, clicked);
-  }
-
   // ── Nuklear: Left panel (standalone window, transparent background) ───────
   struct nk_style_item saved_bg  = ctx->style.window.fixed_background;
   float                saved_brd = ctx->style.window.border;
@@ -2776,10 +2764,10 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
   ctx->style.window.padding = nk_vec2(4.0f, 4.0f);
 
   if (nk_begin(ctx, "SplitLeft",
-               nk_rect(0.0f, tab_h, left_w, (float)win_h - tab_h),
+               nk_rect(0.0f, 0.0f, left_w, (float)win_h),
                NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
     float view_w = left_w - 12.0f;
-    float view_h = (float)win_h - tab_h - 10.0f;
+    float view_h = (float)win_h - 10.0f;
     ui_render_panel_view(ui, engine, ctx, page, 0, view_w, view_h, "L");
     if (ratio < 0.20f) {
       float t = (0.20f - ratio) / 0.15f;
