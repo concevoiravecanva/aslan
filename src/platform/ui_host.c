@@ -2934,7 +2934,13 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       ui->split_view.ratio = 0.1f;
     ui->split_view.active = 1;
 
-    // ── Clay top navbar (drawn before NK — behind all NK content) ────────────
+    // Clay renders backgrounds; Nuklear creates two standalone panel windows.
+    // No SplitMain wrapper window needed — Clay handles the outer frame.
+    ui_render_split_view(ui, engine, ctx, win_w, win_h);
+
+    // ── Clay top navbar — drawn AFTER split backgrounds so it paints on top,
+    //    but still before nk_sdl_render() so NK panels (offset by CLAY_NAVBAR_H)
+    //    render above it.
     if (ui->clay) {
       const char *title = (engine->doc && engine->doc->title[0])
                           ? engine->doc->title : "Aslan";
@@ -2945,10 +2951,6 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         ui_apply_theme(ui);
       }
     }
-
-    // Clay renders backgrounds; Nuklear creates two standalone panel windows.
-    // No SplitMain wrapper window needed — Clay handles the outer frame.
-    ui_render_split_view(ui, engine, ctx, win_w, win_h);
 
     // --- Floating color picker window (Properties panel colors) ---
     // Rendered as a separate Nuklear window so it does NOT put the Properties
