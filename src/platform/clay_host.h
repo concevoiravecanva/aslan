@@ -24,6 +24,9 @@ typedef struct {
 // ClayHost is opaque — internals live only in clay_host.c
 typedef struct ClayHost ClayHost;
 
+// Height of the top navigation bar (pixels)
+#define CLAY_NAVBAR_H 40.0f
+
 // -----------------------------------------------------------------------------
 // Lifecycle
 // -----------------------------------------------------------------------------
@@ -32,6 +35,28 @@ void      clay_host_destroy(ClayHost *ch);
 
 // Call when the window is resized
 void clay_host_update_size(ClayHost *ch, int win_w, int win_h);
+
+// -----------------------------------------------------------------------------
+// Per-frame input update — call once at the START of each frame, before any
+// clay_host_render_* calls.
+// -----------------------------------------------------------------------------
+void clay_host_begin_frame(ClayHost *ch);
+
+// -----------------------------------------------------------------------------
+// Top navigation bar — call BEFORE nk_sdl_render() (drawn behind NK content).
+//
+// doc_title: document title string to display on the left.
+// Returns theme_toggled = 1 if the user clicked the Light/Dark toggle.
+// -----------------------------------------------------------------------------
+typedef struct { int theme_toggled; } AslanNavbarResult;
+
+AslanNavbarResult clay_host_render_navbar(
+    ClayHost    *ch,
+    bool         dark_mode,
+    int          win_w,
+    int          win_h,
+    const char  *doc_title
+);
 
 // -----------------------------------------------------------------------------
 // Per-frame call: computes layout via Clay, renders backgrounds via SDL2,

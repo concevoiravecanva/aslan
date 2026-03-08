@@ -35,7 +35,10 @@ struct ClayHost {
     SDL_Renderer  *renderer;
     AslanFont      fonts[ASLAN_FONT_COUNT];
     AslanSplitRects last_rects;
-    bool           last_mouse_left_down; // edge detection for toolbar clicks
+    // Per-frame mouse state (set by clay_host_begin_frame)
+    int            mouse_x, mouse_y;
+    bool           mouse_pressed_this_frame;
+    bool           last_mouse_left_down;
 };
 
 // =============================================================================
@@ -288,6 +291,119 @@ void clay_host_update_size(ClayHost *ch, int win_w, int win_h) {
 }
 
 // =============================================================================
+// Per-frame input update — call once at the start of each frame
+// =============================================================================
+
+void clay_host_begin_frame(ClayHost *ch) {
+    if (!ch) return;
+    int mx, my;
+    Uint32 mstate = SDL_GetMouseState(&mx, &my);
+    bool down = (mstate & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
+    ch->mouse_pressed_this_frame = down && !ch->last_mouse_left_down;
+    ch->last_mouse_left_down     = down;
+    ch->mouse_x = mx;
+    ch->mouse_y = my;
+}
+
+// =============================================================================
+// Top navigation bar (Step 4)
+// =============================================================================
+
+// Helper: render a single line of text centred vertically in a rect
+static void sdl_draw_text(SDL_Renderer *r, TTF_Font *font,
+                          const char *text, SDL_Color col,
+                          float x, float y, float h) {
+    if (!font || !text || !text[0]) return;
+    SDL_Surface *surf = TTF_RenderUTF8_Blended(font, text, col);
+    if (!surf) return;
+    SDL_Texture *tex = SDL_CreateTextureFromSurface(r, surf);
+    if (tex) {
+        SDL_FRect dst = {
+            x,
+            y + (h - (float)surf->h) * 0.5f,
+            (float)surf->w,
+            (float)surf->h
+        };
+        SDL_RenderCopyF(r, tex, NULL, &dst);
+        SDL_DestroyTexture(tex);
+    }
+    SDL_FreeSurface(surf);
+}
+
+AslanNavbarResult clay_host_render_navbar(ClayHost *ch, bool dark_mode,
+                                           int win_w, int win_h,
+                                           const char *doc_title) {
+    (void)win_h;
+    AslanNavbarResult result = {0};
+    if (!ch) return result;
+
+    SDL_Renderer *r = ch->renderer;
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+
+    // ── Colours ──────────────────────────────────────────────────────────────
+    SDL_Color bg, sep, title_c, btn_bg, btn_bg_hov, btn_txt;
+    if (dark_mode) {
+        bg        = (SDL_Color){ 24,  26,  32, 255};
+        sep       = (SDL_Color){ 42,  44,  52, 255};
+        title_c   = (SDL_Color){130, 132, 145, 255};
+        btn_bg    = (SDL_Color){ 40,  42,  52, 255};
+        btn_bg_hov= (SDL_Color){ 54,  56,  68, 255};
+        btn_txt   = (SDL_Color){170, 172, 185, 255};
+    } else {
+        bg        = (SDL_Color){250, 250, 252, 255};
+        sep       = (SDL_Color){220, 220, 226, 255};
+        title_c   = (SDL_Color){140, 140, 155, 255};
+        btn_bg    = (SDL_Color){238, 238, 244, 255};
+        btn_bg_hov= (SDL_Color){225, 225, 232, 255};
+        btn_txt   = (SDL_Color){ 80,  82,  96, 255};
+    }
+
+    // ── Navbar background ────────────────────────────────────────────────────
+    SDL_FRect bar = {0, 0, (float)win_w, CLAY_NAVBAR_H};
+    SDL_SetRenderDrawColor(r, bg.r, bg.g, bg.b, bg.a);
+    SDL_RenderFillRectF(r, &bar);
+
+    // Bottom separator
+    SDL_FRect sep_line = {0, CLAY_NAVBAR_H - 1.0f, (float)win_w, 1.0f};
+    SDL_SetRenderDrawColor(r, sep.r, sep.g, sep.b, sep.a);
+    SDL_RenderFillRectF(r, &sep_line);
+
+    // ── Document title (left-aligned) ────────────────────────────────────────
+    TTF_Font *font = ch->fonts[ASLAN_FONT_INTER].font;
+    if (font) TTF_SetFontSize(font, 13);
+    if (font && doc_title && doc_title[0]) {
+        sdl_draw_text(r, font, doc_title, title_c, 16.0f, 0, CLAY_NAVBAR_H);
+    }
+
+    // ── Theme toggle pill (right-aligned) ────────────────────────────────────
+    const char *toggle_label = dark_mode ? "Light mode" : "Dark mode";
+    int tw = 0, th = 0;
+    if (font) TTF_SizeUTF8(font, toggle_label, &tw, &th);
+
+    float pill_w  = (float)tw + 22.0f;
+    float pill_h  = 24.0f;
+    float pill_x  = (float)win_w - pill_w - 12.0f;
+    float pill_y  = (CLAY_NAVBAR_H - pill_h) * 0.5f;
+    SDL_FRect pill = {pill_x, pill_y, pill_w, pill_h};
+
+    bool pill_hov = (ch->mouse_x >= (int)pill_x &&
+                     ch->mouse_x <  (int)(pill_x + pill_w) &&
+                     ch->mouse_y >= (int)pill_y &&
+                     ch->mouse_y <  (int)(pill_y + pill_h));
+
+    sdl_fill_rounded_rect(r, pill, 6.0f, pill_hov ? btn_bg_hov : btn_bg);
+    if (font)
+        sdl_draw_text(r, font, toggle_label, btn_txt,
+                      pill_x + 11.0f, pill_y, pill_h);
+
+    if (pill_hov && ch->mouse_pressed_this_frame)
+        result.theme_toggled = 1;
+
+    if (font) TTF_SetFontSize(font, 14);
+    return result;
+}
+
+// =============================================================================
 // Per-frame split-view background rendering
 // =============================================================================
 
@@ -536,12 +652,10 @@ AslanToolbarResult clay_host_render_toolbar(ClayHost *ch, bool dark_mode,
     SDL_Renderer *r = ch->renderer;
     SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
 
-    // ── Mouse state & edge detection ────────────────────────────────────────
-    int mx, my;
-    Uint32 mstate = SDL_GetMouseState(&mx, &my);
-    bool mouse_down    = (mstate & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
-    bool mouse_pressed = mouse_down && !ch->last_mouse_left_down;
-    ch->last_mouse_left_down = mouse_down;
+    // ── Mouse state (set by clay_host_begin_frame) ──────────────────────────
+    int  mx            = ch->mouse_x;
+    int  my            = ch->mouse_y;
+    bool mouse_pressed = ch->mouse_pressed_this_frame;
 
     // ── Geometry ─────────────────────────────────────────────────────────────
     float toolbar_w = (float)btn_count * CLAY_TB_BTN

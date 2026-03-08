@@ -2764,10 +2764,10 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
   ctx->style.window.padding = nk_vec2(4.0f, 4.0f);
 
   if (nk_begin(ctx, "SplitLeft",
-               nk_rect(0.0f, 0.0f, left_w, (float)win_h),
+               nk_rect(0.0f, CLAY_NAVBAR_H, left_w, (float)win_h - CLAY_NAVBAR_H),
                NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
     float view_w = left_w - 12.0f;
-    float view_h = (float)win_h - 10.0f;
+    float view_h = (float)win_h - CLAY_NAVBAR_H - 10.0f;
     ui_render_panel_view(ui, engine, ctx, page, 0, view_w, view_h, "L");
     if (ratio < 0.20f) {
       float t = (0.20f - ratio) / 0.15f;
@@ -2784,10 +2784,10 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
   ctx->style.window.padding = nk_vec2(6.0f, 4.0f);
 
   if (nk_begin(ctx, "SplitRight",
-               nk_rect(left_w + spl_w, 0.0f, right_w, (float)win_h),
+               nk_rect(left_w + spl_w, CLAY_NAVBAR_H, right_w, (float)win_h - CLAY_NAVBAR_H),
                NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
     float view_w = right_w - 12.0f;
-    float view_h = (float)win_h - 10.0f;
+    float view_h = (float)win_h - CLAY_NAVBAR_H - 10.0f;
     ui_render_panel_view(ui, engine, ctx, page, 1, view_w, view_h, "R");
     float right_ratio = 1.0f - ratio;
     if (right_ratio < 0.20f) {
@@ -2900,7 +2900,9 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   // Apply current theme
   ui_apply_theme(ui);
 
-  // Top bar removed (now floating at bottom)
+  // ── Clay: snapshot mouse state once for all clay_host_render_* calls ─────
+  if (ui->clay)
+    clay_host_begin_frame(ui->clay);
 
   // Main content area - always Editor
   if (ui->expanded_block_id != 0) {
@@ -2931,6 +2933,18 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     if (ui->split_view.ratio < 0.01f)
       ui->split_view.ratio = 0.1f;
     ui->split_view.active = 1;
+
+    // ── Clay top navbar (drawn before NK — behind all NK content) ────────────
+    if (ui->clay) {
+      const char *title = (engine->doc && engine->doc->title[0])
+                          ? engine->doc->title : "Aslan";
+      AslanNavbarResult nr = clay_host_render_navbar(
+          ui->clay, ui->dark_mode != 0, win_w, win_h, title);
+      if (nr.theme_toggled) {
+        ui->dark_mode = !ui->dark_mode;
+        ui_apply_theme(ui);
+      }
+    }
 
     // Clay renders backgrounds; Nuklear creates two standalone panel windows.
     // No SplitMain wrapper window needed — Clay handles the outer frame.
