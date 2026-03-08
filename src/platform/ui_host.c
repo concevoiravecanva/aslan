@@ -7,6 +7,7 @@
 #include "ui_host.h"
 #include "../document/aslan_table.h"
 
+#include "clay_host.h"
 #include "ui_canvas.h"
 #include "ui_core.h"
 #include "ui_design.h"
@@ -770,12 +771,24 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer) {
   ui->design_state.pen_thickness = 2.0f;
   ui->design_state.pen_is_marker = 0;
 
+  // Initialize Clay (layout engine + background rendering)
+  {
+    int ww = 1280, wh = 720;
+    SDL_GetWindowSize(win, &ww, &wh);
+    ui->clay = clay_host_init(renderer, ww, wh);
+    if (!ui->clay) {
+      ASLAN_WARN("Clay host init failed — running without Clay backgrounds");
+    }
+  }
+
   return ui;
 }
 
 void ui_shutdown(UIHost *ui) {
   if (!ui)
     return;
+  clay_host_destroy(ui->clay);
+  ui->clay = NULL;
   nk_sdl_shutdown();
   free(ui);
 }
@@ -2365,165 +2378,140 @@ static void ui_render_panel_view(UIHost *ui, Engine *engine,
   (void)grp_name;
 }
 
-static void ui_render_split_view(UIHost *ui, Engine *engine,
-                                 struct nk_context *ctx, int win_w, int win_h) {
-  Page *page = doc_page_get_active(engine->doc);
-  if (!page)
-    return;
+// =============================================================================
+// Split-view: Clay owns backgrounds, Nuklear owns content
+// =============================================================================
 
-  float ratio = ui->split_view.ratio;
-  if (ratio < 0.03f)
-    ratio = 0.03f;
-  if (ratio > 0.97f)
-    ratio = 0.97f;
-
-  float splitter_w = 6.0f;
-  float left_w = (float)win_w * ratio - splitter_w * 0.5f;
-  float right_w = (float)win_w - left_w - splitter_w;
-  if (left_w < 30)
-    left_w = 30;
-  if (right_w < 30)
-    right_w = 30;
-
-  float full_h = (float)win_h;
-
-  // --- Splitter interaction ---
-  float splitter_x = left_w;
+// Process splitter mouse interaction; updates ui->split_view.ratio and
+// ui->split_view.is_dragging_splitter in-place.
+static void handle_splitter_input(UIHost *ui, struct nk_context *ctx,
+                                  int win_w, int win_h,
+                                  float left_w, float splitter_w) {
   float mx = ctx->input.mouse.pos.x;
   float my = ctx->input.mouse.pos.y;
-  int mouse_in_splitter =
-      (mx >= splitter_x - 4 && mx <= splitter_x + splitter_w + 4 && my >= 0 &&
-       my < full_h);
+  int in_spl = (mx >= left_w - 4 && mx <= left_w + splitter_w + 4 &&
+                my >= 0 && my < (float)win_h);
 
-  if (mouse_in_splitter)
+  if (in_spl)
     ui->cursor_type = UI_CURSOR_SIZEWE;
 
-  if (mouse_in_splitter &&
-      nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+  if (in_spl && nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT))
     ui->split_view.is_dragging_splitter = 1;
-  }
 
   if (ui->split_view.is_dragging_splitter) {
     if (nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
-      float new_ratio = mx / (float)win_w;
-      if (new_ratio < 0.03f)
-        new_ratio = 0.03f;
-      if (new_ratio > 0.97f)
-        new_ratio = 0.97f;
-      ui->split_view.ratio = new_ratio;
+      float r = mx / (float)win_w;
+      if (r < 0.03f) r = 0.03f;
+      if (r > 0.97f) r = 0.97f;
+      ui->split_view.ratio = r;
       ui->cursor_type = UI_CURSOR_SIZEWE;
     } else {
       ui->split_view.is_dragging_splitter = 0;
     }
   }
 
-  // Double-click on splitter: cycle modes
-  if (mouse_in_splitter &&
-      nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
-    static float last_click_time = 0;
+  // Double-click cycles layout preset
+  if (in_spl && nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+    static float last_t = 0;
     float now = (float)SDL_GetTicks() / 1000.0f;
-    if (now - last_click_time < 0.35f) {
-      if (ui->split_view.mode == 0) {
-        ui->split_view.mode = 1;
-        ui->split_view.ratio = 0.03f;
-      } else if (ui->split_view.mode == 1) {
-        ui->split_view.mode = 2;
-        ui->split_view.ratio = 0.97f;
-      } else {
-        ui->split_view.mode = 0;
-        ui->split_view.ratio = 0.1f;
-      }
+    if (now - last_t < 0.35f) {
+      if (ui->split_view.mode == 0)      { ui->split_view.mode = 1; ui->split_view.ratio = 0.03f; }
+      else if (ui->split_view.mode == 1) { ui->split_view.mode = 2; ui->split_view.ratio = 0.97f; }
+      else                               { ui->split_view.mode = 0; ui->split_view.ratio = 0.10f; }
     }
-    last_click_time = now;
+    last_t = now;
+  }
+}
+
+static void ui_render_split_view(UIHost *ui, Engine *engine,
+                                 struct nk_context *ctx, int win_w, int win_h) {
+  Page *page = doc_page_get_active(engine->doc);
+  if (!page) return;
+
+  float ratio = ui->split_view.ratio;
+  if (ratio < 0.03f) ratio = 0.03f;
+  if (ratio > 0.97f) ratio = 0.97f;
+
+  const float spl_w = 6.0f;
+  float left_w  = (float)win_w * ratio;
+  float right_w = (float)win_w - left_w - spl_w;
+  if (left_w  < 30.0f) left_w  = 30.0f;
+  if (right_w < 30.0f) right_w = 30.0f;
+
+  // ── Splitter interaction (updates ratio before we use it below) ──────────
+  handle_splitter_input(ui, ctx, win_w, win_h, left_w, spl_w);
+
+  // Re-read ratio in case it changed during drag
+  ratio = ui->split_view.ratio;
+  left_w  = (float)win_w * ratio;
+  right_w = (float)win_w - left_w - spl_w;
+  if (left_w  < 30.0f) left_w  = 30.0f;
+  if (right_w < 30.0f) right_w = 30.0f;
+
+  int spl_hover = (ctx->input.mouse.pos.x >= left_w - 4 &&
+                   ctx->input.mouse.pos.x <= left_w + spl_w + 4);
+
+  // ── Clay renders panel backgrounds via SDL2 ──────────────────────────────
+  if (ui->clay) {
+    clay_host_render_split(ui->clay,
+                           ui->dark_mode != 0,
+                           ratio,
+                           spl_hover != 0,
+                           ui->split_view.is_dragging_splitter != 0,
+                           win_w, win_h);
   }
 
-  // Recalculate after potential ratio change
-  ratio = ui->split_view.ratio;
-  left_w = (float)win_w * ratio - splitter_w * 0.5f;
-  right_w = (float)win_w - left_w - splitter_w;
-  if (left_w < 30)
-    left_w = 30;
-  if (right_w < 30)
-    right_w = 30;
+  // ── Nuklear: Left panel (standalone window, transparent background) ───────
+  struct nk_style_item saved_bg  = ctx->style.window.fixed_background;
+  float                saved_brd = ctx->style.window.border;
+  struct nk_vec2       saved_pad = ctx->style.window.padding;
 
-  // --- Layout: 3 columns (left | splitter | right) ---
-  float cols[3] = {left_w, splitter_w, right_w};
-  nk_layout_row(ctx, NK_STATIC, full_h - 10, 3, cols);
+  ctx->style.window.fixed_background = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+  ctx->style.window.border  = 0.0f;
+  ctx->style.window.padding = nk_vec2(4.0f, 4.0f);
 
-  // ===================== LEFT PANEL =====================
-  struct nk_color panel_bg =
-      ui->dark_mode ? nk_rgb(28, 30, 36) : nk_rgb(252, 252, 253);
-  struct nk_style_item saved_bg = ctx->style.window.fixed_background;
-  ctx->style.window.fixed_background = nk_style_item_color(panel_bg);
-  struct nk_vec2 saved_pad = ctx->style.window.group_padding;
-  ctx->style.window.group_padding = nk_vec2(4, 4);
-
-  if (nk_group_begin(ctx, "SplitLeft", NK_WINDOW_NO_SCROLLBAR)) {
-    float view_w = left_w - 12;
-    float view_h = full_h - 10;
+  if (nk_begin(ctx, "SplitLeft",
+               nk_rect(0.0f, 0.0f, left_w, (float)win_h),
+               NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
+    float view_w = left_w - 12.0f;
+    float view_h = (float)win_h - 10.0f;
     ui_render_panel_view(ui, engine, ctx, page, 0, view_w, view_h, "L");
-    // Fade-to-white when panel gets too narrow (< 20% → progressively white)
     if (ratio < 0.20f) {
       float t = (0.20f - ratio) / 0.15f;
-      if (t > 1.0f)
-        t = 1.0f;
+      if (t > 1.0f) t = 1.0f;
       struct nk_rect gr = nk_window_get_content_region(ctx);
       nk_fill_rect(nk_window_get_canvas(ctx),
                    nk_rect(gr.x - 4, gr.y - 4, gr.w + 8, gr.h + 8), 0,
                    nk_rgba(255, 255, 255, (int)(t * 240)));
     }
-    nk_group_end(ctx);
   }
-  ctx->style.window.fixed_background = saved_bg;
-  ctx->style.window.group_padding = saved_pad;
+  nk_end(ctx);
 
-  // ===================== SPLITTER =====================
-  {
-    struct nk_rect sp = nk_widget_bounds(ctx);
-    struct nk_command_buffer *cv = nk_window_get_canvas(ctx);
-    struct nk_color sp_bg =
-        ui->dark_mode ? nk_rgb(42, 44, 52) : nk_rgb(235, 235, 238);
-    struct nk_color sp_dot =
-        ui->dark_mode ? nk_rgb(80, 82, 92) : nk_rgb(180, 180, 188);
-    if (mouse_in_splitter || ui->split_view.is_dragging_splitter) {
-      sp_bg = ui->dark_mode ? nk_rgb(55, 57, 68) : nk_rgb(218, 218, 225);
-      sp_dot = ui->dark_mode ? nk_rgb(120, 122, 135) : nk_rgb(140, 140, 150);
-    }
-    nk_fill_rect(cv, sp, 0, sp_bg);
-    float dot_y = sp.y + sp.h * 0.5f - 10;
-    for (int d = 0; d < 3; d++) {
-      nk_fill_rect(
-          cv, nk_rect(sp.x + sp.w * 0.5f - 1.5f, dot_y + (float)d * 7, 3, 3),
-          1.5f, sp_dot);
-    }
-    nk_spacing(ctx, 1);
-  }
+  // ── Nuklear: Right panel ─────────────────────────────────────────────────
+  ctx->style.window.padding = nk_vec2(6.0f, 4.0f);
 
-  // ===================== RIGHT PANEL =====================
-  struct nk_color right_bg =
-      ui->dark_mode ? nk_rgb(24, 26, 32) : nk_rgb(255, 255, 255);
-  ctx->style.window.fixed_background = nk_style_item_color(right_bg);
-  ctx->style.window.group_padding = nk_vec2(6, 4);
-
-  if (nk_group_begin(ctx, "SplitRight", NK_WINDOW_NO_SCROLLBAR)) {
-    float view_w = right_w - 12;
-    float view_h = full_h - 10;
+  if (nk_begin(ctx, "SplitRight",
+               nk_rect(left_w + spl_w, 0.0f, right_w, (float)win_h),
+               NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
+    float view_w = right_w - 12.0f;
+    float view_h = (float)win_h - 10.0f;
     ui_render_panel_view(ui, engine, ctx, page, 1, view_w, view_h, "R");
-    // Fade-to-white when panel gets too narrow (> 80% left → right shrinks)
     float right_ratio = 1.0f - ratio;
     if (right_ratio < 0.20f) {
       float t = (0.20f - right_ratio) / 0.15f;
-      if (t > 1.0f)
-        t = 1.0f;
+      if (t > 1.0f) t = 1.0f;
       struct nk_rect gr = nk_window_get_content_region(ctx);
       nk_fill_rect(nk_window_get_canvas(ctx),
                    nk_rect(gr.x - 4, gr.y - 4, gr.w + 8, gr.h + 8), 0,
                    nk_rgba(255, 255, 255, (int)(t * 240)));
     }
-    nk_group_end(ctx);
   }
+  nk_end(ctx);
+
+  // Restore Nuklear style
   ctx->style.window.fixed_background = saved_bg;
-  ctx->style.window.group_padding = saved_pad;
+  ctx->style.window.border  = saved_brd;
+  ctx->style.window.padding = saved_pad;
 }
 
 void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
@@ -2651,15 +2639,9 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       ui->split_view.ratio = 0.1f;
     ui->split_view.active = 1;
 
-    struct nk_vec2 old_padding_sv = ctx->style.window.padding;
-    ctx->style.window.padding = nk_vec2(0, 0);
-
-    if (nk_begin(ctx, "SplitMain", nk_rect(0, 0, (float)win_w, (float)win_h),
-                 NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
-      ui_render_split_view(ui, engine, ctx, win_w, win_h);
-    }
-    nk_end(ctx);
-    ctx->style.window.padding = old_padding_sv;
+    // Clay renders backgrounds; Nuklear creates two standalone panel windows.
+    // No SplitMain wrapper window needed — Clay handles the outer frame.
+    ui_render_split_view(ui, engine, ctx, win_w, win_h);
 
     // --- Floating color picker window (Properties panel colors) ---
     // Rendered as a separate Nuklear window so it does NOT put the Properties

@@ -2,6 +2,7 @@
 #define UI_HOST_H
 
 #include "../core/engine.h"
+#include "clay_host.h"
 #include "recents.h"
 #include <SDL.h>
 #include <string.h>
@@ -255,6 +256,9 @@ typedef struct UIHost {
   // Nuklear context
   struct nk_context *ctx;
   SDL_Renderer *renderer;
+
+  // Clay host (layout + background rendering)
+  ClayHost *clay;
 
   // Thumbnail Cache for Images/Videos
   struct nk_font_atlas *atlas;

@@ -5,9 +5,9 @@ CFLAGS = -Wall -Wextra -std=c99 -I./src -I./include
 LUA_INC = 
 LUA_LIB = 
 
-# Paths for SDL2 (macOS Homebrew)
+# Paths for SDL2 + SDL_ttf (macOS Homebrew)
 SDL_INC = -I/opt/homebrew/include/SDL2 -I/opt/homebrew/include
-SDL_LIB = -L/opt/homebrew/lib -lSDL2
+SDL_LIB = -L/opt/homebrew/lib -lSDL2 -lSDL2_ttf
 
 # Core, Document & Platform sources
 CORE_OBJS = src/core/engine.o
@@ -15,6 +15,7 @@ DOC_OBJS = src/document/document.o \
            src/document/aslan_table.o
 PLATFORM_OBJS = src/platform/platform.o \
            src/platform/renderer.o \
+           src/platform/clay_host.o \
            src/platform/ui_table.o \
            src/platform/ui_canvas.o \
            src/platform/ui_design.o \
