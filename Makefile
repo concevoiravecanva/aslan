@@ -24,6 +24,7 @@ PLATFORM_OBJS = src/platform/platform.o \
            src/platform/ui_chart.o \
            src/platform/ui_core.o \
            src/platform/ui_host.o \
+           src/platform/nvg_widgets.o \
            src/platform/recents.o \
            src/platform/image_loader.o \
            src/platform/mac_image.o

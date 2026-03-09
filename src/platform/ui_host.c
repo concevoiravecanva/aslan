@@ -714,6 +714,11 @@ UIHost *ui_init(SDL_Window *win) {
     }
   }
 
+  // Initialize NanoVG Widgets Context
+  nvgw_init(&ui->nvgw, ui->vg);
+  nvgw_set_fonts(&ui->nvgw, nvgFindFont(ui->vg, "Inter"),
+                 nvgFindFont(ui->vg, "Icons"));
+
   return ui;
 }
 

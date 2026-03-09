@@ -67,6 +67,7 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
 
     // 1. Input handling
     nk_input_begin(ui->ctx);
+    nvgw_input_begin(&ui->nvgw);
 
     // Process events (either the one we got or check for more)
     if (has_event) {
@@ -157,6 +158,21 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
         // Forward event to UI
         ui_handle_event(ui, &e);
 
+        // Forward event to NanoVG Widgets
+        if (e.type == SDL_MOUSEWHEEL) {
+          ui->nvgw.scroll_y += e.wheel.y;
+        } else if (e.type == SDL_TEXTINPUT) {
+          strncat(ui->nvgw.text_input, e.text.text,
+                  sizeof(ui->nvgw.text_input) - strlen(ui->nvgw.text_input) -
+                      1);
+        } else if (e.type == SDL_KEYDOWN) {
+          if (e.key.keysym.sym == SDLK_BACKSPACE)
+            ui->nvgw.key_backspace = true;
+          if (e.key.keysym.sym == SDLK_RETURN ||
+              e.key.keysym.sym == SDLK_KP_ENTER)
+            ui->nvgw.key_enter = true;
+        }
+
         // Handle mouse/keyboard events for Lua tools
         if (!nk_item_is_any_active(ui->ctx) &&
             (!ui || ui->editing_block_id == 0)) {
@@ -204,6 +220,14 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
     }
 
     nk_input_end(ui->ctx);
+
+    // Finalize NanoVG Widgets input per frame
+    int gmx, gmy;
+    uint32_t gmstate = SDL_GetMouseState(&gmx, &gmy);
+    nvgw_input_mouse(&ui->nvgw, (float)gmx, (float)gmy,
+                     (gmstate & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0,
+                     ui->nvgw.scroll_y);
+    nvgw_input_end(&ui->nvgw);
 
     // Only render if needed (event occurred or timeout for animations)
     if (ui->needs_redraw) {

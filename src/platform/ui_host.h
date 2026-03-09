@@ -5,6 +5,7 @@
 #include "../vendor/clay.h"
 #include "../vendor/nanovg/nanovg.h"
 #include "clay_host.h"
+#include "nvg_widgets.h"
 #include "recents.h"
 #include <SDL.h>
 #include <string.h>
@@ -261,6 +262,9 @@ typedef struct UIHost {
 
   // Clay host (layout + background rendering)
   ClayHost *clay;
+
+  // NanoVG Widgets context
+  NvgWidgetCtx nvgw;
 
   // Thumbnail Cache for Images/Videos
   struct nk_font_atlas *atlas;
