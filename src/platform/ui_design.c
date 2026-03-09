@@ -1598,9 +1598,8 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
 
   // Container with image
   if (node->is_container && node->image_path[0]) {
-    SDL_Texture *tex = get_image_texture(ui, node->image_path);
-    if (tex) {
-      struct nk_image img = nk_image_ptr(tex);
+    struct nk_image img = get_image_texture(ui, node->image_path);
+    if (img.handle.id != 0) {
       nk_draw_image(canvas_buf, nr, &img, nk_rgb(255, 255, 255));
       drawn_image = 1;
     }
@@ -1862,10 +1861,9 @@ void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
     }
 
     if (img_path_to_use && img_path_to_use[0]) {
-      SDL_Texture *tex = get_image_texture(ui, img_path_to_use);
-      if (tex) {
+      struct nk_image img = get_image_texture(ui, img_path_to_use);
+      if (img.handle.id != 0) {
         // Image Cropping implementation
-        struct nk_image img = nk_image_ptr(tex);
 
         // Clip image to node bounds intersected with artboard
         nk_push_scissor(canvas_buf, rect_intersect(nr, ui->artboard_clip));

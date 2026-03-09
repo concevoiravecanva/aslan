@@ -2,6 +2,8 @@
 #define UI_HOST_H
 
 #include "../core/engine.h"
+#include "../vendor/clay.h"
+#include "../vendor/nanovg/nanovg.h"
 #include "clay_host.h"
 #include "recents.h"
 #include <SDL.h>
@@ -255,7 +257,7 @@ void ui_commit_cursor(struct UIHost *ui);
 typedef struct UIHost {
   // Nuklear context
   struct nk_context *ctx;
-  SDL_Renderer *renderer;
+  NVGcontext *vg;
 
   // Clay host (layout + background rendering)
   ClayHost *clay;
@@ -526,7 +528,7 @@ typedef struct UIHost {
 int ds_num_input(UIHost *ui, struct nk_context *ctx, const char *label,
                  float *value, float min_v, float max_v, void *stable_id);
 
-UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer);
+UIHost *ui_init(SDL_Window *win);
 void ui_shutdown(UIHost *ui);
 void ui_request_redraw(UIHost *ui); // Mark UI as needing redraw
 

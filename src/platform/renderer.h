@@ -8,8 +8,9 @@
 struct nk_context;
 
 typedef struct {
-  SDL_Window *window;
-  SDL_Renderer *sdl_renderer;
+  SDL_Window    *window;
+  SDL_GLContext  gl_ctx;        // OpenGL context (GL 3.2 Core Profile)
+  SDL_Renderer  *sdl_renderer;  // NULL in GL mode — kept for future FBO export
   int width;
   int height;
 } Renderer;

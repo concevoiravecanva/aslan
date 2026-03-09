@@ -4,7 +4,14 @@
 
 #include "ui_canvas.h"
 #include "../document/aslan_table.h"
-#include "platform/image_loader.h"
+#include "image_loader.h"
+#ifdef __APPLE__
+#define GL_SILENCE_DEPRECATION
+#include <OpenGL/gl3.h>
+#endif
+#define NANOVG_GL3
+#include "../vendor/nanovg/nanovg_gl.h"
+
 #include "ui_shared.h"
 #include <SDL.h>
 #include <math.h>
@@ -1615,7 +1622,7 @@ Node *design_create_styled_node(DesignData *dd, NodeStyleType style, float x,
 
 typedef struct {
   char path[512];
-  SDL_Texture *tex;
+  int nvg_image;
   int width;
   int height;
   uint32_t last_used;
@@ -1626,9 +1633,10 @@ typedef struct {
 TextureCacheEntry tex_cache[TEX_CACHE_SIZE];
 uint32_t tex_cache_counter = 0;
 
-SDL_Texture *get_image_texture(UIHost *ui, const char *path) {
+struct nk_image get_image_texture(UIHost *ui, const char *path) {
+  struct nk_image null_img = nk_image_id(0);
   if (!path || !path[0])
-    return NULL;
+    return null_img;
 
   tex_cache_counter++;
 
@@ -1636,7 +1644,7 @@ SDL_Texture *get_image_texture(UIHost *ui, const char *path) {
   for (int i = 0; i < TEX_CACHE_SIZE; i++) {
     if (tex_cache[i].in_use && strcmp(tex_cache[i].path, path) == 0) {
       tex_cache[i].last_used = tex_cache_counter;
-      return tex_cache[i].tex;
+      return nk_image_id(nvglImageHandleGL3(ui->vg, tex_cache[i].nvg_image));
     }
   }
 
@@ -1659,21 +1667,16 @@ SDL_Texture *get_image_texture(UIHost *ui, const char *path) {
 
   if (!pixels) {
     ASLAN_ERROR("get_image_texture failed to load: %s", path);
-    return NULL;
+    return null_img;
   }
 
-  // Create texture
-  SDL_Texture *tex = SDL_CreateTexture(ui->renderer, SDL_PIXELFORMAT_RGBA32,
-                                       SDL_TEXTUREACCESS_STATIC, w, h);
-  if (tex) {
-    SDL_UpdateTexture(tex, NULL, pixels, w * 4);
-    SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
-  }
-
+  // Create NanoVG image
+  int nvg_img =
+      nvgCreateImageRGBA(ui->vg, w, h, 0, (const unsigned char *)pixels);
   free(pixels);
 
-  if (!tex)
-    return NULL;
+  if (nvg_img == 0)
+    return null_img;
 
   // Find slot in cache
   int slot = -1;
@@ -1694,20 +1697,21 @@ SDL_Texture *get_image_texture(UIHost *ui, const char *path) {
       }
     }
     // Free old texture
-    if (tex_cache[slot].tex) {
-      SDL_DestroyTexture(tex_cache[slot].tex);
+    if (tex_cache[slot].nvg_image != 0) {
+      nvgDeleteImage(ui->vg, tex_cache[slot].nvg_image);
     }
   }
 
   // Store in cache
   strncpy(tex_cache[slot].path, path, sizeof(tex_cache[slot].path) - 1);
-  tex_cache[slot].tex = tex;
+  tex_cache[slot].nvg_image = nvg_img;
   tex_cache[slot].width = w;
   tex_cache[slot].height = h;
   tex_cache[slot].last_used = tex_cache_counter;
   tex_cache[slot].in_use = 1;
 
-  return tex;
+  // Return Nuklear image ID using the GL texture handle retrieved from NanoVG
+  return nk_image_id(nvglImageHandleGL3(ui->vg, nvg_img));
 }
 
 int tessellate_bezier(float x1, float y1, float cp1x, float cp1y, float cp2x,

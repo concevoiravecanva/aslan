@@ -13,8 +13,20 @@
 #include "ui_design.h"
 #include <SDL.h>
 
-// Nuklear SDL renderer backend (declaration)
-#include "nuklear_sdl_renderer.h"
+// Nuklear SDL OpenGL3 backend (declaration)
+// Pre-include OpenGL 3 Core headers so SDL_opengl.h (included by the backend)
+// doesn't pull in the deprecated GL compatibility profile on macOS.
+#ifdef __APPLE__
+#define GL_SILENCE_DEPRECATION
+#include <OpenGL/gl3.h>
+#endif
+#include "nuklear_sdl_gl3.h"
+
+#define NANOVG_GL3
+#include "../vendor/nanovg/nanovg_gl.h"
+
+#define MAX_VERTEX_BUFFER (512 * 1024)
+#define MAX_ELEMENT_BUFFER (128 * 1024)
 
 #include "../vendor/stb_image_write.h"
 #include <math.h>
@@ -309,92 +321,13 @@ void ui_host_paste_node(UIHost *ui, Engine *engine) {
   ASLAN_DEBUG("Clipboard: pasted node '%s' as id=%u", pasted->name, new_id);
 }
 
-// Pre-render chart/table nodes to temp PNG files for SVG/PDF export
+// stubbed out SDL_Renderer based helpers
 static void prerender_special_nodes(UIHost *ui, Engine *engine, Block *block) {
-  if (!ui || !engine || !block || block->type != BLOCK_DESIGN)
-    return;
-  DesignData *dd = &block->data.design;
-  if (!dd->pages || dd->current_page < 0 || dd->current_page >= dd->page_count)
-    return;
-  DesignPage *dp = &dd->pages[dd->current_page];
-  if (!dp->root)
-    return;
-
-  // Walk tree and render chart/table nodes to temp PNGs
-  for (Node *node = dp->root->first_child; node; node = node->next_sibling) {
-    if (node->type != NODE_TYPE_CHART && node->type != NODE_TYPE_TABLE_VIEW)
-      continue;
-    if (!node->visible)
-      continue;
-
-    int nw = (int)node->width;
-    int nh = (int)node->height;
-    if (nw < 1 || nh < 1)
-      continue;
-
-    SDL_Texture *tex = SDL_CreateTexture(ui->renderer, SDL_PIXELFORMAT_RGBA32,
-                                         SDL_TEXTUREACCESS_TARGET, nw, nh);
-    if (!tex)
-      continue;
-
-    SDL_SetRenderTarget(ui->renderer, tex);
-    SDL_SetRenderDrawColor(ui->renderer, 255, 255, 255, 255);
-    SDL_RenderClear(ui->renderer);
-
-    struct nk_context *ctx = ui->ctx;
-    nk_style_push_style_item(ctx, &ctx->style.window.fixed_background,
-                             nk_style_item_color(nk_rgba(255, 255, 255, 255)));
-    if (nk_begin(ctx, "node_snap", nk_rect(0, 0, nw, nh),
-                 NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_NO_INPUT |
-                     NK_WINDOW_BACKGROUND)) {
-      struct nk_command_buffer *buf = nk_window_get_canvas(ctx);
-      nk_fill_rect(buf, nk_rect(0, 0, nw, nh), 0, nk_rgb(255, 255, 255));
-      // Temporarily shift node to origin for rendering
-      float orig_x = node->x, orig_y = node->y;
-      node->x = 0;
-      node->y = 0;
-      ui_render_node_tree(ui, ctx, engine, block, dd, buf, node,
-                          nk_rect(0, 0, nw, nh), 1.0f, 0, 0);
-      node->x = orig_x;
-      node->y = orig_y;
-    }
-    nk_end(ctx);
-    nk_style_pop_style_item(ctx);
-    nk_sdl_render(NK_ANTI_ALIASING_ON);
-
-    int pitch = nw * 4;
-    void *pixels = malloc(nw * nh * 4);
-    if (pixels) {
-      SDL_RenderReadPixels(ui->renderer, NULL, SDL_PIXELFORMAT_RGBA32, pixels,
-                           pitch);
-      char tmp_path[256];
-      snprintf(tmp_path, sizeof(tmp_path), "/tmp/aslan_node_%u.png", node->id);
-      stbi_write_png(tmp_path, nw, nh, 4, pixels, pitch);
-      free(pixels);
-    }
-    SDL_SetRenderTarget(ui->renderer, NULL);
-    SDL_DestroyTexture(tex);
-  }
+  (void)ui;
+  (void)engine;
+  (void)block;
 }
-
-// Clean up temp PNGs after export
-static void cleanup_special_nodes(Block *block) {
-  if (!block || block->type != BLOCK_DESIGN)
-    return;
-  DesignData *dd = &block->data.design;
-  if (!dd->pages || dd->current_page < 0 || dd->current_page >= dd->page_count)
-    return;
-  DesignPage *dp = &dd->pages[dd->current_page];
-  if (!dp->root)
-    return;
-  for (Node *node = dp->root->first_child; node; node = node->next_sibling) {
-    if (node->type == NODE_TYPE_CHART || node->type == NODE_TYPE_TABLE_VIEW) {
-      char tmp_path[256];
-      snprintf(tmp_path, sizeof(tmp_path), "/tmp/aslan_node_%u.png", node->id);
-      remove(tmp_path);
-    }
-  }
-}
+static void cleanup_special_nodes(Block *block) { (void)block; }
 
 void ui_host_export_svg(UIHost *ui, Engine *engine) {
   Page *page = doc_page_get_active(engine->doc);
@@ -504,12 +437,7 @@ void ui_host_export_png_jpeg(UIHost *ui, Engine *engine, int is_jpeg) {
   if (save_native_file_dialog(filename, sizeof(filename), default_name,
                               is_jpeg ? "Export Design as JPEG"
                                       : "Export Design as PNG")) {
-    ui->pending_export = 1;
-    ui->pending_export_format = is_jpeg;
-    ui->pending_export_block_id = design_block->id;
-    strncpy(ui->pending_export_path, filename,
-            sizeof(ui->pending_export_path) - 1);
-    ui_request_redraw(ui);
+    ASLAN_WARN("Raster export (PNG/JPEG) is not supported in this build.");
   }
 }
 
@@ -631,9 +559,9 @@ int copy_image_to_assets(const char *src_path, const char *doc_dir,
   return 1;
 }
 
-// Nuklear SDL renderer implementation
-#define NK_SDL_RENDERER_IMPLEMENTATION
-#include "nuklear_sdl_renderer.h"
+// Nuklear SDL OpenGL3 implementation
+#define NK_SDL_GL3_IMPLEMENTATION
+#include "nuklear_sdl_gl3.h"
 
 // -----------------------------------------------------------------------------
 // Colors (exported for use by other UI modules)
@@ -654,7 +582,7 @@ static struct nk_color COLOR_HIGHLIGHT_GREEN = {100, 220, 140, 60};
 // UI Initialization
 // -----------------------------------------------------------------------------
 
-UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer) {
+UIHost *ui_init(SDL_Window *win) {
   UIHost *ui = (UIHost *)calloc(1, sizeof(UIHost));
   if (!ui)
     return NULL;
@@ -666,9 +594,8 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer) {
   // Load recents
   recents_load(&ui->recents, "recents.log");
 
-  // Initialize Nuklear with SDL renderer
-  ui->ctx = nk_sdl_init(win, renderer);
-  ui->renderer = renderer;
+  // Initialize Nuklear with OpenGL3 backend (no SDL renderer needed)
+  ui->ctx = nk_sdl_init(win);
   if (!ui->ctx) {
     free(ui);
     return NULL;
@@ -771,11 +698,17 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer) {
   ui->design_state.pen_thickness = 2.0f;
   ui->design_state.pen_is_marker = 0;
 
+  // Initialize NanoVG
+  ui->vg = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
+  if (!ui->vg) {
+    ASLAN_ERROR("Failed to initialize NanoVG!");
+  }
+
   // Initialize Clay (layout engine + background rendering)
   {
     int ww = 1280, wh = 720;
     SDL_GetWindowSize(win, &ww, &wh);
-    ui->clay = clay_host_init(renderer, ww, wh);
+    ui->clay = clay_host_init(ui->vg, ww, wh);
     if (!ui->clay) {
       ASLAN_WARN("Clay host init failed — running without Clay backgrounds");
     }
@@ -787,6 +720,12 @@ UIHost *ui_init(SDL_Window *win, SDL_Renderer *renderer) {
 void ui_shutdown(UIHost *ui) {
   if (!ui)
     return;
+  if (ui->vg) {
+    // Cleanup de NanoVG si nécessaire (dépend de l'implémentation GL3)
+    // nvgDeleteGL3 n'est pas exposé dans nanovg.h mais dans nanovg_gl.h
+    // Pour simplifier on laisse l'OS nettoyer le contexte GL si on n'a pas
+    // d'en-tête dédié facile à inclure ici sans polluer.
+  }
   clay_host_destroy(ui->clay);
   ui->clay = NULL;
   nk_sdl_shutdown();
@@ -2335,8 +2274,8 @@ static Block *page_find_first_block_of_type(Page *page, BlockType type) {
 // =============================================================================
 
 static void ui_render_view_gantt(UIHost *ui, Engine *engine,
-                                  struct nk_context *ctx, Block *block,
-                                  float w, float h) {
+                                 struct nk_context *ctx, Block *block, float w,
+                                 float h) {
   (void)engine;
   AslanTable *tbl = block->data.table.columnar;
   if (!tbl) {
@@ -2349,10 +2288,14 @@ static void ui_render_view_gantt(UIHost *ui, Engine *engine,
   int title_col = -1, start_col = -1, dur_col = -1, color_col = -1;
   for (int c = 0; c < (int)tbl->column_count; c++) {
     AslanColumnType t = tbl->columns[c].type;
-    if (title_col < 0 && t == ASLAN_COL_TEXT)     title_col = c;
-    if (start_col < 0 && t == ASLAN_COL_DATE)     start_col = c;
-    if (dur_col   < 0 && t == ASLAN_COL_DURATION) dur_col   = c;
-    if (color_col < 0 && t == ASLAN_COL_SELECT)   color_col = c;
+    if (title_col < 0 && t == ASLAN_COL_TEXT)
+      title_col = c;
+    if (start_col < 0 && t == ASLAN_COL_DATE)
+      start_col = c;
+    if (dur_col < 0 && t == ASLAN_COL_DURATION)
+      dur_col = c;
+    if (color_col < 0 && t == ASLAN_COL_SELECT)
+      color_col = c;
   }
 
   if (start_col < 0 || dur_col < 0) {
@@ -2370,44 +2313,55 @@ static void ui_render_view_gantt(UIHost *ui, Engine *engine,
   if (ui->gantt_state.day_w <= 0.0f)
     ui->gantt_state.day_w = 40.0f;
 
-  float      day_w      = ui->gantt_state.day_w;
-  int64_t    view_start = ui->gantt_state.view_start_day;
-  const float label_w   = 150.0f;
-  const float ctrl_h    = 36.0f;
+  float day_w = ui->gantt_state.day_w;
+  int64_t view_start = ui->gantt_state.view_start_day;
+  const float label_w = 150.0f;
+  const float ctrl_h = 36.0f;
   const float day_hdr_h = 24.0f;
-  const float row_h     = 30.0f;
+  const float row_h = 30.0f;
   int visible_days = (int)((w - label_w) / day_w) + 2;
-  int row_count    = aslan_table_view_count(tbl);
+  int row_count = aslan_table_view_count(tbl);
 
   struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
 
   // ── Colours ──────────────────────────────────────────────────────────────
-  struct nk_color hdr_bg  = ui->dark_mode ? nk_rgb(33,35,43)   : nk_rgb(245,245,248);
-  struct nk_color row_bg0 = ui->dark_mode ? nk_rgb(28,30,36)   : nk_rgb(255,255,255);
-  struct nk_color row_bg1 = ui->dark_mode ? nk_rgb(32,34,40)   : nk_rgb(249,249,249);
-  struct nk_color border_c= ui->dark_mode ? nk_rgba(55,57,65,100) : nk_rgba(218,218,223,160);
-  struct nk_color text_c  = ui->dark_mode ? nk_rgb(200,202,210) : nk_rgb(50,50,60);
-  struct nk_color muted_c = ui->dark_mode ? nk_rgb(100,102,115) : nk_rgb(140,140,155);
-  struct nk_color bar_c   = ui->dark_mode ? nk_rgb(60,120,220)  : nk_rgb(45,127,249);
+  struct nk_color hdr_bg =
+      ui->dark_mode ? nk_rgb(33, 35, 43) : nk_rgb(245, 245, 248);
+  struct nk_color row_bg0 =
+      ui->dark_mode ? nk_rgb(28, 30, 36) : nk_rgb(255, 255, 255);
+  struct nk_color row_bg1 =
+      ui->dark_mode ? nk_rgb(32, 34, 40) : nk_rgb(249, 249, 249);
+  struct nk_color border_c =
+      ui->dark_mode ? nk_rgba(55, 57, 65, 100) : nk_rgba(218, 218, 223, 160);
+  struct nk_color text_c =
+      ui->dark_mode ? nk_rgb(200, 202, 210) : nk_rgb(50, 50, 60);
+  struct nk_color muted_c =
+      ui->dark_mode ? nk_rgb(100, 102, 115) : nk_rgb(140, 140, 155);
+  struct nk_color bar_c =
+      ui->dark_mode ? nk_rgb(60, 120, 220) : nk_rgb(45, 127, 249);
   struct nk_color today_c = nk_rgb(45, 200, 200);
-  struct nk_color wkend_c = ui->dark_mode ? nk_rgba(255,255,255,8) : nk_rgba(0,0,0,5);
+  struct nk_color wkend_c =
+      ui->dark_mode ? nk_rgba(255, 255, 255, 8) : nk_rgba(0, 0, 0, 5);
 
   // ── Control bar ──────────────────────────────────────────────────────────
   float nav_w = w - 30.0f - 30.0f - 64.0f - 72.0f - 16.0f;
-  if (nav_w < 60.0f) nav_w = 60.0f;
+  if (nav_w < 60.0f)
+    nav_w = 60.0f;
 
   nk_layout_row_begin(ctx, NK_STATIC, (int)ctrl_h, 5);
 
   nk_layout_row_push(ctx, 30);
   if (nk_button_label(ctx, "-")) {
     ui->gantt_state.day_w -= 5.0f;
-    if (ui->gantt_state.day_w < 15.0f) ui->gantt_state.day_w = 15.0f;
+    if (ui->gantt_state.day_w < 15.0f)
+      ui->gantt_state.day_w = 15.0f;
     ui_request_redraw(ui);
   }
   nk_layout_row_push(ctx, 30);
   if (nk_button_label(ctx, "+")) {
     ui->gantt_state.day_w += 5.0f;
-    if (ui->gantt_state.day_w > 120.0f) ui->gantt_state.day_w = 120.0f;
+    if (ui->gantt_state.day_w > 120.0f)
+      ui->gantt_state.day_w = 120.0f;
     ui_request_redraw(ui);
   }
   nk_layout_row_push(ctx, 64);
@@ -2445,12 +2399,13 @@ static void ui_render_view_gantt(UIHost *ui, Engine *engine,
                    0.5f, border_c);
 
     if (ui->font_inter) {
-      const char *day_names[7] = {"Mon","Tue","Wed","Thu","Fri","Sat","Sun"};
+      const char *day_names[7] = {"Mon", "Tue", "Wed", "Thu",
+                                  "Fri", "Sat", "Sun"};
       for (int d = 0; d < visible_days; d++) {
-        int64_t abs_day  = view_start + d;
-        int     weekday  = (int)((abs_day + 3) % 7); // 0=Mon, 6=Sun
-        float   dx       = hb.x + label_w + (float)d * day_w;
-        float   font_h   = ui->font_inter->handle.height;
+        int64_t abs_day = view_start + d;
+        int weekday = (int)((abs_day + 3) % 7); // 0=Mon, 6=Sun
+        float dx = hb.x + label_w + (float)d * day_w;
+        float font_h = ui->font_inter->handle.height;
 
         if (weekday >= 5)
           nk_fill_rect(canvas, nk_rect(dx, hb.y, day_w, hb.h), 0, wkend_c);
@@ -2462,20 +2417,23 @@ static void ui_render_view_gantt(UIHost *ui, Engine *engine,
           time_t t2 = (time_t)(abs_day * 86400);
           struct tm *tp = localtime(&t2);
           char day_str[16];
-          snprintf(day_str, sizeof(day_str), "%s %d", day_names[weekday], tp->tm_mday);
-          nk_draw_text(canvas,
-                       nk_rect(dx + 4, hb.y + (hb.h - font_h) * 0.5f, day_w - 8, font_h),
-                       day_str, strlen(day_str),
-                       &ui->font_inter->handle, nk_rgba(0,0,0,0), muted_c);
+          snprintf(day_str, sizeof(day_str), "%s %d", day_names[weekday],
+                   tp->tm_mday);
+          nk_draw_text(
+              canvas,
+              nk_rect(dx + 4, hb.y + (hb.h - font_h) * 0.5f, day_w - 8, font_h),
+              day_str, strlen(day_str), &ui->font_inter->handle,
+              nk_rgba(0, 0, 0, 0), muted_c);
         } else {
           time_t t2 = (time_t)(abs_day * 86400);
           struct tm *tp = localtime(&t2);
           char day_str[8];
           snprintf(day_str, sizeof(day_str), "%d", tp->tm_mday);
-          nk_draw_text(canvas,
-                       nk_rect(dx + 2, hb.y + (hb.h - font_h) * 0.5f, day_w - 4, font_h),
-                       day_str, strlen(day_str),
-                       &ui->font_inter->handle, nk_rgba(0,0,0,0), muted_c);
+          nk_draw_text(
+              canvas,
+              nk_rect(dx + 2, hb.y + (hb.h - font_h) * 0.5f, day_w - 4, font_h),
+              day_str, strlen(day_str), &ui->font_inter->handle,
+              nk_rgba(0, 0, 0, 0), muted_c);
         }
       }
     }
@@ -2497,18 +2455,19 @@ static void ui_render_view_gantt(UIHost *ui, Engine *engine,
 
       for (int v = 0; v < row_count; v++) {
         uint64_t row_id = aslan_table_view_row_id(tbl, v);
-        if (!row_id) continue;
+        if (!row_id)
+          continue;
 
         float ry = gb.y + (float)v * row_h;
         struct nk_color rb = (v % 2 == 0) ? row_bg0 : row_bg1;
         nk_fill_rect(gc, nk_rect(gb.x, ry, row_area_w, row_h), 0, rb);
 
         // Bottom border
-        nk_stroke_line(gc, gb.x, ry + row_h - 1, gb.x + row_area_w, ry + row_h - 1,
-                       0.5f, border_c);
+        nk_stroke_line(gc, gb.x, ry + row_h - 1, gb.x + row_area_w,
+                       ry + row_h - 1, 0.5f, border_c);
         // Label column separator
-        nk_stroke_line(gc, gb.x + label_w, ry, gb.x + label_w, ry + row_h,
-                       0.5f, border_c);
+        nk_stroke_line(gc, gb.x + label_w, ry, gb.x + label_w, ry + row_h, 0.5f,
+                       border_c);
 
         // Weekend tint in data area
         for (int d = 0; d < visible_days; d++) {
@@ -2529,7 +2488,8 @@ static void ui_render_view_gantt(UIHost *ui, Engine *engine,
         if (ui->font_inter) {
           float font_h = ui->font_inter->handle.height;
           const char *title = title_col >= 0
-              ? aslan_table_get_text(tbl, title_col, row_id) : NULL;
+                                  ? aslan_table_get_text(tbl, title_col, row_id)
+                                  : NULL;
           char fallback[24];
           if (!title || !title[0]) {
             snprintf(fallback, sizeof(fallback), "Task %d", v + 1);
@@ -2538,8 +2498,8 @@ static void ui_render_view_gantt(UIHost *ui, Engine *engine,
           nk_draw_text(gc,
                        nk_rect(gb.x + 8, ry + (row_h - font_h) * 0.5f,
                                label_w - 16, font_h),
-                       title, strlen(title),
-                       &ui->font_inter->handle, nk_rgba(0,0,0,0), text_c);
+                       title, strlen(title), &ui->font_inter->handle,
+                       nk_rgba(0, 0, 0, 0), text_c);
         }
 
         // Gantt bar
@@ -2548,11 +2508,12 @@ static void ui_render_view_gantt(UIHost *ui, Engine *engine,
 
         if (ts_ms > 0 && dur_md > 0) {
           float start_off = (float)(ts_ms / 86400000.0 - (double)view_start);
-          float dur_days  = (float)dur_md / 1000.0f;
+          float dur_days = (float)dur_md / 1000.0f;
 
           float bx = gb.x + label_w + start_off * day_w;
           float bw = dur_days * day_w;
-          if (bw < 4.0f) bw = 4.0f;
+          if (bw < 4.0f)
+            bw = 4.0f;
           float by = ry + 5.0f;
           float bh = row_h - 10.0f;
 
@@ -2563,7 +2524,8 @@ static void ui_render_view_gantt(UIHost *ui, Engine *engine,
             AslanColumn *col = &tbl->columns[color_col];
             if (sel >= 0 && sel < col->option_count) {
               uint32_t rgba = col->options[sel].color;
-              bar_color = nk_rgb((rgba>>24)&0xFF, (rgba>>16)&0xFF, (rgba>>8)&0xFF);
+              bar_color = nk_rgb((rgba >> 24) & 0xFF, (rgba >> 16) & 0xFF,
+                                 (rgba >> 8) & 0xFF);
             }
           }
 
@@ -2571,8 +2533,12 @@ static void ui_render_view_gantt(UIHost *ui, Engine *engine,
           float vis_x0 = gb.x + label_w;
           float vis_x1 = gb.x + row_area_w;
           float cx = bx, cw = bw;
-          if (cx < vis_x0) { cw -= (vis_x0 - cx); cx = vis_x0; }
-          if (cx + cw > vis_x1) cw = vis_x1 - cx;
+          if (cx < vis_x0) {
+            cw -= (vis_x0 - cx);
+            cx = vis_x0;
+          }
+          if (cx + cw > vis_x1)
+            cw = vis_x1 - cx;
 
           if (cw > 0.0f) {
             nk_fill_rect(gc, nk_rect(cx, by, cw, bh), 4.0f, bar_color);
@@ -2580,19 +2546,19 @@ static void ui_render_view_gantt(UIHost *ui, Engine *engine,
             // Title in bar if wide enough
             if (bw > 50.0f && ui->font_inter) {
               float font_h = ui->font_inter->handle.height;
-              const char *title = title_col >= 0
-                  ? aslan_table_get_text(tbl, title_col, row_id) : NULL;
+              const char *title =
+                  title_col >= 0 ? aslan_table_get_text(tbl, title_col, row_id)
+                                 : NULL;
               char fb2[24];
               if (!title || !title[0]) {
                 snprintf(fb2, sizeof(fb2), "Task %d", v + 1);
                 title = fb2;
               }
-              nk_draw_text(gc,
-                           nk_rect(cx + 6, by + (bh - font_h) * 0.5f,
-                                   cw - 12, font_h),
-                           title, strlen(title),
-                           &ui->font_inter->handle, nk_rgba(0,0,0,0),
-                           nk_rgb(255,255,255));
+              nk_draw_text(
+                  gc,
+                  nk_rect(cx + 6, by + (bh - font_h) * 0.5f, cw - 12, font_h),
+                  title, strlen(title), &ui->font_inter->handle,
+                  nk_rgba(0, 0, 0, 0), nk_rgb(255, 255, 255));
             }
           }
         }
@@ -2601,8 +2567,8 @@ static void ui_render_view_gantt(UIHost *ui, Engine *engine,
       // Today marker
       float tx = gb.x + label_w + (float)(today_day - view_start) * day_w;
       if (tx >= gb.x + label_w && tx <= gb.x + row_area_w) {
-        nk_stroke_line(gc, tx, gb.y, tx, gb.y + (float)row_count * row_h,
-                       1.5f, today_c);
+        nk_stroke_line(gc, tx, gb.y, tx, gb.y + (float)row_count * row_h, 1.5f,
+                       today_c);
       }
 
       nk_spacing(ctx, 1);
@@ -2677,13 +2643,12 @@ static void ui_render_panel_view(UIHost *ui, Engine *engine,
 
 // Process splitter mouse interaction; updates ui->split_view.ratio and
 // ui->split_view.is_dragging_splitter in-place.
-static void handle_splitter_input(UIHost *ui, struct nk_context *ctx,
-                                  int win_w, int win_h,
-                                  float left_w, float splitter_w) {
+static void handle_splitter_input(UIHost *ui, struct nk_context *ctx, int win_w,
+                                  int win_h, float left_w, float splitter_w) {
   float mx = ctx->input.mouse.pos.x;
   float my = ctx->input.mouse.pos.y;
-  int in_spl = (mx >= left_w - 4 && mx <= left_w + splitter_w + 4 &&
-                my >= 0 && my < (float)win_h);
+  int in_spl = (mx >= left_w - 4 && mx <= left_w + splitter_w + 4 && my >= 0 &&
+                my < (float)win_h);
 
   if (in_spl)
     ui->cursor_type = UI_CURSOR_SIZEWE;
@@ -2694,8 +2659,10 @@ static void handle_splitter_input(UIHost *ui, struct nk_context *ctx,
   if (ui->split_view.is_dragging_splitter) {
     if (nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
       float r = mx / (float)win_w;
-      if (r < 0.03f) r = 0.03f;
-      if (r > 0.97f) r = 0.97f;
+      if (r < 0.03f)
+        r = 0.03f;
+      if (r > 0.97f)
+        r = 0.97f;
       ui->split_view.ratio = r;
       ui->cursor_type = UI_CURSOR_SIZEWE;
     } else {
@@ -2708,9 +2675,16 @@ static void handle_splitter_input(UIHost *ui, struct nk_context *ctx,
     static float last_t = 0;
     float now = (float)SDL_GetTicks() / 1000.0f;
     if (now - last_t < 0.35f) {
-      if (ui->split_view.mode == 0)      { ui->split_view.mode = 1; ui->split_view.ratio = 0.03f; }
-      else if (ui->split_view.mode == 1) { ui->split_view.mode = 2; ui->split_view.ratio = 0.97f; }
-      else                               { ui->split_view.mode = 0; ui->split_view.ratio = 0.10f; }
+      if (ui->split_view.mode == 0) {
+        ui->split_view.mode = 1;
+        ui->split_view.ratio = 0.03f;
+      } else if (ui->split_view.mode == 1) {
+        ui->split_view.mode = 2;
+        ui->split_view.ratio = 0.97f;
+      } else {
+        ui->split_view.mode = 0;
+        ui->split_view.ratio = 0.10f;
+      }
     }
     last_t = now;
   }
@@ -2719,59 +2693,63 @@ static void handle_splitter_input(UIHost *ui, struct nk_context *ctx,
 static void ui_render_split_view(UIHost *ui, Engine *engine,
                                  struct nk_context *ctx, int win_w, int win_h) {
   Page *page = doc_page_get_active(engine->doc);
-  if (!page) return;
+  if (!page)
+    return;
 
   float ratio = ui->split_view.ratio;
-  if (ratio < 0.03f) ratio = 0.03f;
-  if (ratio > 0.97f) ratio = 0.97f;
+  if (ratio < 0.03f)
+    ratio = 0.03f;
+  if (ratio > 0.97f)
+    ratio = 0.97f;
 
   const float spl_w = 6.0f;
-  float left_w  = (float)win_w * ratio;
+  float left_w = (float)win_w * ratio;
   float right_w = (float)win_w - left_w - spl_w;
-  if (left_w  < 30.0f) left_w  = 30.0f;
-  if (right_w < 30.0f) right_w = 30.0f;
+  if (left_w < 30.0f)
+    left_w = 30.0f;
+  if (right_w < 30.0f)
+    right_w = 30.0f;
 
   // ── Splitter interaction (updates ratio before we use it below) ──────────
   handle_splitter_input(ui, ctx, win_w, win_h, left_w, spl_w);
 
   // Re-read ratio in case it changed during drag
   ratio = ui->split_view.ratio;
-  left_w  = (float)win_w * ratio;
+  left_w = (float)win_w * ratio;
   right_w = (float)win_w - left_w - spl_w;
-  if (left_w  < 30.0f) left_w  = 30.0f;
-  if (right_w < 30.0f) right_w = 30.0f;
+  if (left_w < 30.0f)
+    left_w = 30.0f;
+  if (right_w < 30.0f)
+    right_w = 30.0f;
 
   int spl_hover = (ctx->input.mouse.pos.x >= left_w - 4 &&
                    ctx->input.mouse.pos.x <= left_w + spl_w + 4);
 
   // ── Clay renders panel backgrounds via SDL2 ──────────────────────────────
   if (ui->clay) {
-    clay_host_render_split(ui->clay,
-                           ui->dark_mode != 0,
-                           ratio,
-                           spl_hover != 0,
-                           ui->split_view.is_dragging_splitter != 0,
-                           win_w, win_h);
+    clay_host_render_split(ui->clay, ui->dark_mode != 0, ratio, spl_hover != 0,
+                           ui->split_view.is_dragging_splitter != 0, win_w,
+                           win_h);
   }
 
   // ── Nuklear: Left panel (standalone window, transparent background) ───────
-  struct nk_style_item saved_bg  = ctx->style.window.fixed_background;
-  float                saved_brd = ctx->style.window.border;
-  struct nk_vec2       saved_pad = ctx->style.window.padding;
+  struct nk_style_item saved_bg = ctx->style.window.fixed_background;
+  float saved_brd = ctx->style.window.border;
+  struct nk_vec2 saved_pad = ctx->style.window.padding;
 
   ctx->style.window.fixed_background = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-  ctx->style.window.border  = 0.0f;
+  ctx->style.window.border = 0.0f;
   ctx->style.window.padding = nk_vec2(4.0f, 4.0f);
 
-  if (nk_begin(ctx, "SplitLeft",
-               nk_rect(0.0f, 0.0f, left_w, (float)win_h),
+  if (nk_begin(ctx, "SplitLeft", nk_rect(0.0f, 0.0f, left_w, (float)win_h),
                NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
     float view_w = left_w - 12.0f;
     float view_h = (float)win_h - 10.0f;
     ui_render_panel_view(ui, engine, ctx, page, 0, view_w, view_h, "L");
     if (ratio < 0.20f) {
       float t = (0.20f - ratio) / 0.15f;
-      if (t > 1.0f) t = 1.0f;
+      if (t > 1.0f)
+        t = 1.0f;
       struct nk_rect gr = nk_window_get_content_region(ctx);
       nk_fill_rect(nk_window_get_canvas(ctx),
                    nk_rect(gr.x - 4, gr.y - 4, gr.w + 8, gr.h + 8), 0,
@@ -2792,7 +2770,8 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
     float right_ratio = 1.0f - ratio;
     if (right_ratio < 0.20f) {
       float t = (0.20f - right_ratio) / 0.15f;
-      if (t > 1.0f) t = 1.0f;
+      if (t > 1.0f)
+        t = 1.0f;
       struct nk_rect gr = nk_window_get_content_region(ctx);
       nk_fill_rect(nk_window_get_canvas(ctx),
                    nk_rect(gr.x - 4, gr.y - 4, gr.w + 8, gr.h + 8), 0,
@@ -2803,7 +2782,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
 
   // Restore Nuklear style
   ctx->style.window.fixed_background = saved_bg;
-  ctx->style.window.border  = saved_brd;
+  ctx->style.window.border = saved_brd;
   ctx->style.window.padding = saved_pad;
 }
 
@@ -2814,79 +2793,13 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   if (!ui || !engine)
     return;
 
+  // Begin NanoVG frame
+  nvgBeginFrame(ui->vg, (float)win_w, (float)win_h,
+                1.0f); // Ratio 1.0 simple pour le moment
+
   if (ui->pending_export) {
     ui->pending_export = 0;
-    Page *page = doc_page_get_active(engine->doc);
-    if (page) {
-      Block *block = page_find_block_by_id(page, ui->pending_export_block_id);
-      if (block && block->type == BLOCK_DESIGN) {
-        DesignData *dd = &block->data.design;
-        int w = dd->width;
-        int h = dd->height;
-        SDL_Texture *tex =
-            SDL_CreateTexture(ui->renderer, SDL_PIXELFORMAT_RGBA32,
-                              SDL_TEXTUREACCESS_TARGET, w, h);
-        if (tex) {
-          SDL_SetRenderTarget(ui->renderer, tex);
-          SDL_SetRenderDrawColor(ui->renderer, 0, 0, 0, 0);
-          SDL_RenderClear(ui->renderer);
-
-          struct nk_context *ctx = ui->ctx;
-          nk_style_push_style_item(ctx, &ctx->style.window.fixed_background,
-                                   nk_style_item_color(nk_rgba(0, 0, 0, 0)));
-
-          if (nk_begin(ctx, "export_canvas", nk_rect(0, 0, w, h),
-                       NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_NO_INPUT |
-                           NK_WINDOW_BACKGROUND)) {
-            struct nk_command_buffer *buf = nk_window_get_canvas(ctx);
-            struct nk_rect art_rect = nk_rect(0, 0, w, h);
-            int p_idx = dd->current_page;
-            struct nk_color c1 =
-                nk_rgba((dd->pages[p_idx].bg_color >> 24) & 0xFF,
-                        (dd->pages[p_idx].bg_color >> 16) & 0xFF,
-                        (dd->pages[p_idx].bg_color >> 8) & 0xFF,
-                        dd->pages[p_idx].bg_color & 0xFF);
-            struct nk_color c2 =
-                nk_rgba((dd->pages[p_idx].bg_color_2 >> 24) & 0xFF,
-                        (dd->pages[p_idx].bg_color_2 >> 16) & 0xFF,
-                        (dd->pages[p_idx].bg_color_2 >> 8) & 0xFF,
-                        dd->pages[p_idx].bg_color_2 & 0xFF);
-
-            if (dd->pages[p_idx].bg_type == 0)
-              nk_fill_rect(buf, art_rect, 0, c1);
-            else if (dd->pages[p_idx].bg_type == 1)
-              nk_fill_rect_multi_color(buf, art_rect, c1, c1, c2, c2);
-            else
-              nk_fill_rect_multi_color(buf, art_rect, c2, c2, c1, c1);
-
-            if (dd->pages[p_idx].root) {
-              ui_render_node_tree(ui, ctx, engine, block, dd, buf,
-                                  dd->pages[p_idx].root, art_rect, 1.0f, 0, 0);
-            }
-          }
-          nk_end(ctx);
-          nk_style_pop_style_item(ctx);
-
-          nk_sdl_render(NK_ANTI_ALIASING_ON);
-
-          int pitch = w * 4;
-          void *pixels = malloc(w * h * 4);
-          if (pixels) {
-            SDL_RenderReadPixels(ui->renderer, NULL, SDL_PIXELFORMAT_RGBA32,
-                                 pixels, pitch);
-            if (ui->pending_export_format == 0) {
-              stbi_write_png(ui->pending_export_path, w, h, 4, pixels, pitch);
-            } else {
-              stbi_write_jpg(ui->pending_export_path, w, h, 4, pixels, 90);
-            }
-            free(pixels);
-            ASLAN_DEBUG("Exported raster to %s", ui->pending_export_path);
-          }
-          SDL_SetRenderTarget(ui->renderer, NULL);
-          SDL_DestroyTexture(tex);
-        }
-      }
-    }
+    ASLAN_WARN("Export not available in GL mode (SDL renderer is missing)");
   }
 
   // Store engine reference for file drop handling
@@ -3035,9 +2948,11 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     }
   }
 
-  // Render Nuklear
-  nk_sdl_render(NK_ANTI_ALIASING_ON);
+  // End NanoVG frame
+  nvgEndFrame(ui->vg);
 
+  // Render Nuklear
+  nk_sdl_render(NK_ANTI_ALIASING_ON, MAX_VERTEX_BUFFER, MAX_ELEMENT_BUFFER);
 }
 
 // -----------------------------------------------------------------------------

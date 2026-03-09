@@ -4,6 +4,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+// OpenGL (macOS Core Profile 3.2)
+#ifdef __APPLE__
+#  define GL_SILENCE_DEPRECATION
+#  include <OpenGL/gl3.h>
+#else
+#  include <GL/gl.h>
+#endif
+
 // =============================================================================
 // ASLAN RENDERER v3 - SDL Window & Basic Drawing
 // =============================================================================
@@ -25,17 +33,25 @@ Renderer *renderer_create(const char *title, int width, int height) {
     return NULL;
   }
 
+  // Request OpenGL 3.2 Core Profile (macOS max; also fine on Linux/Windows)
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, 0);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+  SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+  SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+  SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
+
   Renderer *r = (Renderer *)malloc(sizeof(Renderer));
   if (!r)
     return NULL;
 
-  r->width = width;
-  r->height = height;
+  r->sdl_renderer = NULL; // Not used in GL mode
 
   r->window = SDL_CreateWindow(
       title, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height,
-      SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_RESIZABLE |
-          SDL_WINDOW_FULLSCREEN_DESKTOP);
+      SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI |
+          SDL_WINDOW_RESIZABLE | SDL_WINDOW_FULLSCREEN_DESKTOP);
 
   if (!r->window) {
     printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());
@@ -43,19 +59,17 @@ Renderer *renderer_create(const char *title, int width, int height) {
     return NULL;
   }
 
-  r->sdl_renderer =
-      SDL_CreateRenderer(r->window, -1,
-                         SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC |
-                             SDL_RENDERER_TARGETTEXTURE);
-
-  if (!r->sdl_renderer) {
-    printf("Renderer could not be created! SDL_Error: %s\n", SDL_GetError());
+  r->gl_ctx = SDL_GL_CreateContext(r->window);
+  if (!r->gl_ctx) {
+    printf("OpenGL context could not be created! SDL_Error: %s\n", SDL_GetError());
     SDL_DestroyWindow(r->window);
     free(r);
     return NULL;
   }
+  SDL_GL_MakeCurrent(r->window, r->gl_ctx);
+  SDL_GL_SetSwapInterval(1); // vsync
 
-  // Sync logical size with actual window size (fullscreen desktop may differ)
+  // Sync dimensions from the drawable (HiDPI-aware)
   renderer_update_size(r);
 
   // Enable drag-and-drop file events
@@ -68,35 +82,26 @@ Renderer *renderer_create(const char *title, int width, int height) {
 void renderer_destroy(Renderer *r) {
   if (!r)
     return;
-  SDL_DestroyRenderer(r->sdl_renderer);
+  if (r->gl_ctx)
+    SDL_GL_DeleteContext(r->gl_ctx);
   SDL_DestroyWindow(r->window);
   free(r);
   SDL_Quit();
 }
 
 void renderer_update_size(Renderer *r) {
-  if (!r)
-    return;
-  int render_w, render_h;
-  SDL_GetRendererOutputSize(r->sdl_renderer, &render_w, &render_h);
-  r->width = render_w;
-  r->height = render_h;
-  // Keep logical size in sync with window size so coordinates match on
-  // fullscreen / resize (fixes mispositioned + blurry elements on HiDPI).
-  int window_w, window_h;
-  SDL_GetWindowSize(r->window, &window_w, &window_h);
-  SDL_RenderSetLogicalSize(r->sdl_renderer, window_w, window_h);
+  if (!r) return;
+  // Use drawable size (accounts for HiDPI / Retina)
+  SDL_GL_GetDrawableSize(r->window, &r->width, &r->height);
 }
 
 float renderer_get_dpi_scale(Renderer *r) {
-  if (!r || !r->window)
-    return 1.0f;
-  int window_w, window_h, render_w, render_h;
+  if (!r || !r->window) return 1.0f;
+  int window_w, window_h, draw_w, draw_h;
   SDL_GetWindowSize(r->window, &window_w, &window_h);
-  SDL_GetRendererOutputSize(r->sdl_renderer, &render_w, &render_h);
-  if (window_w > 0) {
-    return (float)render_w / (float)window_w;
-  }
+  SDL_GL_GetDrawableSize(r->window, &draw_w, &draw_h);
+  if (window_w > 0)
+    return (float)draw_w / (float)window_w;
   return 1.0f;
 }
 
@@ -105,22 +110,20 @@ float renderer_get_dpi_scale(Renderer *r) {
 // -----------------------------------------------------------------------------
 
 void renderer_begin(Renderer *r, int dark_mode) {
-  if (!r)
-    return;
-
-  // Set background color based on theme
-  if (dark_mode) {
-    SDL_SetRenderDrawColor(r->sdl_renderer, 30, 30, 35, 255);
-  } else {
-    SDL_SetRenderDrawColor(r->sdl_renderer, 252, 252, 253, 255);
-  }
-  SDL_RenderClear(r->sdl_renderer);
+  if (!r) return;
+  int w, h;
+  SDL_GL_GetDrawableSize(r->window, &w, &h);
+  glViewport(0, 0, w, h);
+  if (dark_mode)
+    glClearColor(30.0f/255.0f, 30.0f/255.0f, 35.0f/255.0f, 1.0f);
+  else
+    glClearColor(252.0f/255.0f, 252.0f/255.0f, 253.0f/255.0f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT);
 }
 
 void renderer_end(Renderer *r) {
-  if (!r)
-    return;
-  SDL_RenderPresent(r->sdl_renderer);
+  if (!r) return;
+  SDL_GL_SwapWindow(r->window);
 }
 
 // -----------------------------------------------------------------------------
@@ -128,7 +131,7 @@ void renderer_end(Renderer *r) {
 // -----------------------------------------------------------------------------
 
 static void draw_grid(Renderer *r, int step) {
-  if (!r || step < 2)
+  if (!r || !r->sdl_renderer || step < 2)
     return;
 
   SDL_SetRenderDrawColor(r->sdl_renderer, 255, 255, 255, 20);
@@ -196,7 +199,7 @@ static void draw_node_tree(Renderer *r, const Node *node, float ox, float oy,
 void renderer_draw_document(Renderer *r, const Document *doc,
                             struct nk_context *nk_ctx) {
   (void)nk_ctx;
-  if (!r || !doc)
+  if (!r || !doc || !r->sdl_renderer)
     return;
 
   // Get active page
@@ -230,7 +233,7 @@ void renderer_draw_document(Renderer *r, const Document *doc,
 void renderer_draw_selection(Renderer *r, const Document *doc,
                              Node *selected_node) {
   (void)doc;
-  if (!r || !selected_node)
+  if (!r || !selected_node || !r->sdl_renderer)
     return;
 
   // Draw selection box around selected node
@@ -270,7 +273,7 @@ void renderer_draw_selection(Renderer *r, const Document *doc,
 
 void renderer_draw_design_block(Renderer *r, const Block *block, float x,
                                 float y, float w, float h) {
-  if (!r || !block || block->type != BLOCK_DESIGN)
+  if (!r || !block || block->type != BLOCK_DESIGN || !r->sdl_renderer)
     return;
 
   const DesignData *dd = &block->data.design;

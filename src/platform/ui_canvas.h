@@ -64,7 +64,7 @@ void node_update_path_bounds(Node *node);
 int node_get_path_polygon(Node *node, float *out_pts, int max_pts, float sx,
                           float sy, float scale);
 
-SDL_Texture *get_image_texture(UIHost *ui, const char *path);
+struct nk_image get_image_texture(UIHost *ui, const char *path);
 
 Node *design_find_node_at(DesignData *dd, float world_x, float world_y);
 

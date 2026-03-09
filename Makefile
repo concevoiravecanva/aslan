@@ -9,6 +9,8 @@ LUA_LIB =
 SDL_INC = -I/opt/homebrew/include/SDL2 -I/opt/homebrew/include
 SDL_LIB = -L/opt/homebrew/lib -lSDL2 -lSDL2_ttf
 
+CFLAGS = -Wall -Wextra -std=c99 -I./src -I./include -DFONS_NO_STB_TRUETYPE_IMPL
+
 # Core, Document & Platform sources
 CORE_OBJS = src/core/engine.o
 DOC_OBJS = src/document/document.o \
@@ -25,11 +27,15 @@ PLATFORM_OBJS = src/platform/platform.o \
            src/platform/recents.o \
            src/platform/image_loader.o \
            src/platform/mac_image.o
+VENDOR_OBJS = src/vendor/tinyexpr.o \
+              src/vendor/stb_image_write.o \
+              src/vendor/nanovg/nanovg.o \
+              src/vendor/nanovg/nanovg_gl_impl.o
 
-OBJS = src/main.o src/vendor/tinyexpr.o src/vendor/stb_image_write.o $(CORE_OBJS) $(DOC_OBJS) $(PLATFORM_OBJS)
+OBJS = src/main.o $(VENDOR_OBJS) $(CORE_OBJS) $(DOC_OBJS) $(PLATFORM_OBJS)
 
 TARGET = aslan
-LDFLAGS = -framework Cocoa -framework CoreGraphics -framework ImageIO -lm -lhpdf -lz -lpng
+LDFLAGS = -framework Cocoa -framework CoreGraphics -framework ImageIO -framework OpenGL -lm -lhpdf -lz -lpng
 
 all: $(TARGET)
 

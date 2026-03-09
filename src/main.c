@@ -263,7 +263,7 @@ int main(int argc, char **argv) {
   }
 
   // 3. Initialize UI (Nuklear)
-  UIHost *ui = ui_init(renderer->window, renderer->sdl_renderer);
+  UIHost *ui = ui_init(renderer->window);
   engine->ui_host = ui;
 
   // 4. Replay history (AOF)
