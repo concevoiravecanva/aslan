@@ -13,10 +13,6 @@
 // Coordinate helpers
 typedef struct { float x, y, w, h; } TblRect;
 
-static inline int tbl_mouse_in(UIHost *ui, float x, float y, float w, float h) {
-    float mx = ui->nvgw.mouse_x, my = ui->nvgw.mouse_y;
-    return mx >= x && mx < x + w && my >= y && my < y + h;
-}
 
 void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
                            float width, float height) {
@@ -26,10 +22,15 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
     if (!table) return;
 
     NVGcontext *vg = ui->vg;
+    float col_w = 120.0f;
     float row_h = 32.0f;
     float header_h = 36.0f;
-    float col_w = width / (float)table->column_count;
-    if (col_w < 100.0f) col_w = 120.0f;
+
+    float mx = ui->mouse_x - ui->abs_offset_x;
+    float my = ui->mouse_y - ui->abs_offset_y;
+
+    NvgWidgetCtx *wc = &ui->nvgw;
+    nvgw_set_offset(wc, ui->abs_offset_x, ui->abs_offset_y);
 
     // Header Background
     nvgBeginPath(vg);
@@ -65,6 +66,12 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
         nvgText(vg, cx + 32, header_h / 2, col->name, NULL);
     }
 
+    // --- Column Addition (+) button ---
+    float add_col_x = (float)table->column_count * col_w;
+    if (nvgw_button_icon(wc, nvgw_id_str("add_col"), add_col_x, 0, 36.0f, header_h, ICON_ADD)) {
+        aslan_table_add_column(table, "New Column", ASLAN_COL_TEXT);
+    }
+
     // Horizontal line after header
     nvgBeginPath(vg);
     nvgMoveTo(vg, 0, header_h);
@@ -91,14 +98,37 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
 
         for (size_t c = 0; c < table->column_count; c++) {
             float cx = (float)c * col_w;
-            char buf[1024];
-            aslan_table_get_cell_display(table, (int)c, row_id, buf, sizeof(buf));
+            uint32_t cell_id = nvgw_id(&row_id, sizeof(row_id)) ^ nvgw_id(&c, sizeof(c));
 
-            nvgFontSize(vg, 14.0f);
-            nvgFontFace(vg, "Inter");
-            nvgFillColor(vg, ui->dark_mode ? nvgRGBA(200, 200, 210, 255) : nvgRGBA(60, 60, 65, 255));
-            nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
-            nvgText(vg, cx + 10, ry + row_h / 2, buf, NULL);
+            // Logic: Click to edit
+            if (ui->nvgw.mouse_clicked && mx >= cx && mx < cx + col_w && my >= ry && my < ry + row_h) {
+                ui->table_state.active_block_id = block->id;
+                ui->table_state.active_col_idx = (int)c;
+                ui->table_state.select_popup_row = row_id;
+                ui->table_state.is_editing_cell = 1;
+                
+                // Copy current value to buffer
+                char current[1024];
+                aslan_table_get_cell_display(table, (int)c, row_id, current, sizeof(current));
+                strncpy(ui->table_state.rename_buffer, current, sizeof(ui->table_state.rename_buffer)-1);
+            }
+
+            // Inline Editor
+            if (ui->table_state.is_editing_cell && ui->table_state.active_col_idx == (int)c && ui->table_state.select_popup_row == row_id) {
+                if (nvgw_text_input(wc, cell_id, cx, ry, col_w, row_h, ui->table_state.rename_buffer, sizeof(ui->table_state.rename_buffer), 14.0f)) {
+                    aslan_table_set_cell(table, (int)c, row_id, ui->table_state.rename_buffer);
+                    ui->table_state.is_editing_cell = 0;
+                }
+            } else {
+                char buf[1024];
+                aslan_table_get_cell_display(table, (int)c, row_id, buf, sizeof(buf));
+
+                nvgFontSize(vg, 14.0f);
+                nvgFontFace(vg, "Inter");
+                nvgFillColor(vg, ui->dark_mode ? nvgRGBA(200, 200, 210, 255) : nvgRGBA(60, 60, 65, 255));
+                nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
+                nvgText(vg, cx + 10, ry + row_h / 2, buf, NULL);
+            }
         }
 
         // Horizontal line
@@ -108,6 +138,14 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
         nvgStrokeColor(vg, ui->dark_mode ? nvgRGBA(60, 60, 65, 255) : nvgRGBA(230, 230, 235, 255));
         nvgStrokeWidth(vg, 0.5f);
         nvgStroke(vg);
+    }
+
+    // --- Row Addition button ---
+    float add_row_y = header_h + (float)count * row_h;
+    if (add_row_y < height) {
+        if (nvgw_button(wc, nvgw_id_str("add_row"), 0, add_row_y, 100.0f, row_h, "+ Add Row")) {
+            aslan_table_add_row(table);
+        }
     }
 }
 

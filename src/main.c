@@ -235,7 +235,7 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
       renderer_begin(renderer, ui->dark_mode);
 
       // 3. Render document
-      renderer_draw_document(renderer, engine->doc, NULL);
+      renderer_draw_document(renderer, engine->doc);
 
       // 4. Render selection handles
       if (ui->selected_node) {

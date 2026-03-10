@@ -767,8 +767,7 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
   }
 
   // Pass to Nuklear first
-//   nk_sdl_handle_event(evt);
-
+  // nvgw_handle_event handled in main loop
   // NOTE: mouse_just_pressed/released are reset in ui_render after processing
 
   // Track mouse position
@@ -1073,11 +1072,11 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
                 sizeof(ui->editing_node->text) - 1);
         ui->editing_node->text[sizeof(ui->editing_node->text) - 1] = '\0';
         ui->editing_node = NULL;
-        SDL_StartTextInput(); // keep text input alive for Nuklear edit
+        SDL_StartTextInput(); // keep text input alive for widget edit
                               // widgets
       } else if (evt->key.keysym.sym == SDLK_ESCAPE) {
         ui->editing_node = NULL;
-        SDL_StartTextInput(); // keep text input alive for Nuklear edit
+        SDL_StartTextInput(); // keep text input alive for widget edit
                               // widgets
       } else if (evt->key.keysym.sym == SDLK_BACKSPACE) {
         size_t len = strlen(ui->edit_buffer);
@@ -1846,7 +1845,7 @@ static void ui_render_panel_view(UIHost *ui, Engine *engine,
 }
 
 // =============================================================================
-// Split-view: Clay owns backgrounds, Nuklear owns content
+// Split-view: Clay owns backgrounds, NanoVG owns content
 // =============================================================================
 
 // Process splitter mouse interaction handled by NanoVG/Clay now.
@@ -1988,14 +1987,14 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       ui->split_view.ratio = 0.1f;
     ui->split_view.active = 1;
 
-    // Clay renders backgrounds; Nuklear creates two standalone panel
+    // Clay renders backgrounds; Widgets create two standalone panel
     // windows. No SplitMain wrapper window needed — Clay handles the
     // Render split view if active. If in full design mode, this consumes
     // the outer frame.
     ui_render_split_view(ui, engine, win_w, win_h);
 
     // --- Floating color picker window (Properties panel colors) ---
-    // Rendered as a separate Nuklear window so it does NOT put the
+    // Rendered as a separate window so it does NOT put the
     // Properties group into ROM mode (which happens when combos/popups
     // are inside a group).
     if (ui->color_picker_open && ui->color_picker_ptr) {

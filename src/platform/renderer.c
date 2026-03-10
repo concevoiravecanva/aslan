@@ -16,12 +16,9 @@
 // ASLAN RENDERER v3 - SDL Window & Basic Drawing
 // =============================================================================
 //
-// Note: Block-based content rendering is handled by Nuklear in ui_host.c.
+// Note: Block-based content rendering is handled in ui_host.c.
 // This file provides SDL window management and optional low-level drawing.
 //
-
-// Nuklear (for optional text rendering)
-#include "../../include/nuklear.h"
 
 // -----------------------------------------------------------------------------
 // Renderer Lifecycle
@@ -196,9 +193,7 @@ static void draw_node_tree(Renderer *r, const Node *node, float ox, float oy,
   }
 }
 
-void renderer_draw_document(Renderer *r, const Document *doc,
-                            struct nk_context *nk_ctx) {
-  (void)nk_ctx;
+void renderer_draw_document(Renderer *r, const Document *doc) {
   if (!r || !doc || !r->sdl_renderer)
     return;
 
@@ -226,7 +221,7 @@ void renderer_draw_document(Renderer *r, const Document *doc,
     draw_grid(r, grid_step);
   }
 
-  // Note: Block rendering is handled by Nuklear in ui_host.c
+  // Note: Block rendering is handled in ui_host.c
   // This function can be used for additional low-level drawing if needed
 }
 

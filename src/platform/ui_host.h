@@ -478,7 +478,7 @@ typedef struct UIHost {
   // Layer sidebar state
   uint32_t renaming_node_id;
   char node_rename_buffer[64];
-  int rename_needs_focus; // 1 = call nk_edit_focus on first frame of edit
+  int rename_needs_focus; // 1 = set focus to editor on first frame
   uint32_t sidebar_drag_node_id;
   uint32_t sidebar_drop_target_id;
   uint32_t hovered_node_id;

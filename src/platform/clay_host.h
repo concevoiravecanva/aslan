@@ -5,7 +5,8 @@
 // ASLAN Clay Host - Step 2: Panel Layout, Tab Bar & Background Rendering
 // =============================================================================
 // Clay manages layout computation and background rendering (SDL2 primitives).
-// Nuklear manages all widget content inside the regions Clay defines.
+// sits on top of all content.
+// inside the regions Clay defines.
 // =============================================================================
 
 #include "../vendor/clay.h"
@@ -14,7 +15,7 @@
 struct NVGcontext;
 
 // Pixel regions returned after Clay computes the split-view layout.
-// Nuklear uses these to position its own standalone windows.
+// Standalone panel positions.
 typedef struct {
   float left_x, left_w;
   float spl_x, spl_w;
@@ -60,7 +61,7 @@ AslanNavbarResult clay_host_render_navbar(ClayHost *ch, bool dark_mode,
 
 // -----------------------------------------------------------------------------
 // Per-frame call: computes layout via Clay, renders backgrounds via SDL2,
-// returns the computed panel rects for Nuklear to use.
+// returns the computed panel rects.
 // -----------------------------------------------------------------------------
 AslanSplitRects clay_host_render_split(ClayHost *ch, bool dark_mode,
                                        float ratio, bool spl_hover,
@@ -83,9 +84,10 @@ AslanToolbarResult clay_host_render_toolbar(ClayHost *ch, bool dark_mode,
 
 // -----------------------------------------------------------------------------
 // Per-frame tab bar for the left panel. Call after clay_host_render_split()
-// and before the Nuklear windows.
+// and before the widgets.
 //
 // *active_tab is read (current selection) and written (on click).
+// Applies the current theme (Dark/Light)
 // Returns the pixel height of the rendered tab bar.
 // -----------------------------------------------------------------------------
 float clay_host_render_tabs(ClayHost *ch, bool dark_mode, float panel_x,

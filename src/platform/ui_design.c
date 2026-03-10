@@ -555,713 +555,6 @@ static void design_insert_tableau_layout(DesignData *dd) {
 }
 #endif // old layouts disabled
 // ── Main sidebar ─────────────────────────────────────────────────────────────
-#if 0
-#if 0
-static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
-                                     Block *block) {
-  if (!block || block->type != BLOCK_DESIGN)
-    return;
-
-  DesignData *dd = &block->data.design;
-  Page *page = doc_page_get_active(engine->doc);
-
-  // Scrollable content: fill remaining height.
-  // Use -50 (not -36) to budget for Nuklear's inter-row spacing so the
-  // bottom inspector group never overflows and its inputs get clipped.
-//   float sb_avail = nk_window_get_content_region(ctx).h - 5.0f;
-  if (sb_avail < 50.0f)
-    sb_avail = 50.0f;
-
-  char gp_props[64], gp_layers[64], gp_page[64];
-  snprintf(gp_props, sizeof(gp_props), "ds_props_%u", block->id);
-  snprintf(gp_layers, sizeof(gp_layers), "ds_layers_%u", block->id);
-  snprintf(gp_page, sizeof(gp_page), "ds_page_%u", block->id);
-
-//   nk_layout_row_dynamic(ctx, sb_avail, 1);
-  if (0) // (nk_group_begin(ctx, "ds_main_tab_group", NK_WINDOW_BORDER)) {
-    if (0) // (nk_tree_push(ctx, NK_TREE_TAB, "Properties", NK_MAXIMIZED)) {
-      if (!ui->selected_node && ui->color_picker_open)
-        ui->color_picker_open = 0;
-      if (!ui->selected_node) {
-//         nk_layout_row_dynamic(ctx, 50, 1);
-        nk_label_colored(ctx, "No element selected", NK_TEXT_CENTERED,
-//                          nk_rgb(160, 160, 175));
-//         nk_layout_row_dynamic(ctx, 18, 1);
-        nk_label_colored(ctx, "Click an element to edit", NK_TEXT_CENTERED,
-//                          nk_rgb(195, 195, 210));
-      } else {
-        Node *node = ui->selected_node;
-
-        // ── TABLE VIEW: size/position only, content is read-only ─────────
-        if (node->type == NODE_TYPE_TABLE_VIEW) {
-          ds_section(ctx, "TABLE VIEW");
-//           nk_layout_row_dynamic(ctx, 24, 2);
-          ds_num_input(ui, ctx, "X:", &node->x, -9999.f, 9999.f, &node->x);
-          ds_num_input(ui, ctx, "Y:", &node->y, -9999.f, 9999.f, &node->y);
-          ds_num_input(ui, ctx, "W:", &node->width, 1.f, 9999.f, &node->width);
-          ds_num_input(ui, ctx, "H:", &node->height, 1.f, 9999.f,
-                       &node->height);
-//           nk_layout_row_dynamic(ctx, 18, 1);
-          nk_label_colored(ctx, "Content mirrors the linked table",
-//                            NK_TEXT_LEFT, nk_rgb(160, 160, 175));
-          goto props_end;
-        }
-
-        // ── CHART: type + data binding ───────────────────────────────────
-        if (node->type == NODE_TYPE_CHART && node->chart_data) {
-          ChartData *cd = node->chart_data;
-          Page *cp = doc_page_get_active(engine->doc);
-
-          ds_section(ctx, "CHART TYPE");
-          static const char *ct_labels[] = {"Bar", "Line", "Pie", "Gantt"};
-//           nk_layout_row_dynamic(ctx, 28, 4);
-          for (int _ct = 0; _ct < 4; _ct++) {
-            struct nk_style_button bs = ctx->style.button;
-            if ((int)cd->type == _ct) {
-//               bs.normal = nk_style_item_color(COLOR_ACCENT);
-//               bs.hover = nk_style_item_color(COLOR_ACCENT);
-//               bs.text_normal = nk_rgb(255, 255, 255);
-            }
-            if (0) // (nk_button_label_styled(ctx, &bs, ct_labels[_ct]))
-              cd->type = (ChartType)_ct;
-          }
-
-          if (cp) {
-            // Auto-select first available table if none linked
-            Block *cur_tbl_blk = NULL;
-            if (cd->source_table_id == 0) {
-              for (Block *b = cp->first_block; b; b = b->next) {
-                if (b->type == BLOCK_TABLE && b->data.table.columnar) {
-                  cd->source_table_id = b->id;
-                  cur_tbl_blk = b;
-                  break;
-                }
-              }
-            } else {
-              for (Block *b = cp->first_block; b; b = b->next) {
-                if (b->type == BLOCK_TABLE && b->id == cd->source_table_id) {
-                  cur_tbl_blk = b;
-                  break;
-                }
-              }
-              // If previously linked table is gone, try to find another one
-              if (!cur_tbl_blk) {
-                for (Block *b = cp->first_block; b; b = b->next) {
-                  if (b->type == BLOCK_TABLE && b->data.table.columnar) {
-                    cd->source_table_id = b->id;
-                    cur_tbl_blk = b;
-                    break;
-                  }
-                }
-              }
-            }
-
-            // Column pickers (Label + Value)
-            AslanTable *ct =
-                cur_tbl_blk ? cur_tbl_blk->data.table.columnar : NULL;
-            if (ct && ct->column_count > 0) {
-              ds_section(ctx, "COLUMNS");
-//               nk_layout_row_dynamic(ctx, 24, 2);
-              // Label column
-              char lbl_c[48] = "Label: —";
-              if (cd->label_col_idx >= 0 &&
-                  cd->label_col_idx < (int)ct->column_count)
-                snprintf(lbl_c, sizeof(lbl_c), "L: %.10s",
-                         ct->columns[cd->label_col_idx].name);
-              if (0) // (nk_button_label(ctx, lbl_c))
-                cd->label_col_idx =
-                    (cd->label_col_idx + 1) % (int)ct->column_count;
-              // Value column (cycle only NUMBER columns)
-              char val_c[48] = "Value: —";
-              if (cd->value_col_idx >= 0 &&
-                  cd->value_col_idx < (int)ct->column_count)
-                snprintf(val_c, sizeof(val_c), "V: %.10s",
-                         ct->columns[cd->value_col_idx].name);
-              if (0) // (nk_button_label(ctx, val_c)) {
-                int start = cd->value_col_idx;
-                for (int _a = 0; _a < (int)ct->column_count; _a++) {
-                  int cand = (start + 1 + _a) % (int)ct->column_count;
-                  if (ct->columns[cand].type == ASLAN_COL_NUMBER) {
-                    cd->value_col_idx = cand;
-                    break;
-                  }
-                }
-              }
-            }
-          }
-          goto props_end;
-        }
-
-        // ── PEN / MARKER STROKES: only color ─────────────────────────────
-        if (node->type == NODE_TYPE_STROKE || node->type == NODE_TYPE_PATH) {
-          ds_section(ctx, "STROKE");
-          ds_color(ui, ctx, "Color", &node->stroke_color);
-          goto props_end;
-        }
-
-        // ── APPEARANCE ───────────────────────────────────────────────────
-        if (node->type != NODE_TYPE_TEXT) {
-          ds_section(ctx, "APPEARANCE");
-//           nk_layout_row_dynamic(ctx, 24, 1);
-//           nk_checkbox_label(ctx, "Lock Ratio", &node->lock_ratio);
-
-          // Shape type selection (buttons, no combo popup)
-          NodeType shape_types[] = {NODE_TYPE_RECT,     NODE_TYPE_ELLIPSE,
-                                    NODE_TYPE_TRIANGLE, NODE_TYPE_PENTAGON,
-                                    NODE_TYPE_HEXAGON,  NODE_TYPE_OCTAGON,
-                                    NODE_TYPE_LINE};
-          int cur_shape = -1;
-          for (int i = 0; i < 7; i++) {
-            if (node->type == shape_types[i]) {
-              cur_shape = i;
-              break;
-            }
-          }
-          // Buttons instead of combo (combo creates popup → ROM mode in parent
-          // group)
-          static const char *shape_lbl_short[] = {"Rect", "Ell", "Tri", "Pent",
-                                                  "Hex",  "Oct", "Line"};
-//           nk_layout_row_dynamic(ctx, 24, 4);
-          for (int si = 0; si < 4; si++) {
-            struct nk_style_button bs = ctx->style.button;
-            if (cur_shape == si) {
-//               bs.normal = nk_style_item_color(COLOR_ACCENT);
-//               bs.hover = nk_style_item_color(COLOR_ACCENT);
-//               bs.text_normal = nk_rgb(255, 255, 255);
-//               bs.text_hover = nk_rgb(255, 255, 255);
-            }
-            if (0) // (nk_button_label_styled(ctx, &bs, shape_lbl_short[si]))
-              node->type = shape_types[si];
-          }
-//           nk_layout_row_dynamic(ctx, 24, 3);
-          for (int si = 4; si < 7; si++) {
-            struct nk_style_button bs = ctx->style.button;
-            if (cur_shape == si) {
-//               bs.normal = nk_style_item_color(COLOR_ACCENT);
-//               bs.hover = nk_style_item_color(COLOR_ACCENT);
-//               bs.text_normal = nk_rgb(255, 255, 255);
-//               bs.text_hover = nk_rgb(255, 255, 255);
-            }
-            if (0) // (nk_button_label_styled(ctx, &bs, shape_lbl_short[si]))
-              node->type = shape_types[si];
-          }
-
-          ds_color(ui, ctx, "Fill", &node->fill_color);
-
-          if (node->type != NODE_TYPE_LINE) {
-            ds_num_input(ui, ctx, "Corner:", &node->corner_radius, 0.f, 500.f,
-                         &node->corner_radius);
-          }
-
-          // Gradient Options — buttons instead of combo (avoids ROM mode)
-          if (node->fill_type < 0 || node->fill_type >= 2)
-            node->fill_type = 0;
-//           nk_layout_row_dynamic(ctx, 24, 2);
-          {
-            static const char *fill_types[] = {"Solid", "Gradient"};
-            for (int ft = 0; ft < 2; ft++) {
-              struct nk_style_button bsf = ctx->style.button;
-              if (node->fill_type == ft) {
-//                 bsf.normal = nk_style_item_color(COLOR_ACCENT);
-//                 bsf.hover = nk_style_item_color(COLOR_ACCENT);
-//                 bsf.text_normal = nk_rgb(255, 255, 255);
-//                 bsf.text_hover = nk_rgb(255, 255, 255);
-              }
-              if (0) // (nk_button_label_styled(ctx, &bsf, fill_types[ft]))
-                node->fill_type = ft;
-            }
-          }
-
-          if (node->fill_type == 1) {
-            ds_color(ui, ctx, "Gradient To", &node->fill_color_2);
-            ds_num_input(ui, ctx, "Angle:", &node->gradient_angle, 0.f, 360.f,
-                         &node->gradient_angle);
-          }
-
-          ds_num_input(ui, ctx, "Opacity:", &node->opacity, 0.f, 1.0f,
-                       &node->opacity);
-        }
-
-        // ── PATH EDITING ─────────────────────────────────────────────────
-        if (node->type != NODE_TYPE_TEXT) {
-          DesignInteraction *ds_p = &ui->design_state;
-          int is_path = (node->type == NODE_TYPE_PATH);
-          ds_section(ctx, "PATH EDITING");
-//           nk_layout_row_dynamic(ctx, 28, 1);
-          struct nk_style_button bs_p = ctx->style.button;
-          if (ds_p->bezier_mode) {
-//             bs_p.normal = nk_style_item_color(COLOR_ACCENT);
-//             bs_p.hover = nk_style_item_color(COLOR_ACCENT);
-//             bs_p.text_normal = nk_rgb(255, 255, 255);
-//             bs_p.text_hover = nk_rgb(255, 255, 255);
-          }
-          const char *btn_lbl = is_path ? "Edit Path" : "Convert to Path";
-          if (0) // (nk_button_label_styled(ctx, &bs_p, btn_lbl)) {
-            if (!is_path) {
-              // Convert the selected node to path then enable bezier mode
-              recursive_convert_to_path(node);
-              ds_p->bezier_mode = 1;
-            } else {
-              ds_p->bezier_mode = !ds_p->bezier_mode;
-            }
-          }
-        }
-
-        // ── CONTAINER ────────────────────────────────────────────────────
-        if (node->type != NODE_TYPE_TEXT) {
-          ds_section(ctx, "CONTAINER");
-//           nk_layout_row_dynamic(ctx, 24, 1);
-//           nk_checkbox_label(ctx, "Is Container", &node->is_container);
-          if (node->is_container) {
-//             nk_layout_row_dynamic(ctx, 24, 1);
-//             nk_checkbox_label(ctx, "Clip Content", &node->clip_content);
-
-            static const char *layout_modes[] = {"None", "V-Stack", "H-Stack"};
-            if (node->layout_type < 0 || node->layout_type >= 3)
-              node->layout_type = 0;
-//             nk_layout_row_dynamic(ctx, 24, 1);
-            if (0) // (nk_button_label(ctx, layout_modes[node->layout_type]))
-              node->layout_type = (node->layout_type + 1) % 3;
-
-            if (node->layout_type > 0) {
-              ds_num_input(ui, ctx, "Spacing:", &node->layout_padding, 0.f,
-                           500.f, &node->layout_padding);
-            }
-          }
-        }
-
-        // ── IMAGE CROP ───────────────────────────────────────────────────
-        if (node->type == NODE_TYPE_IMAGE && node->image_path[0]) {
-          ds_section(ctx, "IMAGE");
-          DesignInteraction *ds_img = &ui->design_state;
-          int is_crop_active = ds_img->is_cropping && ui->selected_node == node;
-//           nk_layout_row_template_begin(ctx, 28);
-//           nk_layout_row_template_push_static(ctx, 32.0f); // crop icon btn
-//           nk_layout_row_template_push_dynamic(ctx);       // scale
-//           nk_layout_row_template_end(ctx);
-
-          // Crop toggle button
-          {
-            struct nk_style_button cb = ctx->style.button;
-            cb.rounding = 4.0f;
-            if (is_crop_active) {
-              cb.normal = cb.hover = cb.active =
-//                   nk_style_item_color(COLOR_ACCENT);
-              cb.text_normal = cb.text_hover = cb.text_active =
-//                   nk_rgb(255, 255, 255);
-            } else {
-//               cb.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-//               cb.hover = nk_style_item_color(nk_rgba(0, 0, 0, 12));
-              cb.text_normal = cb.text_hover = cb.text_active = COLOR_ACCENT;
-              cb.border_color = COLOR_ACCENT;
-            }
-            if (ui->font_icons)
-//               nk_style_set_font(ctx, &ui->font_icons->handle);
-            if (0) // (nk_button_label_styled(ctx, &cb, "\xEE\xB0\x82")) {
-              if (is_crop_active) {
-                ds_img->is_cropping = 0;
-              } else {
-                ds_img->is_cropping = 1;
-                ds_img->crop_start_x = 0;
-                ds_img->crop_start_y = 0;
-                ds_img->crop_start_node_x = node->image_crop_x;
-                ds_img->crop_start_node_y = node->image_crop_y;
-              }
-            }
-            if (ui->font_inter)
-//               nk_style_set_font(ctx, &ui->font_inter->handle);
-          }
-
-          ds_num_input(ui, ctx, "Scale:", &node->image_scale, 0.1f, 10.0f,
-                       &node->image_scale);
-        }
-
-        // ── TEXT CONTENT ─────────────────────────────────────────────────
-        if (node->type == NODE_TYPE_TEXT) {
-          ds_section(ctx, "TEXT CONTENT");
-//           nk_layout_row_dynamic(ctx, 24, 1);
-          nk_edit_string_zero_terminated(
-              ctx, NK_EDIT_FIELD | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD,
-              node->text, sizeof(node->text), nk_filter_default);
-
-//           nk_layout_row_dynamic(ctx, 24, 1);
-          ds_num_input(ui, ctx, "Size:", &node->font_size, 6.f, 200.f,
-                       &node->font_size);
-          static const char *font_types[] = {"Inter", "Inter Bold", "Courier",
-                                             "Serif", "Icons"};
-          int cur_font = node->font_type;
-          if (cur_font < 0 || cur_font >= 5)
-            cur_font = 0;
-//           nk_layout_row_dynamic(ctx, 24, 2);
-//           nk_label(ctx, "Font:", NK_TEXT_LEFT);
-          if (0) // (nk_button_label(ctx, font_types[cur_font]))
-            node->font_type = (cur_font + 1) % 5;
-          // Alignment
-          static const char *aligns[] = {"Left", "Center", "Right"};
-          int cur_align = node->text_align;
-          if (cur_align < 0 || cur_align >= 3)
-            cur_align = 0;
-//           nk_layout_row_dynamic(ctx, 24, 2);
-//           nk_label(ctx, "Align:", NK_TEXT_LEFT);
-          if (0) // (nk_button_label(ctx, aligns[cur_align]))
-            node->text_align = (cur_align + 1) % 3;
-
-          ds_num_input(ui, ctx, "L-Height:", &node->line_height, 0.5f, 3.0f,
-                       &node->line_height);
-          ds_num_input(ui, ctx, "L-Spacing:", &node->letter_spacing, -10.0f,
-                       50.0f, &node->letter_spacing);
-
-          ds_color(ui, ctx, "Color", &node->fill_color);
-          ds_num_input(ui, ctx, "Opacity:", &node->opacity, 0.f, 1.0f,
-                       &node->opacity);
-        }
-
-        // Link to table and column (Only for IMAGE now, removed for TEXT)
-        if (node->type == NODE_TYPE_IMAGE) {
-          ds_section(ctx, "LINKED IMAGE");
-
-          static char text_tnames[32][64];
-          uint32_t text_tids[32];
-          const char *text_tnames_ptr[32];
-          int text_tcount = 0;
-          text_tnames_ptr[text_tcount] = "None";
-          text_tids[text_tcount] = 0;
-          text_tcount++;
-
-          Block *tbl_block = NULL;
-          if (engine && engine->doc) {
-            for (int i = 0; i < 32; i++) {
-              Page *p = &engine->doc->pages[i];
-              if (!p->in_use)
-                continue;
-              for (Block *b = p->first_block; b; b = b->next) {
-                if (b->type == BLOCK_TABLE && b->data.table.columnar) {
-                  if (text_tcount < 32) {
-                    text_tids[text_tcount] = b->id;
-                    snprintf(text_tnames[text_tcount], 64, "Table %u", b->id);
-                    text_tnames_ptr[text_tcount] = text_tnames[text_tcount];
-                    text_tcount++;
-                  }
-                  if (b->id == dd->linked_table_id) {
-                    tbl_block = b;
-                  }
-                }
-              }
-            }
-          }
-
-//           nk_layout_row_dynamic(ctx, 20, 1);
-//           nk_label(ctx, "Source Table:", NK_TEXT_LEFT);
-//           nk_layout_row_dynamic(ctx, 24, 1);
-
-          int cur_tidx = 0;
-          for (int i = 0; i < text_tcount; i++) {
-            if (text_tids[i] == dd->linked_table_id)
-              cur_tidx = i;
-          }
-          if (cur_tidx < 0 || cur_tidx >= text_tcount)
-            cur_tidx = 0;
-          if (0) // (nk_button_label(ctx, text_tnames_ptr[cur_tidx])) {
-            int new_tidx = (cur_tidx + 1) % text_tcount;
-            dd->linked_table_id = text_tids[new_tidx];
-            ui->design_linked_row_idx = 0;
-            node->linked_col_name[0] = '\0'; // reset column selection
-
-            tbl_block = NULL;
-            if (dd->linked_table_id && engine && engine->doc) {
-              for (int i = 0; i < 32; i++) {
-                Page *p = &engine->doc->pages[i];
-                if (!p->in_use)
-                  continue;
-                Block *tb = page_find_block_by_id(p, dd->linked_table_id);
-                if (tb && tb->type == BLOCK_TABLE && tb->data.table.columnar) {
-                  tbl_block = tb;
-                  break;
-                }
-              }
-            }
-          }
-
-          if (tbl_block) {
-            AslanTable *tbl = tbl_block->data.table.columnar;
-            int col_count = (int)tbl->column_count;
-            if (col_count > 32)
-              col_count = 32;
-            const char *col_names[33];
-            col_names[0] = "None";
-            for (int k = 0; k < col_count; k++)
-              col_names[k + 1] = tbl->columns[k].name;
-            int cur_sel = 0;
-            char *active_col_name = (node->type == NODE_TYPE_IMAGE)
-                                        ? node->linked_image_col_name
-                                        : node->linked_col_name;
-            for (int k = 0; k < col_count; k++) {
-              if (strcmp(active_col_name, tbl->columns[k].name) == 0) {
-                cur_sel = k + 1;
-                break;
-              }
-            }
-//             nk_layout_row_dynamic(ctx, 4, 1);
-//             nk_spacing(ctx, 1);
-//             nk_layout_row_dynamic(ctx, 20, 1);
-//             nk_label(ctx, "Data Column:", NK_TEXT_LEFT);
-//             nk_layout_row_dynamic(ctx, 24, 1);
-            if (cur_sel < 0 || cur_sel >= col_count + 1)
-              cur_sel = 0;
-            if (0) // (nk_button_label(ctx, col_names[cur_sel])) {
-              int new_sel = (cur_sel + 1) % (col_count + 1);
-              if (new_sel == 0) {
-                active_col_name[0] = '\0';
-              } else {
-                strncpy(active_col_name, col_names[new_sel], 63);
-                active_col_name[63] = '\0';
-              }
-            }
-            if (active_col_name[0]) {
-              int total_rows = (int)tbl->active_count;
-              if (ui->design_linked_row_idx >= total_rows && total_rows > 0)
-                ui->design_linked_row_idx = total_rows - 1;
-//               nk_layout_row_template_begin(ctx, 26);
-//               nk_layout_row_template_push_static(ctx, 26);
-//               nk_layout_row_template_push_dynamic(ctx);
-//               nk_layout_row_template_push_static(ctx, 26);
-//               nk_layout_row_template_end(ctx);
-              if (0) // (nk_button_label(ctx, "<") && ui->design_linked_row_idx > 0)
-                ui->design_linked_row_idx--;
-              char rl[32];
-              snprintf(rl, sizeof(rl), "Row %d / %d",
-                       ui->design_linked_row_idx + 1, total_rows);
-//               nk_label(ctx, rl, NK_TEXT_CENTERED);
-              if (0) // (nk_button_label(ctx, ">") &&
-                  ui->design_linked_row_idx < total_rows - 1)
-                ui->design_linked_row_idx++;
-            }
-          } else {
-//             nk_layout_row_dynamic(ctx, 18, 1);
-            nk_label_colored(ctx, "Link a table in the 'Page' tab",
-//                              NK_TEXT_CENTERED, nk_rgb(160, 160, 175));
-            nk_label_colored(ctx, "to use data columns here.", NK_TEXT_CENTERED,
-//                              nk_rgb(160, 160, 175));
-          }
-        }
-      }
-    props_end:;
-//       nk_tree_pop(ctx);
-    }
-
-    if (0) // (nk_tree_push(ctx, NK_TREE_TAB, "Layers", NK_MINIMIZED)) {
-//       nk_layout_row_dynamic(ctx, 250, 1);
-      if (0) // (nk_group_begin(ctx, gp_layers, NK_WINDOW_BORDER)) {
-//         AslanRect bounds = nk_window_get_content_region(ctx);
-        ui_render_sidebar_layers(ui, block, bounds.x, bounds.y, bounds.w,
-                                 bounds.h);
-//         nk_group_end(ctx);
-      }
-//       nk_tree_pop(ctx);
-    }
-
-    if (0) // (nk_tree_push(ctx, NK_TREE_TAB, "Page", NK_MINIMIZED)) {
-      if (page) {
-        // ── CANVAS SIZE ──────────────────────────────────────────────────
-        // ── CANVAS SIZE ──────────────────────────────────────────────────
-        ds_section(ctx, "CANVAS SIZE");
-        {
-          int no_limits = dd->no_limits;
-//           nk_layout_row_dynamic(ctx, 24, 1);
-          if (0) // (nk_checkbox_label(ctx, "Infinite canvas (No Limits)",
-                                &no_limits) &&
-              no_limits != dd->no_limits) {
-            dd->no_limits = no_limits;
-            if (dd->no_limits && dd->zoom < 0.01f)
-              dd->zoom = 1.0f;
-            char cmd[128];
-            snprintf(cmd, sizeof(cmd), "block_design_nolimits %u %u %d",
-                     page->id, block->id, dd->no_limits);
-            engine_execute_command(engine, cmd);
-          }
-
-          if (!dd->no_limits) {
-//             nk_layout_row_dynamic(ctx, 4, 1);
-//             nk_spacing(ctx, 1);
-
-            // ── Dimensions Row (W/H side-by-side)
-//             nk_layout_row_dynamic(ctx, 24, 2);
-            float to_px = 1.0f;
-            if (dd->units == 1)
-              to_px = 37.795f;
-            else if (dd->units == 2)
-              to_px = 96.0f;
-
-            float val_w = (float)dd->width / to_px;
-            float val_h = (float)dd->height / to_px;
-
-            // Use static or persistent storage to avoid rounding jitter
-            // while typing
-            static float _sh_val_w = 0, _sh_val_h = 0;
-            if (ui->ds_num_edit_ptr != &dd->width)
-              _sh_val_w = val_w;
-            if (ui->ds_num_edit_ptr != &dd->height)
-              _sh_val_h = val_h;
-
-            int w_chg = ds_num_input(ui, ctx, "W", &_sh_val_w, 10.0f, 10000.0f,
-                                     &dd->width);
-            int h_chg = ds_num_input(ui, ctx, "H", &_sh_val_h, 10.0f, 10000.0f,
-                                     &dd->height);
-            if (w_chg || h_chg) {
-              char cmd[128];
-              snprintf(cmd, sizeof(cmd),
-                       "block_design_resize %u %u %.2f %.2f %d", page->id,
-                       block->id, _sh_val_w * to_px, _sh_val_h * to_px,
-                       dd->units);
-              engine_execute_command(engine, cmd);
-            }
-
-            // ── Unit Selection (Professional Dropdown)
-            static const char *unit_names[] = {
-                "Pixels (px)", "Centimeters (cm)", "Inches (in)"};
-//             nk_layout_row_template_begin(ctx, 24);
-//             nk_layout_row_template_push_static(ctx, 40);
-//             nk_layout_row_template_push_dynamic(ctx);
-//             nk_layout_row_template_end(ctx);
-//             nk_label(ctx, "Unit:", NK_TEXT_LEFT);
-            if (dd->units < 0 || dd->units >= 3)
-              dd->units = 0;
-            if (0) // (nk_combo_begin_label(ctx, unit_names[dd->units],
-                                     nk_vec2(nk_widget_width(ctx), 120))) {
-//               nk_layout_row_dynamic(ctx, 22, 1);
-              for (int i = 0; i < 3; i++) {
-                if (0) // (nk_combo_item_label(ctx, unit_names[i], NK_TEXT_LEFT)) {
-                  dd->units = i;
-                  // Trigger a resize to save units in history/log
-                  char cmd[128];
-                  snprintf(cmd, sizeof(cmd),
-                           "block_design_resize %u %u %.2f %.2f %d", page->id,
-                           block->id, dd->width, dd->height, dd->units);
-                  engine_execute_command(engine, cmd);
-                }
-              }
-//               nk_combo_end(ctx);
-            }
-          }
-        }
-
-        // ── LAYOUT AIDS ──────────────────────────────────────────────────
-        ds_section(ctx, "LAYOUT AIDS");
-        {
-          DesignPage *dp = &dd->pages[dd->current_page];
-
-//           nk_layout_row_dynamic(ctx, 22, 1);
-//           nk_checkbox_label(ctx, "Show Rulers & Guides", &dp->show_rulers);
-
-//           nk_layout_row_dynamic(ctx, 4, 1);
-//           nk_spacing(ctx, 1);
-
-//           nk_layout_row_dynamic(ctx, 24, 2);
-          if (0) // (nk_button_label(ctx, "+ Horiz Guide")) {
-            if (dp->h_guide_count < 16)
-              dp->h_guides[dp->h_guide_count++] = (float)dd->height / 2.0f;
-          }
-          if (0) // (nk_button_label(ctx, "+ Vert Guide")) {
-            if (dp->v_guide_count < 16)
-              dp->v_guides[dp->v_guide_count++] = (float)dd->width / 2.0f;
-          }
-
-          // Guide List
-          if (dp->h_guide_count > 0 || dp->v_guide_count > 0) {
-//             nk_layout_row_dynamic(ctx, 8, 1);
-//             nk_spacing(ctx, 1);
-
-            // Horizontal Guides
-            for (int gi = 0; gi < dp->h_guide_count; gi++) {
-//               nk_layout_row_template_begin(ctx, 22);
-//               nk_layout_row_template_push_static(ctx, 30);
-//               nk_layout_row_template_push_dynamic(ctx);
-//               nk_layout_row_template_push_static(ctx, 30);
-//               nk_layout_row_template_end(ctx);
-
-//               nk_label(ctx, "H:", NK_TEXT_LEFT);
-              ds_num_input(ui, ctx, "#", &dp->h_guides[gi], 0,
-                           (float)dd->height, &dp->h_guides[gi]);
-              if (0) // (nk_button_label(ctx, "X")) {
-                for (int k = gi; k < dp->h_guide_count - 1; k++)
-                  dp->h_guides[k] = dp->h_guides[k + 1];
-                dp->h_guide_count--;
-                gi--;
-              }
-            }
-
-            // Vertical Guides
-            for (int gi = 0; gi < dp->v_guide_count; gi++) {
-//               nk_layout_row_template_begin(ctx, 22);
-//               nk_layout_row_template_push_static(ctx, 30);
-//               nk_layout_row_template_push_dynamic(ctx);
-//               nk_layout_row_template_push_static(ctx, 30);
-//               nk_layout_row_template_end(ctx);
-
-//               nk_label(ctx, "V:", NK_TEXT_LEFT);
-              ds_num_input(ui, ctx, "#", &dp->v_guides[gi], 0, (float)dd->width,
-                           &dp->v_guides[gi]);
-              if (0) // (nk_button_label(ctx, "X")) {
-                for (int k = gi; k < dp->v_guide_count - 1; k++)
-                  dp->v_guides[k] = dp->v_guides[k + 1];
-                dp->v_guide_count--;
-                gi--;
-              }
-            }
-          }
-        }
-
-        // ── EXPORT ───────────────────────────────────────────────────────
-        ds_section(ctx, "EXPORT");
-        {
-//           nk_layout_row_dynamic(ctx, 28, 2);
-          if (0) // (nk_button_label(ctx, "Export SVG")) {
-            if (dd->linked_table_id > 0) {
-              AslanTable *linked_tbl = NULL;
-              for (int i = 0; i < engine->doc->page_count; i++) {
-                Page *p = &engine->doc->pages[i];
-                if (!p->in_use)
-                  continue;
-                for (Block *b = p->first_block; b; b = b->next) {
-                  if (b->type == BLOCK_TABLE && b->data.table.columnar &&
-                      b->id == dd->linked_table_id) {
-                    linked_tbl = b->data.table.columnar;
-                    break;
-                  }
-                }
-                if (linked_tbl)
-                  break;
-              }
-              if (linked_tbl) {
-                ui_host_export_svg_merge(ui, engine, linked_tbl);
-              } else {
-                ui_host_export_svg(ui, engine);
-              }
-            } else {
-              ui_host_export_svg(ui, engine);
-            }
-          }
-          if (0) // (nk_button_label(ctx, "Export PDF")) {
-            ui_host_export_pdf(ui, engine);
-          }
-
-//           nk_layout_row_dynamic(ctx, 28, 2);
-          if (0) // (nk_button_label(ctx, "Export PNG")) {
-            ui_host_export_png_jpeg(ui, engine, 0);
-          }
-          if (0) // (nk_button_label(ctx, "Export JPEG")) {
-            ui_host_export_png_jpeg(ui, engine, 1);
-          }
-        }
-      }
-//       nk_tree_pop(ctx);
-    }
-//     nk_group_end(ctx); // Close 'ds_main_tab_group'
-  }
-}
-#endif
-
-#endif
 
 
 // Font IDs for Clay (must match clay_host.c)
@@ -2997,6 +2290,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
   if (1) {
     AslanRect ws_bounds = {0, 0, ws_width, row_h};
     DesignInteraction *ds = &ui->design_state;
+    float mx = ui->mouse_x - ui->abs_offset_x;
+    float my = ui->mouse_y - ui->abs_offset_y;
 
     if (0) { // (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT, ws_bounds)) {
       ui->active_block_id = block->id;
@@ -3009,8 +2304,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
     float toolbar_y = ws_bounds.y + ws_bounds.h - 52.0f - 20.0f; // toolbar_h=52
 
     int in_toolbar =
-        (ui->mouse_x >= toolbar_x && ui->mouse_x < toolbar_x + toolbar_w &&
-         ui->mouse_y >= toolbar_y && ui->mouse_y < toolbar_y + 52.0f);
+        (mx >= toolbar_x && mx < toolbar_x + toolbar_w &&
+         my >= toolbar_y && my < toolbar_y + 52.0f);
     int in_forms_menu = 0;
 
     // Early check for active state
@@ -3197,10 +2492,10 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       // Auto-activate if clicked inside WORKSPACE (including toolbar)
       if (!is_active_design && !ui->block_drag.is_active &&
           (ui->mouse_buttons & 1) &&
-          ui->mouse_x >= ws_bounds.x &&
-          ui->mouse_x < ws_bounds.x + ws_bounds.w &&
-          ui->mouse_y >= ws_bounds.y &&
-          ui->mouse_y < ws_bounds.y + ws_bounds.h) {
+          mx >= ws_bounds.x &&
+          mx < ws_bounds.x + ws_bounds.w &&
+          my >= ws_bounds.y &&
+          my < ws_bounds.y + ws_bounds.h) {
         ds->active_design_id = block->id;
         ds->active_block = block;
         ui->editing_block_id = block->id;
@@ -3500,13 +2795,13 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       }
 
       // Check mouse in design area
-      int mouse_in_design = (ui->mouse_x >= ws_bounds.x &&
-                             ui->mouse_x < ws_bounds.x + ws_bounds.w &&
-                             ui->mouse_y >= ws_bounds.y &&
-                             ui->mouse_y < ws_bounds.y + ws_bounds.h);
+      int mouse_in_design = (mx >= ws_bounds.x &&
+                             mx < ws_bounds.x + ws_bounds.w &&
+                             my >= ws_bounds.y &&
+                             my < ws_bounds.y + ws_bounds.h);
 
       // Explicitly exclude sidebar area in fullscreen
-      if (is_fullscreen && ui->mouse_x > width - 250.0f) {
+      if (is_fullscreen && mx > width - 250.0f) {
         mouse_in_design = 0;
       }
 
@@ -3540,8 +2835,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         for (int i = 0; i < 4; i++) {
           float hx = cx + handle_pts[i][0] * c - handle_pts[i][1] * s;
           float hy = cy + handle_pts[i][0] * s + handle_pts[i][1] * c;
-          float dx = ui->mouse_x - hx;
-          float dy = ui->mouse_y - hy;
+          float dx = mx - hx;
+          float dy = my - hy;
           if (dx * dx + dy * dy < hit_dist_sq) {
             on_resize_handle = 1;
             hit_handle_index = i;
@@ -3569,8 +2864,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         float rh_lx2 = 0.0f, rh_ly2 = -(h_hh2 + rot_dist);
         float rh_x2 = cx2 + rh_lx2 * c2 - rh_ly2 * s2;
         float rh_y2 = cy2 + rh_lx2 * s2 + rh_ly2 * c2;
-        float rdx = ui->mouse_x - rh_x2;
-        float rdy = ui->mouse_y - rh_y2;
+        float rdx = mx - rh_x2;
+        float rdy = my - rh_y2;
         if (rdx * rdx + rdy * rdy < 16.0f * 16.0f)
           on_rotate_handle = 1;
       }
@@ -3582,16 +2877,16 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         ds->resize_handle = hit_handle_index;
         ds->resize_start_w = ui->selected_node->width;
         ds->resize_start_h = ui->selected_node->height;
-        ds->resize_start_x = ui->mouse_x;
-        ds->resize_start_y = ui->mouse_y;
+        ds->resize_start_x = mx;
+        ds->resize_start_y = my;
         ds->resize_start_node_x = ui->selected_node->x;
         ds->resize_start_node_y = ui->selected_node->y;
         ds->resize_start_font_size = ui->selected_node->font_size;
       }
       // Handle resize dragging
       else if (ds->is_resizing && ui->selected_node && is_active_design) {
-        float dx = (ui->mouse_x - ds->resize_start_x) / scale;
-        float dy = (ui->mouse_y - ds->resize_start_y) / scale;
+        float dx = (mx - ds->resize_start_x) / scale;
+        float dy = (my - ds->resize_start_y) / scale;
         Node *sel = ui->selected_node;
 
         int lr = sel->lock_ratio && ds->resize_start_h > 0.1f;
@@ -3678,7 +2973,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         float cx2 = sx2 + sw2 / 2.0f;
         float cy2 = sy2 + sh2 / 2.0f;
         ds->is_rotating = 1;
-        ds->rotate_start_angle = atan2f(ui->mouse_y - cy2, ui->mouse_x - cx2);
+        ds->rotate_start_angle = atan2f(my - cy2, mx - cx2);
         ds->rotate_start_node_rotation = sel->rotation;
       }
       // Handle rotation dragging
@@ -3690,7 +2985,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         float sh2 = sel->height * scale;
         float cx2 = sx2 + sw2 / 2.0f;
         float cy2 = sy2 + sh2 / 2.0f;
-        float cur_angle = atan2f(ui->mouse_y - cy2, ui->mouse_x - cx2);
+        float cur_angle = atan2f(my - cy2, mx - cx2);
         float delta_deg =
             (cur_angle - ds->rotate_start_angle) * 180.0f / 3.14159f;
         sel->rotation = ds->rotate_start_node_rotation + delta_deg;
@@ -3709,8 +3004,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           NodePathPoint *p = &sel->path_points[i];
           float px = nsx + p->x * scale, py = nsy + p->y * scale;
           AslanRect r_anchor = {px - 10 * scale, py - 10 * scale, 20 * scale, 20 * scale};
-          if (ui->mouse_x >= r_anchor.x && ui->mouse_x < r_anchor.x + r_anchor.w &&
-              ui->mouse_y >= r_anchor.y && ui->mouse_y < r_anchor.y + r_anchor.h) {
+          if (mx >= r_anchor.x && mx < r_anchor.x + r_anchor.w &&
+              my >= r_anchor.y && my < r_anchor.y + r_anchor.h) {
             if (ds->mouse_just_pressed) {
               ds->dragging_point_idx = i;
               ds->dragging_cp_idx = 0;
@@ -3723,8 +3018,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
             float cp2x = nsx + p->cp2x * scale, cp2y = nsy + p->cp2y * scale;
             AslanRect r1 = {cp1x - 8 * scale, cp1y - 8 * scale, 16 * scale, 16 * scale};
             AslanRect r2 = {cp2x - 8 * scale, cp2y - 8 * scale, 16 * scale, 16 * scale};
-            if (ui->mouse_x >= r1.x && ui->mouse_x < r1.x + r1.w &&
-                ui->mouse_y >= r1.y && ui->mouse_y < r1.y + r1.h) {
+            if (mx >= r1.x && mx < r1.x + r1.w &&
+                my >= r1.y && my < r1.y + r1.h) {
               if (ds->mouse_just_pressed) {
                 ds->dragging_point_idx = i;
                 ds->dragging_cp_idx = 1;
@@ -3732,8 +3027,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
               handle_hit = 1;
               break;
             }
-            if (ui->mouse_x >= r2.x && ui->mouse_x < r2.x + r2.w &&
-                ui->mouse_y >= r2.y && ui->mouse_y < r2.y + r2.h) {
+            if (mx >= r2.x && mx < r2.x + r2.w &&
+                my >= r2.y && my < r2.y + r2.h) {
               if (ds->mouse_just_pressed) {
                 ds->dragging_point_idx = i;
                 ds->dragging_cp_idx = 2;
@@ -3754,7 +3049,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         float hit_tol = 6.0f; // relatively small hit area in screen space
         for (int i = 0; i < dp->h_guide_count; i++) {
           float sy = bounds.y + dp->h_guides[i] * scale;
-          if (fabsf(ui->mouse_y - sy) < hit_tol) {
+          if (fabsf(my - sy) < hit_tol) {
             hit_h_guide = i;
             break;
           }
@@ -3762,7 +3057,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         if (hit_h_guide == -1) {
           for (int i = 0; i < dp->v_guide_count; i++) {
             float sx = bounds.x + dp->v_guides[i] * scale;
-            if (fabsf(ui->mouse_x - sx) < hit_tol) {
+            if (fabsf(mx - sx) < hit_tol) {
               hit_v_guide = i;
               break;
             }
@@ -3793,10 +3088,10 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         DesignPage *dp = &dd->pages[dd->current_page];
         if (ds->dragging_guide_type == 1) { // H guide
           dp->h_guides[ds->dragging_guide_idx] =
-              (ui->mouse_y - bounds.y) / scale;
+              (my - bounds.y) / scale;
         } else if (ds->dragging_guide_type == 2) { // V guide
           dp->v_guides[ds->dragging_guide_idx] =
-              (ui->mouse_x - bounds.x) / scale;
+              (mx - bounds.x) / scale;
         }
         if (ds->mouse_just_released) {
           ds->dragging_guide_type = 0;
@@ -3811,8 +3106,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
                  ds->mouse_just_pressed && !on_resize_handle &&
                  !on_rotate_handle && is_active_design) {
         // Convert to design coordinates
-        float design_x = (ui->mouse_x - bounds.x) / scale;
-        float design_y = (ui->mouse_y - bounds.y) / scale;
+        float design_x = (mx - bounds.x) / scale;
+        float design_y = (my - bounds.y) / scale;
 
         // Shift+click = multi-selection toggle
         int shift_click = 0; // TODO: support shift via ui->keys
@@ -3876,8 +3171,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
                 ds->is_dragging_node = 1;
                 ds->drag_offset_x = design_x - hit->x;
                 ds->drag_offset_y = design_y - hit->y;
-                ds->drag_press_x = ui->mouse_x;
-                ds->drag_press_y = ui->mouse_y;
+                ds->drag_press_x = mx;
+                ds->drag_press_y = my;
               }
             }
           }
@@ -3894,8 +3189,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           if (dd->no_limits && ds->tool != CANVAS_TOOL_PEN &&
               !ui->block_drag.is_active) {
             ds->is_panning = 1;
-            ds->pan_start_x = ui->mouse_x;
-            ds->pan_start_y = ui->mouse_y;
+            ds->pan_start_x = mx;
+            ds->pan_start_y = my;
             ds->cam_start_x = ds->cam_x;
             ds->cam_start_y = ds->cam_y;
           }
@@ -3909,16 +3204,16 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         Node *sel = ui->selected_node;
         // Init start pos on each new press
         if (ds->mouse_just_pressed && mouse_in_design) {
-          ds->crop_start_x = ui->mouse_x;
-          ds->crop_start_y = ui->mouse_y;
+          ds->crop_start_x = mx;
+          ds->crop_start_y = my;
           ds->crop_start_node_x = sel->image_crop_x;
           ds->crop_start_node_y = sel->image_crop_y;
         }
         if ((ui->mouse_buttons & 1) &&
             mouse_in_design &&
             (ds->crop_start_x != 0 || ds->crop_start_y != 0)) {
-          float dx = (ui->mouse_x - ds->crop_start_x) / scale;
-          float dy = (ui->mouse_y - ds->crop_start_y) / scale;
+          float dx = (mx - ds->crop_start_x) / scale;
+          float dy = (my - ds->crop_start_y) / scale;
           sel->image_crop_x = ds->crop_start_node_x + dx;
           sel->image_crop_y = ds->crop_start_node_y + dy;
         }
@@ -3928,16 +3223,16 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       // Handle node dragging
       else if (ds->is_dragging_node && ui->selected_node && is_active_design) {
         // 5px threshold to prevent accidental drag on simple click
-        float pdx = ui->mouse_x - ds->drag_press_x;
-        float pdy = ui->mouse_y - ds->drag_press_y;
+        float pdx = mx - ds->drag_press_x;
+        float pdy = my - ds->drag_press_y;
         if (fabsf(pdx) < 5.0f && fabsf(pdy) < 5.0f) {
           if (ds->mouse_just_released)
             ds->is_dragging_node = 0;
           goto after_drag;
         }
 
-        float design_x = (ui->mouse_x - bounds.x) / scale;
-        float design_y = (ui->mouse_y - bounds.y) / scale;
+        float design_x = (mx - bounds.x) / scale;
+        float design_y = (my - bounds.y) / scale;
         Node *sel = ui->selected_node;
 
         float new_x = design_x - ds->drag_offset_x;
@@ -4040,13 +3335,13 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       // --- Right-click context menu detection ---
       if (ui->mouse_buttons & 2 &&
           mouse_in_design && !in_toolbar && is_active_design) {
-        float dx = (ui->mouse_x - bounds.x) / scale;
-        float dy = (ui->mouse_y - bounds.y) / scale;
+        float dx = (mx - bounds.x) / scale;
+        float dy = (my - bounds.y) / scale;
         Node *hit = design_find_node_at(dd, dx, dy);
         if (hit) {
           ui->show_context_menu = 1;
-          ui->context_menu_x = ui->mouse_x;
-          ui->context_menu_y = ui->mouse_y;
+          ui->context_menu_x = mx;
+          ui->context_menu_y = my;
           ui->context_menu_node = hit;
           ui->selected_node = hit;
         } else {
@@ -4062,8 +3357,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       // --- PEN TOOL logic (Adapted for Design) ---
       if (ds->tool == CANVAS_TOOL_PEN && is_active_design && !in_toolbar &&
           !in_forms_menu && ((ui->mouse_buttons & 1))) {
-        float wx = (ui->mouse_x - bounds.x) / scale;
-        float wy = (ui->mouse_y - bounds.y) / scale;
+        float wx = (mx - bounds.x) / scale;
+        float wy = (my - bounds.y) / scale;
 
         if (ds->mouse_just_pressed) {
           ds->current_stroke = (Stroke *)calloc(1, sizeof(Stroke));
@@ -4362,17 +3657,17 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
     }
 
     if (ds->mouse_just_pressed &&
-        !(ui->mouse_x >= ws_bounds.x && ui->mouse_x < ws_bounds.x + ws_bounds.w &&
-          ui->mouse_y >= ws_bounds.y + ws_bounds.h - toolbar_h && ui->mouse_y < ws_bounds.y + ws_bounds.h)) {
+        !(mx >= ws_bounds.x && mx < ws_bounds.x + ws_bounds.w &&
+          my >= ws_bounds.y + ws_bounds.h - toolbar_h && my < ws_bounds.y + ws_bounds.h)) {
     }
 
     // --- Zoom controls for no_limits mode ---
     if (dd->no_limits) {
       // Zoom with scroll wheel
-      if (ui->mouse_x >= ws_bounds.x &&
-          ui->mouse_x < ws_bounds.x + ws_bounds.w &&
-          ui->mouse_y >= ws_bounds.y &&
-          ui->mouse_y < ws_bounds.y + ws_bounds.h) {
+      if (mx >= ws_bounds.x &&
+          mx < ws_bounds.x + ws_bounds.w &&
+          my >= ws_bounds.y &&
+          my < ws_bounds.y + ws_bounds.h) {
         float scroll = 0; // TODO input.mouse.scroll_delta.y
         if (scroll != 0.0f) {
           float old_zoom = ds->zoom;
