@@ -921,12 +921,11 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       ui->selected_node->y = world_y - cs->drag_offset_y;
     }
 
-    // Handle element creation preview
-    if (cs->is_creating) {
-      cs->create_end_x = cs->cam_x + (ui->mouse_x - cs->bounds_x) / cs->zoom;
-      cs->create_end_y = cs->cam_y + (ui->mouse_y - cs->bounds_y) / cs->zoom;
-    }
+    cs->create_end_y = cs->cam_y + (ui->mouse_y - cs->bounds_y) / cs->zoom;
   }
+
+  nvgw_input_mouse(&ui->nvgw, (float)ui->mouse_x, (float)ui->mouse_y,
+                   (ui->mouse_buttons & 1) != 0, 0);
 
   // Track mouse buttons
   if (evt->type == SDL_MOUSEBUTTONDOWN) {
@@ -966,9 +965,7 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
         ds_sp->cam_start_x = ds_sp->cam_x;
         ds_sp->cam_start_y = ds_sp->cam_y;
       }
-    }
-
-    if (evt->button.button == SDL_BUTTON_MIDDLE) {
+    } else if (evt->button.button == SDL_BUTTON_MIDDLE) {
       ui->mouse_buttons |= 2;
       // Start panning with middle mouse button
       if (cs->mouse_in_canvas) {
@@ -978,10 +975,12 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
         cs->cam_start_x = cs->cam_x;
         cs->cam_start_y = cs->cam_y;
       }
+    } else if (evt->button.button == SDL_BUTTON_RIGHT) {
+      ui->mouse_buttons |= 4;
     }
 
-    if (evt->button.button == SDL_BUTTON_RIGHT)
-      ui->mouse_buttons |= 4;
+    nvgw_input_mouse(&ui->nvgw, (float)ui->mouse_x, (float)ui->mouse_y,
+                     (ui->mouse_buttons & 1) != 0, 0);
   }
 
   if (evt->type == SDL_MOUSEBUTTONUP) {
@@ -1131,14 +1130,14 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       ui->design_state.is_panning = 0;
     }
 
-    if (evt->button.button == SDL_BUTTON_MIDDLE) {
-      ui->mouse_buttons &= ~2;
-      cs->is_panning = 0;
-    }
-
-    if (evt->button.button == SDL_BUTTON_RIGHT)
-      ui->mouse_buttons &= ~4;
+  } else if (evt->button.button == SDL_BUTTON_MIDDLE) {
+    ui->mouse_buttons &= ~2;
+    ui->canvas_state.is_panning = 0;
+  } else if (evt->button.button == SDL_BUTTON_RIGHT) {
+    ui->mouse_buttons &= ~4;
   }
+
+  // Start of keyboard handling
 
   // Track spacebar for pan mode (canvas + design)
   if (evt->type == SDL_KEYDOWN && evt->key.keysym.sym == SDLK_SPACE) {
@@ -1168,10 +1167,12 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
                 sizeof(ui->editing_node->text) - 1);
         ui->editing_node->text[sizeof(ui->editing_node->text) - 1] = '\0';
         ui->editing_node = NULL;
-        SDL_StartTextInput(); // keep text input alive for Nuklear edit widgets
+        SDL_StartTextInput(); // keep text input alive for Nuklear edit
+                              // widgets
       } else if (evt->key.keysym.sym == SDLK_ESCAPE) {
         ui->editing_node = NULL;
-        SDL_StartTextInput(); // keep text input alive for Nuklear edit widgets
+        SDL_StartTextInput(); // keep text input alive for Nuklear edit
+                              // widgets
       } else if (evt->key.keysym.sym == SDLK_BACKSPACE) {
         size_t len = strlen(ui->edit_buffer);
         if (len > 0)
@@ -1182,8 +1183,15 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       size_t input_len = strlen(evt->text.text);
       if (len + input_len < sizeof(ui->edit_buffer) - 1)
         strcat(ui->edit_buffer, evt->text.text);
+      // Feed NanoVG widgets
+      nvgw_input_keyboard(&ui->nvgw, evt->text.text, false, false);
     }
     return; // Consume all keyboard events while editing text
+  }
+
+  // Always feed text input to NanoVG widgets if not editing node
+  if (evt->type == SDL_TEXTINPUT) {
+    nvgw_input_keyboard(&ui->nvgw, evt->text.text, false, false);
   }
 
   // --- Canvas/Design keyboard shortcuts (only when NOT editing text) ---
@@ -1192,6 +1200,12 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     int cmd_held = (mods & KMOD_GUI) || (mods & KMOD_CTRL);
     int shift_held = (mods & KMOD_SHIFT);
     SDL_Keycode key = evt->key.keysym.sym;
+
+    // Feed NanoVG widgets
+    if (key == SDLK_BACKSPACE)
+      nvgw_input_keyboard(&ui->nvgw, NULL, true, false);
+    else if (key == SDLK_RETURN || key == SDLK_KP_ENTER)
+      nvgw_input_keyboard(&ui->nvgw, NULL, false, true);
 
     // Determine active block (canvas or design)
     Block *active_block = NULL;
@@ -1388,8 +1402,8 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       if (active_block && active_block->id == ui->table_state.active_block_id) {
         tbl_block = active_block;
       }
-      // If we couldn't find the table block directly, check the active ones
-      // again
+      // If we couldn't find the table block directly, check the active
+      // ones again
       if (!tbl_block) {
         Page *active_page = doc_page_get_active(ui->engine->doc);
         if (active_page) {
@@ -1490,8 +1504,8 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
                   char *cell_val = strtok_r(line, "\t", &cell_saveptr);
                   while (cell_val) {
                     if (cur_c < (int)tbl->column_count) {
-                      // Some types might not like raw strings, but our cell
-                      // setter handles most
+                      // Some types might not like raw strings, but our
+                      // cell setter handles most
                       aslan_table_set_cell(tbl, cur_c, row_id, cell_val);
                     }
                     cur_c++;
@@ -1623,21 +1637,16 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 // Block Renderers
 // -----------------------------------------------------------------------------
 
-// Overlay toolbar: draws compact icons at (x_right, y_top) without consuming
-// layout space. Elegant floating pill with subtle border.
+// Overlay toolbar: draws compact icons at (x_right, y_top) without
+// consuming layout space. Elegant floating pill with subtle border.
 static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
-                                          struct nk_context *ctx, Page *page,
-                                          Block *block, float x_right,
-                                          float y_top) {
-  struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-  const struct nk_user_font *icon_font =
-      ui->font_icons ? &ui->font_icons->handle : &ui->font_inter->handle;
-
+                                          Page *page, Block *block,
+                                          float x_right, float y_top) {
   float btn_w = 22.0f, btn_h = 22.0f, gap = 2.0f;
-  float mx = ctx->input.mouse.pos.x;
-  float my = ctx->input.mouse.pos.y;
-  int pressed = nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT);
-  int mouse_down = nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT);
+  float mx = ui->nvgw.mouse_x;
+  float my = ui->nvgw.mouse_y;
+  int pressed = ui->nvgw.mouse_clicked;
+  int mouse_down = ui->nvgw.mouse_down;
 
   int is_expanded = (ui->expanded_block_id == block->id);
   int allow_fullscreen =
@@ -1668,52 +1677,34 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
   float bx = x_right - total_w - 4.0f;
   float by = y_top + 6.0f;
 
-  // Elegant pill: solid bg + subtle border + slight shadow
-  struct nk_color pill_bg =
-      ui->dark_mode ? nk_rgba(35, 36, 42, 230) : nk_rgba(255, 255, 255, 240);
-  struct nk_color pill_brd =
-      ui->dark_mode ? nk_rgba(65, 67, 75, 200) : nk_rgba(210, 210, 215, 220);
-  // Shadow
-  nk_fill_rect(canvas, nk_rect(bx + 1, by + 2, total_w, total_h), 7.0f,
-               nk_rgba(0, 0, 0, ui->dark_mode ? 30 : 15));
-  // Background
-  nk_fill_rect(canvas, nk_rect(bx, by, total_w, total_h), 7.0f, pill_bg);
-  // Border
-  nk_stroke_rect(canvas, nk_rect(bx, by, total_w, total_h), 7.0f, 1.0f,
-                 pill_brd);
+  NVGcolor pill_bg =
+      ui->dark_mode ? nvgRGBA(35, 36, 42, 230) : nvgRGBA(255, 255, 255, 240);
+  NVGcolor pill_brd =
+      ui->dark_mode ? nvgRGBA(65, 67, 75, 200) : nvgRGBA(210, 210, 215, 220);
+
+  nvgw_panel(&ui->nvgw, bx, by, total_w, total_h, pill_bg, 7.0f);
+  nvgBeginPath(ui->vg);
+  nvgRoundedRect(ui->vg, bx, by, total_w, total_h, 7.0f);
+  nvgStrokeColor(ui->vg, pill_brd);
+  nvgStrokeWidth(ui->vg, 1.0f);
+  nvgStroke(ui->vg);
 
   float ix = bx + pad;
   float iy = by + 2.0f;
 
-  struct nk_color icon_col =
-      ui->dark_mode ? nk_rgb(180, 182, 195) : nk_rgb(100, 100, 110);
-  struct nk_color hover_bg =
-      ui->dark_mode ? nk_rgba(70, 72, 85, 180) : nk_rgba(235, 235, 240, 220);
-  struct nk_color hover_icon =
-      ui->dark_mode ? nk_rgb(230, 230, 240) : nk_rgb(40, 40, 50);
+  int _btn_hovered, _btn_clicked;
 
-// Helper macro: draw one compact icon button
-#define OVERLAY_ICON_BTN(icon_str, icon_len)                                   \
+#define OVERLAY_ICON_BTN(icon_str)                                             \
   do {                                                                         \
-    struct nk_rect r = nk_rect(ix, iy, btn_w, btn_h);                          \
-    int hovered =                                                              \
-        (mx >= r.x && mx < r.x + r.w && my >= r.y && my < r.y + r.h);          \
-    if (hovered)                                                               \
-      nk_fill_rect(canvas, r, 4.0f, hover_bg);                                 \
-    float tw = icon_font->width(icon_font->userdata, icon_font->height,        \
-                                icon_str, icon_len);                           \
-    struct nk_color ic = hovered ? hover_icon : icon_col;                      \
-    nk_draw_text(canvas, nk_rect(ix + (btn_w - tw) / 2, iy + 2, btn_w, btn_h), \
-                 icon_str, icon_len, icon_font, nk_rgba(0, 0, 0, 0), ic);      \
-    _btn_hovered = hovered;                                                    \
-    _btn_clicked = (hovered && pressed);                                       \
+    _btn_clicked = nvgw_button_icon(&ui->nvgw, nvgw_id_str(icon_str), ix, iy,  \
+                                    btn_w, btn_h, icon_str);                   \
+    _btn_hovered =                                                             \
+        (mx >= ix && mx < ix + btn_w && my >= iy && my < iy + btn_h);          \
     ix += btn_w + gap;                                                         \
   } while (0)
 
-  int _btn_hovered, _btn_clicked;
-
   // 1. Hand icon (drag — backup for 6-dot handle)
-  OVERLAY_ICON_BTN(ICON_HAND, strlen(ICON_HAND));
+  OVERLAY_ICON_BTN(ICON_HAND);
   if (_btn_clicked && !ui->block_drag.is_active) {
     ui->block_drag.is_active = 1;
     ui->block_drag.dragged_block_id = block->id;
@@ -1737,7 +1728,7 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
 
   // 2. Search icon (TABLE only)
   if (block->type == BLOCK_TABLE) {
-    OVERLAY_ICON_BTN(ICON_SEARCH, strlen(ICON_SEARCH));
+    OVERLAY_ICON_BTN(ICON_SEARCH);
     if (_btn_clicked) {
       block->data.table.show_search = !block->data.table.show_search;
       ui->table_state.active_block_id = block->id;
@@ -1746,14 +1737,13 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
 
   // 3. Export icon
   if (allow_export) {
-    OVERLAY_ICON_BTN(ICON_EXPORT, strlen(ICON_EXPORT));
+    OVERLAY_ICON_BTN(ICON_EXPORT);
     if (_btn_clicked) {
       if (block->type == BLOCK_TABLE) {
         char filename[1024];
         time_t now = time(NULL);
         struct tm *t = localtime(&now);
 
-        // Clean up table name for default filename
         char clean_name[64];
         if (block->data.table.columnar &&
             block->data.table.columnar->name[0] != '\0') {
@@ -1773,83 +1763,53 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
         snprintf(default_name, sizeof(default_name), "%s_%04d%02d%02d.csv",
                  clean_name, t->tm_year + 1900, t->tm_mon + 1, t->tm_mday);
 
-        // Open Save Dialog
-        // Open Save Dialog
         if (save_csv_file_dialog(filename, sizeof(filename), default_name)) {
           aslan_table_export_csv(block->data.table.columnar, filename);
           ASLAN_DEBUG("Exported CSV to: %s", filename);
         } else {
           ASLAN_DEBUG("Export cancelled by user");
         }
-      } else {
-        ASLAN_DEBUG("Export requested for block %u (Type: %d)", block->id,
-                    block->type);
       }
     }
   }
 
   // 4. Resize buttons (shrink / grow)
   if (allow_resize) {
-    const struct nk_user_font *text_font =
-        ui->font_inter ? &ui->font_inter->handle : icon_font;
-
-    // Shrink (-)
-    {
-      struct nk_rect r = nk_rect(ix, iy, btn_w, btn_h);
-      int hovered =
-          (mx >= r.x && mx < r.x + r.w && my >= r.y && my < r.y + r.h);
-      if (hovered)
-        nk_fill_rect(canvas, r, 4.0f, hover_bg);
-      struct nk_color ic = hovered ? hover_icon : icon_col;
-      float tw =
-          text_font->width(text_font->userdata, text_font->height, "-", 1);
-      nk_draw_text(canvas, nk_rect(ix + (btn_w - tw) / 2, iy + 1, btn_w, btn_h),
-                   "-", 1, text_font, nk_rgba(0, 0, 0, 0), ic);
-      if (hovered && pressed) {
-        float vs = block->view_scale;
-        if (vs < 0.1f)
-          vs = 1.0f;
-        vs -= 0.15f;
-        if (vs < 0.3f)
-          vs = 0.3f;
-        block->view_scale = vs;
-      }
-      ix += btn_w + gap;
+    bool shrink_clicked = nvgw_button(&ui->nvgw, nvgw_id_str("shrink"), ix, iy,
+                                      btn_w, btn_h, "-");
+    ix += btn_w + gap;
+    if (shrink_clicked) {
+      float vs = block->view_scale;
+      if (vs < 0.1f)
+        vs = 1.0f;
+      vs -= 0.15f;
+      if (vs < 0.3f)
+        vs = 0.3f;
+      block->view_scale = vs;
     }
 
-    // Grow (+)
-    {
-      struct nk_rect r = nk_rect(ix, iy, btn_w, btn_h);
-      int hovered =
-          (mx >= r.x && mx < r.x + r.w && my >= r.y && my < r.y + r.h);
-      if (hovered)
-        nk_fill_rect(canvas, r, 4.0f, hover_bg);
-      struct nk_color ic = hovered ? hover_icon : icon_col;
-      float tw =
-          text_font->width(text_font->userdata, text_font->height, "+", 1);
-      nk_draw_text(canvas, nk_rect(ix + (btn_w - tw) / 2, iy + 1, btn_w, btn_h),
-                   "+", 1, text_font, nk_rgba(0, 0, 0, 0), ic);
-      if (hovered && pressed) {
-        float vs = block->view_scale;
-        if (vs < 0.1f)
-          vs = 1.0f;
-        vs += 0.15f;
-        if (vs > 3.0f)
-          vs = 3.0f;
-        block->view_scale = vs;
-      }
-      ix += btn_w + gap;
+    bool grow_clicked =
+        nvgw_button(&ui->nvgw, nvgw_id_str("grow"), ix, iy, btn_w, btn_h, "+");
+    ix += btn_w + gap;
+    if (grow_clicked) {
+      float vs = block->view_scale;
+      if (vs < 0.1f)
+        vs = 1.0f;
+      vs += 0.15f;
+      if (vs > 3.0f)
+        vs = 3.0f;
+      block->view_scale = vs;
     }
   }
 
   // 5. Fullscreen icon
   if (allow_fullscreen) {
     if (is_expanded) {
-      OVERLAY_ICON_BTN(ICON_FULLSCREEN_EXIT, strlen(ICON_FULLSCREEN_EXIT));
+      OVERLAY_ICON_BTN(ICON_FULLSCREEN_EXIT);
       if (_btn_clicked)
         ui->expanded_block_id = 0;
     } else {
-      OVERLAY_ICON_BTN(ICON_FULLSCREEN, strlen(ICON_FULLSCREEN));
+      OVERLAY_ICON_BTN(ICON_FULLSCREEN);
       if (_btn_clicked)
         ui->expanded_block_id = block->id;
     }
@@ -1857,7 +1817,7 @@ static void ui_render_block_overlay_icons(UIHost *ui, Engine *engine,
 
   // 6. Trash icon
   if (show_trash) {
-    OVERLAY_ICON_BTN(ICON_DELETE, strlen(ICON_DELETE));
+    OVERLAY_ICON_BTN(ICON_DELETE);
     if (_btn_clicked) {
       char cmd[128];
       snprintf(cmd, sizeof(cmd), "block_delete %u %u", page->id, block->id);
@@ -2093,10 +2053,10 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
     }
     break;
   case BLOCK_TABLE:
-    ui_render_block_table(ui, engine, ctx, block, width);
+    ui_render_block_table(ui, engine, block, width);
     break;
   case BLOCK_DESIGN:
-    ui_render_block_design(ui, engine, ctx, block, width);
+    ui_render_block_design(ui, engine, block, width);
     break;
   default:
     break;
@@ -2155,8 +2115,8 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
     }
 
     // Click on handle area to initiate drag
-    // Increased hit area for easier grabbing (34x34) and slightly overlapping
-    // block
+    // Increased hit area for easier grabbing (34x34) and slightly
+    // overlapping block
     struct nk_rect handle_area = nk_rect(hx - 8, hy - 8, 34, 34);
     if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
         mx >= handle_area.x && mx < handle_area.x + handle_area.w &&
@@ -2173,9 +2133,10 @@ void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
     }
   }
 
-  // Draw overlay icons if this block is active (fullscreen, search, trash)
+  // Draw overlay icons if this block is active (fullscreen, search,
+  // trash)
   if (is_active && !is_page_title) {
-    ui_render_block_overlay_icons(ui, engine, ctx, page, block, block_x + width,
+    ui_render_block_overlay_icons(ui, engine, page, block, block_x + width,
                                   y_before);
   }
 }
@@ -2289,7 +2250,8 @@ static void ui_render_view_gantt(UIHost *ui, Engine *engine,
     return;
   }
 
-  // ── Detect required columns ─────────────────────────────────────────────
+  // ── Detect required columns
+  // ─────────────────────────────────────────────
   int title_col = -1, start_col = -1, dur_col = -1, color_col = -1;
   for (int c = 0; c < (int)tbl->column_count; c++) {
     AslanColumnType t = tbl->columns[c].type;
@@ -2310,7 +2272,8 @@ static void ui_render_view_gantt(UIHost *ui, Engine *engine,
     return;
   }
 
-  // ── Init gantt_state defaults ────────────────────────────────────────────
+  // ── Init gantt_state defaults
+  // ────────────────────────────────────────────
   time_t now = time(NULL);
   int64_t today_day = (int64_t)(now / 86400);
   if (ui->gantt_state.view_start_day == 0)
@@ -2329,7 +2292,8 @@ static void ui_render_view_gantt(UIHost *ui, Engine *engine,
 
   struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
 
-  // ── Colours ──────────────────────────────────────────────────────────────
+  // ── Colours
+  // ──────────────────────────────────────────────────────────────
   struct nk_color hdr_bg =
       ui->dark_mode ? nk_rgb(33, 35, 43) : nk_rgb(245, 245, 248);
   struct nk_color row_bg0 =
@@ -2348,7 +2312,8 @@ static void ui_render_view_gantt(UIHost *ui, Engine *engine,
   struct nk_color wkend_c =
       ui->dark_mode ? nk_rgba(255, 255, 255, 8) : nk_rgba(0, 0, 0, 5);
 
-  // ── Control bar ──────────────────────────────────────────────────────────
+  // ── Control bar
+  // ──────────────────────────────────────────────────────────
   float nav_w = w - 30.0f - 30.0f - 64.0f - 72.0f - 16.0f;
   if (nav_w < 60.0f)
     nav_w = 60.0f;
@@ -2389,7 +2354,8 @@ static void ui_render_view_gantt(UIHost *ui, Engine *engine,
   }
   nk_layout_row_end(ctx);
 
-  // ── Day header row ───────────────────────────────────────────────────────
+  // ── Day header row
+  // ───────────────────────────────────────────────────────
   float row_area_w = label_w + (float)visible_days * day_w;
   nk_layout_row_begin(ctx, NK_STATIC, (int)day_hdr_h, 1);
   nk_layout_row_push(ctx, row_area_w);
@@ -2446,7 +2412,8 @@ static void ui_render_view_gantt(UIHost *ui, Engine *engine,
   }
   nk_layout_row_end(ctx);
 
-  // ── Task rows (scrollable) ───────────────────────────────────────────────
+  // ── Task rows (scrollable)
+  // ───────────────────────────────────────────────
   float content_h = h - ctrl_h - day_hdr_h;
   nk_layout_row_dynamic(ctx, content_h, 1);
   if (nk_group_begin(ctx, "GanttRows", NK_WINDOW_SCROLL_AUTO_HIDE)) {
@@ -2605,7 +2572,7 @@ static void ui_render_panel_view(UIHost *ui, Engine *engine,
     }
     // Table view (default tab 0)
     if (table) {
-      ui_render_block_table(ui, engine, ctx, table, view_w - 8);
+      ui_render_block_table(ui, engine, table, view_w - 8);
     } else {
       nk_layout_row_dynamic(ctx, 60, 1);
       nk_label(ctx, "No table on this page", NK_TEXT_CENTERED);
@@ -2624,7 +2591,7 @@ static void ui_render_panel_view(UIHost *ui, Engine *engine,
       snprintf(grp_name, sizeof(grp_name), "%sDesignView", prefix);
       nk_layout_row_dynamic(ctx, view_h, 1);
       if (nk_group_begin(ctx, grp_name, NK_WINDOW_NO_SCROLLBAR)) {
-        ui_render_block_design(ui, engine, ctx, design, view_w);
+        ui_render_block_design(ui, engine, design, view_w);
         nk_group_end(ctx);
       }
     } else {
@@ -2715,7 +2682,8 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
   if (right_w < 30.0f)
     right_w = 30.0f;
 
-  // ── Splitter interaction (updates ratio before we use it below) ──────────
+  // ── Splitter interaction (updates ratio before we use it below)
+  // ──────────
   handle_splitter_input(ui, ctx, win_w, win_h, left_w, spl_w);
 
   // Re-read ratio in case it changed during drag
@@ -2730,14 +2698,16 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
   int spl_hover = (ctx->input.mouse.pos.x >= left_w - 4 &&
                    ctx->input.mouse.pos.x <= left_w + spl_w + 4);
 
-  // ── Clay renders panel backgrounds via SDL2 ──────────────────────────────
+  // ── Clay renders panel backgrounds via SDL2
+  // ──────────────────────────────
   if (ui->clay) {
     clay_host_render_split(ui->clay, ui->dark_mode != 0, ratio, spl_hover != 0,
                            ui->split_view.is_dragging_splitter != 0, win_w,
                            win_h);
   }
 
-  // ── Nuklear: Left panel (standalone window, transparent background) ───────
+  // ── Nuklear: Left panel (standalone window, transparent background)
+  // ───────
   struct nk_style_item saved_bg = ctx->style.window.fixed_background;
   float saved_brd = ctx->style.window.border;
   struct nk_vec2 saved_pad = ctx->style.window.padding;
@@ -2763,7 +2733,8 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
   }
   nk_end(ctx);
 
-  // ── Nuklear: Right panel ─────────────────────────────────────────────────
+  // ── Nuklear: Right panel
+  // ─────────────────────────────────────────────────
   ctx->style.window.padding = nk_vec2(6.0f, 4.0f);
 
   if (nk_begin(ctx, "SplitRight",
@@ -2799,8 +2770,10 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     return;
 
   // Begin NanoVG frame
-  nvgBeginFrame(ui->vg, (float)win_w, (float)win_h,
-                1.0f); // Ratio 1.0 simple pour le moment
+  nvgBeginFrame(ui->vg, (float)win_w, (float)win_h, 1.0f);
+
+  // Begin NanoVG Widgets input frame
+  nvgw_input_begin(&ui->nvgw);
 
   if (ui->pending_export) {
     ui->pending_export = 0;
@@ -2834,11 +2807,12 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
         if (block) {
           ui_render_block(ui, engine, ctx, page, block, (float)win_w);
         }
+        if (ui->show_doc_menu) {
+          ui_render_document_menu(ui);
+        }
       }
-      ui_render_document_menu(ui, ctx);
+      nk_end(ctx);
     }
-    nk_end(ctx);
-
     ctx->style.window.padding = old_padding;
     ctx->style.window.group_padding = old_group_padding;
   } else {
@@ -2848,18 +2822,21 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       ui->split_view.ratio = 0.1f;
     ui->split_view.active = 1;
 
-    // Clay renders backgrounds; Nuklear creates two standalone panel windows.
-    // No SplitMain wrapper window needed — Clay handles the outer frame.
+    // Clay renders backgrounds; Nuklear creates two standalone panel
+    // windows. No SplitMain wrapper window needed — Clay handles the
+    // Render split view if active. If in full design mode, this consumes
+    // the outer frame.
     ui_render_split_view(ui, engine, ctx, win_w, win_h);
 
     // --- Floating color picker window (Properties panel colors) ---
-    // Rendered as a separate Nuklear window so it does NOT put the Properties
-    // group into ROM mode (which happens when combos/popups are inside a
-    // group).
+    // Rendered as a separate Nuklear window so it does NOT put the
+    // Properties group into ROM mode (which happens when combos/popups
+    // are inside a group).
     if (ui->color_picker_open && ui->color_picker_ptr) {
       float px = ui->color_picker_x;
       float py = ui->color_picker_y;
-      float pw = 220.0f, ph = 370.0f;
+      float pw = 220.0f,
+            ph = 260.0f; // Adjusted height for NanoVG nvgw_color_picker
       if (py + ph > (float)win_h)
         py = (float)win_h - ph - 4.0f;
       if (px + pw > (float)win_w)
@@ -2869,28 +2846,33 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       if (px < 0)
         px = 0;
 
-      struct nk_style_window sw_save = ctx->style.window;
-      ctx->style.window.padding = nk_vec2(8, 8);
-      if (nk_begin(ctx, "##ds_color_picker", nk_rect(px, py, pw, ph),
-                   NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER |
-                       NK_WINDOW_MOVABLE)) {
-        uint32_t *cp = ui->color_picker_ptr;
-        struct nk_color c = nk_rgba((*cp >> 24) & 0xFF, (*cp >> 16) & 0xFF,
-                                    (*cp >> 8) & 0xFF, *cp & 0xFF);
-        struct nk_colorf cf = nk_color_cf(c);
-        cf = ui_render_color_picker_content(ctx, cf);
-        c = nk_rgba((int)(cf.r * 255.0f), (int)(cf.g * 255.0f),
-                    (int)(cf.b * 255.0f), (int)(cf.a * 255.0f));
-        *cp = ((uint32_t)c.r << 24) | ((uint32_t)c.g << 16) |
-              ((uint32_t)c.b << 8) | (uint32_t)c.a;
+      NVGcolor bg = ui->dark_mode ? nvgRGBA(45, 46, 50, 255)
+                                  : nvgRGBA(255, 255, 255, 255);
+      nvgw_panel(&ui->nvgw, px, py, pw, ph, bg, 8.0f);
+
+      // Border and shadow
+      nvgBeginPath(ui->vg);
+      nvgRoundedRect(ui->vg, px, py, pw, ph, 8.0f);
+      nvgStrokeColor(ui->vg, ui->dark_mode ? nvgRGBA(60, 60, 68, 255)
+                                           : nvgRGBA(228, 228, 231, 255));
+      nvgStrokeWidth(ui->vg, 1.0f);
+      nvgStroke(ui->vg);
+
+      uint32_t *cp = ui->color_picker_ptr;
+      NVGcolor c = nvgRGBA((*cp >> 24) & 0xFF, (*cp >> 16) & 0xFF,
+                           (*cp >> 8) & 0xFF, *cp & 0xFF);
+
+      if (nvgw_color_picker(&ui->nvgw, nvgw_id_str("color_picker"), px + 10,
+                            py + 10, pw - 20, ph - 20, &c)) {
+        *cp = ((uint32_t)(c.r * 255.0f) << 24) |
+              ((uint32_t)(c.g * 255.0f) << 16) |
+              ((uint32_t)(c.b * 255.0f) << 8) | (uint32_t)(c.a * 255.0f);
       }
-      nk_end(ctx);
-      ctx->style.window = sw_save;
 
       // Close when the user clicks outside the picker window
-      if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
-        struct nk_rect pr = nk_rect(px, py, pw, ph);
-        if (!nk_input_is_mouse_hovering_rect(&ctx->input, pr)) {
+      if (ui->nvgw.mouse_clicked) {
+        if (ui->nvgw.mouse_x < px || ui->nvgw.mouse_x > px + pw ||
+            ui->nvgw.mouse_y < py || ui->nvgw.mouse_y > py + ph) {
           ui->color_picker_open = 0;
           ui->color_picker_ptr = NULL;
         }
@@ -2933,22 +2915,29 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   // Finalize cursor for this frame
   ui_commit_cursor(ui);
 
+  // End NanoVG Widgets input frame
+  nvgw_input_end(&ui->nvgw);
+
   // Status bar at the bottom
   if (ui->status[0] != '\0') {
-    struct nk_style_item old_bg = ctx->style.window.fixed_background;
-    ctx->style.window.fixed_background = nk_style_item_color(
-        ui->dark_mode ? nk_rgb(30, 30, 32) : nk_rgb(240, 240, 240));
-    if (nk_begin(ctx, "StatusBar",
-                 nk_rect(0, (float)win_h - 24, (float)win_w, 24),
-                 NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BACKGROUND)) {
-      nk_layout_row_dynamic(ctx, 16, 1);
-      nk_label(ctx, ui->status, NK_TEXT_LEFT);
-    }
-    nk_end(ctx);
-    ctx->style.window.fixed_background = old_bg;
+    NVGcolor bg =
+        ui->dark_mode ? nvgRGBA(30, 30, 32, 255) : nvgRGBA(240, 240, 240, 255);
+    NVGcolor text_color =
+        ui->dark_mode ? nvgRGBA(220, 220, 220, 255) : nvgRGBA(36, 36, 39, 255);
+
+    nvgBeginPath(ui->vg);
+    nvgRect(ui->vg, 0, (float)win_h - 24, (float)win_w, 24);
+    nvgFillColor(ui->vg, bg);
+    nvgFill(ui->vg);
+
+    nvgFontSize(ui->vg, 16.0f);
+    nvgFontFace(ui->vg, "Inter");
+    nvgFillColor(ui->vg, text_color);
+    nvgTextAlign(ui->vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
+    nvgText(ui->vg, 10, (float)win_h - 12, ui->status, NULL);
 
     // Clear status if clicked anywhere else
-    if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
+    if (ui->nvgw.mouse_clicked) {
       ui->status[0] = '\0';
     }
   }
@@ -2968,66 +2957,73 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 // home_create_new_document moved to ui_core.c
 
 // ui_render_home moved to ui_core.c
-void ui_render_document_menu(UIHost *ui, struct nk_context *ctx) {
+void ui_render_document_menu(UIHost *ui) {
   if (!ui->show_doc_menu)
     return;
 
-  // Use floating popup near the settings icon
-  struct nk_rect bounds = ui->doc_menu_rect;
-  struct nk_vec2 pos = nk_vec2(bounds.x + bounds.w, bounds.y + bounds.h);
-  struct nk_rect popup_rect = nk_rect(pos.x - 200, pos.y + 4, 200, 140);
+  float bounds_x = ui->doc_menu_rect.x;
+  float bounds_y = ui->doc_menu_rect.y;
+  float bounds_w = ui->doc_menu_rect.w;
+  float bounds_h = ui->doc_menu_rect.h;
+
+  float px = bounds_x + bounds_w - 200;
+  float py = bounds_y + bounds_h + 4;
+  float pw = 200;
+  float ph = 100;
 
   // Close if clicking outside the popup AND the button that opens it
-  if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT)) {
-    if (!nk_input_is_mouse_hovering_rect(&ctx->input, popup_rect) &&
-        !nk_input_is_mouse_hovering_rect(&ctx->input, bounds)) {
+  if (ui->nvgw.mouse_clicked) {
+    bool in_popup = (ui->nvgw.mouse_x >= px && ui->nvgw.mouse_x <= px + pw &&
+                     ui->nvgw.mouse_y >= py && ui->nvgw.mouse_y <= py + ph);
+    bool in_button = (ui->nvgw.mouse_x >= bounds_x &&
+                      ui->nvgw.mouse_x <= bounds_x + bounds_w &&
+                      ui->nvgw.mouse_y >= bounds_y &&
+                      ui->nvgw.mouse_y <= bounds_y + bounds_h);
+    if (!in_popup && !in_button) {
       ui->show_doc_menu = 0;
       return;
     }
   }
 
-  // Style the popup
-  struct nk_style_item old_bg = ctx->style.window.fixed_background;
-  ctx->style.window.fixed_background = nk_style_item_color(
-      ui->dark_mode ? nk_rgb(45, 46, 50) : nk_rgb(255, 255, 255));
+  NVGcolor bg =
+      ui->dark_mode ? nvgRGBA(45, 46, 50, 255) : nvgRGBA(255, 255, 255, 255);
+  NVGcolor border =
+      ui->dark_mode ? nvgRGBA(60, 60, 68, 255) : nvgRGBA(228, 228, 231, 255);
 
-  if (nk_popup_begin(ctx, NK_POPUP_STATIC, "DocSettings",
-                     NK_WINDOW_NO_SCROLLBAR,
-                     nk_rect(pos.x - 200, pos.y + 4, 200, 140))) {
-    nk_layout_row_dynamic(ctx, 32, 1);
+  nvgw_panel(&ui->nvgw, px, py, pw, ph, bg, 8.0f);
 
-    if (nk_button_label(ctx, "Save (.aslan)")) {
-      char path[1024];
-      if (ui->engine->doc_path[0] != '\0') {
-        snprintf(path, sizeof(path), "%s/snapshot.aslan", ui->engine->doc_path);
-        engine_save_snapshot_as_aslan(ui->engine, path);
-        ASLAN_INFO("Application saved to %s", path);
-      } else {
-        ui->show_save_modal = 1;
-      }
-      ui->show_doc_menu = 0;
-      nk_popup_close(ctx);
-    }
+  nvgBeginPath(ui->vg);
+  nvgRoundedRect(ui->vg, px, py, pw, ph, 8.0f);
+  nvgStrokeColor(ui->vg, border);
+  nvgStrokeWidth(ui->vg, 1.0f);
+  nvgStroke(ui->vg);
 
-    if (nk_button_label(ctx, "Save As... (.aslan)")) {
+  if (nvgw_button(&ui->nvgw, nvgw_id_str("doc_save"), px + 10, py + 10, pw - 20,
+                  24, "Save (.aslan)")) {
+    char path[1024];
+    if (ui->engine->doc_path[0] != '\0') {
+      snprintf(path, sizeof(path), "%s/snapshot.aslan", ui->engine->doc_path);
+      engine_save_snapshot_as_aslan(ui->engine, path);
+      ASLAN_INFO("Application saved to %s", path);
+    } else {
       ui->show_save_modal = 1;
-      ui->show_doc_menu = 0;
-      nk_popup_close(ctx);
     }
-
-    char theme_label[64];
-    snprintf(theme_label, sizeof(theme_label), "Mode: %s",
-             ui->dark_mode ? "Light" : "Dark");
-    if (nk_button_label(ctx, theme_label)) {
-      ui->dark_mode = !ui->dark_mode;
-      ui_apply_theme(ui);
-      ui->show_doc_menu = 0;
-      nk_popup_close(ctx);
-    }
-
-    nk_popup_end(ctx);
-  } else {
     ui->show_doc_menu = 0;
   }
-  ctx->style.window.fixed_background = old_bg;
+
+  if (nvgw_button(&ui->nvgw, nvgw_id_str("doc_save_as"), px + 10, py + 40,
+                  pw - 20, 24, "Save As... (.aslan)")) {
+    ui->show_save_modal = 1;
+    ui->show_doc_menu = 0;
+  }
+
+  char theme_label[64];
+  snprintf(theme_label, sizeof(theme_label), "Mode: %s",
+           ui->dark_mode ? "Light" : "Dark");
+  if (nvgw_button(&ui->nvgw, nvgw_id_str("doc_theme"), px + 10, py + 70,
+                  pw - 20, 24, theme_label)) {
+    ui->dark_mode = !ui->dark_mode;
+    ui_apply_theme(ui);
+    ui->show_doc_menu = 0;
+  }
 }

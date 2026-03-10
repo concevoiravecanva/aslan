@@ -570,7 +570,7 @@ void ui_host_paste_node(UIHost *ui, Engine *engine);
 void ui_update(UIHost *ui, Engine *engine);
 void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h);
 void ui_apply_theme(UIHost *ui);
-void ui_render_document_menu(UIHost *ui, struct nk_context *ctx);
+void ui_render_document_menu(UIHost *ui);
 
 // -----------------------------------------------------------------------------
 // Block Rendering Functions
@@ -583,8 +583,8 @@ void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
                           Page *page, Block *block, float width);
 void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
                              float width, int level);
-void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
-                           Block *block, float width);
+void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
+                           float width);
 void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
                             Block *block, float width);
 // ui_render_block_design moved to ui_design.c

@@ -1,4 +1,5 @@
 #include "nvg_widgets.h"
+#include <stdio.h>
 #include <string.h>
 
 void nvgw_init(NvgWidgetCtx *ctx, NVGcontext *vg) {
@@ -391,4 +392,144 @@ void nvgw_end_scroll_area(NvgWidgetCtx *ctx) {
   NVGcontext *vg = ctx->vg;
   nvgResetScissor(vg);
   nvgRestore(vg); // Retore the state pushed in begin
+}
+
+// --- New Widgets for Aslan Table ---
+
+bool nvgw_color_picker(NvgWidgetCtx *ctx, uint32_t id, float x, float y,
+                       float w, float h, NVGcolor *color) {
+  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h);
+  if (hovered)
+    ctx->hot_id = id;
+
+  bool clicked = false;
+  if (ctx->active_id == id && ctx->mouse_released && hovered) {
+    clicked = true;
+  }
+  if (ctx->hot_id == id && ctx->mouse_clicked) {
+    ctx->active_id = id;
+  }
+
+  NVGcontext *vg = ctx->vg;
+
+  // Draw background/border
+  nvgBeginPath(vg);
+  nvgRoundedRect(vg, x, y, w, h, 4.0f);
+  nvgFillColor(vg, *color);
+  nvgFill(vg);
+
+  nvgBeginPath(vg);
+  nvgRoundedRect(vg, x, y, w, h, 4.0f);
+  nvgStrokeColor(vg, nvgRGBA(0, 0, 0, 50));
+  nvgStrokeWidth(vg, 1.0f);
+  nvgStroke(vg);
+
+  return clicked; // usually opens a popup in the host
+}
+
+bool nvgw_date_picker(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,
+                      float h, int *year, int *month, int *day) {
+  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h);
+  if (hovered)
+    ctx->hot_id = id;
+
+  bool clicked = false;
+  if (ctx->active_id == id && ctx->mouse_released && hovered) {
+    clicked = true;
+  }
+  if (ctx->hot_id == id && ctx->mouse_clicked) {
+    ctx->active_id = id;
+  }
+
+  NVGcontext *vg = ctx->vg;
+
+  // Draw bg
+  NVGcolor bg_col = (ctx->active_id == id)
+                        ? nvgRGBA(200, 200, 200, 255)
+                        : (hovered ? nvgRGBA(225, 225, 225, 255)
+                                   : nvgRGBA(240, 240, 240, 255));
+  nvgBeginPath(vg);
+  nvgRoundedRect(vg, x, y, w, h, 4.0f);
+  nvgFillColor(vg, bg_col);
+  nvgFill(vg);
+
+  nvgBeginPath(vg);
+  nvgRoundedRect(vg, x, y, w, h, 4.0f);
+  nvgStrokeColor(vg, nvgRGBA(0, 0, 0, 30));
+  nvgStrokeWidth(vg, 1.0f);
+  nvgStroke(vg);
+
+  char buf[32];
+  if (*year > 0) {
+    snprintf(buf, sizeof(buf), "%04d-%02d-%02d", *year, *month + 1, *day);
+  } else {
+    snprintf(buf, sizeof(buf), "YYYY-MM-DD");
+  }
+
+  nvgSave(vg);
+  nvgFontSize(vg, 14.0f);
+  nvgFontFaceId(vg, ctx->font_main);
+  nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+  nvgFillColor(vg, nvgRGB(50, 50, 50));
+  nvgText(vg, x + w * 0.5f, y + h * 0.5f, buf, NULL);
+  nvgRestore(vg);
+
+  return clicked; // Host handles popup logic
+}
+
+bool nvgw_dropdown_select(NvgWidgetCtx *ctx, uint32_t id, float x, float y,
+                          float w, float h, const char **options,
+                          int option_count, int *selected_index) {
+  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h);
+  if (hovered)
+    ctx->hot_id = id;
+
+  bool clicked = false;
+  if (ctx->active_id == id && ctx->mouse_released && hovered) {
+    clicked = true;
+  }
+  if (ctx->hot_id == id && ctx->mouse_clicked) {
+    ctx->active_id = id;
+  }
+
+  NVGcontext *vg = ctx->vg;
+
+  // Draw bg
+  NVGcolor bg_col = (ctx->active_id == id)
+                        ? nvgRGBA(200, 200, 200, 255)
+                        : (hovered ? nvgRGBA(225, 225, 225, 255)
+                                   : nvgRGBA(240, 240, 240, 255));
+  nvgBeginPath(vg);
+  nvgRoundedRect(vg, x, y, w, h, 4.0f);
+  nvgFillColor(vg, bg_col);
+  nvgFill(vg);
+
+  nvgBeginPath(vg);
+  nvgRoundedRect(vg, x, y, w, h, 4.0f);
+  nvgStrokeColor(vg, nvgRGBA(0, 0, 0, 30));
+  nvgStrokeWidth(vg, 1.0f);
+  nvgStroke(vg);
+
+  const char *text = (*selected_index >= 0 && *selected_index < option_count)
+                         ? options[*selected_index]
+                         : "Select...";
+
+  nvgSave(vg);
+  nvgFontSize(vg, 14.0f);
+  nvgFontFaceId(vg, ctx->font_main);
+  nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
+  nvgFillColor(vg, nvgRGB(50, 50, 50));
+  nvgText(vg, x + 6, y + h * 0.5f, text, NULL);
+
+  // Draw arrow
+  nvgBeginPath(vg);
+  nvgMoveTo(vg, x + w - 16, y + h * 0.5f - 2);
+  nvgLineTo(vg, x + w - 8, y + h * 0.5f - 2);
+  nvgLineTo(vg, x + w - 12, y + h * 0.5f + 4);
+  nvgFillColor(vg, nvgRGB(100, 100, 100));
+  nvgFill(vg);
+
+  nvgRestore(vg);
+
+  return clicked;
 }

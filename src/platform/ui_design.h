@@ -5,18 +5,15 @@
 #include "ui_host.h"
 
 // Renders a Design Block (Freeform Canvas)
-void ui_render_block_design(UIHost *ui, Engine *engine, struct nk_context *ctx,
-                            Block *block, float width);
+void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
+                            float width);
 
-void design_render_properties(UIHost *ui, struct nk_context *ctx,
-                              Engine *engine, struct nk_rect bounds);
-void design_render_layers(UIHost *ui, struct nk_context *ctx, Engine *engine,
-                          struct nk_rect bounds);
+void design_render_properties(UIHost *ui, Engine *engine,
+                              struct nk_rect bounds);
+void design_render_layers(UIHost *ui, Engine *engine, struct nk_rect bounds);
 
-void ui_render_node_tree(UIHost *ui, struct nk_context *ctx, Engine *engine,
-                         Block *block, DesignData *dd,
-                         struct nk_command_buffer *canvas_buf, Node *node,
-                         struct nk_rect bounds, float scale, float parent_x,
-                         float parent_y);
+void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
+                         DesignData *dd, Node *node, struct nk_rect bounds,
+                         float scale, float parent_x, float parent_y);
 
 #endif // UI_DESIGN_H

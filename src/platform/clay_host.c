@@ -110,6 +110,19 @@ static void clay_nanovg_render(NVGcontext *vg, Clay_RenderCommandArray cmds,
   }
 }
 
+// Public wrapper to render a custom Clay_RenderCommandArray
+void clay_host_render_clay_commands(ClayHost *ch, Clay_RenderCommandArray cmds) {
+  if (!ch)
+    return;
+  clay_nanovg_render(ch->vg, cmds, ch->fonts);
+}
+
+bool clay_host_mouse_pressed(ClayHost *ch) {
+  if (!ch)
+    return false;
+  return ch->mouse_pressed_this_frame;
+}
+
 // =============================================================================
 // Text measurement (required by Clay even if we don't use Clay text yet)
 // =============================================================================

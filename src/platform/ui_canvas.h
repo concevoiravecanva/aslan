@@ -13,40 +13,23 @@
 // Canvas Drawing Helpers (shared by Design block)
 // -----------------------------------------------------------------------------
 
-void canvas_draw_dot_grid(struct nk_command_buffer *canvas,
-                          struct nk_rect bounds, float cam_x, float cam_y,
-                          float zoom);
+void canvas_draw_dot_grid(UIHost *ui, float bx, float by, float bw, float bh,
+                          float cam_x, float cam_y, float zoom);
 
-int canvas_point_in_toolbar(struct nk_rect bounds, float mx, float my,
-                            CanvasInteraction *cs);
+int canvas_point_in_toolbar(float bx, float by, float bw, float bh,
+                            float mx, float my, CanvasInteraction *cs);
 
-void canvas_render_sub_menu(UIHost *ui, struct nk_context *ctx,
-                            struct nk_command_buffer *canvas_buf, float x,
-                            float y, CanvasCategory cat);
+void canvas_render_sub_menu(UIHost *ui, float x, float y, CanvasCategory cat);
 
-void canvas_render_toolbar(UIHost *ui, struct nk_context *ctx,
-                           struct nk_rect bounds, Block *block);
+void canvas_render_toolbar(UIHost *ui, float bx, float by, float bw, float bh,
+                           Block *block);
 
 // -----------------------------------------------------------------------------
 // Canvas Sidebar Rendering (shared by Design block)
 // -----------------------------------------------------------------------------
 
-void ui_render_sidebar_properties(UIHost *ui, Engine *engine,
-                                  struct nk_context *ctx, Block *block);
-
-void ui_render_sidebar_layers(UIHost *ui, struct nk_context *ctx, Block *block);
-
-void ui_render_sidebar_shape_selection(UIHost *ui, struct nk_context *ctx);
-
-// -----------------------------------------------------------------------------
-// Color Picker Helpers
-// -----------------------------------------------------------------------------
-
-struct nk_colorf ui_render_color_picker_content(struct nk_context *ctx,
-                                                struct nk_colorf colorf);
-
-void ui_render_color_property(struct nk_context *ctx, const char *label,
-                              uint32_t *color_ptr);
+void ui_render_sidebar_layers(UIHost *ui, Block *block, float x, float y,
+                              float w, float h);
 
 // -----------------------------------------------------------------------------
 // Shared Creation Helpers
@@ -64,7 +47,7 @@ void node_update_path_bounds(Node *node);
 int node_get_path_polygon(Node *node, float *out_pts, int max_pts, float sx,
                           float sy, float scale);
 
-struct nk_image get_image_texture(UIHost *ui, const char *path);
+int get_image_texture(UIHost *ui, const char *path);
 
 Node *design_find_node_at(DesignData *dd, float world_x, float world_y);
 

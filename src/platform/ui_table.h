@@ -12,8 +12,8 @@
 // Table Rendering
 // -----------------------------------------------------------------------------
 
-void ui_render_block_table(UIHost *ui, Engine *engine, struct nk_context *ctx,
-                           Block *block, float width);
+void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
+                           float width);
 
 // -----------------------------------------------------------------------------
 // Table Helpers

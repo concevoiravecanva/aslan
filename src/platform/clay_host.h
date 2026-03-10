@@ -8,6 +8,7 @@
 // Nuklear manages all widget content inside the regions Clay defines.
 // =============================================================================
 
+#include "../vendor/clay.h"
 #include <stdbool.h>
 
 struct NVGcontext;
@@ -90,5 +91,12 @@ AslanToolbarResult clay_host_render_toolbar(ClayHost *ch, bool dark_mode,
 float clay_host_render_tabs(ClayHost *ch, bool dark_mode, float panel_x,
                             float panel_w, int *active_tab, float mouse_x,
                             float mouse_y, bool mouse_clicked);
+
+// -----------------------------------------------------------------------------
+// Render a custom Clay hierarchy manually (useful for sidebar content
+// that's independent of the main layout).
+// -----------------------------------------------------------------------------
+void clay_host_render_clay_commands(ClayHost *ch, Clay_RenderCommandArray cmds);
+bool clay_host_mouse_pressed(ClayHost *ch);
 
 #endif // CLAY_HOST_H

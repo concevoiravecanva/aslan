@@ -86,3 +86,12 @@ void nvgw_begin_scroll_area(NvgWidgetCtx *ctx, float x, float y, float w,
 void nvgw_end_scroll_area(NvgWidgetCtx *ctx);
 
 #endif // NVG_WIDGETS_H
+
+// Color Picker (simple version). Returns true if color was changed.
+bool nvgw_color_picker(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w, float h, NVGcolor *color);
+
+// Date Picker (simple version). Returns true if date was changed.
+bool nvgw_date_picker(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w, float h, int *year, int *month, int *day);
+
+// Dropdown Select. Returns true if an option was selected.
+bool nvgw_dropdown_select(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w, float h, const char **options, int option_count, int *selected_index);

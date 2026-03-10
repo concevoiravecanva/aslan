@@ -9,7 +9,7 @@ LUA_LIB =
 SDL_INC = -I/opt/homebrew/include/SDL2 -I/opt/homebrew/include
 SDL_LIB = -L/opt/homebrew/lib -lSDL2 -lSDL2_ttf
 
-CFLAGS = -Wall -Wextra -std=c99 -I./src -I./include -DFONS_NO_STB_TRUETYPE_IMPL
+CFLAGS = -Wall -Wextra -std=c99 -I./src -I./include -DSTBTT_STATIC
 
 # Core, Document & Platform sources
 CORE_OBJS = src/core/engine.o
