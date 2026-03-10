@@ -454,6 +454,11 @@ typedef struct UIHost {
     float link_popup_y;          // Popup Y
     char link_label_buffer[256]; // Editable label
     char link_url_buffer[1024];  // Editable URL
+    int context_menu_mode;       // 1 = column, 2 = row
+    int context_menu_col;        // which column
+    uint64_t context_menu_row;   // which row
+    int show_type_menu;          // 1 = show "+" type menu
+    float type_menu_x, type_menu_y;
   } table_state;
 
   // Gantt view state (per session — not persisted)
