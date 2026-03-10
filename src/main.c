@@ -66,8 +66,7 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
     int has_event = SDL_WaitEventTimeout(&e, timeout_ms);
 
     // 1. Input handling
-    nk_input_begin(ui->ctx);
-    nvgw_input_begin(&ui->nvgw);
+    ui_begin_frame(ui);
 
     // Process events (either the one we got or check for more)
     if (has_event) {
@@ -97,7 +96,7 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
         }
 
         // Global keyboard shortcuts (Cmd = macOS, Ctrl = Linux/Windows)
-        if (e.type == SDL_KEYDOWN && !nk_item_is_any_active(ui->ctx)) {
+        if (e.type == SDL_KEYDOWN && !ui->text_input_active) {
           SDL_Keymod mods = SDL_GetModState();
           bool cmd = (mods & KMOD_GUI) != 0;
           bool ctrl = (mods & KMOD_CTRL) != 0;
@@ -174,7 +173,7 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
         }
 
         // Handle mouse/keyboard events for Lua tools
-        if (!nk_item_is_any_active(ui->ctx) &&
+        if (!ui->text_input_active &&
             (!ui || ui->editing_block_id == 0)) {
 
           int imx, imy;
@@ -219,8 +218,6 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
       } while (SDL_PollEvent(&e)); // Drain remaining events
     }
 
-    nk_input_end(ui->ctx);
-
     // Finalize NanoVG Widgets input per frame
     int gmx, gmy;
     uint32_t gmstate = SDL_GetMouseState(&gmx, &gmy);
@@ -238,7 +235,7 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
       renderer_begin(renderer, ui->dark_mode);
 
       // 3. Render document
-      renderer_draw_document(renderer, engine->doc, ui->ctx);
+      renderer_draw_document(renderer, engine->doc, NULL);
 
       // 4. Render selection handles
       if (ui->selected_node) {
@@ -286,7 +283,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  // 3. Initialize UI (Nuklear)
+  // 3. Initialize UI (Aslan/NanoVG)
   UIHost *ui = ui_init(renderer->window);
   engine->ui_host = ui;
 

@@ -98,7 +98,7 @@ void render_node_context_menu(UIHost *ui, Block *block) {
                           "Send to Back", "Ungroup"};
 
   if (ui->font_inter) {
-    nvgFontSize(ui->vg, ui->font_inter->handle.height);
+    nvgFontSize(ui->vg, ui->font_size_px);
     nvgFontFace(ui->vg, "Inter");
   }
 
@@ -433,7 +433,7 @@ void canvas_render_sub_menu(UIHost *ui, float x, float y, CanvasCategory cat) {
 
     // Icon
     if (ui->font_icons) {
-      nvgFontSize(ui->vg, ui->font_icons->handle.height);
+      nvgFontSize(ui->vg, 20.0f);
       nvgFontFace(ui->vg, "Icons");
       nvgFillColor(ui->vg, nvgRGBA(80, 80, 80, 255));
       nvgTextAlign(ui->vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
@@ -441,7 +441,7 @@ void canvas_render_sub_menu(UIHost *ui, float x, float y, CanvasCategory cat) {
     }
     // Label
     if (ui->font_inter) {
-      nvgFontSize(ui->vg, ui->font_inter->handle.height);
+      nvgFontSize(ui->vg, ui->font_size_px);
       nvgFontFace(ui->vg, "Inter");
       nvgFillColor(ui->vg, nvgRGBA(40, 40, 40, 255));
       nvgTextAlign(ui->vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
@@ -634,6 +634,7 @@ static void ui_render_layer_item(UIHost *ui, Block *block, Node *node,
 
 void ui_render_sidebar_layers(UIHost *ui, Block *block, float x, float y,
                               float w, float h) {
+  (void)h;
   Node *root = NULL;
   if (block->type == BLOCK_DESIGN)
     root = block->data.design.root;
@@ -736,8 +737,10 @@ void canvas_render_toolbar(UIHost *ui, float bx, float by, float bw, float bh,
       is_active = 0; // Table layout — one-shot,
                      // never stays active
 
-    int hovered = (ui->mouse_x >= btn_ix && ui->mouse_x < btn_ix + btn_size &&
-                   ui->mouse_y >= btn_iy && ui->mouse_y < btn_iy + btn_size);
+    float rel_mx = ui->mouse_x - (ui->abs_offset_x + btn_ix);
+    float rel_my = ui->mouse_y - (ui->abs_offset_y + btn_iy);
+    int hovered = (rel_mx >= 0 && rel_mx < btn_size &&
+                   rel_my >= 0 && rel_my < btn_size);
 
     if (is_active || hovered) {
       NVGcolor bg_color = is_active ? nvgRGBA(110, 110, 130, 25)

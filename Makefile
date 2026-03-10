@@ -6,8 +6,8 @@ LUA_INC =
 LUA_LIB = 
 
 # Paths for SDL2 + SDL_ttf (macOS Homebrew)
-SDL_INC = -I/opt/homebrew/include/SDL2 -I/opt/homebrew/include
-SDL_LIB = -L/opt/homebrew/lib -lSDL2 -lSDL2_ttf
+SDL_INC = -I/opt/homebrew/include/SDL2
+SDL_LIB = -L/opt/homebrew/lib -lSDL2
 
 CFLAGS = -Wall -Wextra -std=c99 -I./src -I./include -DSTBTT_STATIC
 
@@ -36,7 +36,7 @@ VENDOR_OBJS = src/vendor/tinyexpr.o \
 OBJS = src/main.o $(VENDOR_OBJS) $(CORE_OBJS) $(DOC_OBJS) $(PLATFORM_OBJS)
 
 TARGET = aslan
-LDFLAGS = -framework Cocoa -framework CoreGraphics -framework ImageIO -framework OpenGL -lm -lhpdf -lz -lpng
+LDFLAGS = -framework Cocoa -framework CoreGraphics -framework ImageIO -framework OpenGL -lm -lz -lpng
 
 all: $(TARGET)
 

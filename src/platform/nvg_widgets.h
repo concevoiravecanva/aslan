@@ -33,6 +33,10 @@ typedef struct {
   int font_main;
   int font_icons;
 
+  // Viewport/Translation offsets
+  float offset_x;
+  float offset_y;
+
 } NvgWidgetCtx;
 
 // Initialize the widget context
@@ -48,6 +52,9 @@ void nvgw_input_mouse(NvgWidgetCtx *ctx, float mx, float my, bool mdown,
 void nvgw_input_keyboard(NvgWidgetCtx *ctx, const char *text_input,
                          bool backspace, bool enter);
 void nvgw_input_end(NvgWidgetCtx *ctx);
+
+// Set coordinate translation offset for widgets
+void nvgw_set_offset(NvgWidgetCtx *ctx, float ox, float oy);
 
 // Generate generic ID based on string or pointer
 uint32_t nvgw_id(const void *data, int len);

@@ -5,10 +5,10 @@
 
 // Renders the Document toolbar (Floating Bottom Bar)
 void ui_render_document_toolbar(UIHost *ui, Engine *engine,
-                                struct nk_context *ctx, int win_w, int win_h);
+                                int win_w, int win_h);
 
 // Renders the bottom bar (Page Tabs)
-void ui_render_bottom_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
+void ui_render_bottom_bar(UIHost *ui, Engine *engine,
                           int win_w, int win_h);
 
 // Applies the current theme (Dark/Light) to Nuklear style

@@ -244,6 +244,8 @@ void clay_host_begin_frame(ClayHost *ch) {
   ch->last_mouse_left_down = down;
   ch->mouse_x = mx;
   ch->mouse_y = my;
+
+  Clay_SetPointerState((Clay_Vector2){(float)mx, (float)my}, down);
 }
 
 // =============================================================================

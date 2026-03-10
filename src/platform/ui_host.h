@@ -7,6 +7,7 @@
 #include "clay_host.h"
 #include "nvg_widgets.h"
 #include "recents.h"
+#include "ui_shared.h"
 #include <SDL.h>
 #include <string.h>
 
@@ -20,18 +21,6 @@ int copy_image_to_assets(const char *src_path, const char *doc_dir,
                          char *out_rel_path, size_t out_size);
 int mac_get_image_size(const char *path, int *w, int *h);
 
-// Nuklear configuration
-#define NK_UINT_DRAW_INDEX
-#define NK_INCLUDE_FIXED_TYPES
-#define NK_INCLUDE_STANDARD_IO
-#define NK_INCLUDE_STANDARD_VARARGS
-#define NK_INCLUDE_DEFAULT_ALLOCATOR
-#define NK_INCLUDE_VERTEX_BUFFER_OUTPUT
-#define NK_INCLUDE_FONT_BAKING
-#define NK_INCLUDE_DEFAULT_FONT
-#define NK_MEMSET memset
-#define NK_MEMCPY memcpy
-#include "../../include/nuklear.h"
 
 // -----------------------------------------------------------------------------
 // Canvas Tool Modes
@@ -256,8 +245,7 @@ void ui_commit_cursor(struct UIHost *ui);
 // -----------------------------------------------------------------------------
 
 typedef struct UIHost {
-  // Nuklear context
-  struct nk_context *ctx;
+  // UI Context
   NVGcontext *vg;
 
   // Clay host (layout + background rendering)
@@ -266,18 +254,15 @@ typedef struct UIHost {
   // NanoVG Widgets context
   NvgWidgetCtx nvgw;
 
-  // Thumbnail Cache for Images/Videos
-  struct nk_font_atlas *atlas;
-
-  // Fonts
-  struct nk_font *font_inter; // Default UI font
-  struct nk_font *font_title; // Page Title (Extra Bold)
-  struct nk_font *font_h1;    // Heading 1 (28pt Bold)
-  struct nk_font *font_icons; // Remix Icons
+  // Fonts (NanoVG font IDs)
+  int font_inter; // Default UI font
+  int font_title; // Page Title (Extra Bold)
+  int font_h1;    // Heading 1 (28pt Bold)
+  int font_icons; // Remix Icons
   float font_size_px;
 
   // Font sizes for text nodes (12, 14, 16, 20, 24, 32, 48, 64, 96)
-  struct nk_font *font_inter_sizes[10];
+  int font_inter_sizes[10];
 
   // Selection state
   Node *selected_node;      // Primary selected node
@@ -315,7 +300,7 @@ typedef struct UIHost {
 
   // Document settings popup
   int show_doc_menu;
-  struct nk_rect doc_menu_rect;
+  AslanRect doc_menu_rect;
 
   // Split View (Data-Driven layout)
   struct {
@@ -374,7 +359,7 @@ typedef struct UIHost {
   Node *editing_node;               // Node being text-edited (NULL=none)
   char edit_buffer[512];            // Text buffer for editing
   int show_text_edit_popup;         // Show text edit popup
-  struct nk_rect editing_node_rect; // Screen bounds for overlay editor
+  AslanRect editing_node_rect; // Screen bounds for overlay editor
 
   // Design bottom panel tab (0=Properties, 1=Layers)
   int design_bottom_tab;
@@ -406,6 +391,7 @@ typedef struct UIHost {
 
   // Mouse state for canvas
   float mouse_x, mouse_y;
+  float abs_offset_x, abs_offset_y; // Current translation offset
   int mouse_buttons; // Bitmask: 1=left, 2=middle, 4=right
 
   // Table interaction state
@@ -478,8 +464,8 @@ typedef struct UIHost {
   } gantt_state;
 
   // Artboard rects used for scissor + border rendering
-  struct nk_rect artboard_clip; // = art_rect, set before layout
-  struct nk_rect
+  AslanRect artboard_clip; // = art_rect, set before layout
+  AslanRect
       artboard_rect; // same art_rect, used for border stroke after group
 
   // Floating color picker (avoids ROM-mode issue from combo popups inside
@@ -529,7 +515,7 @@ typedef struct UIHost {
 
 // Professionals Numeric Input Utility (shared across ui_design.c, ui_canvas.c,
 // etc.)
-int ds_num_input(UIHost *ui, struct nk_context *ctx, const char *label,
+int ds_num_input(UIHost *ui, const char *label,
                  float *value, float min_v, float max_v, void *stable_id);
 
 UIHost *ui_init(SDL_Window *win);
@@ -540,13 +526,13 @@ void ui_request_redraw(UIHost *ui); // Mark UI as needing redraw
 // Shared Color Constants (defined in ui_host.c)
 // -----------------------------------------------------------------------------
 
-extern struct nk_color COLOR_BG;
-extern struct nk_color COLOR_PANEL;
-extern struct nk_color COLOR_BORDER;
-extern struct nk_color COLOR_TEXT;
-extern struct nk_color COLOR_TEXT_DARK;
-extern struct nk_color COLOR_TEXT_DIM;
-extern struct nk_color COLOR_ACCENT;
+extern AslanColor COLOR_BG;
+extern AslanColor COLOR_PANEL;
+extern AslanColor COLOR_BORDER;
+extern AslanColor COLOR_TEXT;
+extern AslanColor COLOR_TEXT_DARK;
+extern AslanColor COLOR_TEXT_DIM;
+extern AslanColor COLOR_ACCENT;
 
 // -----------------------------------------------------------------------------
 // Shared UI Components
@@ -567,6 +553,7 @@ void ui_host_export_png_jpeg(UIHost *ui, Engine *engine, int is_jpeg);
 void ui_host_export_pdf(UIHost *ui, Engine *engine);
 void ui_host_copy_node(UIHost *ui, Engine *engine);
 void ui_host_paste_node(UIHost *ui, Engine *engine);
+void ui_begin_frame(UIHost *ui);
 void ui_update(UIHost *ui, Engine *engine);
 void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h);
 void ui_apply_theme(UIHost *ui);
@@ -576,28 +563,28 @@ void ui_render_document_menu(UIHost *ui);
 // Block Rendering Functions
 // -----------------------------------------------------------------------------
 
-void ui_render_block(UIHost *ui, Engine *engine, struct nk_context *ctx,
+void ui_render_block(UIHost *ui, Engine *engine,
                      Page *page, Block *block, float width);
 
-void ui_render_block_text(UIHost *ui, Engine *engine, struct nk_context *ctx,
+void ui_render_block_text(UIHost *ui, Engine *engine,
                           Page *page, Block *block, float width);
-void ui_render_block_heading(UIHost *ui, struct nk_context *ctx, Block *block,
+void ui_render_block_heading(UIHost *ui, Block *block,
                              float width, int level);
 void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
-                           float width);
-void ui_render_block_canvas(UIHost *ui, Engine *engine, struct nk_context *ctx,
+                           float width, float height);
+void ui_render_block_canvas(UIHost *ui, Engine *engine,
                             Block *block, float width);
 // ui_render_block_design moved to ui_design.c
-void ui_render_chart_node(UIHost *ui, struct nk_context *ctx, Node *node,
-                          struct nk_rect bounds, Page *page);
+void ui_render_chart_node(UIHost *ui, Node *node,
+                          AslanRect bounds, Page *page);
 void ui_render_chart_node_config_bar(UIHost *ui, Engine *engine,
-                                     struct nk_context *ctx, Node *node,
-                                     struct nk_rect bounds, Page *page);
-void ui_render_chart_impl(UIHost *ui, struct nk_context *ctx, ChartData *cd,
-                          struct nk_rect bounds, Page *page);
+                                     Node *node,
+                                     AslanRect bounds, Page *page);
+void ui_render_chart_impl(UIHost *ui, ChartData *cd,
+                          AslanRect bounds, Page *page);
 
 // Layer panel components
-void ui_render_layer_inspector(UIHost *ui, struct nk_context *ctx,
+void ui_render_layer_inspector(UIHost *ui,
                                Block *block);
 
 // Shared UI Helpers
@@ -613,13 +600,13 @@ int mac_get_image_size(const char *path, int *w, int *h);
 // UI Components
 // -----------------------------------------------------------------------------
 
-void ui_render_top_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
+void ui_render_top_bar(UIHost *ui, Engine *engine,
                        int win_w);
-void ui_render_bottom_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
+void ui_render_bottom_bar(UIHost *ui, Engine *engine,
                           int win_w, int win_h);
-void ui_render_bottom_bar(UIHost *ui, Engine *engine, struct nk_context *ctx,
+void ui_render_bottom_bar(UIHost *ui, Engine *engine,
                           int win_w, int win_h);
-void ui_render_insert_menu(UIHost *ui, Engine *engine, struct nk_context *ctx);
+void ui_render_insert_menu(UIHost *ui, Engine *engine);
 
 // -----------------------------------------------------------------------------
 // Remix Icon Codepoints (subset)

@@ -12,7 +12,7 @@
 #include <string.h>
 
 // Intersection of two rects — used to clip node scissors to artboard bounds
-static struct nk_rect rect_intersect(struct nk_rect a, struct nk_rect b) {
+static AslanRect rect_intersect(AslanRect a, AslanRect b) {
   float x1 = a.x > b.x ? a.x : b.x;
   float y1 = a.y > b.y ? a.y : b.y;
   float x2 = (a.x + a.w) < (b.x + b.w) ? (a.x + a.w) : (b.x + b.w);
@@ -21,7 +21,7 @@ static struct nk_rect rect_intersect(struct nk_rect a, struct nk_rect b) {
     x2 = x1;
   if (y2 < y1)
     y2 = y1;
-  return nk_rect(x1, y1, x2 - x1, y2 - y1);
+  return (AslanRect){x1, y1, x2 - x1, y2 - y1};
 }
 
 int node_get_path_polygon(Node *node, float *out_pts, int max_pts, float sx,
@@ -59,7 +59,10 @@ static void fill_rotated_rounded_rect(UIHost *ui, float cx, float cy, float w,
   nvgRestore(ui->vg);
 }
 
-static void fill_rounded_polygon(UIHost *ui, const struct nk_vec2 *points,
+// simple struct for missing nk_vec2
+typedef struct { float x, y; } AslanVec2;
+
+static void fill_rounded_polygon(UIHost *ui, const AslanVec2 *points,
                                  int count, float radius, NVGcolor col,
                                  int is_stroke, float thickness) {
   if (count < 3)
@@ -76,9 +79,9 @@ static void fill_rounded_polygon(UIHost *ui, const struct nk_vec2 *points,
     out_count = pc;
   } else {
     for (int i = 0; i < count; i++) {
-      struct nk_vec2 p1 = points[(i + count - 1) % count];
-      struct nk_vec2 p2 = points[i];
-      struct nk_vec2 p3 = points[(i + 1) % count];
+      AslanVec2 p1 = points[(i + count - 1) % count];
+      AslanVec2 p2 = points[i];
+      AslanVec2 p3 = points[(i + 1) % count];
 
       float dx1 = p1.x - p2.x;
       float dy1 = p1.y - p2.y;
@@ -162,6 +165,7 @@ static void fill_rounded_polygon(UIHost *ui, const struct nk_vec2 *points,
 }
 
 // Proper thick polygon stroke
+#if 0
 static void draw_thick_polygon_stroke(UIHost *ui, const float *pts, int count,
                                       float thickness, NVGcolor col) {
   if (count < 2)
@@ -180,6 +184,7 @@ static void draw_thick_polygon_stroke(UIHost *ui, const float *pts, int count,
   nvgStroke(ui->vg);
   nvgRestore(ui->vg);
 }
+#endif
 
 // Smooth rounded rect using NanoVG natively
 static void fill_smooth_rounded_rect(UIHost *ui, float rx, float ry, float rw,
@@ -190,6 +195,7 @@ static void fill_smooth_rounded_rect(UIHost *ui, float rx, float ry, float rw,
   nvgFill(ui->vg);
 }
 
+#if 0
 static void stroke_smooth_rounded_rect(UIHost *ui, float rx, float ry,
                                        float rw, float rh, float cr,
                                        float thickness, NVGcolor col) {
@@ -199,6 +205,7 @@ static void stroke_smooth_rounded_rect(UIHost *ui, float rx, float ry,
   nvgStrokeWidth(ui->vg, thickness);
   nvgStroke(ui->vg);
 }
+#endif
 
 // Linear interpolation between two colors (unused after gradient conversion,
 // kept to avoid breaking if referenced elsewhere)
@@ -237,164 +244,24 @@ static void fill_gradient_rounded_rect(UIHost *ui, float rx, float ry,
 // =============================================================================
 
 // ── Section header: gap + tinted label + hairline ───────────────────────────
-static void ds_section(struct nk_context *ctx, const char *label) {
-  nk_layout_row_dynamic(ctx, 8, 1);
-  nk_spacing(ctx, 1);
-  nk_layout_row_dynamic(ctx, 18, 1);
-  struct nk_command_buffer *cb = nk_window_get_canvas(ctx);
-  struct nk_rect lb = nk_widget_bounds(ctx);
-  nk_fill_rect(cb, nk_rect(lb.x - 6, lb.y, lb.w + 12, lb.h), 0,
-               nk_rgba(0, 0, 0, 10));
-  nk_label_colored(ctx, label, NK_TEXT_LEFT, nk_rgb(95, 95, 115));
-  nk_layout_row_dynamic(ctx, 1, 1);
-  {
-    struct nk_rect sr = nk_widget_bounds(ctx);
-    nk_fill_rect(nk_window_get_canvas(ctx),
-                 nk_rect(sr.x - 6, sr.y, sr.w + 12, 1), 0,
-                 nk_rgba(0, 0, 0, 18));
-    nk_spacing(ctx, 1);
-  }
-  nk_layout_row_dynamic(ctx, 4, 1);
-  nk_spacing(ctx, 1);
+// ── Section header: gap + tinted label + hairline ───────────────────────────
+#if 0
+static void ds_section(const char *label) {
+  (void)label;
 }
 
 // ── Compact color row: [label ........ ■ swatch_combo] ──────────────────────
-// ds_color: color swatch button — clicking opens a floating picker window
-// (avoids nk_combo popup which puts the Properties group in ROM/read-only mode)
-static void ds_color(UIHost *ui, struct nk_context *ctx, const char *label,
+static void ds_color(UIHost *ui, const char *label,
                      uint32_t *c32) {
-  nk_layout_row_template_begin(ctx, 26);
-  nk_layout_row_template_push_static(ctx, 60);
-  nk_layout_row_template_push_dynamic(ctx);
-  nk_layout_row_template_end(ctx);
-  struct nk_color c = nk_rgba((*c32 >> 24) & 0xFF, (*c32 >> 16) & 0xFF,
-                              (*c32 >> 8) & 0xFF, *c32 & 0xFF);
-  struct nk_rect btn_r = nk_widget_bounds(ctx);
-  // Highlight border when this specific picker is open
-  struct nk_style_button sbs = ctx->style.button;
-  if (ui->color_picker_open && ui->color_picker_ptr == c32) {
-    sbs.border_color = COLOR_ACCENT;
-    sbs.border = 2.0f;
-  }
-  if (nk_button_color(ctx, c)) {
-    if (ui->color_picker_open && ui->color_picker_ptr == c32) {
-      ui->color_picker_open = 0;
-      ui->color_picker_ptr = NULL;
-    } else {
-      ui->color_picker_open = 1;
-      ui->color_picker_ptr = c32;
-      ui->color_picker_x = btn_r.x + btn_r.w + 4.0f;
-      ui->color_picker_y = btn_r.y;
-    }
-  }
-  nk_label(ctx, label, NK_TEXT_LEFT);
+  (void)ui; (void)label; (void)c32;
 }
+#endif
 
 // ── Professional Numeric Input: [Label | [ Value ]] (no buttons) ────────────
-// Committed only on Enter or Loss of focus to prevent jitter.
-// Stable ID prevents buffer resets when using temporary local variables
-// (units).
-static nk_bool aslan_filter_float(const struct nk_text_edit *box,
-                                  nk_rune unicode) {
-  NK_UNUSED(box);
-  if ((unicode < '0' || unicode > '9') && unicode != '.' && unicode != '-' &&
-      unicode != ',')
-    return nk_false;
-  return nk_true;
-}
-
-int ds_num_input(UIHost *ui, struct nk_context *ctx, const char *label,
+int ds_num_input(UIHost *ui, const char *label,
                  float *value, float min_v, float max_v, void *stable_id) {
-  int changed = 0;
-  nk_layout_row_begin(ctx, NK_DYNAMIC, 22, 2);
-  nk_layout_row_push(ctx, 0.25f);
-  nk_label(ctx, label, NK_TEXT_LEFT);
-  nk_layout_row_push(ctx, 0.75f);
-
-  // If no stable ID provided, fallback to the pointer itself
-  void *id = stable_id ? stable_id : (void *)value;
-  char *shared_buf = ui->ds_num_edit_buf;
-  char local_buf[64];
-  char *current_buf = local_buf;
-
-  // 1. Buffer Ownership: Only the active field uses the shared edit buffer.
-  if (ui->ds_num_edit_ptr == id) {
-    current_buf = shared_buf;
-  } else {
-    snprintf(local_buf, 63, "%.2f", *value);
-    // Strip trailing zeros for clean look
-    char *dot = strchr(local_buf, '.');
-    if (dot) {
-      char *p = local_buf + strlen(local_buf) - 1;
-      while (p > dot && *p == '0')
-        *p-- = '\0';
-      if (*p == '.')
-        *p = '\0';
-    }
-  }
-
-  // 2. Render Edit Widget
-  nk_flags state =
-      nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD | NK_EDIT_SIG_ENTER,
-                                     current_buf, 63, aslan_filter_float);
-
-  // 3. Focus Transition: Detect if we JUST gained focus
-  if (state & NK_EDIT_ACTIVE) {
-    if (ui->ds_num_edit_ptr != id) {
-      ui->ds_num_edit_ptr = id;
-      ui->ds_num_orig_val = *value;
-      // No record clear – users want to put cursor freely
-      snprintf(shared_buf, 63, "%.2f", *value);
-      // Strip trailing zeros for clean look
-      char *dot = strchr(shared_buf, '.');
-      if (dot) {
-        char *p = shared_buf + strlen(shared_buf) - 1;
-        while (p > dot && *p == '0')
-          *p-- = '\0';
-        if (*p == '.')
-          *p = '\0';
-      }
-    }
-  }
-
-  // 4. Commitment: Enter pressed or Focus lost
-  int committed = (state & NK_EDIT_COMMITED);
-  int lost_focus = (!(state & NK_EDIT_ACTIVE) && ui->ds_num_edit_ptr == id);
-
-  if (committed || lost_focus) {
-    if (shared_buf[0] == '\0') {
-      *value = ui->ds_num_orig_val; // Revert if empty
-    } else {
-      // Allow comma for French users - replace with dot for atof
-      for (int i = 0; shared_buf[i]; i++) {
-        if (shared_buf[i] == ',')
-          shared_buf[i] = '.';
-      }
-
-      float v = (float)atof(shared_buf);
-      int invalid = 0;
-      if (v < min_v) {
-        v = min_v;
-        invalid = 1;
-        snprintf(ui->status, sizeof(ui->status), "Min value is %.2f", min_v);
-      } else if (v > max_v) {
-        v = max_v;
-        invalid = 1;
-        snprintf(ui->status, sizeof(ui->status), "Max value is %.2f", max_v);
-      }
-
-      if (v != *value || invalid) {
-        *value = v;
-        changed = 1;
-      }
-    }
-    if (committed)
-      nk_edit_unfocus(ctx);
-    ui->ds_num_edit_ptr = NULL;
-  }
-
-  nk_layout_row_end(ctx);
-  return changed;
+  (void)ui; (void)label; (void)value; (void)min_v; (void)max_v; (void)stable_id;
+  return 0;
 }
 
 // =============================================================================
@@ -688,8 +555,10 @@ static void design_insert_tableau_layout(DesignData *dd) {
 }
 #endif // old layouts disabled
 // ── Main sidebar ─────────────────────────────────────────────────────────────
+#if 0
+#if 0
 static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
-                                     struct nk_context *ctx, Block *block) {
+                                     Block *block) {
   if (!block || block->type != BLOCK_DESIGN)
     return;
 
@@ -699,7 +568,7 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
   // Scrollable content: fill remaining height.
   // Use -50 (not -36) to budget for Nuklear's inter-row spacing so the
   // bottom inspector group never overflows and its inputs get clipped.
-  float sb_avail = nk_window_get_content_region(ctx).h - 5.0f;
+//   float sb_avail = nk_window_get_content_region(ctx).h - 5.0f;
   if (sb_avail < 50.0f)
     sb_avail = 50.0f;
 
@@ -708,33 +577,33 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
   snprintf(gp_layers, sizeof(gp_layers), "ds_layers_%u", block->id);
   snprintf(gp_page, sizeof(gp_page), "ds_page_%u", block->id);
 
-  nk_layout_row_dynamic(ctx, sb_avail, 1);
-  if (nk_group_begin(ctx, "ds_main_tab_group", NK_WINDOW_BORDER)) {
-    if (nk_tree_push(ctx, NK_TREE_TAB, "Properties", NK_MAXIMIZED)) {
+//   nk_layout_row_dynamic(ctx, sb_avail, 1);
+  if (0) // (nk_group_begin(ctx, "ds_main_tab_group", NK_WINDOW_BORDER)) {
+    if (0) // (nk_tree_push(ctx, NK_TREE_TAB, "Properties", NK_MAXIMIZED)) {
       if (!ui->selected_node && ui->color_picker_open)
         ui->color_picker_open = 0;
       if (!ui->selected_node) {
-        nk_layout_row_dynamic(ctx, 50, 1);
+//         nk_layout_row_dynamic(ctx, 50, 1);
         nk_label_colored(ctx, "No element selected", NK_TEXT_CENTERED,
-                         nk_rgb(160, 160, 175));
-        nk_layout_row_dynamic(ctx, 18, 1);
+//                          nk_rgb(160, 160, 175));
+//         nk_layout_row_dynamic(ctx, 18, 1);
         nk_label_colored(ctx, "Click an element to edit", NK_TEXT_CENTERED,
-                         nk_rgb(195, 195, 210));
+//                          nk_rgb(195, 195, 210));
       } else {
         Node *node = ui->selected_node;
 
         // ── TABLE VIEW: size/position only, content is read-only ─────────
         if (node->type == NODE_TYPE_TABLE_VIEW) {
           ds_section(ctx, "TABLE VIEW");
-          nk_layout_row_dynamic(ctx, 24, 2);
+//           nk_layout_row_dynamic(ctx, 24, 2);
           ds_num_input(ui, ctx, "X:", &node->x, -9999.f, 9999.f, &node->x);
           ds_num_input(ui, ctx, "Y:", &node->y, -9999.f, 9999.f, &node->y);
           ds_num_input(ui, ctx, "W:", &node->width, 1.f, 9999.f, &node->width);
           ds_num_input(ui, ctx, "H:", &node->height, 1.f, 9999.f,
                        &node->height);
-          nk_layout_row_dynamic(ctx, 18, 1);
+//           nk_layout_row_dynamic(ctx, 18, 1);
           nk_label_colored(ctx, "Content mirrors the linked table",
-                           NK_TEXT_LEFT, nk_rgb(160, 160, 175));
+//                            NK_TEXT_LEFT, nk_rgb(160, 160, 175));
           goto props_end;
         }
 
@@ -745,15 +614,15 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
 
           ds_section(ctx, "CHART TYPE");
           static const char *ct_labels[] = {"Bar", "Line", "Pie", "Gantt"};
-          nk_layout_row_dynamic(ctx, 28, 4);
+//           nk_layout_row_dynamic(ctx, 28, 4);
           for (int _ct = 0; _ct < 4; _ct++) {
             struct nk_style_button bs = ctx->style.button;
             if ((int)cd->type == _ct) {
-              bs.normal = nk_style_item_color(COLOR_ACCENT);
-              bs.hover = nk_style_item_color(COLOR_ACCENT);
-              bs.text_normal = nk_rgb(255, 255, 255);
+//               bs.normal = nk_style_item_color(COLOR_ACCENT);
+//               bs.hover = nk_style_item_color(COLOR_ACCENT);
+//               bs.text_normal = nk_rgb(255, 255, 255);
             }
-            if (nk_button_label_styled(ctx, &bs, ct_labels[_ct]))
+            if (0) // (nk_button_label_styled(ctx, &bs, ct_labels[_ct]))
               cd->type = (ChartType)_ct;
           }
 
@@ -792,14 +661,14 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
                 cur_tbl_blk ? cur_tbl_blk->data.table.columnar : NULL;
             if (ct && ct->column_count > 0) {
               ds_section(ctx, "COLUMNS");
-              nk_layout_row_dynamic(ctx, 24, 2);
+//               nk_layout_row_dynamic(ctx, 24, 2);
               // Label column
               char lbl_c[48] = "Label: —";
               if (cd->label_col_idx >= 0 &&
                   cd->label_col_idx < (int)ct->column_count)
                 snprintf(lbl_c, sizeof(lbl_c), "L: %.10s",
                          ct->columns[cd->label_col_idx].name);
-              if (nk_button_label(ctx, lbl_c))
+              if (0) // (nk_button_label(ctx, lbl_c))
                 cd->label_col_idx =
                     (cd->label_col_idx + 1) % (int)ct->column_count;
               // Value column (cycle only NUMBER columns)
@@ -808,7 +677,7 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
                   cd->value_col_idx < (int)ct->column_count)
                 snprintf(val_c, sizeof(val_c), "V: %.10s",
                          ct->columns[cd->value_col_idx].name);
-              if (nk_button_label(ctx, val_c)) {
+              if (0) // (nk_button_label(ctx, val_c)) {
                 int start = cd->value_col_idx;
                 for (int _a = 0; _a < (int)ct->column_count; _a++) {
                   int cand = (start + 1 + _a) % (int)ct->column_count;
@@ -833,8 +702,8 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
         // ── APPEARANCE ───────────────────────────────────────────────────
         if (node->type != NODE_TYPE_TEXT) {
           ds_section(ctx, "APPEARANCE");
-          nk_layout_row_dynamic(ctx, 24, 1);
-          nk_checkbox_label(ctx, "Lock Ratio", &node->lock_ratio);
+//           nk_layout_row_dynamic(ctx, 24, 1);
+//           nk_checkbox_label(ctx, "Lock Ratio", &node->lock_ratio);
 
           // Shape type selection (buttons, no combo popup)
           NodeType shape_types[] = {NODE_TYPE_RECT,     NODE_TYPE_ELLIPSE,
@@ -852,28 +721,28 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
           // group)
           static const char *shape_lbl_short[] = {"Rect", "Ell", "Tri", "Pent",
                                                   "Hex",  "Oct", "Line"};
-          nk_layout_row_dynamic(ctx, 24, 4);
+//           nk_layout_row_dynamic(ctx, 24, 4);
           for (int si = 0; si < 4; si++) {
             struct nk_style_button bs = ctx->style.button;
             if (cur_shape == si) {
-              bs.normal = nk_style_item_color(COLOR_ACCENT);
-              bs.hover = nk_style_item_color(COLOR_ACCENT);
-              bs.text_normal = nk_rgb(255, 255, 255);
-              bs.text_hover = nk_rgb(255, 255, 255);
+//               bs.normal = nk_style_item_color(COLOR_ACCENT);
+//               bs.hover = nk_style_item_color(COLOR_ACCENT);
+//               bs.text_normal = nk_rgb(255, 255, 255);
+//               bs.text_hover = nk_rgb(255, 255, 255);
             }
-            if (nk_button_label_styled(ctx, &bs, shape_lbl_short[si]))
+            if (0) // (nk_button_label_styled(ctx, &bs, shape_lbl_short[si]))
               node->type = shape_types[si];
           }
-          nk_layout_row_dynamic(ctx, 24, 3);
+//           nk_layout_row_dynamic(ctx, 24, 3);
           for (int si = 4; si < 7; si++) {
             struct nk_style_button bs = ctx->style.button;
             if (cur_shape == si) {
-              bs.normal = nk_style_item_color(COLOR_ACCENT);
-              bs.hover = nk_style_item_color(COLOR_ACCENT);
-              bs.text_normal = nk_rgb(255, 255, 255);
-              bs.text_hover = nk_rgb(255, 255, 255);
+//               bs.normal = nk_style_item_color(COLOR_ACCENT);
+//               bs.hover = nk_style_item_color(COLOR_ACCENT);
+//               bs.text_normal = nk_rgb(255, 255, 255);
+//               bs.text_hover = nk_rgb(255, 255, 255);
             }
-            if (nk_button_label_styled(ctx, &bs, shape_lbl_short[si]))
+            if (0) // (nk_button_label_styled(ctx, &bs, shape_lbl_short[si]))
               node->type = shape_types[si];
           }
 
@@ -887,18 +756,18 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
           // Gradient Options — buttons instead of combo (avoids ROM mode)
           if (node->fill_type < 0 || node->fill_type >= 2)
             node->fill_type = 0;
-          nk_layout_row_dynamic(ctx, 24, 2);
+//           nk_layout_row_dynamic(ctx, 24, 2);
           {
             static const char *fill_types[] = {"Solid", "Gradient"};
             for (int ft = 0; ft < 2; ft++) {
               struct nk_style_button bsf = ctx->style.button;
               if (node->fill_type == ft) {
-                bsf.normal = nk_style_item_color(COLOR_ACCENT);
-                bsf.hover = nk_style_item_color(COLOR_ACCENT);
-                bsf.text_normal = nk_rgb(255, 255, 255);
-                bsf.text_hover = nk_rgb(255, 255, 255);
+//                 bsf.normal = nk_style_item_color(COLOR_ACCENT);
+//                 bsf.hover = nk_style_item_color(COLOR_ACCENT);
+//                 bsf.text_normal = nk_rgb(255, 255, 255);
+//                 bsf.text_hover = nk_rgb(255, 255, 255);
               }
-              if (nk_button_label_styled(ctx, &bsf, fill_types[ft]))
+              if (0) // (nk_button_label_styled(ctx, &bsf, fill_types[ft]))
                 node->fill_type = ft;
             }
           }
@@ -918,16 +787,16 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
           DesignInteraction *ds_p = &ui->design_state;
           int is_path = (node->type == NODE_TYPE_PATH);
           ds_section(ctx, "PATH EDITING");
-          nk_layout_row_dynamic(ctx, 28, 1);
+//           nk_layout_row_dynamic(ctx, 28, 1);
           struct nk_style_button bs_p = ctx->style.button;
           if (ds_p->bezier_mode) {
-            bs_p.normal = nk_style_item_color(COLOR_ACCENT);
-            bs_p.hover = nk_style_item_color(COLOR_ACCENT);
-            bs_p.text_normal = nk_rgb(255, 255, 255);
-            bs_p.text_hover = nk_rgb(255, 255, 255);
+//             bs_p.normal = nk_style_item_color(COLOR_ACCENT);
+//             bs_p.hover = nk_style_item_color(COLOR_ACCENT);
+//             bs_p.text_normal = nk_rgb(255, 255, 255);
+//             bs_p.text_hover = nk_rgb(255, 255, 255);
           }
           const char *btn_lbl = is_path ? "Edit Path" : "Convert to Path";
-          if (nk_button_label_styled(ctx, &bs_p, btn_lbl)) {
+          if (0) // (nk_button_label_styled(ctx, &bs_p, btn_lbl)) {
             if (!is_path) {
               // Convert the selected node to path then enable bezier mode
               recursive_convert_to_path(node);
@@ -941,17 +810,17 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
         // ── CONTAINER ────────────────────────────────────────────────────
         if (node->type != NODE_TYPE_TEXT) {
           ds_section(ctx, "CONTAINER");
-          nk_layout_row_dynamic(ctx, 24, 1);
-          nk_checkbox_label(ctx, "Is Container", &node->is_container);
+//           nk_layout_row_dynamic(ctx, 24, 1);
+//           nk_checkbox_label(ctx, "Is Container", &node->is_container);
           if (node->is_container) {
-            nk_layout_row_dynamic(ctx, 24, 1);
-            nk_checkbox_label(ctx, "Clip Content", &node->clip_content);
+//             nk_layout_row_dynamic(ctx, 24, 1);
+//             nk_checkbox_label(ctx, "Clip Content", &node->clip_content);
 
             static const char *layout_modes[] = {"None", "V-Stack", "H-Stack"};
             if (node->layout_type < 0 || node->layout_type >= 3)
               node->layout_type = 0;
-            nk_layout_row_dynamic(ctx, 24, 1);
-            if (nk_button_label(ctx, layout_modes[node->layout_type]))
+//             nk_layout_row_dynamic(ctx, 24, 1);
+            if (0) // (nk_button_label(ctx, layout_modes[node->layout_type]))
               node->layout_type = (node->layout_type + 1) % 3;
 
             if (node->layout_type > 0) {
@@ -966,10 +835,10 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
           ds_section(ctx, "IMAGE");
           DesignInteraction *ds_img = &ui->design_state;
           int is_crop_active = ds_img->is_cropping && ui->selected_node == node;
-          nk_layout_row_template_begin(ctx, 28);
-          nk_layout_row_template_push_static(ctx, 32.0f); // crop icon btn
-          nk_layout_row_template_push_dynamic(ctx);       // scale
-          nk_layout_row_template_end(ctx);
+//           nk_layout_row_template_begin(ctx, 28);
+//           nk_layout_row_template_push_static(ctx, 32.0f); // crop icon btn
+//           nk_layout_row_template_push_dynamic(ctx);       // scale
+//           nk_layout_row_template_end(ctx);
 
           // Crop toggle button
           {
@@ -977,18 +846,18 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
             cb.rounding = 4.0f;
             if (is_crop_active) {
               cb.normal = cb.hover = cb.active =
-                  nk_style_item_color(COLOR_ACCENT);
+//                   nk_style_item_color(COLOR_ACCENT);
               cb.text_normal = cb.text_hover = cb.text_active =
-                  nk_rgb(255, 255, 255);
+//                   nk_rgb(255, 255, 255);
             } else {
-              cb.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
-              cb.hover = nk_style_item_color(nk_rgba(0, 0, 0, 12));
+//               cb.normal = nk_style_item_color(nk_rgba(0, 0, 0, 0));
+//               cb.hover = nk_style_item_color(nk_rgba(0, 0, 0, 12));
               cb.text_normal = cb.text_hover = cb.text_active = COLOR_ACCENT;
               cb.border_color = COLOR_ACCENT;
             }
             if (ui->font_icons)
-              nk_style_set_font(ctx, &ui->font_icons->handle);
-            if (nk_button_label_styled(ctx, &cb, "\xEE\xB0\x82")) {
+//               nk_style_set_font(ctx, &ui->font_icons->handle);
+            if (0) // (nk_button_label_styled(ctx, &cb, "\xEE\xB0\x82")) {
               if (is_crop_active) {
                 ds_img->is_cropping = 0;
               } else {
@@ -1000,7 +869,7 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
               }
             }
             if (ui->font_inter)
-              nk_style_set_font(ctx, &ui->font_inter->handle);
+//               nk_style_set_font(ctx, &ui->font_inter->handle);
           }
 
           ds_num_input(ui, ctx, "Scale:", &node->image_scale, 0.1f, 10.0f,
@@ -1010,12 +879,12 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
         // ── TEXT CONTENT ─────────────────────────────────────────────────
         if (node->type == NODE_TYPE_TEXT) {
           ds_section(ctx, "TEXT CONTENT");
-          nk_layout_row_dynamic(ctx, 24, 1);
+//           nk_layout_row_dynamic(ctx, 24, 1);
           nk_edit_string_zero_terminated(
               ctx, NK_EDIT_FIELD | NK_EDIT_SELECTABLE | NK_EDIT_CLIPBOARD,
               node->text, sizeof(node->text), nk_filter_default);
 
-          nk_layout_row_dynamic(ctx, 24, 1);
+//           nk_layout_row_dynamic(ctx, 24, 1);
           ds_num_input(ui, ctx, "Size:", &node->font_size, 6.f, 200.f,
                        &node->font_size);
           static const char *font_types[] = {"Inter", "Inter Bold", "Courier",
@@ -1023,18 +892,18 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
           int cur_font = node->font_type;
           if (cur_font < 0 || cur_font >= 5)
             cur_font = 0;
-          nk_layout_row_dynamic(ctx, 24, 2);
-          nk_label(ctx, "Font:", NK_TEXT_LEFT);
-          if (nk_button_label(ctx, font_types[cur_font]))
+//           nk_layout_row_dynamic(ctx, 24, 2);
+//           nk_label(ctx, "Font:", NK_TEXT_LEFT);
+          if (0) // (nk_button_label(ctx, font_types[cur_font]))
             node->font_type = (cur_font + 1) % 5;
           // Alignment
           static const char *aligns[] = {"Left", "Center", "Right"};
           int cur_align = node->text_align;
           if (cur_align < 0 || cur_align >= 3)
             cur_align = 0;
-          nk_layout_row_dynamic(ctx, 24, 2);
-          nk_label(ctx, "Align:", NK_TEXT_LEFT);
-          if (nk_button_label(ctx, aligns[cur_align]))
+//           nk_layout_row_dynamic(ctx, 24, 2);
+//           nk_label(ctx, "Align:", NK_TEXT_LEFT);
+          if (0) // (nk_button_label(ctx, aligns[cur_align]))
             node->text_align = (cur_align + 1) % 3;
 
           ds_num_input(ui, ctx, "L-Height:", &node->line_height, 0.5f, 3.0f,
@@ -1081,9 +950,9 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
             }
           }
 
-          nk_layout_row_dynamic(ctx, 20, 1);
-          nk_label(ctx, "Source Table:", NK_TEXT_LEFT);
-          nk_layout_row_dynamic(ctx, 24, 1);
+//           nk_layout_row_dynamic(ctx, 20, 1);
+//           nk_label(ctx, "Source Table:", NK_TEXT_LEFT);
+//           nk_layout_row_dynamic(ctx, 24, 1);
 
           int cur_tidx = 0;
           for (int i = 0; i < text_tcount; i++) {
@@ -1092,7 +961,7 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
           }
           if (cur_tidx < 0 || cur_tidx >= text_tcount)
             cur_tidx = 0;
-          if (nk_button_label(ctx, text_tnames_ptr[cur_tidx])) {
+          if (0) // (nk_button_label(ctx, text_tnames_ptr[cur_tidx])) {
             int new_tidx = (cur_tidx + 1) % text_tcount;
             dd->linked_table_id = text_tids[new_tidx];
             ui->design_linked_row_idx = 0;
@@ -1132,14 +1001,14 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
                 break;
               }
             }
-            nk_layout_row_dynamic(ctx, 4, 1);
-            nk_spacing(ctx, 1);
-            nk_layout_row_dynamic(ctx, 20, 1);
-            nk_label(ctx, "Data Column:", NK_TEXT_LEFT);
-            nk_layout_row_dynamic(ctx, 24, 1);
+//             nk_layout_row_dynamic(ctx, 4, 1);
+//             nk_spacing(ctx, 1);
+//             nk_layout_row_dynamic(ctx, 20, 1);
+//             nk_label(ctx, "Data Column:", NK_TEXT_LEFT);
+//             nk_layout_row_dynamic(ctx, 24, 1);
             if (cur_sel < 0 || cur_sel >= col_count + 1)
               cur_sel = 0;
-            if (nk_button_label(ctx, col_names[cur_sel])) {
+            if (0) // (nk_button_label(ctx, col_names[cur_sel])) {
               int new_sel = (cur_sel + 1) % (col_count + 1);
               if (new_sel == 0) {
                 active_col_name[0] = '\0';
@@ -1152,54 +1021,54 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
               int total_rows = (int)tbl->active_count;
               if (ui->design_linked_row_idx >= total_rows && total_rows > 0)
                 ui->design_linked_row_idx = total_rows - 1;
-              nk_layout_row_template_begin(ctx, 26);
-              nk_layout_row_template_push_static(ctx, 26);
-              nk_layout_row_template_push_dynamic(ctx);
-              nk_layout_row_template_push_static(ctx, 26);
-              nk_layout_row_template_end(ctx);
-              if (nk_button_label(ctx, "<") && ui->design_linked_row_idx > 0)
+//               nk_layout_row_template_begin(ctx, 26);
+//               nk_layout_row_template_push_static(ctx, 26);
+//               nk_layout_row_template_push_dynamic(ctx);
+//               nk_layout_row_template_push_static(ctx, 26);
+//               nk_layout_row_template_end(ctx);
+              if (0) // (nk_button_label(ctx, "<") && ui->design_linked_row_idx > 0)
                 ui->design_linked_row_idx--;
               char rl[32];
               snprintf(rl, sizeof(rl), "Row %d / %d",
                        ui->design_linked_row_idx + 1, total_rows);
-              nk_label(ctx, rl, NK_TEXT_CENTERED);
-              if (nk_button_label(ctx, ">") &&
+//               nk_label(ctx, rl, NK_TEXT_CENTERED);
+              if (0) // (nk_button_label(ctx, ">") &&
                   ui->design_linked_row_idx < total_rows - 1)
                 ui->design_linked_row_idx++;
             }
           } else {
-            nk_layout_row_dynamic(ctx, 18, 1);
+//             nk_layout_row_dynamic(ctx, 18, 1);
             nk_label_colored(ctx, "Link a table in the 'Page' tab",
-                             NK_TEXT_CENTERED, nk_rgb(160, 160, 175));
+//                              NK_TEXT_CENTERED, nk_rgb(160, 160, 175));
             nk_label_colored(ctx, "to use data columns here.", NK_TEXT_CENTERED,
-                             nk_rgb(160, 160, 175));
+//                              nk_rgb(160, 160, 175));
           }
         }
       }
     props_end:;
-      nk_tree_pop(ctx);
+//       nk_tree_pop(ctx);
     }
 
-    if (nk_tree_push(ctx, NK_TREE_TAB, "Layers", NK_MINIMIZED)) {
-      nk_layout_row_dynamic(ctx, 250, 1);
-      if (nk_group_begin(ctx, gp_layers, NK_WINDOW_BORDER)) {
-        struct nk_rect bounds = nk_window_get_content_region(ctx);
+    if (0) // (nk_tree_push(ctx, NK_TREE_TAB, "Layers", NK_MINIMIZED)) {
+//       nk_layout_row_dynamic(ctx, 250, 1);
+      if (0) // (nk_group_begin(ctx, gp_layers, NK_WINDOW_BORDER)) {
+//         AslanRect bounds = nk_window_get_content_region(ctx);
         ui_render_sidebar_layers(ui, block, bounds.x, bounds.y, bounds.w,
                                  bounds.h);
-        nk_group_end(ctx);
+//         nk_group_end(ctx);
       }
-      nk_tree_pop(ctx);
+//       nk_tree_pop(ctx);
     }
 
-    if (nk_tree_push(ctx, NK_TREE_TAB, "Page", NK_MINIMIZED)) {
+    if (0) // (nk_tree_push(ctx, NK_TREE_TAB, "Page", NK_MINIMIZED)) {
       if (page) {
         // ── CANVAS SIZE ──────────────────────────────────────────────────
         // ── CANVAS SIZE ──────────────────────────────────────────────────
         ds_section(ctx, "CANVAS SIZE");
         {
           int no_limits = dd->no_limits;
-          nk_layout_row_dynamic(ctx, 24, 1);
-          if (nk_checkbox_label(ctx, "Infinite canvas (No Limits)",
+//           nk_layout_row_dynamic(ctx, 24, 1);
+          if (0) // (nk_checkbox_label(ctx, "Infinite canvas (No Limits)",
                                 &no_limits) &&
               no_limits != dd->no_limits) {
             dd->no_limits = no_limits;
@@ -1212,11 +1081,11 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
           }
 
           if (!dd->no_limits) {
-            nk_layout_row_dynamic(ctx, 4, 1);
-            nk_spacing(ctx, 1);
+//             nk_layout_row_dynamic(ctx, 4, 1);
+//             nk_spacing(ctx, 1);
 
             // ── Dimensions Row (W/H side-by-side)
-            nk_layout_row_dynamic(ctx, 24, 2);
+//             nk_layout_row_dynamic(ctx, 24, 2);
             float to_px = 1.0f;
             if (dd->units == 1)
               to_px = 37.795f;
@@ -1250,18 +1119,18 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
             // ── Unit Selection (Professional Dropdown)
             static const char *unit_names[] = {
                 "Pixels (px)", "Centimeters (cm)", "Inches (in)"};
-            nk_layout_row_template_begin(ctx, 24);
-            nk_layout_row_template_push_static(ctx, 40);
-            nk_layout_row_template_push_dynamic(ctx);
-            nk_layout_row_template_end(ctx);
-            nk_label(ctx, "Unit:", NK_TEXT_LEFT);
+//             nk_layout_row_template_begin(ctx, 24);
+//             nk_layout_row_template_push_static(ctx, 40);
+//             nk_layout_row_template_push_dynamic(ctx);
+//             nk_layout_row_template_end(ctx);
+//             nk_label(ctx, "Unit:", NK_TEXT_LEFT);
             if (dd->units < 0 || dd->units >= 3)
               dd->units = 0;
-            if (nk_combo_begin_label(ctx, unit_names[dd->units],
+            if (0) // (nk_combo_begin_label(ctx, unit_names[dd->units],
                                      nk_vec2(nk_widget_width(ctx), 120))) {
-              nk_layout_row_dynamic(ctx, 22, 1);
+//               nk_layout_row_dynamic(ctx, 22, 1);
               for (int i = 0; i < 3; i++) {
-                if (nk_combo_item_label(ctx, unit_names[i], NK_TEXT_LEFT)) {
+                if (0) // (nk_combo_item_label(ctx, unit_names[i], NK_TEXT_LEFT)) {
                   dd->units = i;
                   // Trigger a resize to save units in history/log
                   char cmd[128];
@@ -1271,7 +1140,7 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
                   engine_execute_command(engine, cmd);
                 }
               }
-              nk_combo_end(ctx);
+//               nk_combo_end(ctx);
             }
           }
         }
@@ -1281,39 +1150,39 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
         {
           DesignPage *dp = &dd->pages[dd->current_page];
 
-          nk_layout_row_dynamic(ctx, 22, 1);
-          nk_checkbox_label(ctx, "Show Rulers & Guides", &dp->show_rulers);
+//           nk_layout_row_dynamic(ctx, 22, 1);
+//           nk_checkbox_label(ctx, "Show Rulers & Guides", &dp->show_rulers);
 
-          nk_layout_row_dynamic(ctx, 4, 1);
-          nk_spacing(ctx, 1);
+//           nk_layout_row_dynamic(ctx, 4, 1);
+//           nk_spacing(ctx, 1);
 
-          nk_layout_row_dynamic(ctx, 24, 2);
-          if (nk_button_label(ctx, "+ Horiz Guide")) {
+//           nk_layout_row_dynamic(ctx, 24, 2);
+          if (0) // (nk_button_label(ctx, "+ Horiz Guide")) {
             if (dp->h_guide_count < 16)
               dp->h_guides[dp->h_guide_count++] = (float)dd->height / 2.0f;
           }
-          if (nk_button_label(ctx, "+ Vert Guide")) {
+          if (0) // (nk_button_label(ctx, "+ Vert Guide")) {
             if (dp->v_guide_count < 16)
               dp->v_guides[dp->v_guide_count++] = (float)dd->width / 2.0f;
           }
 
           // Guide List
           if (dp->h_guide_count > 0 || dp->v_guide_count > 0) {
-            nk_layout_row_dynamic(ctx, 8, 1);
-            nk_spacing(ctx, 1);
+//             nk_layout_row_dynamic(ctx, 8, 1);
+//             nk_spacing(ctx, 1);
 
             // Horizontal Guides
             for (int gi = 0; gi < dp->h_guide_count; gi++) {
-              nk_layout_row_template_begin(ctx, 22);
-              nk_layout_row_template_push_static(ctx, 30);
-              nk_layout_row_template_push_dynamic(ctx);
-              nk_layout_row_template_push_static(ctx, 30);
-              nk_layout_row_template_end(ctx);
+//               nk_layout_row_template_begin(ctx, 22);
+//               nk_layout_row_template_push_static(ctx, 30);
+//               nk_layout_row_template_push_dynamic(ctx);
+//               nk_layout_row_template_push_static(ctx, 30);
+//               nk_layout_row_template_end(ctx);
 
-              nk_label(ctx, "H:", NK_TEXT_LEFT);
+//               nk_label(ctx, "H:", NK_TEXT_LEFT);
               ds_num_input(ui, ctx, "#", &dp->h_guides[gi], 0,
                            (float)dd->height, &dp->h_guides[gi]);
-              if (nk_button_label(ctx, "X")) {
+              if (0) // (nk_button_label(ctx, "X")) {
                 for (int k = gi; k < dp->h_guide_count - 1; k++)
                   dp->h_guides[k] = dp->h_guides[k + 1];
                 dp->h_guide_count--;
@@ -1323,16 +1192,16 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
 
             // Vertical Guides
             for (int gi = 0; gi < dp->v_guide_count; gi++) {
-              nk_layout_row_template_begin(ctx, 22);
-              nk_layout_row_template_push_static(ctx, 30);
-              nk_layout_row_template_push_dynamic(ctx);
-              nk_layout_row_template_push_static(ctx, 30);
-              nk_layout_row_template_end(ctx);
+//               nk_layout_row_template_begin(ctx, 22);
+//               nk_layout_row_template_push_static(ctx, 30);
+//               nk_layout_row_template_push_dynamic(ctx);
+//               nk_layout_row_template_push_static(ctx, 30);
+//               nk_layout_row_template_end(ctx);
 
-              nk_label(ctx, "V:", NK_TEXT_LEFT);
+//               nk_label(ctx, "V:", NK_TEXT_LEFT);
               ds_num_input(ui, ctx, "#", &dp->v_guides[gi], 0, (float)dd->width,
                            &dp->v_guides[gi]);
-              if (nk_button_label(ctx, "X")) {
+              if (0) // (nk_button_label(ctx, "X")) {
                 for (int k = gi; k < dp->v_guide_count - 1; k++)
                   dp->v_guides[k] = dp->v_guides[k + 1];
                 dp->v_guide_count--;
@@ -1345,8 +1214,8 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
         // ── EXPORT ───────────────────────────────────────────────────────
         ds_section(ctx, "EXPORT");
         {
-          nk_layout_row_dynamic(ctx, 28, 2);
-          if (nk_button_label(ctx, "Export SVG")) {
+//           nk_layout_row_dynamic(ctx, 28, 2);
+          if (0) // (nk_button_label(ctx, "Export SVG")) {
             if (dd->linked_table_id > 0) {
               AslanTable *linked_tbl = NULL;
               for (int i = 0; i < engine->doc->page_count; i++) {
@@ -1372,24 +1241,28 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
               ui_host_export_svg(ui, engine);
             }
           }
-          if (nk_button_label(ctx, "Export PDF")) {
+          if (0) // (nk_button_label(ctx, "Export PDF")) {
             ui_host_export_pdf(ui, engine);
           }
 
-          nk_layout_row_dynamic(ctx, 28, 2);
-          if (nk_button_label(ctx, "Export PNG")) {
+//           nk_layout_row_dynamic(ctx, 28, 2);
+          if (0) // (nk_button_label(ctx, "Export PNG")) {
             ui_host_export_png_jpeg(ui, engine, 0);
           }
-          if (nk_button_label(ctx, "Export JPEG")) {
+          if (0) // (nk_button_label(ctx, "Export JPEG")) {
             ui_host_export_png_jpeg(ui, engine, 1);
           }
         }
       }
-      nk_tree_pop(ctx);
+//       nk_tree_pop(ctx);
     }
-    nk_group_end(ctx); // Close 'ds_main_tab_group'
+//     nk_group_end(ctx); // Close 'ds_main_tab_group'
   }
 }
+#endif
+
+#endif
+
 
 // Font IDs for Clay (must match clay_host.c)
 #define ASLAN_FONT_INTER 0
@@ -1397,12 +1270,16 @@ static void design_render_sidebar_nk(UIHost *ui, Engine *engine,
 #define ASLAN_FONT_ICONS 2
 
 static void design_render_sidebar(UIHost *ui, Engine *engine,
-                                  struct nk_context *ctx, Block *block) {
+                                  Block *block, float width, float height, float abs_x) {
   if (!block || block->type != BLOCK_DESIGN)
     return;
 
   DesignData *dd = &block->data.design;
-  struct nk_rect bounds = nk_window_get_bounds(ctx);
+  AslanRect bounds = {0, 0, width, height};
+
+  // Adjust pointer state for this sub-layout
+  Clay_SetPointerState((Clay_Vector2){ui->mouse_x - abs_x, ui->mouse_y - ui->abs_offset_y}, (ui->mouse_buttons & 1) != 0);
+  nvgw_set_offset(&ui->nvgw, abs_x, ui->abs_offset_y);
 
   Clay_SetLayoutDimensions((Clay_Dimensions){bounds.w, bounds.h});
   Clay_BeginLayout();
@@ -1487,6 +1364,9 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
   }
 
   Clay_RenderCommandArray cmds = Clay_EndLayout();
+
+  // Reset pointer state for other layouts in the frame
+  Clay_SetPointerState((Clay_Vector2){ui->mouse_x, ui->mouse_y}, (ui->mouse_buttons & 1) != 0);
 
   nvgSave(ui->vg);
   nvgTranslate(ui->vg, bounds.x, bounds.y);
@@ -1624,10 +1504,9 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
 }
 
 void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
-                         DesignData *dd, Node *node, struct nk_rect bounds,
+                         DesignData *dd, Node *node, AslanRect bounds,
                          float scale, float parent_x, float parent_y) {
-  struct nk_context *ctx = ui->ctx;
-
+  (void)bounds;
   if (!node || !node->visible)
     return;
 
@@ -1653,11 +1532,9 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
   float sy = parent_y + node->y * scale;
   float sw = node->width * scale;
   float sh = node->height * scale;
-  struct nk_rect nr = nk_rect(sx, sy, sw, sh);
-
+  AslanRect nr = {sx, sy, sw, sh};
   // Hover detection (Canvas -> Sidebar)
-  if (nk_input_is_mouse_hovering_rect(&ctx->input, nr) &&
-      !ui->design_state.is_dragging_node && !ui->sidebar_drag_node_id) {
+  if (0) { // (nk_input_is_mouse_hovering_rect(&ctx->input, nr) && !ui->design_state.is_dragging_node && !ui->sidebar_drag_node_id) {
     ui->hovered_node_id = node->id;
   }
 
@@ -1688,7 +1565,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
   }
 
   if (node->is_container && node->clip_content) {
-    struct nk_rect sc = rect_intersect(nr, ui->artboard_clip);
+    AslanRect sc = rect_intersect(nr, ui->artboard_clip);
     nvgScissor(ui->vg, sc.x, sc.y, sc.w, sc.h);
   }
 
@@ -1748,11 +1625,11 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
     nvgStroke(ui->vg);
   } else if (node->type == NODE_TYPE_CHART && node->chart_data) {
     Page *curr_page = doc_page_get_active(engine->doc);
-    ui_render_chart_node(ui, ctx, node, nr, curr_page);
+    ui_render_chart_node(ui, node, nr, curr_page);
 
     // Rendering configuration bar if selected
     if (ui->selected_node == node) {
-      ui_render_chart_node_config_bar(ui, engine, ctx, node, nr, curr_page);
+      ui_render_chart_node_config_bar(ui, engine, node, nr, curr_page);
     }
   } else if (node->type == NODE_TYPE_TABLE_VIEW) {
     // ── Embedded live-table (read-only) ──────────────────────────────────
@@ -1785,11 +1662,10 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       float hdr_h = 26.0f * scale;
       float row_h = 22.0f * scale;
       float col_w = nr.w / (float)ncols;
-      const struct nk_user_font *fnt = ctx->style.font;
 
       // ── Header ──────────────────────────────────────────────────────────
       for (int c = 0; c < ncols; c++) {
-        struct nk_rect hcell = nk_rect(nr.x + c * col_w, nr.y, col_w, hdr_h);
+        AslanRect hcell = {nr.x + c * col_w, nr.y, col_w, hdr_h};
         // Clip to node bounds
         if (hcell.x + hcell.w > nr.x + nr.w)
           hcell.w = nr.x + nr.w - hcell.x;
@@ -1812,7 +1688,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
         // Column name
         const char *col_nm = tv_tbl->columns[c].name;
         if (ui->font_inter) {
-          nvgFontSize(ui->vg, fnt->height);
+          nvgFontSize(ui->vg, ui->font_size_px);
           nvgFontFace(ui->vg, "Inter");
           nvgFillColor(ui->vg, nvgRGBA(255, 255, 255, 255));
           nvgTextAlign(ui->vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
@@ -1834,7 +1710,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
                                        : nvgRGBA(255, 255, 255, 255);
 
         for (int c = 0; c < ncols; c++) {
-          struct nk_rect cell = nk_rect(nr.x + c * col_w, ry, col_w, row_h);
+        AslanRect cell = {nr.x + c * col_w, ry, col_w, row_h};
           if (cell.x + cell.w > nr.x + nr.w)
             cell.w = nr.x + nr.w - cell.x;
           if (cell.w <= 0 || cell.y + cell.h > nr.y + nr.h + 2)
@@ -1867,7 +1743,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
                                                          _cbuf, sizeof(_cbuf));
           if (val && val[0]) {
             if (ui->font_inter) {
-              nvgFontSize(ui->vg, fnt->height);
+              nvgFontSize(ui->vg, ui->font_size_px);
               nvgFontFace(ui->vg, "Inter");
               nvgFillColor(ui->vg, nvgRGBA(40, 40, 50, 255));
               nvgTextAlign(ui->vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
@@ -1880,7 +1756,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       // No table linked — placeholder
       const char *msg = "Link a table in the Page tab";
       if (ui->font_inter) {
-        nvgFontSize(ui->vg, ctx->style.font->height);
+        nvgFontSize(ui->vg, ui->font_size_px);
         nvgFontFace(ui->vg, "Inter");
         nvgFillColor(ui->vg, nvgRGBA(160, 160, 175, 255));
         nvgTextAlign(ui->vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
@@ -1894,8 +1770,8 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
           nvgRGBA((s->color >> 24) & 0xFF, (s->color >> 16) & 0xFF,
                   (s->color >> 8) & 0xFF, s->color & 0xFF);
 
-      struct nk_vec2 *pts =
-          (struct nk_vec2 *)malloc(s->count * sizeof(struct nk_vec2));
+      AslanVec2 *pts =
+          (AslanVec2 *)malloc(s->count * sizeof(AslanVec2));
       if (pts) {
         for (int k = 0; k < s->count; k++) {
           pts[k].x = bounds.x + s->points[k].x * scale;
@@ -2054,7 +1930,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
         // Image Cropping implementation
 
         // Clip image to node bounds intersected with artboard
-        struct nk_rect sc = rect_intersect(nr, ui->artboard_clip);
+        AslanRect sc = rect_intersect(nr, ui->artboard_clip);
         nvgScissor(ui->vg, sc.x, sc.y, sc.w, sc.h);
 
         // Calculate transformed image rect
@@ -2093,7 +1969,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       nvgStroke(ui->vg);
 
       if (ui->font_icons) {
-        nvgFontSize(ui->vg, ui->font_icons->handle.height);
+        nvgFontSize(ui->vg, 20.0f);
         nvgFontFace(ui->vg, "Icons");
         nvgFillColor(ui->vg, nvgRGBA(0, 0, 0, 25));
         nvgTextAlign(ui->vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
@@ -2421,7 +2297,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       nvgStroke(ui->vg);
 
       if (ui->font_icons) {
-        nvgFontSize(ui->vg, ui->font_icons->handle.height);
+        nvgFontSize(ui->vg, 20.0f);
         nvgFontFace(ui->vg, "Icons");
         nvgFillColor(ui->vg, nvgRGBA(110, 110, 130, 255));
         nvgTextAlign(ui->vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
@@ -2458,7 +2334,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       nvgStroke(ui->vg);
 
       if (ui->font_icons) {
-        nvgFontSize(ui->vg, ui->font_icons->handle.height);
+        nvgFontSize(ui->vg, 20.0f);
         nvgFontFace(ui->vg, "Icons");
         nvgFillColor(ui->vg, nvgRGBA(110, 110, 130, 255));
         nvgTextAlign(ui->vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
@@ -2475,7 +2351,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
     float p0x = 0, p0y = -sh / 2.0f;
     float p1x = -sw / 2.0f, p1y = sh / 2.0f;
     float p2x = sw / 2.0f, p2y = sh / 2.0f;
-    struct nk_vec2 pts[3] = {{cx + p0x * c - p0y * s, cy + p0x * s + p0y * c},
+    AslanVec2 pts[3] = {{cx + p0x * c - p0y * s, cy + p0x * s + p0y * c},
                              {cx + p1x * c - p1y * s, cy + p1x * s + p1y * c},
                              {cx + p2x * c - p2y * s, cy + p2x * s + p2y * c}};
     if (!drawn_image && has_fill)
@@ -2485,7 +2361,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
     float cy = sy + sh / 2.0f;
     float rad = node->rotation * 3.14159f / 180.0f;
     float c_rot = cosf(rad), s_rot = sinf(rad);
-    struct nk_vec2 pts[5];
+    AslanVec2 pts[5];
     for (int i = 0; i < 5; i++) {
       float angle = (float)i * 2.0f * 3.14159f / 5.0f - 3.14159f / 2.0f;
       float px = cosf(angle) * sw / 2.0f;
@@ -2500,7 +2376,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
     float cy = sy + sh / 2.0f;
     float rad = node->rotation * 3.14159f / 180.0f;
     float c_rot = cosf(rad), s_rot = sinf(rad);
-    struct nk_vec2 pts[6];
+    AslanVec2 pts[6];
     for (int i = 0; i < 6; i++) {
       float angle = (float)i * 2.0f * 3.14159f / 6.0f;
       float px = cosf(angle) * sw / 2.0f;
@@ -2515,7 +2391,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
     float cy = sy + sh / 2.0f;
     float rad = node->rotation * 3.14159f / 180.0f;
     float c_rot = cosf(rad), s_rot = sinf(rad);
-    struct nk_vec2 pts[8];
+    AslanVec2 pts[8];
     for (int i = 0; i < 8; i++) {
       float angle = (float)i * 2.0f * 3.14159f / 8.0f + 3.14159f / 8.0f;
       float px = cosf(angle) * sw / 2.0f;
@@ -2530,7 +2406,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
     float cy = sy + sh / 2.0f;
     float rad = node->rotation * 3.14159f / 180.0f;
     float c_rot = cosf(rad), s_rot = sinf(rad);
-    struct nk_vec2 pts[10];
+    AslanVec2 pts[10];
     for (int i = 0; i < 10; i++) {
       float angle = (float)i * 2.0f * 3.14159f / 10.0f - 3.14159f / 2.0f;
       float r = (i % 2 == 0) ? (sw / 2.0f) : (sw / 4.0f);
@@ -2548,7 +2424,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
     float rad = node->rotation * 3.14159f / 180.0f;
     float c_rot = cosf(rad), s_rot = sinf(rad);
     const int hcount = 32;
-    struct nk_vec2 hpts[32];
+    AslanVec2 hpts[32];
     for (int i = 0; i < hcount; i++) {
       float t = (float)i * 2.0f * 3.14159f / (float)hcount;
       float hx = 16.0f * powf(sinf(t), 3.0f);
@@ -2633,15 +2509,9 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       nvgStroke(ui->vg);
     }
 
-    const struct nk_user_font *font =
-        ui->font_inter ? &ui->font_inter->handle : ctx->style.font;
-    if (node->font_type == 4 && ui->font_icons) {
-      font = &ui->font_icons->handle;
-    }
-
     // Auto-resize text node to fit content
     if (display_text && strlen(display_text) > 0) {
-      nvgFontSize(ui->vg, font->height);
+      nvgFontSize(ui->vg, ui->font_size_px);
       nvgFontFace(
           ui->vg,
           "Inter"); // Assume Inter by default for measurements if not icons
@@ -2753,7 +2623,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
     }
 
     if (is_editing) {
-      ui->editing_node_rect = nk_rect(nr.x, nr.y, nr.w, nr.h);
+//       ui->editing_node_rect = nk_rect(nr.x, nr.y, nr.w, nr.h);
       // We do not render the nk_edit here because nk_layout_space is not
       // active in this group traverse. Instead, we pass the absolute screen
       // bounds out, and render the text input overlay after the group.
@@ -2764,7 +2634,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
   if (node->is_container && !node->image_path[0] &&
       node->type != NODE_TYPE_TEXT && node->type != NODE_TYPE_ROOT) {
     if (ui->font_icons) {
-      nvgFontSize(ui->vg, ui->font_icons->handle.height);
+      nvgFontSize(ui->vg, 20.0f);
       nvgFontFace(ui->vg, "Icons");
       nvgFillColor(ui->vg, nvgRGBA(110, 110, 130, 255));
       nvgTextAlign(ui->vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
@@ -2788,7 +2658,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
 // GRID, GUIDES & RULERS RENDERING
 // =============================================================================
 
-static void design_draw_grid(UIHost *ui, struct nk_rect art, float scale,
+static void design_draw_grid(UIHost *ui, AslanRect art, float scale,
                              const DesignPage *dp, float pan_x, float pan_y,
                              int no_limits) {
   if (!dp)
@@ -2917,7 +2787,7 @@ static void design_draw_grid(UIHost *ui, struct nk_rect art, float scale,
   nvgStroke(ui->vg);
 }
 
-static void design_draw_guides(UIHost *ui, struct nk_rect art, float scale,
+static void design_draw_guides(UIHost *ui, AslanRect art, float scale,
                                const DesignPage *dp) {
   if (!dp)
     return;
@@ -2938,7 +2808,7 @@ static void design_draw_guides(UIHost *ui, struct nk_rect art, float scale,
       char lbl[16];
       snprintf(lbl, sizeof(lbl), "%.0f", dp->h_guides[i]);
       if (ui->font_inter) {
-        nvgFontSize(ui->vg, ui->font_inter->handle.height);
+        nvgFontSize(ui->vg, ui->font_size_px);
         nvgFontFace(ui->vg, "Inter");
         float bounds[4];
         nvgTextBounds(ui->vg, 0, 0, lbl, NULL, bounds);
@@ -2971,7 +2841,7 @@ static void design_draw_guides(UIHost *ui, struct nk_rect art, float scale,
       char lbl[16];
       snprintf(lbl, sizeof(lbl), "%.0f", dp->v_guides[i]);
       if (ui->font_inter) {
-        nvgFontSize(ui->vg, ui->font_inter->handle.height);
+        nvgFontSize(ui->vg, ui->font_size_px);
         nvgFontFace(ui->vg, "Inter");
         nvgBeginPath(ui->vg);
         nvgRect(ui->vg, sx + 2, art.y + 2, 30, 12);
@@ -2986,7 +2856,7 @@ static void design_draw_guides(UIHost *ui, struct nk_rect art, float scale,
   }
 }
 
-static void design_draw_rulers(UIHost *ui, struct nk_rect art, float scale,
+static void design_draw_rulers(UIHost *ui, AslanRect art, float scale,
                                const DesignPage *dp, int page_w, int page_h) {
   if (!dp || !dp->show_rulers)
     return;
@@ -3032,7 +2902,7 @@ static void design_draw_rulers(UIHost *ui, struct nk_rect art, float scale,
   nvgStroke(ui->vg);
 
   if (ui->font_inter) {
-    nvgFontSize(ui->vg, ui->font_inter->handle.height);
+    nvgFontSize(ui->vg, ui->font_size_px);
     nvgFontFace(ui->vg, "Inter");
     nvgFillColor(ui->vg, text_col);
     nvgTextAlign(ui->vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
@@ -3062,8 +2932,8 @@ static void design_draw_rulers(UIHost *ui, struct nk_rect art, float scale,
 }
 
 void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
-                            float width) {
-  struct nk_context *ctx = ui->ctx;
+                            float width, float height) {
+
   if (!block || block->type != BLOCK_DESIGN)
     return;
 
@@ -3103,12 +2973,11 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
 
   // --- Layout height calculation ---
   float toolbar_h = 52.0f;
-  float sidebar_w = 260.0f;
+  // float sidebar_w = 260.0f;
 
-  float row_h = nk_window_get_content_region(ctx).h;
-  if (row_h < 600.0f) // Changed minimum height from 200 to 600 for better
+//   float row_h = nk_window_get_content_region(ctx).h;
+  float row_h = height;
                       // sidebar visibility
-    row_h = 600.0f;
   ASLAN_DEBUG("Design block layout row_h = %f", row_h);
 
   float display_h = row_h - toolbar_h;
@@ -3116,31 +2985,20 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
     display_h = 100.0f;
 
   // Workspace column (dynamic width) + sidebar column (fixed width)
-  nk_layout_row_template_begin(ctx, row_h);
-  nk_layout_row_template_push_dynamic(ctx);
-  nk_layout_row_template_push_static(ctx, sidebar_w);
-  nk_layout_row_template_end(ctx);
+//   nk_layout_row_template_begin(ctx, row_h);
+//   nk_layout_row_template_push_dynamic(ctx);
+//   nk_layout_row_template_push_static(ctx, sidebar_w);
+//   nk_layout_row_template_end(ctx);
 
-  // --- Rendering Workspace ---
-  // DEBUG: Visualize the intended area
-  /*
-  nk_stroke_rect(nk_window_get_canvas(ctx),
-      nk_layout_widget_bounds(ctx),
-      2.0f, 2.0f, nk_rgb(255, 0, 0));
-  */
-  // Print dimensions to debug visibility
-  ASLAN_DEBUG("Design Block %u: width=%.1f height=%.1f display_h=%.1f",
-              block->id, width, (float)dd->height, display_h);
+  float sidebar_w = 260.0f;
+  float ws_width = width - sidebar_w;
+  if (ws_width < 100.0f) ws_width = width; // fail-safe if panel too narrow
 
-  char ws_gp[64];
-  snprintf(ws_gp, sizeof(ws_gp), "design_content_group_%u", block->id);
-  ASLAN_DEBUG("BEGIN ws_gp %s", ws_gp);
-  if (nk_group_begin(ctx, ws_gp, NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER)) {
-    struct nk_rect ws_bounds = nk_window_get_content_region(ctx);
+  if (1) {
+    AslanRect ws_bounds = {0, 0, ws_width, row_h};
     DesignInteraction *ds = &ui->design_state;
 
-    if (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT,
-                                        ws_bounds)) {
+    if (0) { // (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT, ws_bounds)) {
       ui->active_block_id = block->id;
     }
 
@@ -3160,10 +3018,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
 
     // Hardened Input Check: Sync Nuklear input state (only if inside
     // workspace)
-    if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
-        !ui->block_drag.is_active && ui->mouse_x >= ws_bounds.x &&
-        ui->mouse_x < ws_bounds.x + ws_bounds.w && ui->mouse_y >= ws_bounds.y &&
-        ui->mouse_y < ws_bounds.y + ws_bounds.h) {
+    // Hardened Input Check: Sync Nuklear input state (only if inside workspace)
+    if (0) { // (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) && !ui->block_drag.is_active && ui->mouse_x >= ws_bounds.x && ui->mouse_x < ws_bounds.x + ws_bounds.w && ui->mouse_y >= ws_bounds.y && ui->mouse_y < ws_bounds.y + ws_bounds.h) {
       ds->mouse_just_pressed = 1;
     }
 
@@ -3187,7 +3043,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       scale = zoom;
 
       // Use screen-space bounds for background filling
-      struct nk_rect sc_bounds = nk_window_get_bounds(ctx);
+      AslanRect sc_bounds = {ws_bounds.x, ws_bounds.y, ws_bounds.w, ws_bounds.h};
 
       // Background: support solid, linear, radial
       NVGcolor c1 =
@@ -3230,8 +3086,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       nvgScissor(ui->vg, sc_bounds.x, sc_bounds.y, sc_bounds.w, sc_bounds.h);
 
       // Use full workspace as coordinate space
-      nk_layout_space_begin(ctx, NK_STATIC, ws_bounds.h, 1);
-      nk_layout_space_push(ctx, nk_rect(0, 0, ws_bounds.w, ws_bounds.h));
+//       nk_layout_space_begin(ctx, NK_STATIC, ws_bounds.h, 1);
+//       nk_layout_space_push(ctx, nk_rect(0, 0, ws_bounds.w, ws_bounds.h));
     } else {
       // --- Fixed Artboard Mode ---
       nvgBeginPath(ui->vg);
@@ -3255,7 +3111,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       float sx = ws_bounds.x + (ws_bounds.w - art_w) / 2.0f;
       float sy = ws_bounds.y + (display_h - art_h) / 2.0f;
 
-      struct nk_rect art_rect = nk_rect(sx, sy, art_w, art_h);
+      AslanRect art_rect = {sx, sy, art_w, art_h};
       NVGcolor c1 =
           nvgRGBA((dd->pages[dd->current_page].bg_color >> 24) & 0xFF,
                   (dd->pages[dd->current_page].bg_color >> 16) & 0xFF,
@@ -3300,39 +3156,38 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         design_draw_rulers(ui, art_rect, scale, cur_dp, dd->width, dd->height);
       }
 
-      nk_layout_space_begin(ctx, NK_STATIC, ws_bounds.h, 1);
-      nk_layout_space_push(
-          ctx, nk_rect(sx - ws_bounds.x, sy - ws_bounds.y, art_w, art_h));
+//       nk_layout_space_begin(ctx, NK_STATIC, ws_bounds.h, 1);
+//       nk_layout_space_push(
+//           ctx, nk_rect(sx - ws_bounds.x, sy - ws_bounds.y, art_w, art_h));
     }
 
     // --- Shared content rendering (both modes) ---
-    nk_style_push_style_item(ctx, &ctx->style.window.fixed_background,
-                             nk_style_item_color(nk_rgba(0, 0, 0, 0)));
-    nk_style_push_float(ctx, &ctx->style.window.border, 0.0f);
+//     nk_style_push_style_item(ctx, &ctx->style.window.fixed_background,
+//                              nk_style_item_color(nk_rgba(0, 0, 0, 0)));
+//     nk_style_push_float(ctx, &ctx->style.window.border, 0.0f);
     ASLAN_DEBUG("BEGIN design_content");
-    int group_res =
-        nk_group_begin(ctx, "design_content", NK_WINDOW_NO_SCROLLBAR);
-    nk_style_pop_float(ctx);
-    nk_style_pop_style_item(ctx);
+    int group_res = 1;
+//         nk_group_begin(ctx, "design_content", NK_WINDOW_NO_SCROLLBAR);
+//     nk_style_pop_float(ctx);
+//     nk_style_pop_style_item(ctx);
     if (group_res) {
-      struct nk_rect bounds_raw = nk_window_get_content_region(ctx);
-      struct nk_rect bounds;
+//       AslanRect bounds_raw = nk_window_get_content_region(ctx);
+      AslanRect bounds;
 
       if (dd->no_limits) {
         // Offset bounds so existing code (bounds.x + node.x * scale) works
         float cam_x = ds->cam_x, cam_y = ds->cam_y;
         float zoom = ds->zoom > 0.01f ? ds->zoom : 1.0f;
-        bounds =
-            nk_rect(bounds_raw.x - cam_x * zoom, bounds_raw.y - cam_y * zoom,
-                    bounds_raw.w, bounds_raw.h);
+        bounds = (AslanRect){ws_bounds.x - cam_x * zoom, ws_bounds.y - cam_y * zoom,
+                    ws_bounds.w, ws_bounds.h};
       } else {
-        bounds = bounds_raw;
+        bounds = ws_bounds;
       }
 
-      ds->bounds_x = bounds_raw.x;
-      ds->bounds_y = bounds_raw.y;
-      ds->bounds_w = bounds_raw.w;
-      ds->bounds_h = bounds_raw.h;
+      ds->bounds_x = ws_bounds.x;
+      ds->bounds_y = ws_bounds.y;
+      ds->bounds_w = ws_bounds.w;
+      ds->bounds_h = ws_bounds.h;
       ds->scale = scale;
 
       // Track if this design is active
@@ -3341,7 +3196,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
 
       // Auto-activate if clicked inside WORKSPACE (including toolbar)
       if (!is_active_design && !ui->block_drag.is_active &&
-          nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
+          (ui->mouse_buttons & 1) &&
           ui->mouse_x >= ws_bounds.x &&
           ui->mouse_x < ws_bounds.x + ws_bounds.w &&
           ui->mouse_y >= ws_bounds.y &&
@@ -3486,8 +3341,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           ui->selected_node->type == NODE_TYPE_PATH) {
         Node *node = ui->selected_node;
         if (ds->dragging_point_idx != -1 && (ui->mouse_buttons & 1)) {
-          float dx = ctx->input.mouse.delta.x / scale;
-          float dy = ctx->input.mouse.delta.y / scale;
+          float dx = 0; // TODO: ui->mouse_dx / scale;
+          float dy = 0; // TODO: ui->mouse_dy / scale;
           NodePathPoint *p = &node->path_points[ds->dragging_point_idx];
           if (ds->dragging_cp_idx == 0) {
             p->x += dx;
@@ -3509,13 +3364,13 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       if (dd->root && !dd->root->first_child) {
         const char *hint = "Click a tool to start";
         if (ui->font_inter) {
-          nvgFontSize(ui->vg, ctx->style.font->height);
+          nvgFontSize(ui->vg, ui->font_size_px);
           nvgFontFace(ui->vg, "Inter");
           nvgFillColor(ui->vg, nvgRGBA(200, 200, 200, 255));
           nvgTextAlign(ui->vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
           nvgText(ui->vg, bounds.x + bounds.w / 2.0f,
                   bounds.y + bounds.h / 2.0f - 10.0f +
-                      ctx->style.font->height / 2.0f,
+                      ui->font_size_px / 2.0f,
                   hint, NULL);
         }
       }
@@ -3523,7 +3378,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       // --- Apply artboard scissor ---
       // artboard_clip was set to art_rect (fixed) or infinite (free) above.
       if (dd->no_limits) {
-        ui->artboard_clip = nk_rect(-8192, -8192, 16384, 16384);
+//         ui->artboard_clip = nk_rect(-8192, -8192, 16384, 16384);
       } else {
         // artboard_clip already set to art_rect — apply it now
         nvgScissor(ui->vg, ui->artboard_clip.x, ui->artboard_clip.y,
@@ -3645,13 +3500,13 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       }
 
       // Check mouse in design area
-      int mouse_in_design = (ui->mouse_x >= bounds_raw.x &&
-                             ui->mouse_x < bounds_raw.x + bounds_raw.w &&
-                             ui->mouse_y >= bounds_raw.y &&
-                             ui->mouse_y < bounds_raw.y + bounds_raw.h);
+      int mouse_in_design = (ui->mouse_x >= ws_bounds.x &&
+                             ui->mouse_x < ws_bounds.x + ws_bounds.w &&
+                             ui->mouse_y >= ws_bounds.y &&
+                             ui->mouse_y < ws_bounds.y + ws_bounds.h);
 
       // Explicitly exclude sidebar area in fullscreen
-      if (is_fullscreen && ui->mouse_x > nk_window_get_width(ctx) - 250.0f) {
+      if (is_fullscreen && ui->mouse_x > width - 250.0f) {
         mouse_in_design = 0;
       }
 
@@ -3853,9 +3708,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         for (int i = 0; i < sel->path_point_count; i++) {
           NodePathPoint *p = &sel->path_points[i];
           float px = nsx + p->x * scale, py = nsy + p->y * scale;
-          struct nk_rect r_anchor =
-              nk_rect(px - 10 * scale, py - 10 * scale, 20 * scale, 20 * scale);
-          if (nk_input_is_mouse_hovering_rect(&ctx->input, r_anchor)) {
+          AslanRect r_anchor = {px - 10 * scale, py - 10 * scale, 20 * scale, 20 * scale};
+          if (ui->mouse_x >= r_anchor.x && ui->mouse_x < r_anchor.x + r_anchor.w &&
+              ui->mouse_y >= r_anchor.y && ui->mouse_y < r_anchor.y + r_anchor.h) {
             if (ds->mouse_just_pressed) {
               ds->dragging_point_idx = i;
               ds->dragging_cp_idx = 0;
@@ -3866,11 +3721,10 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           if (p->type == 1) {
             float cp1x = nsx + p->cp1x * scale, cp1y = nsy + p->cp1y * scale;
             float cp2x = nsx + p->cp2x * scale, cp2y = nsy + p->cp2y * scale;
-            struct nk_rect r1 = nk_rect(cp1x - 8 * scale, cp1y - 8 * scale,
-                                        16 * scale, 16 * scale);
-            struct nk_rect r2 = nk_rect(cp2x - 8 * scale, cp2y - 8 * scale,
-                                        16 * scale, 16 * scale);
-            if (nk_input_is_mouse_hovering_rect(&ctx->input, r1)) {
+            AslanRect r1 = {cp1x - 8 * scale, cp1y - 8 * scale, 16 * scale, 16 * scale};
+            AslanRect r2 = {cp2x - 8 * scale, cp2y - 8 * scale, 16 * scale, 16 * scale};
+            if (ui->mouse_x >= r1.x && ui->mouse_x < r1.x + r1.w &&
+                ui->mouse_y >= r1.y && ui->mouse_y < r1.y + r1.h) {
               if (ds->mouse_just_pressed) {
                 ds->dragging_point_idx = i;
                 ds->dragging_cp_idx = 1;
@@ -3878,7 +3732,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
               handle_hit = 1;
               break;
             }
-            if (nk_input_is_mouse_hovering_rect(&ctx->input, r2)) {
+            if (ui->mouse_x >= r2.x && ui->mouse_x < r2.x + r2.w &&
+                ui->mouse_y >= r2.y && ui->mouse_y < r2.y + r2.h) {
               if (ds->mouse_just_pressed) {
                 ds->dragging_point_idx = i;
                 ds->dragging_cp_idx = 2;
@@ -3960,8 +3815,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         float design_y = (ui->mouse_y - bounds.y) / scale;
 
         // Shift+click = multi-selection toggle
-        SDL_Keymod _click_mods = SDL_GetModState();
-        int shift_click = (_click_mods & KMOD_SHIFT) != 0;
+        int shift_click = 0; // TODO: support shift via ui->keys
 
         Node *hit = design_find_node_at(dd, design_x, design_y);
         if (hit && shift_click && ds->tool != CANVAS_TOOL_PEN) {
@@ -4001,10 +3855,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
             }
             ui->selected_node = hit;
           } else {
-            // Double-click: edit text / crop image (requires real
-            // double-click)
-            int is_double = nk_input_is_mouse_click_in_rect(
-                &ctx->input, NK_BUTTON_DOUBLE, bounds);
+            // Double-click: edit text / crop image
+            int is_double = 0; // TODO: support double click
             if (is_double && hit == ui->selected_node) {
               if (hit->type == NODE_TYPE_TEXT) {
                 // Edit existing text node inline natively
@@ -4062,7 +3914,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           ds->crop_start_node_x = sel->image_crop_x;
           ds->crop_start_node_y = sel->image_crop_y;
         }
-        if (nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT) &&
+        if ((ui->mouse_buttons & 1) &&
             mouse_in_design &&
             (ds->crop_start_x != 0 || ds->crop_start_y != 0)) {
           float dx = (ui->mouse_x - ds->crop_start_x) / scale;
@@ -4183,10 +4035,10 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           ds->snap_guide_y = -1;
         }
       }
-    after_drag:;
+    after_drag: (void)0;
 
       // --- Right-click context menu detection ---
-      if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_RIGHT) &&
+      if (ui->mouse_buttons & 2 &&
           mouse_in_design && !in_toolbar && is_active_design) {
         float dx = (ui->mouse_x - bounds.x) / scale;
         float dy = (ui->mouse_y - bounds.y) / scale;
@@ -4448,9 +4300,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
 
       // Close Design content group (Artboard)
       ASLAN_DEBUG("END design_content");
-      nk_group_end(ctx);
+//       nk_group_end(ctx);
     }
-    nk_layout_space_end(ctx);
+//     nk_layout_space_end(ctx);
 
     // --- Fixed artboard: draw border on top of clipped content ---
     if (!dd->no_limits) {
@@ -4486,6 +4338,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       ui->canvas_state.show_color_picker_popup = ds->show_color_picker_popup;
 
       // Position toolbar at bottom of workspace
+      nvgResetScissor(ui->vg);
       canvas_render_toolbar(ui, ws_bounds.x, ws_bounds.y, ws_bounds.w,
                             ws_bounds.h, block);
 
@@ -4509,10 +4362,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
     }
 
     if (ds->mouse_just_pressed &&
-        !nk_input_is_mouse_hovering_rect(
-            &ctx->input,
-            nk_rect(ws_bounds.x, ws_bounds.y + ws_bounds.h - toolbar_h,
-                    ws_bounds.w, toolbar_h))) {
+        !(ui->mouse_x >= ws_bounds.x && ui->mouse_x < ws_bounds.x + ws_bounds.w &&
+          ui->mouse_y >= ws_bounds.y + ws_bounds.h - toolbar_h && ui->mouse_y < ws_bounds.y + ws_bounds.h)) {
     }
 
     // --- Zoom controls for no_limits mode ---
@@ -4522,7 +4373,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           ui->mouse_x < ws_bounds.x + ws_bounds.w &&
           ui->mouse_y >= ws_bounds.y &&
           ui->mouse_y < ws_bounds.y + ws_bounds.h) {
-        float scroll = ctx->input.mouse.scroll_delta.y;
+        float scroll = 0; // TODO input.mouse.scroll_delta.y
         if (scroll != 0.0f) {
           float old_zoom = ds->zoom;
           if (scroll > 0)
@@ -4545,7 +4396,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       float zx = ws_bounds.x + ws_bounds.w - 60.0f;
       float zy = ws_bounds.y + ws_bounds.h - 30.0f;
       if (ui->font_inter) {
-        nvgFontSize(ui->vg, ctx->style.font->height);
+        nvgFontSize(ui->vg, ui->font_size_px);
         nvgFontFace(ui->vg, "Inter");
         nvgFillColor(ui->vg, nvgRGBA(120, 120, 120, 255));
         nvgTextAlign(ui->vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
@@ -4565,94 +4416,49 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
     if (ui->editing_node && ui->editing_node->type == NODE_TYPE_TEXT &&
         is_active_design) {
       Node *enode = ui->editing_node;
-      struct nk_rect ebounds = ui->editing_node_rect;
+      AslanRect ebounds = ui->editing_node_rect;
+      (void)ebounds;
 
-      struct nk_color txt_color = {(enode->stroke_color >> 24) & 0xFF,
+      AslanColor txt_color = {(enode->stroke_color >> 24) & 0xFF,
                                    (enode->stroke_color >> 16) & 0xFF,
                                    (enode->stroke_color >> 8) & 0xFF,
                                    enode->stroke_color & 0xFF};
+      (void)txt_color;
 
-      char overlay_id[64];
-      snprintf(overlay_id, sizeof(overlay_id), "edit_overlay_%u", enode->id);
+    // Native UI Editor stub
+      if (0) {
 
-      nk_style_push_style_item(ctx, &ctx->style.window.fixed_background,
-                               nk_style_item_color(nk_rgba(0, 0, 0, 0)));
-      if (nk_popup_begin(ctx, NK_POPUP_STATIC, overlay_id, 0,
-                         nk_rect(ebounds.x - ws_bounds.x,
-                                 ebounds.y - ws_bounds.y, ebounds.w + 40,
-                                 ebounds.h + 20))) {
+//         nk_layout_row_dynamic(ctx, ebounds.h, 1);
 
-        nk_layout_row_dynamic(ctx, ebounds.h, 1);
+        // text fonts handled natively
 
-        struct nk_style_edit style = ctx->style.edit;
-        ctx->style.edit.normal = nk_style_item_color(
-            nk_rgba(0, 0, 0, 10)); // Slight hint it's editable
-        ctx->style.edit.hover = nk_style_item_color(nk_rgba(0, 0, 0, 15));
-        ctx->style.edit.active =
-            nk_style_item_color(nk_rgba(255, 255, 255, 200));
-        ctx->style.edit.border = 0;
-        ctx->style.edit.text_normal = txt_color;
-        ctx->style.edit.text_hover = txt_color;
-        ctx->style.edit.text_active = txt_color;
-
-        // Get correct font
-        const struct nk_user_font *font = ctx->style.font;
-        if (enode->font_type == 4 && ui->font_icons) {
-          font = &ui->font_icons->handle;
-        } else {
-          float scaled_size = enode->font_size * scale;
-          float available_sizes[] = {12.0f, 14.0f, 16.0f, 20.0f, 24.0f,
-                                     32.0f, 48.0f, 64.0f, 96.0f};
-          int best_idx = -1;
-          float best_diff = 1000.0f;
-          for (int i = 0; i < 9; i++) {
-            if (fabsf(available_sizes[i] - scaled_size) < best_diff) {
-              best_diff = fabsf(available_sizes[i] - scaled_size);
-              best_idx = i;
-            }
-          }
-          if (best_idx >= 0 && ui->font_inter_sizes[best_idx])
-            font = &ui->font_inter_sizes[best_idx]->handle;
-          else if (ui->font_inter)
-            font = &ui->font_inter->handle;
-        }
-
-        nk_style_push_font(ctx, font);
+//         nk_style_push_font(ctx, font);
 
         if (ui->rename_needs_focus) {
-          nk_edit_focus(ctx, NK_EDIT_DEFAULT);
+//           nk_edit_focus(ctx, NK_EDIT_DEFAULT);
           ui->rename_needs_focus = 0;
         }
 
-        int edit_state = nk_edit_string_zero_terminated(
-            ctx, NK_EDIT_BOX | NK_EDIT_MULTILINE, ui->edit_buffer,
-            sizeof(ui->edit_buffer) - 1, nk_filter_default);
-
-        nk_style_pop_font(ctx);
-        ctx->style.edit = style;
-
-        strncpy(enode->text, ui->edit_buffer, sizeof(enode->text) - 1);
-
-        if (edit_state & NK_EDIT_COMMITED || edit_state & NK_EDIT_DEACTIVATED) {
+        if (0) {
           ui->editing_node = NULL;
         }
 
-        nk_popup_end(ctx);
+//         nk_popup_end(ctx);
       } else {
         ui->editing_node = NULL; // Failsafe
       }
-      nk_style_pop_style_item(ctx);
     }
 
     // Close Workspace group (Column 1)
-    nk_group_end(ctx);
+//     nk_group_end(ctx);
   }
 
   // --- Rendering Sidebar ---
-  char sb_gp[64];
-  snprintf(sb_gp, sizeof(sb_gp), "design_sidebar_group_%u", block->id);
-  if (nk_group_begin(ctx, sb_gp, NK_WINDOW_NO_SCROLLBAR | NK_WINDOW_BORDER)) {
-    design_render_sidebar(ui, engine, ctx, block);
-    nk_group_end(ctx);
+  if (ws_width < width) {
+    nvgResetScissor(ui->vg);
+    nvgSave(ui->vg);
+    nvgTranslate(ui->vg, ws_width, 0);
+    design_render_sidebar(ui, engine, block, sidebar_w, height, ui->abs_offset_x + ws_width);
+    nvgRestore(ui->vg);
   }
 }

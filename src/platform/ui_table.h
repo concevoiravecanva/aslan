@@ -13,7 +13,7 @@
 // -----------------------------------------------------------------------------
 
 void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
-                           float width);
+                           float width, float height);
 
 // -----------------------------------------------------------------------------
 // Table Helpers

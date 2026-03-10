@@ -98,4 +98,7 @@ typedef enum {
   NODE_STYLE_TEXT // Plain text, no background
 } NodeStyleType;
 
+typedef struct { float x, y, w, h; } AslanRect;
+typedef struct { uint8_t r, g, b, a; } AslanColor;
+
 #endif // UI_SHARED_H

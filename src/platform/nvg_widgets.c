@@ -19,6 +19,8 @@ void nvgw_input_begin(NvgWidgetCtx *ctx) {
   ctx->key_backspace = false;
   ctx->key_enter = false;
   ctx->scroll_y = 0.0f;
+  ctx->mouse_clicked = false;
+  ctx->mouse_released = false;
 }
 
 void nvgw_input_mouse(NvgWidgetCtx *ctx, float mx, float my, bool mdown,
@@ -26,10 +28,14 @@ void nvgw_input_mouse(NvgWidgetCtx *ctx, float mx, float my, bool mdown,
   ctx->mouse_x = mx;
   ctx->mouse_y = my;
   ctx->mouse_down_prev = ctx->mouse_down;
+
+  if (mdown && !ctx->mouse_down)
+    ctx->mouse_clicked = true;
+  if (!mdown && ctx->mouse_down)
+    ctx->mouse_released = true;
+
   ctx->mouse_down = mdown;
-  ctx->mouse_clicked = (mdown && !ctx->mouse_down_prev);
-  ctx->mouse_released = (!mdown && ctx->mouse_down_prev);
-  ctx->scroll_y = scroll_y;
+  ctx->scroll_y += scroll_y;
 }
 
 void nvgw_input_keyboard(NvgWidgetCtx *ctx, const char *text_input,
@@ -74,9 +80,16 @@ uint32_t nvgw_id(const void *data, int len) {
 
 uint32_t nvgw_id_str(const char *str) { return nvgw_id(str, strlen(str)); }
 
+void nvgw_set_offset(NvgWidgetCtx *ctx, float ox, float oy) {
+  ctx->offset_x = ox;
+  ctx->offset_y = oy;
+}
+
 static bool point_in_rect(float px, float py, float x, float y, float w,
-                          float h) {
-  return px >= x && px <= x + w && py >= y && py <= y + h;
+                          float h, float ox, float oy) {
+  float local_mx = px - ox;
+  float local_my = py - oy;
+  return local_mx >= x && local_mx <= x + w && local_my >= y && local_my <= y + h;
 }
 
 // --- Widgets ---
@@ -113,7 +126,7 @@ void nvgw_label(NvgWidgetCtx *ctx, float x, float y, float w, float h,
 
 bool nvgw_button(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,
                  float h, const char *text) {
-  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h);
+  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h, ctx->offset_x, ctx->offset_y);
   if (hovered) {
     ctx->hot_id = id;
   }
@@ -165,7 +178,7 @@ bool nvgw_button(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,
 
 bool nvgw_button_icon(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,
                       float h, const char *icon_utf8) {
-  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h);
+  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h, ctx->offset_x, ctx->offset_y);
   if (hovered) {
     ctx->hot_id = id;
   }
@@ -226,7 +239,7 @@ void nvgw_panel(NvgWidgetCtx *ctx, float x, float y, float w, float h,
 bool nvgw_text_input(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,
                      float h, char *buffer, size_t buffer_size,
                      float font_size) {
-  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h);
+  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h, ctx->offset_x, ctx->offset_y);
   if (hovered) {
     ctx->hot_id = id;
   }
@@ -313,7 +326,7 @@ bool nvgw_text_input(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,
 
 bool nvgw_checkbox(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,
                    float h, const char *text, bool *checked) {
-  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h);
+  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h, ctx->offset_x, ctx->offset_y);
   if (hovered) {
     ctx->hot_id = id;
   }
@@ -370,7 +383,7 @@ bool nvgw_checkbox(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,
 
 void nvgw_begin_scroll_area(NvgWidgetCtx *ctx, float x, float y, float w,
                             float h, float content_h, float *offset_y) {
-  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h);
+  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h, ctx->offset_x, ctx->offset_y);
   if (hovered && ctx->scroll_y != 0.0f) {
     *offset_y -= ctx->scroll_y * 10.0f;
   }
@@ -398,7 +411,7 @@ void nvgw_end_scroll_area(NvgWidgetCtx *ctx) {
 
 bool nvgw_color_picker(NvgWidgetCtx *ctx, uint32_t id, float x, float y,
                        float w, float h, NVGcolor *color) {
-  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h);
+  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h, ctx->offset_x, ctx->offset_y);
   if (hovered)
     ctx->hot_id = id;
 
@@ -429,7 +442,7 @@ bool nvgw_color_picker(NvgWidgetCtx *ctx, uint32_t id, float x, float y,
 
 bool nvgw_date_picker(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,
                       float h, int *year, int *month, int *day) {
-  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h);
+  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h, ctx->offset_x, ctx->offset_y);
   if (hovered)
     ctx->hot_id = id;
 
@@ -480,7 +493,7 @@ bool nvgw_date_picker(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,
 bool nvgw_dropdown_select(NvgWidgetCtx *ctx, uint32_t id, float x, float y,
                           float w, float h, const char **options,
                           int option_count, int *selected_index) {
-  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h);
+  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h, ctx->offset_x, ctx->offset_y);
   if (hovered)
     ctx->hot_id = id;
 
