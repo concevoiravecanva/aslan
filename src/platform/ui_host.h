@@ -404,6 +404,9 @@ typedef struct UIHost {
     int show_csv_menu;
     int show_select_popup;     // Select cell popup open
     uint64_t select_popup_row; // Row ID for Select popup
+    int select_popup_col;
+    float select_popup_x;
+    float select_popup_y;
     int active_col_idx;
     int active_row_idx;  // Keyboard navigation
     int is_editing_cell; // Prevent nav while typing

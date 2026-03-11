@@ -11,6 +11,7 @@
 #include <string.h>
 // Coordinate helpers
 #include <SDL.h>
+#include <time.h>
 typedef struct { float x, y, w, h; } TblRect;
 
 
@@ -189,16 +190,24 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
                     for(int o=0; o<col->option_count; o++) opts_labels[o] = col->options[o].label;
                     int sel = aslan_table_get_select(table, (int)c, row_id);
                     if (nvgw_dropdown_select(wc, cell_id, cx, ry, col_w, row_h, opts_labels, col->option_count, &sel)) {
-                        aslan_table_set_select(table, (int)c, row_id, sel);
-                        ui->table_state.is_editing_cell = 0;
+                        ui->table_state.show_select_popup = 1;
+                        ui->table_state.select_popup_x = ui->mouse_x;
+                        ui->table_state.select_popup_y = ui->mouse_y;
+                        ui->table_state.select_popup_col = (int)c;
+                        ui->table_state.select_popup_row = row_id;
+                        ui->table_state.active_block_id = block->id;
                         ui_request_redraw(ui);
                     }
                 } else if (col->type == ASLAN_COL_DATE) {
                     // Date Picker Placeholder
                     int y=2024, m=0, d=1; // hardcoded for demo, would pull from value
                     if (nvgw_date_picker(wc, cell_id, cx, ry, col_w, row_h, &y, &m, &d)) {
-                         // set date logic...
-                         ui->table_state.is_editing_cell = 0;
+                         ui->table_state.show_date_picker = 1;
+                         ui->table_state.date_picker_x = ui->mouse_x;
+                         ui->table_state.date_picker_y = ui->mouse_y;
+                         ui->table_state.date_picker_col = (int)c;
+                         ui->table_state.date_picker_row = row_id;
+                         ui->table_state.active_block_id = block->id;
                          ui_request_redraw(ui);
                     }
                 } else {
@@ -299,6 +308,153 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
             bool in_button = (mx >= add_col_x + 5 && mx < add_col_x + 5 + 60.0f && my >= 4 && my < header_h - 4);
             if (!in_menu && !in_button) {
                 ui->table_state.show_type_menu = 0;
+            }
+        }
+    }
+
+    // --- Select Cell Popup Menu ---
+    if (ui->table_state.show_select_popup && ui->table_state.active_block_id == block->id) {
+        int cidx = ui->table_state.select_popup_col;
+        uint64_t rrid = ui->table_state.select_popup_row;
+        AslanColumn *col = &table->columns[cidx];
+        
+        float menu_w = 160.0f;
+        float item_hh = 28.0f;
+        int item_cnt = col->option_count;
+        float menu_h = (item_cnt > 0 ? item_cnt : 1) * item_hh + 12.0f + 40.0f; // +40 for add option row
+        // Popups are drawn in absolute screen coordinates to float over everything
+        float menu_x = ui->table_state.select_popup_x - ui->abs_offset_x;
+        float menu_y = ui->table_state.select_popup_y - ui->abs_offset_y;
+
+        nvgw_panel(wc, menu_x, menu_y, menu_w, menu_h, ui->dark_mode ? nvgRGBA(50, 50, 55, 255) : nvgRGBA(255, 255, 255, 255), 8.0f);
+
+        float cur_y = menu_y + 6;
+
+        if (item_cnt == 0) {
+             nvgFontSize(vg, 14.0f); nvgFontFace(vg, "Inter");
+             nvgFillColor(vg, ui->dark_mode ? nvgRGBA(150, 150, 160, 255) : nvgRGBA(100, 100, 110, 255));
+             nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+             nvgText(vg, menu_x + menu_w/2, cur_y + item_hh/2, "No options", NULL);
+             cur_y += item_hh;
+        } else {
+            for (int m = 0; m < item_cnt; m++) {
+                float ix = menu_x + 4, iy = cur_y;
+                float iw = menu_w - 8;
+                uint32_t mid = nvgw_id(&m, sizeof(m)) ^ nvgw_id_str("sel_opt");
+                if (nvgw_button(wc, mid, ix, iy, iw, item_hh, col->options[m].label)) {
+                    aslan_table_set_select(table, cidx, rrid, m);
+                    ui->table_state.show_select_popup = 0;
+                    ui->table_state.is_editing_cell = 0; // stop editing
+                    ui_request_redraw(ui);
+                }
+                cur_y += item_hh;
+            }
+        }
+        
+        // Add option input row
+        cur_y += 4;
+        uint32_t opt_in_id = nvgw_id("opt_in", 6) ^ nvgw_id(&cidx, sizeof(cidx));
+        nvgw_text_input(wc, opt_in_id, menu_x + 4, cur_y, menu_w - 44, 28, ui->table_state.option_buffer, sizeof(ui->table_state.option_buffer), 14.0f);
+        
+        uint32_t opt_add_id = nvgw_id("opt_add", 7) ^ nvgw_id(&cidx, sizeof(cidx));
+        if (nvgw_button(wc, opt_add_id, menu_x + menu_w - 36, cur_y, 32, 28, "+")) {
+             if (strlen(ui->table_state.option_buffer) > 0) {
+                 aslan_table_add_option(table, cidx, ui->table_state.option_buffer, 0x95a5a6ff);
+                 ui->table_state.option_buffer[0] = '\0'; // clear buffer
+                 ui_request_redraw(ui);
+             }
+        }
+        
+        if (ui->nvgw.mouse_clicked) {
+            bool in_menu = (mx >= menu_x && mx < menu_x + menu_w && my >= menu_y && my < menu_y + menu_h);
+            if (!in_menu) {
+                ui->table_state.show_select_popup = 0;
+                ui->table_state.is_editing_cell = 0;
+            }
+        }
+    }
+
+    // --- Date Cell Popup Menu ---
+    if (ui->table_state.show_date_picker && ui->table_state.active_block_id == block->id) {
+        int cidx = ui->table_state.date_picker_col;
+        uint64_t rrid = ui->table_state.date_picker_row;
+        
+        float menu_w = 200.0f;
+        float menu_h = 240.0f;
+        float menu_x = ui->table_state.date_picker_x - ui->abs_offset_x;
+        float menu_y = ui->table_state.date_picker_y - ui->abs_offset_y;
+
+        nvgw_panel(wc, menu_x, menu_y, menu_w, menu_h, ui->dark_mode ? nvgRGBA(50, 50, 55, 255) : nvgRGBA(255, 255, 255, 255), 8.0f);
+
+        // Fetch current date
+        int64_t ts = aslan_table_get_date(table, cidx, rrid);
+        int year = 2024, month = 0, day = 1;
+        if (ts > 0) {
+            time_t epoch = ts;
+            struct tm *tm_info = localtime(&epoch);
+            if (tm_info) {
+               year = tm_info->tm_year + 1900;
+               month = tm_info->tm_mon;
+               day = tm_info->tm_mday;
+            }
+        }
+
+        nvgFontSize(vg, 16.0f); nvgFontFace(vg, "Inter");
+        nvgFillColor(vg, ui->dark_mode ? nvgRGBA(220, 220, 230, 255) : nvgRGBA(40, 40, 45, 255));
+        nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+        char date_str[64];
+        snprintf(date_str, sizeof(date_str), "%04d-%02d-%02d", year, month + 1, day);
+        nvgText(vg, menu_x + menu_w/2, menu_y + 20, date_str, NULL);
+
+        // Very simplified UI: +/- year, month, day and an OK button
+        uint32_t b_y_dec = nvgw_id_str("b_y_dec"), b_y_inc = nvgw_id_str("b_y_inc");
+        uint32_t b_m_dec = nvgw_id_str("b_m_dec"), b_m_inc = nvgw_id_str("b_m_inc");
+        uint32_t b_d_dec = nvgw_id_str("b_d_dec"), b_d_inc = nvgw_id_str("b_d_inc");
+        uint32_t b_ok = nvgw_id_str("b_ok");
+
+        bool changed = false;
+        if (nvgw_button(wc, b_y_dec, menu_x + 10, menu_y + 50, 40, 30, "<")) { year--; changed = true; }
+        nvgFillColor(vg, ui->dark_mode ? nvgRGBA(255, 255, 255, 255) : nvgRGBA(30, 30, 35, 255));
+        nvgText(vg, menu_x + menu_w/2, menu_y + 65, "Year", NULL);
+        if (nvgw_button(wc, b_y_inc, menu_x + menu_w - 50, menu_y + 50, 40, 30, ">")) { year++; changed = true; }
+
+        if (nvgw_button(wc, b_m_dec, menu_x + 10, menu_y + 90, 40, 30, "<")) { month--; changed = true; }
+        nvgFillColor(vg, ui->dark_mode ? nvgRGBA(255, 255, 255, 255) : nvgRGBA(30, 30, 35, 255));
+        nvgText(vg, menu_x + menu_w/2, menu_y + 105, "Month", NULL);
+        if (nvgw_button(wc, b_m_inc, menu_x + menu_w - 50, menu_y + 90, 40, 30, ">")) { month++; changed = true; }
+
+        if (nvgw_button(wc, b_d_dec, menu_x + 10, menu_y + 130, 40, 30, "<")) { day--; changed = true; }
+        nvgFillColor(vg, ui->dark_mode ? nvgRGBA(255, 255, 255, 255) : nvgRGBA(30, 30, 35, 255));
+        nvgText(vg, menu_x + menu_w/2, menu_y + 145, "Day", NULL);
+        if (nvgw_button(wc, b_d_inc, menu_x + menu_w - 50, menu_y + 130, 40, 30, ">")) { day++; changed = true; }
+
+        if (changed) {
+            if (month < 0) { month = 11; year--; }
+            if (month > 11) { month = 0; year++; }
+            if (day < 1) day = 1;
+            if (day > 31) day = 31;
+            
+            struct tm t = {0};
+            t.tm_year = year - 1900;
+            t.tm_mon = month;
+            t.tm_mday = day;
+            t.tm_isdst = -1;
+            int64_t new_ts = mktime(&t);
+            aslan_table_set_date(table, cidx, rrid, new_ts);
+            ui_request_redraw(ui);
+        }
+
+        if (nvgw_button(wc, b_ok, menu_x + 20, menu_y + 190, menu_w - 40, 30, "Confirm")) {
+            ui->table_state.show_date_picker = 0;
+            ui->table_state.is_editing_cell = 0;
+            ui_request_redraw(ui);
+        }
+
+        if (ui->nvgw.mouse_clicked) {
+            bool in_menu = (mx >= menu_x && mx < menu_x + menu_w && my >= menu_y && my < menu_y + menu_h);
+            if (!in_menu) {
+                ui->table_state.show_date_picker = 0;
+                ui->table_state.is_editing_cell = 0;
             }
         }
     }
