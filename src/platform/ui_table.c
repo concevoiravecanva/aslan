@@ -98,6 +98,30 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
     nvgStrokeWidth(vg, 1.0f);
     nvgStroke(vg);
 
+    // Prevent cell clicks from bleeding through open popups
+    bool mouse_in_popup = false;
+    if (ui->table_state.show_date_picker && ui->table_state.active_block_id == block->id) {
+        float px = ui->table_state.date_picker_x - ui->abs_offset_x;
+        float py = ui->table_state.date_picker_y - ui->abs_offset_y;
+        if (mx >= px && mx < px + 200.0f && my >= py && my < py + 240.0f) mouse_in_popup = true;
+    } else if (ui->table_state.show_select_popup && ui->table_state.active_block_id == block->id) {
+        AslanColumn *scol = &table->columns[ui->table_state.select_popup_col];
+        int item_cnt = scol->option_count;
+        float ph = (item_cnt > 0 ? item_cnt : 1) * 28.0f + 12.0f + 40.0f;
+        float px = ui->table_state.select_popup_x - ui->abs_offset_x;
+        float py = ui->table_state.select_popup_y - ui->abs_offset_y;
+        if (mx >= px && mx < px + 160.0f && my >= py && my < py + ph) mouse_in_popup = true;
+    } else if (ui->table_state.show_type_menu && ui->table_state.active_block_id == block->id) {
+        float px = ui->table_state.type_menu_x - ui->abs_offset_x;
+        float py = ui->table_state.type_menu_y - ui->abs_offset_y;
+        if (mx >= px && mx < px + 160.0f && my >= py && my < py + 152.0f) mouse_in_popup = true;
+    }
+
+    bool saved_clicked = ui->nvgw.mouse_clicked;
+    if (mouse_in_popup) {
+        ui->nvgw.mouse_clicked = false;
+    }
+
     // Rows + Ghost Row
     size_t count = aslan_table_view_count(table);
     for (size_t i = 0; i <= count; i++) {
@@ -238,6 +262,9 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
         nvgStrokeWidth(vg, 0.5f);
         nvgStroke(vg);
     }
+
+    // Restore click state for popups to process
+    ui->nvgw.mouse_clicked = saved_clicked;
 
     // --- Context Menu Rendering ---
     if (ui->show_context_menu && ui->table_state.active_block_id == block->id && !ui->context_menu_node) {
@@ -390,7 +417,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
         int64_t ts = aslan_table_get_date(table, cidx, rrid);
         int year = 2024, month = 0, day = 1;
         if (ts > 0) {
-            time_t epoch = ts;
+            time_t epoch = ts / 1000;
             struct tm *tm_info = localtime(&epoch);
             if (tm_info) {
                year = tm_info->tm_year + 1900;
@@ -438,8 +465,9 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
             t.tm_year = year - 1900;
             t.tm_mon = month;
             t.tm_mday = day;
+            t.tm_hour = 12; // Avoid DST and timezone shifts ruining the day
             t.tm_isdst = -1;
-            int64_t new_ts = mktime(&t);
+            int64_t new_ts = (int64_t)mktime(&t) * 1000LL;
             aslan_table_set_date(table, cidx, rrid, new_ts);
             ui_request_redraw(ui);
         }
