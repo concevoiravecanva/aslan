@@ -9,8 +9,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
 // Coordinate helpers
+#include <SDL.h>
 typedef struct { float x, y, w, h; } TblRect;
 
 
@@ -80,7 +80,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
     // --- Column Addition (+) button ---
     float add_col_x = (float)table->column_count * col_w;
     uint32_t add_col_id = nvgw_id(&block->id, sizeof(block->id)) ^ nvgw_id_str("add_col");
-    if (nvgw_button_icon(wc, add_col_id, add_col_x + 5, 4, 32.0f, header_h - 8, ICON_ADD)) {
+
+    if (nvgw_button(wc, add_col_id, add_col_x + 5, 4, 60.0f, header_h - 8, "+ Add")) {
         ui->table_state.show_type_menu = 1;
         ui->table_state.type_menu_x = ui->mouse_x;
         ui->table_state.type_menu_y = ui->mouse_y;
@@ -150,20 +151,32 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
 
             // Logic: Click to edit (also works for Ghost Row)
             if (ui->nvgw.mouse_clicked && mx >= cx && mx < cx + col_w && my >= ry && my < ry + row_h) {
-                if (is_ghost) {
-                   row_id = aslan_table_add_row(table);
-                   count++; // update count so next frame doesn't draw double ghost
+                bool already_editing = (ui->table_state.is_editing_cell && ui->table_state.active_col_idx == (int)c && ui->table_state.select_popup_row == row_id);
+                if (!already_editing) {
+                    // Commit previous edit if there is one
+                    if (ui->table_state.is_editing_cell) {
+                        aslan_table_set_cell(table, ui->table_state.active_col_idx, ui->table_state.select_popup_row, ui->table_state.rename_buffer);
+                    }
+                    if (is_ghost) {
+                       row_id = aslan_table_add_row(table);
+                       count++; // update count so next frame doesn't draw double ghost
+                    }
+                    ui->table_state.active_block_id = block->id;
+                    ui->table_state.active_col_idx = (int)c;
+                    ui->table_state.select_popup_row = row_id;
+                    ui->table_state.is_editing_cell = 1;
+                    
+                    // Copy current value to buffer
+                    char current[1024] = "";
+                    if (!is_ghost) aslan_table_get_cell_display(table, (int)c, row_id, current, sizeof(current));
+                    strncpy(ui->table_state.rename_buffer, current, sizeof(ui->table_state.rename_buffer)-1);
+
+                    // Force text input to focus immediately
+                    uint32_t real_cell_id = nvgw_id(&row_id, sizeof(row_id)) ^ nvgw_id(&c, sizeof(c)) ^ nvgw_id(&block->id, sizeof(block->id));
+                    ui->nvgw.focus_id = real_cell_id;
+
+                    ui_request_redraw(ui);
                 }
-                ui->table_state.active_block_id = block->id;
-                ui->table_state.active_col_idx = (int)c;
-                ui->table_state.select_popup_row = row_id;
-                ui->table_state.is_editing_cell = 1;
-                
-                // Copy current value to buffer
-                char current[1024] = "";
-                if (!is_ghost) aslan_table_get_cell_display(table, (int)c, row_id, current, sizeof(current));
-                strncpy(ui->table_state.rename_buffer, current, sizeof(ui->table_state.rename_buffer)-1);
-                ui_request_redraw(ui);
             }
 
             if (is_ghost) continue;
@@ -283,7 +296,10 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
         
         if (ui->nvgw.mouse_clicked) {
             bool in_menu = (mx >= menu_x && mx < menu_x + menu_w && my >= menu_y && my < menu_y + menu_h);
-            if (!in_menu) ui->table_state.show_type_menu = 0;
+            bool in_button = (mx >= add_col_x + 5 && mx < add_col_x + 5 + 60.0f && my >= 4 && my < header_h - 4);
+            if (!in_menu && !in_button) {
+                ui->table_state.show_type_menu = 0;
+            }
         }
     }
 }

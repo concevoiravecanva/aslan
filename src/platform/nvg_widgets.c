@@ -257,10 +257,12 @@ bool nvgw_text_input(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,
     if (ctx->text_input[0] != '\0' &&
         len + strlen(ctx->text_input) < buffer_size) {
       strcat(buffer, ctx->text_input);
+      ctx->text_input[0] = '\0'; // Consume input to prevent duplication
     }
 
     if (ctx->key_backspace && len > 0) {
       buffer[len - 1] = '\0'; // simple backspace (ASCII only)
+      ctx->key_backspace = false; // Consume backspace
     }
 
     if (ctx->key_enter) {

@@ -157,19 +157,11 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
         // Forward event to UI
         ui_handle_event(ui, &e);
 
-        // Forward event to NanoVG Widgets
+        // NanoVG Widgets keyboard/text input is already handled
+        // inside ui_handle_event() via nvgw_input_keyboard().
+        // Only forward scroll events here.
         if (e.type == SDL_MOUSEWHEEL) {
           ui->nvgw.scroll_y += e.wheel.y;
-        } else if (e.type == SDL_TEXTINPUT) {
-          strncat(ui->nvgw.text_input, e.text.text,
-                  sizeof(ui->nvgw.text_input) - strlen(ui->nvgw.text_input) -
-                      1);
-        } else if (e.type == SDL_KEYDOWN) {
-          if (e.key.keysym.sym == SDLK_BACKSPACE)
-            ui->nvgw.key_backspace = true;
-          if (e.key.keysym.sym == SDLK_RETURN ||
-              e.key.keysym.sym == SDLK_KP_ENTER)
-            ui->nvgw.key_enter = true;
         }
 
         // Handle mouse/keyboard events for Lua tools
@@ -224,7 +216,8 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
     nvgw_input_mouse(&ui->nvgw, (float)gmx, (float)gmy,
                      (gmstate & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0,
                      ui->nvgw.scroll_y);
-    nvgw_input_end(&ui->nvgw);
+    // NOTE: nvgw_input_end is called AFTER rendering so widgets can
+    // read mouse_clicked / mouse_released / active_id during the render pass.
 
     // Only render if needed (event occurred or timeout for animations)
     if (ui->needs_redraw) {
@@ -250,6 +243,9 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
       // 6. Present frame
       renderer_end(renderer);
     }
+
+    // Finalize widget state AFTER rendering
+    nvgw_input_end(&ui->nvgw);
 
     // No SDL_Delay needed - WaitEventTimeout handles timing
   }

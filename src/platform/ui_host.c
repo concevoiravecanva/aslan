@@ -829,8 +829,6 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     cs->create_end_y = cs->cam_y + (ui->mouse_y - cs->bounds_y) / cs->zoom;
   }
 
-  nvgw_input_mouse(&ui->nvgw, (float)ui->mouse_x, (float)ui->mouse_y,
-                   (ui->mouse_buttons & 1) != 0, 0);
 
   // Track mouse buttons
   if (evt->type == SDL_MOUSEBUTTONDOWN) {
@@ -883,9 +881,6 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     } else if (evt->button.button == SDL_BUTTON_RIGHT) {
       ui->mouse_buttons |= 4;
     }
-
-    nvgw_input_mouse(&ui->nvgw, (float)ui->mouse_x, (float)ui->mouse_y,
-                     (ui->mouse_buttons & 1) != 0, 0);
   }
 
   if (evt->type == SDL_MOUSEBUTTONUP) {
