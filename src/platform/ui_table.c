@@ -219,6 +219,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
                         ui->table_state.select_popup_y = ui->mouse_y;
                         ui->table_state.select_popup_col = (int)c;
                         ui->table_state.select_popup_row = row_id;
+                        ui->table_state.editing_select_option = -1;
                         ui->table_state.active_block_id = block->id;
                         ui_request_redraw(ui);
                     }
@@ -367,12 +368,43 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
             for (int m = 0; m < item_cnt; m++) {
                 float ix = menu_x + 4, iy = cur_y;
                 float iw = menu_w - 8;
-                uint32_t mid = nvgw_id(&m, sizeof(m)) ^ nvgw_id_str("sel_opt");
-                if (nvgw_button(wc, mid, ix, iy, iw, item_hh, col->options[m].label)) {
-                    aslan_table_set_select(table, cidx, rrid, m);
-                    ui->table_state.show_select_popup = 0;
-                    ui->table_state.is_editing_cell = 0; // stop editing
-                    ui_request_redraw(ui);
+                
+                if (ui->table_state.editing_select_option == m) {
+                    uint32_t inp_id = nvgw_id("edit_opt", 8) ^ nvgw_id(&m, sizeof(m));
+                    nvgw_text_input(wc, inp_id, ix, iy, iw - 32, item_hh, ui->table_state.option_buffer, sizeof(ui->table_state.option_buffer), 14.0f);
+                    
+                    uint32_t ok_id = nvgw_id("ok_opt", 6) ^ nvgw_id(&m, sizeof(m));
+                    nvgFontFace(vg, "Inter");
+                    if (nvgw_button(wc, ok_id, ix + iw - 30, iy, 30, item_hh, "OK")) {
+                        if (strlen(ui->table_state.option_buffer) == 0) {
+                             // Empty name means delete
+                             aslan_table_remove_option(table, cidx, m);
+                        } else {
+                             aslan_table_rename_option(table, cidx, m, ui->table_state.option_buffer);
+                        }
+                        ui->table_state.editing_select_option = -1;
+                        ui->table_state.option_buffer[0] = '\0';
+                        ui_request_redraw(ui);
+                    }
+                } else {
+                    uint32_t mid = nvgw_id(&m, sizeof(m)) ^ nvgw_id_str("sel_opt");
+                    if (nvgw_button(wc, mid, ix, iy, iw, item_hh, col->options[m].label)) {
+                        uint32_t now = SDL_GetTicks();
+                        if (ui->table_state.last_option_click_idx == m && (now - ui->table_state.last_option_click_time) < 400) {
+                            // Double Click detected -> Edit Mode
+                            ui->table_state.editing_select_option = m;
+                            strncpy(ui->table_state.option_buffer, col->options[m].label, sizeof(ui->table_state.option_buffer)-1);
+                            ui->table_state.option_buffer[sizeof(ui->table_state.option_buffer)-1] = '\0';
+                            ui->table_state.last_option_click_idx = -1; // Reset
+                        } else {
+                            // Single Click -> Select Option
+                            aslan_table_set_select(table, cidx, rrid, m);
+                            ui->table_state.editing_select_option = -1;
+                            ui->table_state.last_option_click_idx = m;
+                            ui->table_state.last_option_click_time = now;
+                        }
+                        ui_request_redraw(ui);
+                    }
                 }
                 cur_y += item_hh;
             }

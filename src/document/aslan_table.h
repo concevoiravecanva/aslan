@@ -266,6 +266,9 @@ const char *aslan_table_get_cell_display(const AslanTable *table, int col_idx,
 // Add a new option to a SELECT column (returns index, or -1 on failure)
 int aslan_table_add_option(AslanTable *table, int col_idx, const char *label,
                            uint32_t color);
+bool aslan_table_rename_option(AslanTable *table, int col_idx, int option_idx,
+                               const char *new_label);
+bool aslan_table_remove_option(AslanTable *table, int col_idx, int option_idx);
 
 // Update an existing option's color
 bool aslan_table_update_option_color(AslanTable *table, int col_idx,

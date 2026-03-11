@@ -1047,6 +1047,17 @@ int aslan_table_add_option(AslanTable *table, int col_idx, const char *label,
   return idx;
 }
 
+bool aslan_table_rename_option(AslanTable *table, int col_idx, int option_idx, const char *new_label) {
+  if (!table || col_idx < 0 || col_idx >= (int)table->column_count)
+    return false;
+  AslanColumn *col = &table->columns[col_idx];
+  if (col->type != ASLAN_COL_SELECT || option_idx < 0 || option_idx >= col->option_count)
+    return false;
+  strncpy(col->options[option_idx].label, new_label ? new_label : "", ASLAN_SELECT_OPTION_LEN - 1);
+  col->options[option_idx].label[ASLAN_SELECT_OPTION_LEN - 1] = '\0';
+  return true;
+}
+
 bool aslan_table_remove_option(AslanTable *table, int col_idx, int option_idx) {
   if (!table || col_idx < 0 || col_idx >= (int)table->column_count)
     return false;

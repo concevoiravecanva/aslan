@@ -407,6 +407,9 @@ typedef struct UIHost {
     int select_popup_col;
     float select_popup_x;
     float select_popup_y;
+    int editing_select_option;   // Which select option is being renamed (-1 = none)
+    uint32_t last_option_click_time; // Time of last click on a select option
+    int last_option_click_idx;       // Index of last clicked option
     int active_col_idx;
     int active_row_idx;  // Keyboard navigation
     int is_editing_cell; // Prevent nav while typing
