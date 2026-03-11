@@ -304,15 +304,15 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
     if (ui->table_state.show_type_menu && ui->table_state.active_block_id == block->id) {
         float menu_w = 160.0f;
         float item_hh = 28.0f;
-        int item_cnt = 5; // Text, Number, Select, Date, Checkbox
+        int item_cnt = 10; 
         float menu_h = item_cnt * item_hh + 12.0f;
         float menu_x = ui->table_state.type_menu_x - ui->abs_offset_x;
         float menu_y = ui->table_state.type_menu_y - ui->abs_offset_y;
 
         nvgw_panel(wc, menu_x, menu_y, menu_w, menu_h, ui->dark_mode ? nvgRGBA(50, 50, 55, 255) : nvgRGBA(255, 255, 255, 255), 8.0f);
 
-        const char *type_names[] = {"Text", "Number", "Select", "Date", "Checkbox"};
-        AslanColumnType types[] = {ASLAN_COL_TEXT, ASLAN_COL_NUMBER, ASLAN_COL_SELECT, ASLAN_COL_DATE, ASLAN_COL_CHECKBOX};
+        const char *type_names[] = {"Text", "Number", "Check", "Select", "Date", "Formula", "File", "Link", "Image", "Duration"};
+        AslanColumnType types[] = {ASLAN_COL_TEXT, ASLAN_COL_NUMBER, ASLAN_COL_CHECKBOX, ASLAN_COL_SELECT, ASLAN_COL_DATE, ASLAN_COL_FORMULA, ASLAN_COL_FILE, ASLAN_COL_LINK, ASLAN_COL_IMAGE, ASLAN_COL_DURATION};
 
         for (int m = 0; m < item_cnt; m++) {
             float ix = menu_x + 4, iy = menu_y + 6 + m * item_hh;

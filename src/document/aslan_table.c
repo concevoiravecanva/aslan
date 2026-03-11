@@ -1004,10 +1004,12 @@ const char *aslan_table_get_cell_display(const AslanTable *table, int col_idx,
     int64_t md = ((int64_t *)col->data)[row_idx]; // millidays
     if (md <= 0) { buf[0] = '\0'; break; }
     double days = md / 1000.0;
-    if (md % 1000 == 0)
-      snprintf(buf, buf_size, "%.0fj", days);       // "4j"
+    if (md == 1000)
+      snprintf(buf, buf_size, "1 day");
+    else if (md % 1000 == 0)
+      snprintf(buf, buf_size, "%.0f days", days);
     else
-      snprintf(buf, buf_size, "%.1fj", days);       // "2.5j"
+      snprintf(buf, buf_size, "%.1f days", days);
     break;
   }
   case ASLAN_COL_FORMULA: {
