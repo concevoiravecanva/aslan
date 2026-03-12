@@ -5,6 +5,7 @@
 #include "ui_table.h"
 #include "../document/aslan_table.h"
 #include "ui_shared.h"
+#include "../core/engine.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -66,6 +67,35 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
         nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
         nvgText(vg, cx + 32, header_h / 2, col->name, NULL);
 
+        // When formula popup is active, highlight headers to show they're clickable
+        if (ui->table_state.show_formula_popup) {
+            bool hdr_hovered = (mx >= cx && mx < cx + col_w && my >= 0 && my < header_h);
+            nvgBeginPath(vg);
+            nvgRect(vg, cx + 1, 1, col_w - 2, header_h - 2);
+            nvgFillColor(vg, hdr_hovered ? nvgRGBA(80, 140, 255, 60) : nvgRGBA(80, 140, 255, 20));
+            nvgFill(vg);
+            if (hdr_hovered) {
+                nvgBeginPath(vg);
+                nvgRect(vg, cx + 1, 1, col_w - 2, header_h - 2);
+                nvgStrokeColor(vg, nvgRGBA(80, 140, 255, 200));
+                nvgStrokeWidth(vg, 1.5f);
+                nvgStroke(vg);
+            }
+        }
+
+        // Left click for formula reference
+        if (ui->table_state.show_formula_popup && ui->nvgw.mouse_clicked && mx >= cx && mx < cx + col_w && my >= 0 && my < header_h) {
+            char ref[128];
+            snprintf(ref, sizeof(ref), "[%s]", col->name);
+            // Append to buffer if there's space
+            size_t current_len = strlen(ui->table_state.formula_buffer);
+            size_t ref_len = strlen(ref);
+            if (current_len + ref_len < sizeof(ui->table_state.formula_buffer) - 1) {
+                strcat(ui->table_state.formula_buffer, ref);
+            }
+            ui_request_redraw(ui);
+        }
+
         // Right click for column menu
         if ((ui->mouse_buttons & 2) && mx >= cx && mx < cx + col_w && my >= 0 && my < header_h) {
             ui->show_context_menu = 1;
@@ -115,6 +145,12 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
         float px = ui->table_state.type_menu_x - ui->abs_offset_x;
         float py = ui->table_state.type_menu_y - ui->abs_offset_y;
         if (mx >= px && mx < px + 160.0f && my >= py && my < py + 152.0f) mouse_in_popup = true;
+    } else if (ui->table_state.show_formula_popup && ui->table_state.active_block_id == block->id) {
+        float fw = 400.0f, fh = 120.0f; // Slightly taller
+        float fpx = (ui->win_width - fw) * 0.5f;
+        float fpy = (ui->win_height - fh) * 0.5f;
+        // Use absolute coordinates for window-centered popup
+        if (ui->mouse_x >= fpx && ui->mouse_x < fpx + fw && ui->mouse_y >= fpy && ui->mouse_y < fpy + fh) mouse_in_popup = true;
     }
 
     bool saved_clicked = ui->nvgw.mouse_clicked;
@@ -169,6 +205,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
                 bool checked = aslan_table_get_checkbox(table, (int)c, row_id);
                 if (nvgw_checkbox(wc, cell_id, cx+ col_w/2 - 7, ry + row_h/2 - 7, 14, 14, NULL, &checked)) {
                     aslan_table_set_checkbox(table, (int)c, row_id, checked);
+                    aslan_table_eval_formulas(table);
                     ui_request_redraw(ui);
                 }
                 continue;
@@ -235,10 +272,33 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
                          ui->table_state.active_block_id = block->id;
                          ui_request_redraw(ui);
                     }
+                } else if (col->type == ASLAN_COL_FORMULA) {
+                    // Formula cells: open formula editor popup
+                    ui->table_state.show_formula_popup = 1;
+                    ui->table_state.formula_popup_col = (int)c;
+                    const char *f = aslan_table_get_formula(table, (int)c);
+                    strncpy(ui->table_state.formula_buffer, f ? f : "", sizeof(ui->table_state.formula_buffer)-1);
+                    ui->table_state.is_editing_cell = 0; // Not a text edit
+                    ui->nvgw.mouse_clicked = false; // Consume click to prevent auto-close same frame
+                    ui_request_redraw(ui);
                 } else {
-                    // Standard Text Input
+                    // Standard Text Input - Filter for numeric columns
+                    if (col->type == ASLAN_COL_NUMBER || col->type == ASLAN_COL_DURATION) {
+                        char filtered[32] = "";
+                        size_t fi = 0;
+                        for(size_t i=0; i<strlen(ui->nvgw.text_input) && fi < 31; i++) {
+                            char ch = ui->nvgw.text_input[i];
+                            if ((ch >= '0' && ch <= '9') || ch == '.' || ch == '-' || ch == ',' || ch == '+') {
+                                filtered[fi++] = ch;
+                            }
+                        }
+                        filtered[fi] = '\0';
+                        strncpy(ui->nvgw.text_input, filtered, sizeof(ui->nvgw.text_input)-1);
+                    }
+
                     if (nvgw_text_input(wc, cell_id, cx, ry, col_w, row_h, ui->table_state.rename_buffer, sizeof(ui->table_state.rename_buffer), 14.0f)) {
                         aslan_table_set_cell(table, (int)c, row_id, ui->table_state.rename_buffer);
+                        aslan_table_eval_formulas(table);
                         ui->table_state.is_editing_cell = 0;
                         ui_request_redraw(ui);
                     }
@@ -273,23 +333,40 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
         float item_hh = 28.0f;
         int is_col = ui->table_state.context_menu_mode == 1;
         int item_cnt = 2; 
-        float menu_h = item_cnt * item_hh + 12.0f;
         float menu_x = ui->context_menu_x - ui->abs_offset_x;
         float menu_y = ui->context_menu_y - ui->abs_offset_y;
 
+
+        const char *col_items[3] = {"Rename Column", "Delete Column", "Edit Formula"};
+        const char *row_items[2] = {"Duplicate Row", "Delete Row"};
+        const char **items = is_col ? col_items : row_items;
+        
+        int actual_item_cnt = item_cnt;
+        if (is_col) {
+            AslanColumn *cobj = &table->columns[ui->table_state.context_menu_col];
+            if (cobj->type == ASLAN_COL_FORMULA) actual_item_cnt = 3;
+        }
+        
+        float menu_h = actual_item_cnt * item_hh + 12.0f;
         nvgw_panel(wc, menu_x, menu_y, menu_w, menu_h, ui->dark_mode ? nvgRGBA(50, 50, 55, 255) : nvgRGBA(255, 255, 255, 255), 8.0f);
 
-        const char *col_items[] = {"Rename Column", "Delete Column"};
-        const char *row_items[] = {"Duplicate Row", "Delete Row"};
-        const char **items = is_col ? col_items : row_items;
-
-        for (int m = 0; m < item_cnt; m++) {
+        for (int m = 0; m < actual_item_cnt; m++) {
             float ix = menu_x + 4, iy = menu_y + 6 + m * item_hh;
             float iw = menu_w - 8;
             uint32_t mid = nvgw_id(&m, sizeof(m)) ^ nvgw_id_str("tbl_ctx");
             if (nvgw_button(wc, mid, ix, iy, iw, item_hh, items[m])) {
                  if (is_col) {
-                    if (m == 1) aslan_table_remove_column(table, ui->table_state.context_menu_col);
+                    if (m == 0) {
+                        ui->table_state.renaming_col_idx = ui->table_state.context_menu_col;
+                        strncpy(ui->table_state.rename_buffer, table->columns[ui->table_state.context_menu_col].name, sizeof(ui->table_state.rename_buffer)-1);
+                    } else if (m == 1) {
+                        aslan_table_remove_column(table, ui->table_state.context_menu_col);
+                    } else if (m == 2) {
+                        ui->table_state.show_formula_popup = 1;
+                        ui->table_state.formula_popup_col = ui->table_state.context_menu_col;
+                        const char *f = aslan_table_get_formula(table, ui->table_state.formula_popup_col);
+                        strncpy(ui->table_state.formula_buffer, f ? f : "", sizeof(ui->table_state.formula_buffer)-1);
+                    }
                 } else {
                     if (m == 0) aslan_table_duplicate_row(table, ui->table_state.context_menu_row);
                     else if (m == 1) aslan_table_delete_row(table, ui->table_state.context_menu_row);
@@ -399,6 +476,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
                         } else {
                             // Single Click -> Select Option
                             aslan_table_set_select(table, cidx, rrid, m);
+                            aslan_table_eval_formulas(table);
                             ui->table_state.editing_select_option = -1;
                             ui->table_state.last_option_click_idx = m;
                             ui->table_state.last_option_click_time = now;
@@ -501,6 +579,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
             t.tm_isdst = -1;
             int64_t new_ts = (int64_t)mktime(&t) * 1000LL;
             aslan_table_set_date(table, cidx, rrid, new_ts);
+            aslan_table_eval_formulas(table);
             ui_request_redraw(ui);
         }
 
@@ -517,6 +596,58 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
                 ui->table_state.is_editing_cell = 0;
             }
         }
+    }
+
+    // --- Formula Editor Popup ---
+    if (ui->table_state.show_formula_popup && ui->table_state.active_block_id == block->id) {
+        nvgw_set_offset(wc, 0, 0); // Window-absolute positioning
+        
+        float menu_w = 400.0f;
+        float menu_h = 120.0f;
+        float menu_x = (ui->win_width - menu_w) * 0.5f;
+        float menu_y = (ui->win_height - menu_h) * 0.5f;
+
+        nvgw_panel(wc, menu_x, menu_y, menu_w, menu_h, ui->dark_mode ? nvgRGBA(45, 45, 50, 255) : nvgRGBA(245, 245, 250, 255), 10.0f);
+        
+        nvgFontSize(vg, 16.0f); nvgFontFace(vg, "Inter");
+        nvgFillColor(vg, ui->dark_mode ? nvgRGBA(220, 220, 230, 255) : nvgRGBA(40, 40, 45, 255));
+        nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
+        nvgText(vg, menu_x + 15, menu_y + 15, "Edit Formula", NULL);
+
+        if (nvgw_text_input(wc, nvgw_id_str("formula_input"), menu_x + 15, menu_y + 40, menu_w - 30, 30, ui->table_state.formula_buffer, sizeof(ui->table_state.formula_buffer), 14.0f)) {
+            aslan_table_set_formula(table, ui->table_state.formula_popup_col, ui->table_state.formula_buffer);
+            aslan_table_eval_formulas(table);
+            // Persist to AOF log
+            char cmd[1200];
+            Page *pg = doc_page_get_active(engine->doc);
+            snprintf(cmd, sizeof(cmd), "block_table_col_formula %u %u %d \"%s\"",
+                     pg ? pg->id : 1, block->id,
+                     ui->table_state.formula_popup_col, ui->table_state.formula_buffer);
+            engine_execute_command(engine, cmd);
+            ui->table_state.show_formula_popup = 0;
+            ui_request_redraw(ui);
+        }
+
+        if (nvgw_button(wc, nvgw_id_str("formula_cancel"), menu_x + menu_w - 180, menu_y + menu_h - 35, 80, 25, "Cancel")) {
+            ui->table_state.show_formula_popup = 0;
+            ui_request_redraw(ui);
+        }
+
+        if (nvgw_button(wc, nvgw_id_str("formula_ok"), menu_x + menu_w - 95, menu_y + menu_h - 35, 80, 25, "Apply")) {
+            aslan_table_set_formula(table, ui->table_state.formula_popup_col, ui->table_state.formula_buffer);
+            aslan_table_eval_formulas(table);
+            // Persist to AOF log
+            char cmd[1200];
+            Page *pg2 = doc_page_get_active(engine->doc);
+            snprintf(cmd, sizeof(cmd), "block_table_col_formula %u %u %d \"%s\"",
+                     pg2 ? pg2->id : 1, block->id,
+                     ui->table_state.formula_popup_col, ui->table_state.formula_buffer);
+            engine_execute_command(engine, cmd);
+            ui->table_state.show_formula_popup = 0;
+            ui_request_redraw(ui);
+        }
+
+        nvgw_set_offset(wc, ui->abs_offset_x, ui->abs_offset_y); // Restore for next blocks
     }
 }
 

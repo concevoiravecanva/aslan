@@ -1275,6 +1275,17 @@ void engine_load_from_history(Engine *engine) {
   fclose(f);
   engine->is_loading = false;
 
+  // Evaluate all formulas after loading
+  if (engine->doc) {
+    for (int p = 0; p < engine->doc->page_count; p++) {
+      for (Block *b = engine->doc->pages[p].first_block; b; b = b->next) {
+        if (b->type == BLOCK_TABLE && b->data.table.columnar) {
+          aslan_table_eval_formulas(b->data.table.columnar);
+        }
+      }
+    }
+  }
+
   if (engine->ui_host) {
     ui_request_redraw(engine->ui_host);
   }
@@ -1326,5 +1337,17 @@ bool engine_load_snapshot_from_aslan(Engine *engine, const char *in_path) {
   }
 
   fclose(f);
+
+  // Evaluate all formulas after snapshot load
+  if (engine->doc) {
+    for (int p = 0; p < engine->doc->page_count; p++) {
+      for (Block *b = engine->doc->pages[p].first_block; b; b = b->next) {
+        if (b->type == BLOCK_TABLE && b->data.table.columnar) {
+          aslan_table_eval_formulas(b->data.table.columnar);
+        }
+      }
+    }
+  }
+
   return saw_any;
 }

@@ -817,9 +817,9 @@ void block_table_init(Block *block) {
   td->columnar = aslan_table_create(block->id, "Table");
 
   if (td->columnar) {
-    // Default 2 columns: Name (Text) and Count (Number)
+    // Default 2 columns: Name (Text) and Number (Number)
     aslan_table_add_column(td->columnar, "Name", ASLAN_COL_TEXT);
-    aslan_table_add_column(td->columnar, "Count", ASLAN_COL_NUMBER);
+    aslan_table_add_column(td->columnar, "Number", ASLAN_COL_NUMBER);
 
     // Add initial rows
     for (int r = 0; r < rows; r++) {

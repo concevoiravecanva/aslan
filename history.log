@@ -1164,3 +1164,17 @@ block_design_resize 1 105 4000.00 54528.00 2
 -- Session started --
 -- Session started --
 -- Session started --
+-- Session started --
+-- Session started --
+-- Session started --
+block_table_col_info 1 104 1 1 Counter
+-- Session started --
+-- Session started --
+-- Session started --
+-- Session started --
+-- Session started --
+block_table_col_formula 1 104 2 "=[Counter]+2"
+block_table_col_formula 1 104 2 "=[Counter]+2"
+block_table_col_formula 1 104 2 "=[Counter]+2"
+-- Session started --
+block_table_col_formula 1 104 3 "=[Counter]-4"
