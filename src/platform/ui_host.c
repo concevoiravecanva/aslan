@@ -1148,6 +1148,7 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
         ui_request_redraw(ui);
       }
       if (clip) SDL_free(clip);
+      return; // Paste was handled by focused input — don't fall through to table paste
     }
 
     // Determine active block (canvas or design)

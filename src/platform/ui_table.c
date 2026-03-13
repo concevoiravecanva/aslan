@@ -1354,10 +1354,12 @@ static void render_select_popup(UIHost *ui, AslanTable *table, Block *block) {
 
     float menu_w = 180.0f, item_h = 30.0f;
     int item_cnt = col_ptr->option_count;
-    // Extra height when an option is in edit mode (color palette row = 20px)
-    float edit_extra = (ui->table_state.editing_select_option >= 0
-                        && ui->table_state.editing_select_option < item_cnt) ? 20.0f : 0.0f;
-    float menu_h = (item_cnt > 0 ? item_cnt : 1) * item_h + 12.0f + 44.0f + edit_extra;
+    bool in_edit_mode = (ui->table_state.editing_select_option >= 0
+                         && ui->table_state.editing_select_option < item_cnt);
+    // Extra height for color palette when editing; remove bottom section when editing
+    float edit_extra = in_edit_mode ? 20.0f : 0.0f;
+    float bottom_h   = in_edit_mode ? 0.0f  : 44.0f;  // divider + add-new row
+    float menu_h = (item_cnt > 0 ? item_cnt : 1) * item_h + 12.0f + bottom_h + edit_extra;
 
     // Use absolute (screen) coords — popup floats above everything
     nvgw_set_offset(wc, 0, 0);
@@ -1534,6 +1536,8 @@ static void render_select_popup(UIHost *ui, AslanTable *table, Block *block) {
                         ui->table_state.editing_select_option = m;
                         strncpy(ui->table_state.option_buffer, opt->label,
                                 sizeof(ui->table_state.option_buffer) - 1);
+                        // Auto-focus the edit input so the user can type immediately
+                        wc->focus_id = nvgw_id_str("edit_opt") ^ nvgw_id(&m, sizeof(m));
                         ui_request_redraw(ui);
                     }
                 }
@@ -1551,33 +1555,34 @@ static void render_select_popup(UIHost *ui, AslanTable *table, Block *block) {
         }
     }
 
-    // Divider
-    cur_y += 2;
-    nvgBeginPath(vg);
-    nvgMoveTo(vg, mx_s + 8, cur_y);
-    nvgLineTo(vg, mx_s + menu_w - 8, cur_y);
-    nvgStrokeColor(vg, tbl_border(dark));
-    nvgStrokeWidth(vg, 0.5f);
-    nvgStroke(vg);
-    cur_y += 4;
+    // Add new option row — hidden while editing an existing option (shares buffer)
+    if (ui->table_state.editing_select_option < 0) {
+        // Divider
+        cur_y += 2;
+        nvgBeginPath(vg);
+        nvgMoveTo(vg, mx_s + 8, cur_y);
+        nvgLineTo(vg, mx_s + menu_w - 8, cur_y);
+        nvgStrokeColor(vg, tbl_border(dark));
+        nvgStrokeWidth(vg, 0.5f);
+        nvgStroke(vg);
+        cur_y += 4;
 
-    // Add new option row
-    uint32_t opt_in_id = nvgw_id_str("opt_in") ^ nvgw_id(&cidx, sizeof(cidx));
-    tbl_text_input(vg, wc, opt_in_id, mx_s + 4, cur_y, menu_w - 44, 32,
-                   ui->table_state.option_buffer,
-                   sizeof(ui->table_state.option_buffer), 13.0f, dark);
-    uint32_t opt_add_id = nvgw_id_str("opt_add") ^ nvgw_id(&cidx, sizeof(cidx));
-    if (tbl_item_button(vg, wc, opt_add_id, mx_s + menu_w - 38, cur_y, 34, 32, "+", dark)) {
-        if (strlen(ui->table_state.option_buffer) > 0) {
-            // Cycle through pleasant colors
-            static const uint32_t pal[] = {
-                0x3498dbFF, 0x2ecc71FF, 0xe67e22FF, 0x9b59b6FF, 0xe74c3cFF,
-                0x1abc9cFF, 0xf39c12FF, 0x2980b9FF
-            };
-            uint32_t color = pal[col_ptr->option_count % 8];
-            aslan_table_add_option(table, cidx, ui->table_state.option_buffer, color);
-            ui->table_state.option_buffer[0] = '\0';
-            ui_request_redraw(ui);
+        uint32_t opt_in_id = nvgw_id_str("opt_in") ^ nvgw_id(&cidx, sizeof(cidx));
+        tbl_text_input(vg, wc, opt_in_id, mx_s + 4, cur_y, menu_w - 44, 32,
+                       ui->table_state.option_buffer,
+                       sizeof(ui->table_state.option_buffer), 13.0f, dark);
+        uint32_t opt_add_id = nvgw_id_str("opt_add") ^ nvgw_id(&cidx, sizeof(cidx));
+        if (tbl_item_button(vg, wc, opt_add_id, mx_s + menu_w - 38, cur_y, 34, 32, "+", dark)) {
+            if (strlen(ui->table_state.option_buffer) > 0) {
+                static const uint32_t pal[] = {
+                    0x3498dbFF, 0x2ecc71FF, 0xe67e22FF, 0x9b59b6FF, 0xe74c3cFF,
+                    0x1abc9cFF, 0xf39c12FF, 0x2980b9FF
+                };
+                uint32_t color = pal[col_ptr->option_count % 8];
+                aslan_table_add_option(table, cidx, ui->table_state.option_buffer, color);
+                ui->table_state.option_buffer[0] = '\0';
+                ui_request_redraw(ui);
+            }
         }
     }
 
