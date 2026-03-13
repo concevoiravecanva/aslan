@@ -1107,6 +1107,37 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     else if (key == SDLK_RETURN || key == SDLK_KP_ENTER)
       nvgw_input_keyboard(&ui->nvgw, NULL, false, true);
 
+    // Clipboard paste into focused text input (Cmd+V / Ctrl+V)
+    if (cmd_held && key == SDLK_v && ui->nvgw.focus_id != 0) {
+      char *clip = SDL_GetClipboardText();
+      if (clip && clip[0] != '\0') {
+        // Determine which buffer the focused input owns and append directly
+        if (ui->table_state.is_editing_cell
+            && ui->table_state.active_block_id != 0) {
+          size_t len = strlen(ui->table_state.rename_buffer);
+          strncat(ui->table_state.rename_buffer, clip,
+                  sizeof(ui->table_state.rename_buffer) - len - 1);
+        } else if (ui->table_state.show_formula_popup) {
+          size_t len = strlen(ui->table_state.formula_buffer);
+          strncat(ui->table_state.formula_buffer, clip,
+                  sizeof(ui->table_state.formula_buffer) - len - 1);
+        } else if (ui->table_state.renaming_col_idx >= 0) {
+          size_t len = strlen(ui->table_state.rename_buffer);
+          strncat(ui->table_state.rename_buffer, clip,
+                  sizeof(ui->table_state.rename_buffer) - len - 1);
+        } else if (ui->table_state.show_select_popup) {
+          size_t len = strlen(ui->table_state.option_buffer);
+          strncat(ui->table_state.option_buffer, clip,
+                  sizeof(ui->table_state.option_buffer) - len - 1);
+        } else {
+          // Generic fallback: feed into nvgw text_input (truncates to 31 chars)
+          nvgw_input_keyboard(&ui->nvgw, clip, false, false);
+        }
+        ui_request_redraw(ui);
+      }
+      if (clip) SDL_free(clip);
+    }
+
     // Determine active block (canvas or design)
     Block *active_block = NULL;
     int is_canvas = 0, is_design = 0;
@@ -2071,6 +2102,10 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
   // End NanoVG Widgets input frame
   nvgw_input_end(&ui->nvgw);
+
+  // Keep text_input_active in sync with nvgw focus so that global shortcuts
+  // (Cmd+Z, Cmd+V, etc. in main.c) are suppressed while a text field is focused
+  ui->text_input_active = (ui->nvgw.focus_id != 0) ? 1 : 0;
 
   // Status bar at the bottom
   if (ui->status[0] != '\0') {
