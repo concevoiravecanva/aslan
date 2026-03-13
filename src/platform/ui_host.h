@@ -473,6 +473,11 @@ typedef struct UIHost {
     float col_widths[64];
     // Row area scroll offset
     float row_scroll_y;
+    // Footer aggregation type per column: 0=sum 1=avg 2=count 3=min 4=max
+    int footer_agg[64];
+    // Footer aggregation popup
+    int show_footer_popup;    // column index, -1 = none
+    float footer_popup_x, footer_popup_y;
   } table_state;
 
   // Gantt view state (per session — not persisted)

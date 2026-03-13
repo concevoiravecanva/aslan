@@ -600,6 +600,9 @@ UIHost *ui_init(SDL_Window *win) {
   ui->table_state.renaming_col_idx = -1;
   ui->table_state.resizing_col     = -1;
   ui->table_state.last_hdr_click_col = -1;
+  ui->table_state.dragging_col     = -1;
+  ui->table_state.drop_target_col  = -1;
+  ui->table_state.show_footer_popup = -1;
 
   ui->canvas_state.selected_color = 0x000000FF; // Default black
   ui->canvas_state.pen_thickness = 2.0f;

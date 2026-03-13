@@ -370,7 +370,7 @@ static void render_header(UIHost *ui, Engine *engine, AslanTable *table,
             }
         }
 
-        // Left click: single = sort, double = rename inline
+        // Left click: single = sort (on release), double = rename, drag = reorder
         // (exclude the delete button zone so × click doesn't also trigger sort)
         float del_bsz = 16.0f;
         float del_bx  = cx + cw - TBL_RESIZE_ZONE - del_bsz - 2;
@@ -392,19 +392,14 @@ static void render_header(UIHost *ui, Engine *engine, AslanTable *table,
                         sizeof(ui->table_state.rename_buffer) - 1);
                 ui->table_state.rename_buffer[sizeof(ui->table_state.rename_buffer)-1] = '\0';
                 ui->table_state.last_hdr_click_col = -1;
+                ui->table_state.dragging_col = -1;
             } else {
-                // Single click: sort
+                // Single click: start potential drag — sort fires on release if no drag
                 ui->table_state.last_hdr_click_time = now;
                 ui->table_state.last_hdr_click_col = (int)c;
-                if (table->sort_column == (int)c) {
-                    if (table->sort_ascending) {
-                        aslan_table_sort(table, (int)c, false);
-                    } else {
-                        aslan_table_sort_clear(table);
-                    }
-                } else {
-                    aslan_table_sort(table, (int)c, true);
-                }
+                ui->table_state.dragging_col = (int)c;
+                ui->table_state.drag_col_start_x = mx;
+                ui->table_state.drop_target_col = (int)c;
             }
             ui_request_redraw(ui);
         }
@@ -418,6 +413,104 @@ static void render_header(UIHost *ui, Engine *engine, AslanTable *table,
             ui->table_state.context_menu_mode = 1;
             ui->table_state.context_menu_col = (int)c;
             ui->table_state.active_block_id = block->id;
+            ui_request_redraw(ui);
+        }
+    }
+
+    // ── Column drag: update drop target, draw ghost, commit on release ───────
+    if (ui->table_state.dragging_col >= 0) {
+        int dc = ui->table_state.dragging_col;
+        bool committed = fabsf(mx - ui->table_state.drag_col_start_x) > 5.0f;
+
+        if (mdown && committed) {
+            // Update drop target based on mouse position
+            int dt = dc;
+            for (int i = 0; i < (int)table->column_count; i++) {
+                float icx = col_x(ui, table, i);
+                float icw = col_w(ui, i);
+                if (mx >= icx && mx < icx + icw) { dt = i; break; }
+            }
+            ui->table_state.drop_target_col = dt;
+
+            // Ghost header: semi-transparent column label under cursor
+            float dcw = col_w(ui, dc);
+            float ghost_x = mx - dcw * 0.5f;
+            nvgBeginPath(vg);
+            nvgRoundedRect(vg, ghost_x, 2, dcw, header_h - 4, 4.0f);
+            nvgFillColor(vg, dark ? nvgRGBA(60,120,255,55) : nvgRGBA(60,120,255,45));
+            nvgFill(vg);
+            nvgBeginPath(vg);
+            nvgRoundedRect(vg, ghost_x, 2, dcw, header_h - 4, 4.0f);
+            nvgStrokeColor(vg, nvgRGBA(60,120,255,200));
+            nvgStrokeWidth(vg, 1.5f);
+            nvgStroke(vg);
+            nvgFontSize(vg, 13.0f);
+            nvgFontFace(vg, "Inter");
+            nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+            nvgFillColor(vg, nvgRGBA(60,120,255,230));
+            nvgText(vg, ghost_x + dcw * 0.5f, header_h * 0.5f,
+                    table->columns[dc].name, NULL);
+
+            // Drop indicator line
+            if (dt >= 0 && dt < (int)table->column_count) {
+                float dtcx = col_x(ui, table, dt);
+                float dtcw = col_w(ui, dt);
+                float line_x = (mx < dtcx + dtcw * 0.5f) ? dtcx : dtcx + dtcw;
+                nvgBeginPath(vg);
+                nvgMoveTo(vg, line_x, 0);
+                nvgLineTo(vg, line_x, header_h);
+                nvgStrokeColor(vg, tbl_accent());
+                nvgStrokeWidth(vg, 2.5f);
+                nvgStroke(vg);
+            }
+            ui_request_redraw(ui);
+        }
+
+        if (!mdown) {
+            if (committed) {
+                // Commit column move
+                int from = dc;
+                int drop  = ui->table_state.drop_target_col;
+                if (drop >= 0 && drop < (int)table->column_count && drop != from) {
+                    // Determine final insert position based on which half of cell mouse is in
+                    float dtcx = col_x(ui, table, drop);
+                    float dtcw = col_w(ui, drop);
+                    int to = drop;
+                    if (mx >= dtcx + dtcw * 0.5f && drop > from) to = drop;
+                    else if (mx <  dtcx + dtcw * 0.5f && drop < from) to = drop;
+                    // Shift col_widths to match new order
+                    float tmp_w = ui->table_state.col_widths[from];
+                    if (from < to) {
+                        memmove(&ui->table_state.col_widths[from],
+                                &ui->table_state.col_widths[from + 1],
+                                (to - from) * sizeof(float));
+                    } else {
+                        memmove(&ui->table_state.col_widths[to + 1],
+                                &ui->table_state.col_widths[to],
+                                (from - to) * sizeof(float));
+                    }
+                    ui->table_state.col_widths[to] = tmp_w;
+                    aslan_table_move_column(table, from, to);
+                    Page *pg = doc_page_get_active(engine->doc);
+                    char cmd[128];
+                    snprintf(cmd, sizeof(cmd), "block_table_move_col %u %u %d %d",
+                             pg ? pg->id : 1, block->id, from, to);
+                    engine_execute_command(engine, cmd);
+                }
+            } else {
+                // Short click without drag: trigger sort
+                int cc = dc;
+                if (cc >= 0 && cc < (int)table->column_count) {
+                    if (table->sort_column == cc) {
+                        if (table->sort_ascending) aslan_table_sort(table, cc, false);
+                        else aslan_table_sort_clear(table);
+                    } else {
+                        aslan_table_sort(table, cc, true);
+                    }
+                }
+            }
+            ui->table_state.dragging_col = -1;
+            ui->table_state.drop_target_col = -1;
             ui_request_redraw(ui);
         }
     }
@@ -1769,6 +1862,127 @@ static void render_formula_popup(UIHost *ui, Engine *engine,
 }
 
 // -----------------------------------------------------------------------------
+// Footer Aggregation Popup
+// -----------------------------------------------------------------------------
+
+#define FOOTER_SUM   0
+#define FOOTER_AVG   1
+#define FOOTER_COUNT 2
+#define FOOTER_MIN   3
+#define FOOTER_MAX   4
+
+// Compute aggregation value for a numeric column
+static double footer_compute(AslanTable *table, int col_idx, int agg) {
+    size_t n = aslan_table_view_count(table);
+    if (n == 0) return 0.0;
+    double sum = 0.0, mn = 1e300, mx = -1e300;
+    int cnt = 0;
+    for (size_t r = 0; r < n; r++) {
+        uint64_t rid = aslan_table_view_row_id(table, (int)r);
+        double v = aslan_table_get_number(table, col_idx, rid);
+        sum += v; cnt++;
+        if (v < mn) mn = v;
+        if (v > mx) mx = v;
+    }
+    switch (agg) {
+        case FOOTER_SUM:   return sum;
+        case FOOTER_AVG:   return cnt > 0 ? sum / cnt : 0.0;
+        case FOOTER_COUNT: return (double)cnt;
+        case FOOTER_MIN:   return mn <= 9e299 ? mn : 0.0;
+        case FOOTER_MAX:   return mx >= -9e299 ? mx : 0.0;
+        default:           return sum;
+    }
+}
+
+static void format_agg_val(char *buf, size_t bufsz, double v) {
+    if (v == (long long)v)
+        snprintf(buf, bufsz, "%lld", (long long)v);
+    else
+        snprintf(buf, bufsz, "%.2f", v);
+}
+
+static void render_footer_popup(UIHost *ui, AslanTable *table) {
+    if (ui->table_state.show_footer_popup < 0) return;
+    int col = ui->table_state.show_footer_popup;
+    if (col >= (int)table->column_count) { ui->table_state.show_footer_popup = -1; return; }
+
+    NVGcontext *vg = ui->vg;
+    NvgWidgetCtx *wc = &ui->nvgw;
+    int dark = ui->dark_mode;
+
+    static const char *labels[5] = { "Sum", "Average", "Count", "Min", "Max" };
+    static const char *prefixes[5] = { "\u2211 ", "\u00f8 ", "# ", "\u2193 ", "\u2191 " };
+
+    float row_h = 30.0f;
+    float pw = 180.0f, ph = 5 * row_h + 8.0f;
+    float px = ui->table_state.footer_popup_x;
+    float py = ui->table_state.footer_popup_y - ph;  // above the footer
+
+    // Background + shadow
+    nvgBeginPath(vg);
+    nvgRoundedRect(vg, px, py, pw, ph, 6.0f);
+    nvgFillColor(vg, dark ? nvgRGBA(40,42,48,252) : nvgRGBA(255,255,255,252));
+    nvgFill(vg);
+    nvgBeginPath(vg);
+    nvgRoundedRect(vg, px + 0.5f, py + 0.5f, pw - 1, ph - 1, 6.0f);
+    nvgStrokeColor(vg, dark ? nvgRGBA(65,67,75,255) : nvgRGBA(210,213,220,255));
+    nvgStrokeWidth(vg, 1.0f);
+    nvgStroke(vg);
+
+    float amx = wc->mouse_x, amy = wc->mouse_y;
+    bool in_popup = (amx >= px && amx < px + pw && amy >= py && amy < py + ph);
+
+    for (int i = 0; i < 5; i++) {
+        float iy = py + 4 + i * row_h;
+        bool hov = (amx >= px + 4 && amx < px + pw - 4 && amy >= iy && amy < iy + row_h);
+        bool selected = (ui->table_state.footer_agg[col] == i);
+        uint32_t oid = nvgw_id_str("ftagg") ^ nvgw_id(&col, sizeof(col)) ^ (uint32_t)i;
+        if (hov) wc->hot_id = oid;
+
+        if (hov || selected) {
+            nvgBeginPath(vg);
+            nvgRoundedRect(vg, px + 4, iy, pw - 8, row_h, 4.0f);
+            nvgFillColor(vg, selected
+                ? (dark ? nvgRGBA(60,120,255,45) : nvgRGBA(60,120,255,30))
+                : (dark ? nvgRGBA(255,255,255,10) : nvgRGBA(0,0,0,6)));
+            nvgFill(vg);
+        }
+
+        // Label
+        nvgFontSize(vg, 13.0f);
+        nvgFontFace(vg, "Inter");
+        nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
+        nvgFillColor(vg, selected ? tbl_accent() : tbl_text(dark));
+        char lbl[32]; snprintf(lbl, sizeof(lbl), "%s%s", prefixes[i], labels[i]);
+        nvgText(vg, px + 14, iy + row_h * 0.5f, lbl, NULL);
+
+        // Computed value on the right
+        if (aslan_table_view_count(table) > 0) {
+            double val = footer_compute(table, col, i);
+            char vbuf[32]; format_agg_val(vbuf, sizeof(vbuf), val);
+            nvgTextAlign(vg, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE);
+            nvgFillColor(vg, tbl_dim(dark));
+            nvgText(vg, px + pw - 12, iy + row_h * 0.5f, vbuf, NULL);
+        }
+
+        // Click to select
+        if (wc->active_id == oid && wc->mouse_released && hov) {
+            ui->table_state.footer_agg[col] = i;
+            ui->table_state.show_footer_popup = -1;
+            wc->active_id = 0;
+            ui_request_redraw(ui);
+        }
+        if (wc->hot_id == oid && wc->mouse_clicked) wc->active_id = oid;
+    }
+
+    // Close on outside click
+    if (wc->mouse_clicked && !in_popup) {
+        ui->table_state.show_footer_popup = -1;
+        ui_request_redraw(ui);
+    }
+}
+
+// -----------------------------------------------------------------------------
 // Main Entry Point
 // -----------------------------------------------------------------------------
 
@@ -1846,12 +2060,30 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
     // ── Header ────────────────────────────────────────────────────────────────
     render_header(ui, engine, table, block, width, TBL_HEADER_H);
 
+    if (table->column_count == 0) {
+        // ── Empty state ───────────────────────────────────────────────────────
+        float ey = TBL_HEADER_H + (height - TBL_HEADER_H) * 0.5f;
+        nvgFontSize(vg, 14.0f);
+        nvgFontFace(vg, "Inter");
+        nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+        nvgFillColor(vg, tbl_dim(dark));
+        nvgText(vg, width * 0.5f, ey - 10, "Ajoute une colonne pour commencer", NULL);
+        nvgFontSize(vg, 12.0f);
+        nvgFillColor(vg, dark ? nvgRGBA(100,102,115,160) : nvgRGBA(160,163,180,160));
+        nvgText(vg, width * 0.5f, ey + 12, "Clique sur \u00ab\u00a0+ Add\u00a0\u00bb en haut \u00e0 droite", NULL);
+    } else {
     // ── Rows ──────────────────────────────────────────────────────────────────
     render_rows(ui, engine, table, block, width, height, TBL_HEADER_H, TBL_ROW_H);
 
     // ── Footer totals ─────────────────────────────────────────────────────────
     {
-        float fy = height - TBL_FOOTER_H;
+        // Dynamic position: footer follows content when rows are fewer than visible area
+        size_t fc_foot = aslan_table_view_count(table);
+        float scroll_foot = ui->table_state.row_scroll_y;
+        float content_bottom = TBL_HEADER_H + (float)(fc_foot + 1) * TBL_ROW_H - scroll_foot;
+        float max_fy = height - TBL_FOOTER_H;
+        float fy = (content_bottom > TBL_HEADER_H && content_bottom < max_fy)
+                   ? content_bottom : max_fy;
         // Footer background
         nvgBeginPath(vg);
         nvgRect(vg, 0, fy, width, TBL_FOOTER_H);
@@ -1872,26 +2104,24 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
         nvgStrokeWidth(vg, 0.5f);
         nvgStroke(vg);
 
+        float fmx = ui->mouse_x - ui->abs_offset_x;
+        float fmy = ui->mouse_y - ui->abs_offset_y;
+
         for (size_t c = 0; c < table->column_count; c++) {
             float cx = col_x(ui, table, (int)c);
             float cw_v = col_w(ui, (int)c);
             AslanColumn *col_ptr = &table->columns[c];
             bool is_num = (col_ptr->type == ASLAN_COL_NUMBER
                         || col_ptr->type == ASLAN_COL_FORMULA);
-            char fbuf[32] = "";
+            char fbuf[48] = "";
 
             size_t nrows = aslan_table_view_count(table);
             if (is_num && nrows > 0) {
-                double sum = 0.0;
-                for (size_t r = 0; r < nrows; r++) {
-                    uint64_t rid = aslan_table_view_row_id(table, (int)r);
-                    sum += aslan_table_get_number(table, (int)c, rid);
-                }
-                // Format: no decimals if whole number
-                if (sum == (long long)sum)
-                    snprintf(fbuf, sizeof(fbuf), "∑ %lld", (long long)sum);
-                else
-                    snprintf(fbuf, sizeof(fbuf), "∑ %.2f", sum);
+                int agg = ui->table_state.footer_agg[c];
+                double val = footer_compute(table, (int)c, agg);
+                static const char *pfx[5] = { "\u2211 ", "\u00f8 ", "# ", "\u2193 ", "\u2191 " };
+                char vbuf[32]; format_agg_val(vbuf, sizeof(vbuf), val);
+                snprintf(fbuf, sizeof(fbuf), "%s%s", pfx[agg], vbuf);
             } else if (!is_num && nrows > 0) {
                 int filled = 0;
                 for (size_t r = 0; r < nrows; r++) {
@@ -1901,6 +2131,28 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
                     if (tmp[0] != '\0') filled++;
                 }
                 snprintf(fbuf, sizeof(fbuf), "%d/%d", filled, (int)nrows);
+            }
+
+            // Hover effect + click handler for numeric cells
+            bool cell_hov = is_num && nrows > 0
+                         && fmx >= cx && fmx < cx + cw_v
+                         && fmy >= fy && fmy < fy + TBL_FOOTER_H;
+            if (cell_hov) {
+                nvgBeginPath(vg);
+                nvgRect(vg, cx, fy, cw_v, TBL_FOOTER_H);
+                nvgFillColor(vg, dark ? nvgRGBA(255,255,255,8) : nvgRGBA(0,0,0,6));
+                nvgFill(vg);
+                ui_set_cursor(ui, UI_CURSOR_HAND);
+                uint32_t fcid = nvgw_id_str("ftcell") ^ nvgw_id(&c, sizeof(c));
+                if (wc->hot_id == fcid && wc->mouse_clicked) wc->active_id = fcid;
+                if (wc->active_id == fcid && wc->mouse_released && cell_hov) {
+                    wc->active_id = 0;
+                    ui->table_state.show_footer_popup = (int)c;
+                    ui->table_state.footer_popup_x = ui->abs_offset_x + cx;
+                    ui->table_state.footer_popup_y = ui->abs_offset_y + fy;
+                    ui_request_redraw(ui);
+                }
+                if (cell_hov) wc->hot_id = nvgw_id_str("ftcell") ^ nvgw_id(&c, sizeof(c));
             }
 
             if (fbuf[0] == '\0') goto next_footer_col;
@@ -1930,6 +2182,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
             nvgStroke(vg);
         }
     }
+    } // end else (column_count > 0)
 
     nvgRestore(vg);
 
@@ -1941,6 +2194,7 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
     render_select_popup(ui, table, block);
     render_date_popup(ui, table, block);
     render_formula_popup(ui, engine, table, block);
+    render_footer_popup(ui, table);
     nvgRestore(vg);
 }
 
