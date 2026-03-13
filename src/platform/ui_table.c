@@ -279,6 +279,43 @@ static void render_header(UIHost *ui, Engine *engine, AslanTable *table,
                     table->sort_ascending ? ICON_SORT_ASC : ICON_SORT_DESC, NULL);
         }
 
+        // Delete column button (×) — appears on hover
+        bool hdr_hov = (mx >= cx && mx < cx + cw && my >= 0 && my < header_h);
+        if (hdr_hov && !near_resize && !ui->table_state.show_formula_popup
+            && ui->table_state.renaming_col_idx < 0) {
+            float bsz = 16.0f;
+            float bx = cx + cw - TBL_RESIZE_ZONE - bsz - 2;
+            float by = (header_h - bsz) * 0.5f;
+            bool btn_hov = (mx >= bx && mx < bx + bsz && my >= by && my < by + bsz);
+            // Background circle on hover
+            nvgBeginPath(vg);
+            nvgCircle(vg, bx + bsz * 0.5f, by + bsz * 0.5f, bsz * 0.5f);
+            nvgFillColor(vg, btn_hov
+                ? nvgRGBA(220,50,50,200)
+                : (dark ? nvgRGBA(255,255,255,18) : nvgRGBA(0,0,0,12)));
+            nvgFill(vg);
+            // × lines
+            float m2 = bx + bsz * 0.5f, m3 = by + bsz * 0.5f, arm = 3.5f;
+            nvgBeginPath(vg);
+            nvgMoveTo(vg, m2 - arm, m3 - arm); nvgLineTo(vg, m2 + arm, m3 + arm);
+            nvgMoveTo(vg, m2 + arm, m3 - arm); nvgLineTo(vg, m2 - arm, m3 + arm);
+            nvgStrokeColor(vg, btn_hov ? nvgRGBA(255,255,255,240) : tbl_dim(dark));
+            nvgStrokeWidth(vg, 1.5f);
+            nvgStroke(vg);
+            // Click to delete column
+            uint32_t dcid = nvgw_id_str("del_col_hdr") ^ nvgw_id(&c, sizeof(c));
+            if (btn_hov && wc->mouse_clicked) wc->active_id = dcid;
+            if (wc->active_id == dcid && wc->mouse_released && btn_hov) {
+                wc->active_id = 0;
+                Page *pg = doc_page_get_active(engine->doc);
+                char cmd[128];
+                snprintf(cmd, sizeof(cmd), "block_table_delete_col %u %u %d",
+                         pg ? pg->id : 1, block->id, (int)c);
+                engine_execute_command(engine, cmd);
+                ui_request_redraw(ui);
+            }
+        }
+
         // Header formula reference highlight
         if (ui->table_state.show_formula_popup) {
             bool hdr_hovered = (mx >= cx && mx < cx + cw && my >= 0 && my < header_h);
@@ -305,7 +342,13 @@ static void render_header(UIHost *ui, Engine *engine, AslanTable *table,
         }
 
         // Left click: single = sort, double = rename inline
-        if (!near_resize && !ui->table_state.show_formula_popup
+        // (exclude the delete button zone so × click doesn't also trigger sort)
+        float del_bsz = 16.0f;
+        float del_bx  = cx + cw - TBL_RESIZE_ZONE - del_bsz - 2;
+        float del_by  = (header_h - del_bsz) * 0.5f;
+        bool on_del_btn = (mx >= del_bx && mx < del_bx + del_bsz
+                        && my >= del_by && my < del_by + del_bsz);
+        if (!near_resize && !on_del_btn && !ui->table_state.show_formula_popup
             && wc->mouse_clicked
             && mx >= cx && mx < cx + cw
             && my >= 0 && my < header_h
@@ -1116,31 +1159,58 @@ static void render_select_popup(UIHost *ui, AslanTable *table, Block *block) {
             bool is_cur = (m == cur_sel);
 
             if (ui->table_state.editing_select_option == m) {
-                // Inline rename editor
+                // Inline rename editor — input + OK + delete
                 uint32_t inp_id = nvgw_id_str("edit_opt") ^ nvgw_id(&m, sizeof(m));
-                tbl_text_input(vg, wc, inp_id, mx_s + 4, iy + 2, menu_w - 44, item_h - 4,
-                               ui->table_state.option_buffer,
-                               sizeof(ui->table_state.option_buffer), 13.0f, dark);
+                bool done_enter = tbl_text_input(vg, wc, inp_id, mx_s + 4, iy + 2,
+                                                 menu_w - 76, item_h - 4,
+                                                 ui->table_state.option_buffer,
+                                                 sizeof(ui->table_state.option_buffer),
+                                                 13.0f, dark);
                 // OK button
-                uint32_t ok_id = nvgw_id_str("ok_opt") ^ nvgw_id(&m, sizeof(m));
-                if (tbl_item_button(vg, wc, ok_id, mx_s + menu_w - 38, iy + 2, 34, item_h - 4, "OK", dark)) {
-                    if (strlen(ui->table_state.option_buffer) == 0)
-                        aslan_table_remove_option(table, cidx, m);
-                    else
+                uint32_t ok_id  = nvgw_id_str("ok_opt")  ^ nvgw_id(&m, sizeof(m));
+                uint32_t del_id = nvgw_id_str("del_opt") ^ nvgw_id(&m, sizeof(m));
+                bool ok_clicked = tbl_item_button(vg, wc, ok_id,
+                                                  mx_s + menu_w - 70, iy + 2, 32, item_h - 4, "OK", dark);
+                // × delete button
+                float dbbx = mx_s + menu_w - 34, dbby = iy + 2;
+                bool del_hov = (wc->mouse_x >= dbbx && wc->mouse_x < dbbx + 28
+                             && wc->mouse_y >= dbby && wc->mouse_y < dbby + item_h - 4);
+                bool del_clicked = (wc->active_id == del_id && wc->mouse_released && del_hov);
+                if (del_hov) wc->hot_id = del_id;
+                if (wc->hot_id == del_id && wc->mouse_clicked) wc->active_id = del_id;
+                nvgBeginPath(vg);
+                nvgRoundedRect(vg, dbbx, dbby, 28, item_h - 4, 4.0f);
+                nvgFillColor(vg, del_hov ? nvgRGBA(220,50,50,200) : nvgRGBA(220,50,50,30));
+                nvgFill(vg);
+                nvgFontSize(vg, 13.0f); nvgFontFace(vg, "Inter");
+                nvgFillColor(vg, del_hov ? nvgRGBA(255,255,255,240) : nvgRGBA(200,60,60,220));
+                nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+                nvgText(vg, dbbx + 14, dbby + (item_h - 4) * 0.5f, "\xc3\x97", NULL); // ×
+
+                if (ok_clicked || done_enter) {
+                    if (strlen(ui->table_state.option_buffer) > 0)
                         aslan_table_rename_option(table, cidx, m, ui->table_state.option_buffer);
                     ui->table_state.editing_select_option = -1;
                     ui->table_state.option_buffer[0] = '\0';
+                    wc->active_id = 0;
+                    ui_request_redraw(ui);
+                } else if (del_clicked) {
+                    aslan_table_remove_option(table, cidx, m);
+                    ui->table_state.editing_select_option = -1;
+                    ui->table_state.option_buffer[0] = '\0';
+                    wc->active_id = 0;
                     ui_request_redraw(ui);
                 }
             } else {
                 uint32_t mid = nvgw_id(&m, sizeof(m)) ^ nvgw_id_str("sel_opt");
+                uint32_t edit_id = nvgw_id(&m, sizeof(m)) ^ nvgw_id_str("sel_edit");
                 bool hov = (wc->mouse_x >= mx_s + 4 && wc->mouse_x < mx_s + menu_w - 4
                          && wc->mouse_y >= iy && wc->mouse_y < iy + item_h);
                 if (hov) wc->hot_id = mid;
                 bool clicked = (wc->active_id == mid && wc->mouse_released && hov);
                 if (wc->hot_id == mid && wc->mouse_clicked) wc->active_id = mid;
 
-                // Row bg
+                // Row bg (blue tint if selected, subtle on hover)
                 if (is_cur || hov) {
                     nvgBeginPath(vg);
                     nvgRoundedRect(vg, mx_s + 4, iy, menu_w - 8, item_h, 4.0f);
@@ -1165,30 +1235,38 @@ static void render_select_popup(UIHost *ui, AslanTable *table, Block *block) {
                 nvgFillColor(vg, tbl_text(dark));
                 nvgText(vg, mx_s + 30, iy + item_h * 0.5f, opt->label, NULL);
 
-                // Checkmark if selected
-                if (is_cur) {
-                    nvgFontSize(vg, 14.0f); nvgFontFace(vg, "Icons");
-                    nvgFillColor(vg, tbl_accent());
-                    nvgTextAlign(vg, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE);
-                    nvgText(vg, mx_s + menu_w - 8, iy + item_h * 0.5f, "\xEE\xAD\xB5", NULL);
-                }
+                // Pencil edit button — visible on hover
+                if (hov) {
+                    float ebx = mx_s + menu_w - 28, eby = iy + (item_h - 18) * 0.5f;
+                    bool edit_hov = (wc->mouse_x >= ebx && wc->mouse_x < ebx + 20
+                                  && wc->mouse_y >= eby && wc->mouse_y < eby + 18);
+                    nvgBeginPath(vg);
+                    nvgRoundedRect(vg, ebx, eby, 20, 18, 4.0f);
+                    nvgFillColor(vg, edit_hov
+                        ? (dark ? nvgRGBA(255,255,255,25) : nvgRGBA(0,0,0,15))
+                        : (dark ? nvgRGBA(255,255,255,10) : nvgRGBA(0,0,0,6)));
+                    nvgFill(vg);
+                    // pencil "✎" symbol as text
+                    nvgFontSize(vg, 12.0f); nvgFontFace(vg, "Inter");
+                    nvgFillColor(vg, tbl_dim(dark));
+                    nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+                    nvgText(vg, ebx + 10, eby + 9, "\xe2\x9c\x8e", NULL);
 
-                if (clicked) {
-                    uint32_t now = SDL_GetTicks();
-                    if (ui->table_state.last_option_click_idx == m
-                        && (now - ui->table_state.last_option_click_time) < 400) {
-                        // Double-click → edit
+                    bool edit_clicked = (wc->active_id == edit_id && wc->mouse_released && edit_hov);
+                    if (wc->hot_id == edit_id && wc->mouse_clicked) wc->active_id = edit_id;
+                    if (edit_hov) wc->hot_id = edit_id;
+                    if (edit_clicked) {
                         ui->table_state.editing_select_option = m;
                         strncpy(ui->table_state.option_buffer, opt->label,
                                 sizeof(ui->table_state.option_buffer) - 1);
-                        ui->table_state.last_option_click_idx = -1;
-                    } else {
-                        // Single-click → select
-                        aslan_table_set_select(table, cidx, rrid, m);
-                        aslan_table_eval_formulas(table);
-                        ui->table_state.last_option_click_idx = m;
-                        ui->table_state.last_option_click_time = now;
+                        ui_request_redraw(ui);
                     }
+                }
+
+                if (clicked) {
+                    // Single-click → select option
+                    aslan_table_set_select(table, cidx, rrid, m);
+                    aslan_table_eval_formulas(table);
                     ui_request_redraw(ui);
                 }
             }
