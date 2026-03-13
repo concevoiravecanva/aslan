@@ -17,7 +17,10 @@ void nvgw_input_begin(NvgWidgetCtx *ctx) {
   // reset single frame inputs handled in event loop
   ctx->text_input[0] = '\0';
   ctx->key_backspace = false;
-  ctx->key_enter = false;
+  ctx->key_enter     = false;
+  ctx->key_tab       = false;
+  ctx->key_tab_back  = false;
+  ctx->key_escape    = false;
   ctx->scroll_y = 0.0f;
   ctx->mouse_clicked = false;
   ctx->mouse_released = false;

@@ -1110,6 +1110,11 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       nvgw_input_keyboard(&ui->nvgw, NULL, true, false);
     else if (key == SDLK_RETURN || key == SDLK_KP_ENTER)
       nvgw_input_keyboard(&ui->nvgw, NULL, false, true);
+    else if (key == SDLK_TAB) {
+      if (shift_held) ui->nvgw.key_tab_back = true;
+      else            ui->nvgw.key_tab      = true;
+    } else if (key == SDLK_ESCAPE)
+      ui->nvgw.key_escape = true;
 
     // Clipboard paste into focused text input (Cmd+V / Ctrl+V)
     if (cmd_held && key == SDLK_v && ui->nvgw.focus_id != 0) {
@@ -1155,18 +1160,36 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       is_design = 1;
     }
 
-    // --- Escape: close table popups first ---
+    // --- Escape: close table popups / cancel inline edit first ---
     if (key == SDLK_ESCAPE) {
+      if (ui->table_state.show_formula_popup) {
+        ui->table_state.show_formula_popup = 0;
+        ui->nvgw.focus_id = 0;
+        ui->nvgw.active_id = 0;
+        ui_request_redraw(ui);
+        return;
+      }
+      if (ui->table_state.show_select_popup || ui->table_state.show_date_picker) {
+        ui->table_state.show_select_popup = 0;
+        ui->table_state.show_date_picker = 0;
+        ui->table_state.is_editing_cell = 0;
+        ui->nvgw.focus_id = 0;
+        ui_request_redraw(ui);
+        return;
+      }
+      if (ui->table_state.is_editing_cell || ui->table_state.renaming_col_idx >= 0) {
+        // key_escape is already set above; render_rows will cancel the edit.
+        // Also cancel column rename directly here.
+        ui->table_state.renaming_col_idx = -1;
+        ui_request_redraw(ui);
+        // Don't return — let key_escape propagate to render_rows for cell edit.
+      }
       if (ui->table_state.show_col_menu || ui->table_state.show_col_settings ||
           ui->table_state.show_footer_menu ||
-          ui->table_state.show_select_popup ||
-          ui->table_state.show_date_picker ||
           ui->table_state.show_formula_help) {
         ui->table_state.show_col_menu = 0;
         ui->table_state.show_col_settings = 0;
         ui->table_state.show_footer_menu = 0;
-        ui->table_state.show_select_popup = 0;
-        ui->table_state.show_date_picker = 0;
         ui->table_state.show_formula_help = 0;
         return;
       }

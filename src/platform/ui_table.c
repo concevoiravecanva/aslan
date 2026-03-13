@@ -24,6 +24,8 @@
 #define TBL_MAX_COL_W     600.0f
 #define TBL_RESIZE_ZONE     6.0f   // px from column right edge that triggers resize
 #define TBL_SCROLLBAR_W    10.0f
+#define TBL_IDX_COL_W     36.0f   // Row index column (left)
+#define TBL_FOOTER_H      30.0f   // Totals footer row
 
 // -----------------------------------------------------------------------------
 // Theme helpers (inline, adapts to dark_mode)
@@ -154,7 +156,7 @@ static bool tbl_text_input(NVGcontext *vg, NvgWidgetCtx *wc, uint32_t id,
 
 static float col_x(UIHost *ui, AslanTable *table, int idx) {
     (void)table;
-    float x = 0;
+    float x = TBL_IDX_COL_W; // offset for row-index column
     for (int i = 0; i < idx; i++) {
         float w = ui->table_state.col_widths[i];
         x += (w > 0 ? w : TBL_DEFAULT_COL_W);
@@ -168,7 +170,7 @@ static float col_w(UIHost *ui, int idx) {
 }
 
 static float table_total_w(UIHost *ui, AslanTable *table) {
-    float total = 0;
+    float total = TBL_IDX_COL_W;
     for (size_t c = 0; c < table->column_count; c++)
         total += col_w(ui, (int)c);
     return total;
@@ -193,6 +195,18 @@ static void render_header(UIHost *ui, Engine *engine, AslanTable *table,
     nvgRect(vg, 0, 0, width, header_h);
     nvgFillColor(vg, tbl_hdr(dark));
     nvgFill(vg);
+
+    // Row-index column header (blank, slightly dimmer)
+    nvgBeginPath(vg);
+    nvgRect(vg, 0, 0, TBL_IDX_COL_W, header_h);
+    nvgFillColor(vg, dark ? nvgRGBA(30,31,36,255) : nvgRGBA(240,241,245,255));
+    nvgFill(vg);
+    nvgBeginPath(vg);
+    nvgMoveTo(vg, TBL_IDX_COL_W, 0);
+    nvgLineTo(vg, TBL_IDX_COL_W, header_h);
+    nvgStrokeColor(vg, tbl_border(dark));
+    nvgStrokeWidth(vg, 1.0f);
+    nvgStroke(vg);
 
     for (size_t c = 0; c < table->column_count; c++) {
         float cx = col_x(ui, table, (int)c);
@@ -255,14 +269,29 @@ static void render_header(UIHost *ui, Engine *engine, AslanTable *table,
         nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
         nvgText(vg, cx + 8, header_h * 0.5f, table_col_type_icon(col_ptr->type), NULL);
 
-        // Column name (clipped)
+        // Column name (clipped) — aligned to match cell data alignment
+        bool hdr_numeric = (col_ptr->type == ASLAN_COL_NUMBER
+                         || col_ptr->type == ASLAN_COL_FORMULA
+                         || col_ptr->type == ASLAN_COL_DURATION);
+        bool hdr_date    = (col_ptr->type == ASLAN_COL_DATE);
         nvgSave(vg);
-        nvgScissor(vg, cx + 28, 0, cw - 52, header_h);
         nvgFontSize(vg, 13.0f);
         nvgFontFace(vg, "Inter");
         nvgFillColor(vg, tbl_text(dark));
-        nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
-        nvgText(vg, cx + 28, header_h * 0.5f, col_ptr->name, NULL);
+        if (hdr_numeric) {
+            // Right-align: clip between icon and resize/delete zone
+            nvgScissor(vg, cx + 28, 0, cw - 52, header_h);
+            nvgTextAlign(vg, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE);
+            nvgText(vg, cx + cw - TBL_RESIZE_ZONE - 22, header_h * 0.5f, col_ptr->name, NULL);
+        } else if (hdr_date) {
+            nvgScissor(vg, cx + 28, 0, cw - 52, header_h);
+            nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+            nvgText(vg, cx + cw * 0.5f, header_h * 0.5f, col_ptr->name, NULL);
+        } else {
+            nvgScissor(vg, cx + 28, 0, cw - 52, header_h);
+            nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
+            nvgText(vg, cx + 28, header_h * 0.5f, col_ptr->name, NULL);
+        }
         nvgResetScissor(vg);
         nvgRestore(vg);
 
@@ -512,7 +541,7 @@ static void render_rows(UIHost *ui, Engine *engine __attribute__((unused)),
     float mx = ui->mouse_x - ui->abs_offset_x;
     float my = ui->mouse_y - ui->abs_offset_y;
 
-    float rows_area_h = height - header_h;
+    float rows_area_h = height - header_h - TBL_FOOTER_H;
     size_t count = aslan_table_view_count(table);
     float content_h = (float)(count + 1) * row_h; // +1 for ghost row
 
@@ -634,6 +663,31 @@ static void render_rows(UIHost *ui, Engine *engine __attribute__((unused)),
             nvgStrokeWidth(vg, 0.5f);
             nvgStroke(vg);
             continue;
+        }
+
+        // Row-index cell (number column on left)
+        if (!is_ghost) {
+            nvgBeginPath(vg);
+            nvgRect(vg, 0, ry, TBL_IDX_COL_W, row_h);
+            nvgFillColor(vg, dark ? nvgRGBA(30,31,36,255) : nvgRGBA(240,241,245,255));
+            nvgFill(vg);
+            nvgBeginPath(vg);
+            nvgMoveTo(vg, TBL_IDX_COL_W, ry);
+            nvgLineTo(vg, TBL_IDX_COL_W, ry + row_h);
+            nvgStrokeColor(vg, tbl_border(dark));
+            nvgStrokeWidth(vg, 0.5f);
+            nvgStroke(vg);
+            // Row number (hidden when delete × is showing)
+            bool del_zone = (mx >= 0 && mx < TBL_IDX_COL_W && my >= ry && my < ry + row_h);
+            if (!del_zone) {
+                char idx_buf[8];
+                snprintf(idx_buf, sizeof(idx_buf), "%d", (int)i + 1);
+                nvgFontSize(vg, 11.0f);
+                nvgFontFace(vg, "Inter");
+                nvgFillColor(vg, tbl_dim(dark));
+                nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+                nvgText(vg, TBL_IDX_COL_W * 0.5f, ry + row_h * 0.5f, idx_buf, NULL);
+            }
         }
 
         // Right-click row context menu
@@ -784,32 +838,102 @@ static void render_rows(UIHost *ui, Engine *engine __attribute__((unused)),
                 nvgFillColor(vg, tbl_sel(dark));
                 nvgFill(vg);
 
-                bool done = tbl_text_input(vg, wc, cell_id,
+                bool done    = tbl_text_input(vg, wc, cell_id,
                                            cx, ry, cw_v, row_h,
                                            ui->table_state.rename_buffer,
                                            sizeof(ui->table_state.rename_buffer),
                                            13.0f, dark);
-                if (done) {
-                    aslan_table_set_cell(table, (int)c, row_id,
-                                        ui->table_state.rename_buffer);
-                    aslan_table_eval_formulas(table);
-                    ui->table_state.is_editing_cell = 0;
-                    // Advance to next row, same column (Enter)
-                    size_t cnt2 = aslan_table_view_count(table);
-                    int next_i = (int)i + 1;
-                    if (next_i < (int)cnt2) {
-                        uint64_t next_rid = aslan_table_view_row_id(table, next_i);
-                        ui->table_state.active_col_idx = (int)c;
-                        ui->table_state.select_popup_row = next_rid;
-                        ui->table_state.is_editing_cell = 1;
-                        aslan_table_get_cell_display(table, (int)c, next_rid,
-                                                     ui->table_state.rename_buffer,
-                                                     sizeof(ui->table_state.rename_buffer));
-                        uint32_t nfid = nvgw_id(&next_rid, sizeof(next_rid))
-                            ^ nvgw_id(&c, sizeof(c))
-                            ^ nvgw_id(&block->id, sizeof(block->id));
-                        wc->focus_id = nfid;
+                bool tab_fwd = wc->key_tab      && (wc->focus_id == cell_id);
+                bool tab_bck = wc->key_tab_back && (wc->focus_id == cell_id);
+                bool escaped = wc->key_escape   && (wc->focus_id == cell_id);
+
+                if (done || tab_fwd || tab_bck || escaped) {
+                    if (!escaped) {
+                        aslan_table_set_cell(table, (int)c, row_id,
+                                            ui->table_state.rename_buffer);
+                        aslan_table_eval_formulas(table);
                     }
+                    ui->table_state.is_editing_cell = 0;
+                    wc->focus_id = 0;
+                    wc->key_tab      = false;
+                    wc->key_tab_back = false;
+                    wc->key_escape   = false;
+
+                    // Helper: is a column type inline-editable?
+                    #define IS_INLINE(t) ((t)==ASLAN_COL_TEXT||(t)==ASLAN_COL_NUMBER \
+                                        ||(t)==ASLAN_COL_LINK||(t)==ASLAN_COL_FILE  \
+                                        ||(t)==ASLAN_COL_DURATION)
+
+                    if (done) {
+                        // Enter → next row, same column
+                        size_t cnt2 = aslan_table_view_count(table);
+                        int next_i = (int)i + 1;
+                        if (next_i < (int)cnt2) {
+                            uint64_t next_rid = aslan_table_view_row_id(table, next_i);
+                            ui->table_state.active_col_idx = (int)c;
+                            ui->table_state.select_popup_row = next_rid;
+                            ui->table_state.is_editing_cell = 1;
+                            aslan_table_get_cell_display(table, (int)c, next_rid,
+                                                         ui->table_state.rename_buffer,
+                                                         sizeof(ui->table_state.rename_buffer));
+                            uint32_t nfid = nvgw_id(&next_rid, sizeof(next_rid))
+                                ^ nvgw_id(&c, sizeof(c))
+                                ^ nvgw_id(&block->id, sizeof(block->id));
+                            wc->focus_id = nfid;
+                        }
+                    } else if (tab_fwd || tab_bck) {
+                        // Tab / Shift+Tab → next/prev inline-editable column,
+                        // wrapping to next/prev row at table boundaries
+                        size_t ncols = table->column_count;
+                        size_t nrows = aslan_table_view_count(table);
+                        int col_cur = (int)c;
+                        int row_cur = (int)i;
+                        int step = tab_fwd ? 1 : -1;
+
+                        int next_col = col_cur + step;
+                        int next_row = row_cur;
+                        // Skip non-inline columns
+                        while (next_col >= 0 && next_col < (int)ncols
+                               && !IS_INLINE(table->columns[next_col].type))
+                            next_col += step;
+                        // Wrap to next/prev row
+                        if (next_col < 0) {
+                            next_row = row_cur - 1;
+                            if (next_row >= 0) {
+                                next_col = (int)ncols - 1;
+                                while (next_col > 0
+                                       && !IS_INLINE(table->columns[next_col].type))
+                                    next_col--;
+                            }
+                        } else if (next_col >= (int)ncols) {
+                            next_row = row_cur + 1;
+                            if (next_row < (int)nrows) {
+                                next_col = 0;
+                                while (next_col < (int)ncols - 1
+                                       && !IS_INLINE(table->columns[next_col].type))
+                                    next_col++;
+                            }
+                        }
+
+                        if (next_row >= 0 && next_row < (int)nrows
+                            && next_col >= 0 && next_col < (int)ncols
+                            && IS_INLINE(table->columns[next_col].type)) {
+                            uint64_t next_rid = aslan_table_view_row_id(table, next_row);
+                            ui->table_state.active_col_idx = next_col;
+                            ui->table_state.select_popup_row = next_rid;
+                            ui->table_state.is_editing_cell = 1;
+                            aslan_table_get_cell_display(table, next_col, next_rid,
+                                                         ui->table_state.rename_buffer,
+                                                         sizeof(ui->table_state.rename_buffer));
+                            size_t nc = (size_t)next_col;
+                            uint32_t nfid = nvgw_id(&next_rid, sizeof(next_rid))
+                                ^ nvgw_id(&nc, sizeof(nc))
+                                ^ nvgw_id(&block->id, sizeof(block->id));
+                            wc->focus_id = nfid;
+                        }
+                    }
+                    // Escape: no navigation, just stop editing
+                    #undef IS_INLINE
                     ui_request_redraw(ui);
                 }
             } else if (!cell_active) {
@@ -829,9 +953,27 @@ static void render_rows(UIHost *ui, Engine *engine __attribute__((unused)),
                     aslan_table_get_cell_display(table, (int)c, row_id, buf, sizeof(buf));
                     nvgFontSize(vg, 13.0f);
                     nvgFontFace(vg, "Inter");
-                    nvgFillColor(vg, tbl_text(dark));
-                    nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
-                    nvgText(vg, cx + 10, ry + row_h * 0.5f, buf, NULL);
+
+                    bool is_numeric = (col_ptr->type == ASLAN_COL_NUMBER
+                                    || col_ptr->type == ASLAN_COL_FORMULA
+                                    || col_ptr->type == ASLAN_COL_DURATION);
+                    bool is_date    = (col_ptr->type == ASLAN_COL_DATE);
+
+                    // Formula cells: slightly dimmer to signal computed value
+                    NVGcolor cell_color = (col_ptr->type == ASLAN_COL_FORMULA)
+                        ? tbl_dim(dark) : tbl_text(dark);
+                    nvgFillColor(vg, cell_color);
+
+                    if (is_numeric) {
+                        nvgTextAlign(vg, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE);
+                        nvgText(vg, cx + cw_v - 10, ry + row_h * 0.5f, buf, NULL);
+                    } else if (is_date) {
+                        nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+                        nvgText(vg, cx + cw_v * 0.5f, ry + row_h * 0.5f, buf, NULL);
+                    } else {
+                        nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
+                        nvgText(vg, cx + 10, ry + row_h * 0.5f, buf, NULL);
+                    }
                 }
 
                 nvgResetScissor(vg);
@@ -1119,7 +1261,10 @@ static void render_select_popup(UIHost *ui, AslanTable *table, Block *block) {
 
     float menu_w = 180.0f, item_h = 30.0f;
     int item_cnt = col_ptr->option_count;
-    float menu_h = (item_cnt > 0 ? item_cnt : 1) * item_h + 12.0f + 44.0f;
+    // Extra height when an option is in edit mode (color palette row = 20px)
+    float edit_extra = (ui->table_state.editing_select_option >= 0
+                        && ui->table_state.editing_select_option < item_cnt) ? 20.0f : 0.0f;
+    float menu_h = (item_cnt > 0 ? item_cnt : 1) * item_h + 12.0f + 44.0f + edit_extra;
 
     // Use absolute (screen) coords — popup floats above everything
     nvgw_set_offset(wc, 0, 0);
@@ -1159,7 +1304,44 @@ static void render_select_popup(UIHost *ui, AslanTable *table, Block *block) {
             bool is_cur = (m == cur_sel);
 
             if (ui->table_state.editing_select_option == m) {
-                // Inline rename editor — input + OK + delete
+                // Inline rename editor — input + OK + delete + color palette
+                // The row expands to show a color palette below
+                static const uint32_t pal8[] = {
+                    0x3498dbFF, 0x2ecc71FF, 0xe67e22FF, 0x9b59b6FF,
+                    0xe74c3cFF, 0x1abc9cFF, 0xf1c40fFF, 0x95a5a6FF
+                };
+                // Draw color palette row (8 dots, below main row)
+                float pal_y = iy + item_h + 2;
+                for (int p = 0; p < 8; p++) {
+                    float pr = (pal8[p] >> 24) & 0xFF;
+                    float pg2 = (pal8[p] >> 16) & 0xFF;
+                    float pb = (pal8[p] >>  8) & 0xFF;
+                    float pcx = mx_s + 8 + p * 20.0f;
+                    float pcy = pal_y + 8;
+                    bool phov = (wc->mouse_x >= pcx - 8 && wc->mouse_x < pcx + 8
+                              && wc->mouse_y >= pcy - 8 && wc->mouse_y < pcy + 8);
+                    // Check if this is current color
+                    bool pcur = ((opt->color >> 8) == (pal8[p] >> 8));
+                    nvgBeginPath(vg);
+                    nvgCircle(vg, pcx, pcy, phov || pcur ? 7.0f : 5.5f);
+                    nvgFillColor(vg, nvgRGBA((int)pr,(int)pg2,(int)pb,220));
+                    nvgFill(vg);
+                    if (pcur) {
+                        nvgBeginPath(vg);
+                        nvgCircle(vg, pcx, pcy, 8.0f);
+                        nvgStrokeColor(vg, nvgRGBA((int)pr,(int)pg2,(int)pb,255));
+                        nvgStrokeWidth(vg, 1.5f);
+                        nvgStroke(vg);
+                    }
+                    uint32_t pid = nvgw_id_str("pal_col") ^ nvgw_id(&m, sizeof(m)) ^ (uint32_t)p;
+                    if (phov && wc->mouse_clicked) wc->active_id = pid;
+                    if (wc->active_id == pid && wc->mouse_released && phov) {
+                        wc->active_id = 0;
+                        aslan_table_update_option_color(table, cidx, m, pal8[p]);
+                        ui_request_redraw(ui);
+                    }
+                }
+
                 uint32_t inp_id = nvgw_id_str("edit_opt") ^ nvgw_id(&m, sizeof(m));
                 bool done_enter = tbl_text_input(vg, wc, inp_id, mx_s + 4, iy + 2,
                                                  menu_w - 76, item_h - 4,
@@ -1270,7 +1452,9 @@ static void render_select_popup(UIHost *ui, AslanTable *table, Block *block) {
                     ui_request_redraw(ui);
                 }
             }
+            // If this option was in edit mode, the palette added 20px
             cur_y += item_h;
+            if (ui->table_state.editing_select_option == m) cur_y += 20.0f;
         }
     }
 
@@ -1664,6 +1848,88 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
 
     // ── Rows ──────────────────────────────────────────────────────────────────
     render_rows(ui, engine, table, block, width, height, TBL_HEADER_H, TBL_ROW_H);
+
+    // ── Footer totals ─────────────────────────────────────────────────────────
+    {
+        float fy = height - TBL_FOOTER_H;
+        // Footer background
+        nvgBeginPath(vg);
+        nvgRect(vg, 0, fy, width, TBL_FOOTER_H);
+        nvgFillColor(vg, dark ? nvgRGBA(30,31,36,255) : nvgRGBA(240,241,245,255));
+        nvgFill(vg);
+        // Top border
+        nvgBeginPath(vg);
+        nvgMoveTo(vg, 0, fy);
+        nvgLineTo(vg, width, fy);
+        nvgStrokeColor(vg, tbl_border(dark));
+        nvgStrokeWidth(vg, 1.0f);
+        nvgStroke(vg);
+        // Index cell
+        nvgBeginPath(vg);
+        nvgMoveTo(vg, TBL_IDX_COL_W, fy);
+        nvgLineTo(vg, TBL_IDX_COL_W, fy + TBL_FOOTER_H);
+        nvgStrokeColor(vg, tbl_border(dark));
+        nvgStrokeWidth(vg, 0.5f);
+        nvgStroke(vg);
+
+        for (size_t c = 0; c < table->column_count; c++) {
+            float cx = col_x(ui, table, (int)c);
+            float cw_v = col_w(ui, (int)c);
+            AslanColumn *col_ptr = &table->columns[c];
+            bool is_num = (col_ptr->type == ASLAN_COL_NUMBER
+                        || col_ptr->type == ASLAN_COL_FORMULA);
+            char fbuf[32] = "";
+
+            size_t nrows = aslan_table_view_count(table);
+            if (is_num && nrows > 0) {
+                double sum = 0.0;
+                for (size_t r = 0; r < nrows; r++) {
+                    uint64_t rid = aslan_table_view_row_id(table, (int)r);
+                    sum += aslan_table_get_number(table, (int)c, rid);
+                }
+                // Format: no decimals if whole number
+                if (sum == (long long)sum)
+                    snprintf(fbuf, sizeof(fbuf), "∑ %lld", (long long)sum);
+                else
+                    snprintf(fbuf, sizeof(fbuf), "∑ %.2f", sum);
+            } else if (!is_num && nrows > 0) {
+                int filled = 0;
+                for (size_t r = 0; r < nrows; r++) {
+                    uint64_t rid = aslan_table_view_row_id(table, (int)r);
+                    char tmp[64];
+                    aslan_table_get_cell_display(table, (int)c, rid, tmp, sizeof(tmp));
+                    if (tmp[0] != '\0') filled++;
+                }
+                snprintf(fbuf, sizeof(fbuf), "%d/%d", filled, (int)nrows);
+            }
+
+            if (fbuf[0] == '\0') goto next_footer_col;
+
+            nvgSave(vg);
+            nvgScissor(vg, cx + 4, fy, cw_v - 8, TBL_FOOTER_H);
+            nvgFontSize(vg, 11.5f);
+            nvgFontFace(vg, "Inter");
+            nvgFillColor(vg, is_num ? tbl_accent() : tbl_dim(dark));
+            if (is_num) {
+                nvgTextAlign(vg, NVG_ALIGN_RIGHT | NVG_ALIGN_MIDDLE);
+                nvgText(vg, cx + cw_v - 10, fy + TBL_FOOTER_H * 0.5f, fbuf, NULL);
+            } else {
+                nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
+                nvgText(vg, cx + 10, fy + TBL_FOOTER_H * 0.5f, fbuf, NULL);
+            }
+            nvgResetScissor(vg);
+            nvgRestore(vg);
+
+            next_footer_col:;
+            // Column separator
+            nvgBeginPath(vg);
+            nvgMoveTo(vg, cx + cw_v, fy);
+            nvgLineTo(vg, cx + cw_v, fy + TBL_FOOTER_H);
+            nvgStrokeColor(vg, tbl_border(dark));
+            nvgStrokeWidth(vg, 0.5f);
+            nvgStroke(vg);
+        }
+    }
 
     nvgRestore(vg);
 

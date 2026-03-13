@@ -23,6 +23,9 @@ typedef struct {
   char text_input[32]; // UTF-8 text input this frame
   bool key_backspace;  // Was backspace pressed?
   bool key_enter;      // Was enter pressed?
+  bool key_tab;        // Was Tab pressed?
+  bool key_tab_back;   // Was Shift+Tab pressed?
+  bool key_escape;     // Was Escape pressed?
 
   // UI State
   uint32_t hot_id;    // Widget mouse is hovering
