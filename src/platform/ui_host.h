@@ -467,6 +467,8 @@ typedef struct UIHost {
     uint64_t context_menu_row;   // which row
     int show_type_menu;          // 1 = show "+" type menu
     float type_menu_x, type_menu_y;
+    uint32_t last_hdr_click_time; // SDL_GetTicks() of last header click
+    int last_hdr_click_col;       // Column index of last header click
     // Per-column widths (0 = unset → use default 120px)
     float col_widths[64];
     // Row area scroll offset

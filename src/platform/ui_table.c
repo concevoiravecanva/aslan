@@ -304,20 +304,35 @@ static void render_header(UIHost *ui, Engine *engine, AslanTable *table,
             }
         }
 
-        // Left click: sort toggle (not resize zone, not formula mode)
+        // Left click: single = sort, double = rename inline
         if (!near_resize && !ui->table_state.show_formula_popup
             && wc->mouse_clicked
             && mx >= cx && mx < cx + cw
             && my >= 0 && my < header_h
             && ui->table_state.renaming_col_idx < 0) {
-            if (table->sort_column == (int)c) {
-                if (table->sort_ascending) {
-                    aslan_table_sort(table, (int)c, false);
-                } else {
-                    aslan_table_sort_clear(table);
-                }
+            uint32_t now = SDL_GetTicks();
+            bool is_double = (ui->table_state.last_hdr_click_col == (int)c
+                              && now - ui->table_state.last_hdr_click_time < 400);
+            if (is_double) {
+                // Double-click: start inline rename
+                ui->table_state.renaming_col_idx = (int)c;
+                strncpy(ui->table_state.rename_buffer, table->columns[c].name,
+                        sizeof(ui->table_state.rename_buffer) - 1);
+                ui->table_state.rename_buffer[sizeof(ui->table_state.rename_buffer)-1] = '\0';
+                ui->table_state.last_hdr_click_col = -1;
             } else {
-                aslan_table_sort(table, (int)c, true);
+                // Single click: sort
+                ui->table_state.last_hdr_click_time = now;
+                ui->table_state.last_hdr_click_col = (int)c;
+                if (table->sort_column == (int)c) {
+                    if (table->sort_ascending) {
+                        aslan_table_sort(table, (int)c, false);
+                    } else {
+                        aslan_table_sort_clear(table);
+                    }
+                } else {
+                    aslan_table_sort(table, (int)c, true);
+                }
             }
             ui_request_redraw(ui);
         }
@@ -1016,7 +1031,17 @@ static void render_type_menu(UIHost *ui, AslanTable *table, Block *block) {
         (void)tw;
 
         if (clicked) {
-            aslan_table_add_column(table, type_names[m], types[m]);
+            // Generate unique column name (e.g. "Number 2", "Number 3")
+            char col_name[64];
+            strncpy(col_name, type_names[m], sizeof(col_name) - 1);
+            col_name[sizeof(col_name) - 1] = '\0';
+            if (aslan_table_find_column(table, col_name) >= 0) {
+                for (int n = 2; n < 100; n++) {
+                    snprintf(col_name, sizeof(col_name), "%s %d", type_names[m], n);
+                    if (aslan_table_find_column(table, col_name) < 0) break;
+                }
+            }
+            aslan_table_add_column(table, col_name, types[m]);
             if (types[m] == ASLAN_COL_SELECT) {
                 int cidx = (int)table->column_count - 1;
                 aslan_table_add_option(table, cidx, "Option 1", 0x3498dbFF);
