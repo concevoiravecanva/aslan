@@ -174,6 +174,12 @@ static void engine_emit_command(Engine *engine, const char *line) {
   if (engine->is_loading)
     return;
 
+  // Skip identical consecutive commands to protect against runaway loops
+  if (strcmp(line, engine->last_emitted_line) == 0)
+    return;
+  strncpy(engine->last_emitted_line, line, sizeof(engine->last_emitted_line) - 1);
+  engine->last_emitted_line[sizeof(engine->last_emitted_line) - 1] = '\0';
+
   fprintf(engine->history_file, "%s\n", line);
   fflush(engine->history_file);
 }

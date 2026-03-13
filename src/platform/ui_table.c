@@ -797,6 +797,59 @@ static void render_rows(UIHost *ui, Engine *engine __attribute__((unused)),
         nvgStrokeColor(vg, tbl_border(dark));
         nvgStrokeWidth(vg, 0.5f);
         nvgStroke(vg);
+
+        // ── Row delete button (red X, shown when hovering left edge) ────────
+        bool row_hovered_left = (mx >= -2 && mx < 22 && my >= ry && my < ry + row_h);
+        bool row_hovered_any  = (mx >= 0  && mx < width && my >= ry && my < ry + row_h);
+        if (row_hovered_any || row_hovered_left) {
+            float bsz = 16.0f;
+            float bx2 = 3.0f;
+            float by2 = ry + (row_h - bsz) * 0.5f;
+
+            // Fade in: full opacity when near left, dim when just in row
+            float alpha = row_hovered_left ? 1.0f : (mx < 40 ? 0.5f : 0.18f);
+
+            // Circle background
+            nvgBeginPath(vg);
+            nvgCircle(vg, bx2 + bsz * 0.5f, by2 + bsz * 0.5f, bsz * 0.5f);
+            nvgFillColor(vg, nvgRGBAf(0.86f, 0.20f, 0.18f, alpha * 0.18f));
+            nvgFill(vg);
+
+            // ×  symbol
+            NVGcolor x_col = nvgRGBAf(0.86f, 0.20f, 0.18f, alpha);
+            float cx2 = bx2 + bsz * 0.5f;
+            float cy2 = by2 + bsz * 0.5f;
+            float arm = 3.6f;
+            nvgBeginPath(vg);
+            nvgMoveTo(vg, cx2 - arm, cy2 - arm); nvgLineTo(vg, cx2 + arm, cy2 + arm);
+            nvgMoveTo(vg, cx2 + arm, cy2 - arm); nvgLineTo(vg, cx2 - arm, cy2 + arm);
+            nvgStrokeColor(vg, x_col);
+            nvgStrokeWidth(vg, 1.8f);
+            nvgStroke(vg);
+
+            // Click to delete
+            uint32_t del_id = nvgw_id(&row_id, sizeof(row_id)) ^ nvgw_id_str("row_del");
+            float hmx = wc->mouse_x - wc->offset_x;
+            float hmy = wc->mouse_y - wc->offset_y;
+            bool del_hov = (hmx >= bx2 && hmx < bx2 + bsz
+                         && hmy >= by2 && hmy < by2 + bsz);
+            if (del_hov) {
+                wc->hot_id = del_id;
+                ui_set_cursor(ui, UI_CURSOR_HAND);
+            }
+            if (wc->active_id == del_id && wc->mouse_released && del_hov) {
+                aslan_table_delete_row(table, row_id);
+                aslan_table_eval_formulas(table);
+                // Clear any editing state that pointed to this row
+                if (ui->table_state.select_popup_row == row_id) {
+                    ui->table_state.is_editing_cell = 0;
+                    ui->table_state.show_select_popup = 0;
+                    ui->table_state.show_date_picker  = 0;
+                }
+                ui_request_redraw(ui);
+            }
+            if (wc->hot_id == del_id && wc->mouse_clicked) wc->active_id = del_id;
+        }
     }
 
     wc->mouse_clicked = saved_clicked;
@@ -1395,7 +1448,20 @@ static void render_formula_popup(UIHost *ui, Engine *engine,
     // Force focus on first frame
     if (wc->focus_id != inp_id) wc->focus_id = inp_id;
 
-    auto_apply:;
+    // Cancel / Apply buttons
+    uint32_t b_cancel = nvgw_id_str("formula_cancel");
+    uint32_t b_apply  = nvgw_id_str("formula_apply");
+    float btn_y = fpy + fh - 38;
+    if (tbl_item_button(vg, wc, b_cancel, fpx + fw - 180, btn_y, 80, 28, "Cancel", dark)) {
+        ui->table_state.show_formula_popup = 0;
+        wc->focus_id = 0;
+        wc->active_id = 0;
+        ui_request_redraw(ui);
+    }
+    if (tbl_item_button(vg, wc, b_apply, fpx + fw - 94, btn_y, 78, 28, "Apply", dark)) {
+        done = true;
+    }
+
     if (done) {
         aslan_table_set_formula(table, ui->table_state.formula_popup_col,
                                 ui->table_state.formula_buffer);
@@ -1408,21 +1474,8 @@ static void render_formula_popup(UIHost *ui, Engine *engine,
         engine_execute_command(engine, cmd);
         ui->table_state.show_formula_popup = 0;
         wc->focus_id = 0;
+        wc->active_id = 0;
         ui_request_redraw(ui);
-    }
-
-    // Cancel / Apply buttons
-    uint32_t b_cancel = nvgw_id_str("formula_cancel");
-    uint32_t b_apply  = nvgw_id_str("formula_apply");
-    float btn_y = fpy + fh - 38;
-    if (tbl_item_button(vg, wc, b_cancel, fpx + fw - 180, btn_y, 80, 28, "Cancel", dark)) {
-        ui->table_state.show_formula_popup = 0;
-        wc->focus_id = 0;
-        ui_request_redraw(ui);
-    }
-    if (tbl_item_button(vg, wc, b_apply, fpx + fw - 94, btn_y, 78, 28, "Apply", dark)) {
-        done = true;
-        goto auto_apply;
     }
 
     nvgw_set_offset(wc, ui->abs_offset_x, ui->abs_offset_y);

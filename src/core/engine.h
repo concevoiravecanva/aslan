@@ -36,6 +36,9 @@ struct Engine {
   // Coalescing: avoid per-keystroke snapshots
   uint32_t last_snapshot_ticks;    // SDL_GetTicks() at last push
   char     last_snapshot_verb[64]; // Verb that triggered last push
+
+  // Deduplication: skip identical consecutive emitted lines
+  char last_emitted_line[1200];
 };
 
 typedef struct Engine Engine;
