@@ -915,12 +915,51 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
     if (nvgw_checkbox(&ui->nvgw, nvgw_id_str("InfCanv"), x_p, y_p, w_p, 28, "Infinite Canvas", &nl)) { dd->no_limits = nl; }
     y_p += 34;
     if (!dd->no_limits) {
-      char bw[32], bh[32]; snprintf(bw, 32, "%.0f", dd->width); snprintf(bh, 32, "%.0f", dd->height);
+      // Unit selector — 3 buttons: px / in / cm
+      {
+        const char *unit_lbls[] = {"px", "in", "cm"};
+        const float ubtn_h = 24.0f, ubtn_gap = 4.0f;
+        float ubtn_w = (w_p - ubtn_gap * 2) / 3.0f;
+        for (int ui2 = 0; ui2 < 3; ui2++) {
+          float ux = x_p + ui2 * (ubtn_w + ubtn_gap);
+          bool usel = dd->units == ui2;
+          NVGcolor ubg = usel
+            ? nvgRGBA(60, 120, 220, 255)
+            : (dark ? nvgRGBA(50,52,60,255) : nvgRGBA(230,232,238,255));
+          NVGcolor ufg = usel ? nvgRGBA(255,255,255,255)
+            : (dark ? nvgRGBA(180,182,196,255) : nvgRGBA(60,62,76,255));
+          nvgBeginPath(vg); nvgRoundedRect(vg, ux, y_p, ubtn_w, ubtn_h, 4.0f);
+          nvgFillColor(vg, ubg); nvgFill(vg);
+          nvgSave(vg);
+          nvgFontSize(vg, 12.0f); nvgFontFaceId(vg, ui->nvgw.font_main);
+          nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+          nvgFillColor(vg, ufg);
+          nvgText(vg, ux + ubtn_w * 0.5f, y_p + ubtn_h * 0.5f, unit_lbls[ui2], NULL);
+          nvgRestore(vg);
+          float _lx2 = ui->nvgw.mouse_x - ui->nvgw.offset_x;
+          float _ly2 = ui->nvgw.mouse_y - ui->nvgw.offset_y;
+          if (_lx2 >= ux && _lx2 < ux+ubtn_w && _ly2 >= y_p && _ly2 < y_p+ubtn_h && ui->nvgw.mouse_clicked)
+            dd->units = ui2;
+        }
+        y_p += ubtn_h + 6.0f;
+      }
+      // Pixel-per-unit conversion factor
+      // 1 inch = 96 px (screen), 1 cm = 96/2.54 px
+      float to_unit, from_unit;
+      const char *unit_fmt;
+      if (dd->units == 1) { to_unit = 1.0f/96.0f;    from_unit = 96.0f;           unit_fmt = "%.2f"; }
+      else if (dd->units == 2) { to_unit = 2.54f/96.0f; from_unit = 96.0f/2.54f;  unit_fmt = "%.2f"; }
+      else                  { to_unit = 1.0f;          from_unit = 1.0f;           unit_fmt = "%.0f"; }
+      char bw[32], bh[32];
+      snprintf(bw, 32, unit_fmt, dd->width  * to_unit);
+      snprintf(bh, 32, unit_fmt, dd->height * to_unit);
       float hw = (w_p - 8) / 2.0f;
       nvgw_label(&ui->nvgw, x_p,        y_p, 24, 28, "W", NVG_ALIGN_LEFT, col_l, 12);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id_str("CanvW"), x_p + 24, y_p, hw - 24, 28, bw, 32, 13, true)) { dd->width  = (float)atof(bw); }
+      if (nvgw_text_input(&ui->nvgw, nvgw_id_str("CanvW"), x_p + 24, y_p, hw - 24, 28, bw, 32, 13, true))
+        dd->width  = (float)atof(bw) * from_unit;
       nvgw_label(&ui->nvgw, x_p + hw + 8, y_p, 24, 28, "H", NVG_ALIGN_LEFT, col_l, 12);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id_str("CanvH"), x_p + hw + 32, y_p, hw - 24, 28, bh, 32, 13, true)) { dd->height = (float)atof(bh); }
+      if (nvgw_text_input(&ui->nvgw, nvgw_id_str("CanvH"), x_p + hw + 32, y_p, hw - 24, 28, bh, 32, 13, true))
+        dd->height = (float)atof(bh) * from_unit;
       y_p += 34;
     }
     // Separator
@@ -2990,6 +3029,16 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       // Explicitly exclude sidebar area in fullscreen
       if (is_fullscreen && mx > width - 250.0f) {
         mouse_in_design = 0;
+      }
+
+      // While the split-view divider is being dragged the canvas bounds and
+      // scale change every frame. Block all design interactions to prevent
+      // nodes from jumping or being accidentally moved.
+      if (ui->split_view.is_dragging_splitter) {
+        mouse_in_design = 0;
+        ds->is_dragging_node = 0;
+        ds->is_panning = 0;
+        ds->is_resizing = 0;
       }
 
       // --- Handle resize ---
