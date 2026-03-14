@@ -750,6 +750,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
 
       PROP_SEPARATOR();
 
+      if (node->type != NODE_TYPE_CHART) {
+
       // ── STYLE ────────────────────────────────────────────────────
       nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 16, "STYLE", NVG_ALIGN_LEFT, col_section, 10);
       y_off += 20;
@@ -813,6 +815,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
       }
       y_off += 4;
 
+      } // end if not chart
+
       // ── TYPE-SPECIFIC ─────────────────────────────────────────────
       if (node->type == NODE_TYPE_TEXT) {
         PROP_SEPARATOR();
@@ -847,12 +851,46 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         PROP_SEPARATOR();
         nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 16, "CHART", NVG_ALIGN_LEFT, col_section, 10);
         y_off += 20;
-        const char *chart_types[] = {"Bar", "Line", "Pie", "Gantt", "Donut", "Area", "H-Bar", "Scatter"};
-        int cur_type = (int)cd->type;
-        nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Type", NVG_ALIGN_LEFT, col_label, 13);
-        if (nvgw_dropdown_select(&ui->nvgw, nvgw_id(node, 11), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, chart_types, 8, &cur_type))
-          cd->type = (ChartType)cur_type;
-        y_off += row_h + row_gap;
+        // 4×2 grid of chart type buttons
+        {
+          static const char *ct_labels[] = {"Bar","Line","Pie","Gantt","Donut","Area","H-Bar","Scatter"};
+          const int n_cols = 4;
+          const float btn_h = 26.0f;
+          const float gap   = 4.0f;
+          float btn_w = (w_ptr - gap * (n_cols - 1)) / n_cols;
+          NVGcontext *vg2 = ui->vg;
+          for (int ti = 0; ti < 8; ti++) {
+            int col = ti % n_cols;
+            int row2 = ti / n_cols;
+            float bx = x_ptr + col * (btn_w + gap);
+            float by = y_off + row2 * (btn_h + gap);
+            bool sel = (int)cd->type == ti;
+            // Draw background manually to show selection state
+            NVGcolor btn_bg = sel
+              ? (dark ? nvgRGBA(60,120,220,255) : nvgRGBA(60,120,220,255))
+              : (dark ? nvgRGBA(50,52,60,255)   : nvgRGBA(230,232,238,255));
+            NVGcolor btn_fg = sel ? nvgRGBA(255,255,255,255)
+              : (dark ? nvgRGBA(180,182,196,255) : nvgRGBA(60,62,76,255));
+            nvgBeginPath(vg2);
+            nvgRoundedRect(vg2, bx, by, btn_w, btn_h, 4.0f);
+            nvgFillColor(vg2, btn_bg);
+            nvgFill(vg2);
+            nvgSave(vg2);
+            nvgFontSize(vg2, 12.0f);
+            nvgFontFaceId(vg2, ui->nvgw.font_main);
+            nvgTextAlign(vg2, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+            nvgFillColor(vg2, btn_fg);
+            nvgText(vg2, bx + btn_w * 0.5f, by + btn_h * 0.5f, ct_labels[ti], NULL);
+            nvgRestore(vg2);
+            // Hit test (inline — point_in_rect is static to nvg_widgets.c)
+            float _lx = ui->nvgw.mouse_x - ui->nvgw.offset_x;
+            float _ly = ui->nvgw.mouse_y - ui->nvgw.offset_y;
+            bool hov = _lx >= bx && _lx < bx+btn_w && _ly >= by && _ly < by+btn_h;
+            if (hov && ui->nvgw.mouse_clicked)
+              cd->type = (ChartType)ti;
+          }
+          y_off += 2 * btn_h + gap + row_gap;
+        }
       }
 
       (void)y_off; // suppress unused warning
