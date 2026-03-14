@@ -568,232 +568,305 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
     return;
 
   DesignData *dd = &block->data.design;
-  AslanRect bounds = {0, 0, width, height};
+  NVGcontext *vg = ui->vg;
+  bool dark = ui->dark_mode != 0;
 
-  // Adjust pointer state for this sub-layout
-  Clay_SetPointerState((Clay_Vector2){ui->mouse_x - abs_x, ui->mouse_y - ui->abs_offset_y}, (ui->mouse_buttons & 1) != 0);
   nvgw_set_offset(&ui->nvgw, abs_x, ui->abs_offset_y);
 
-  Clay_SetLayoutDimensions((Clay_Dimensions){bounds.w, bounds.h});
-  Clay_BeginLayout();
+  // ── Background ────────────────────────────────────────────────────
+  nvgBeginPath(vg);
+  nvgRect(vg, 0, 0, width, height);
+  nvgFillColor(vg, dark ? nvgRGBA(32, 34, 40, 255) : nvgRGBA(248, 248, 250, 255));
+  nvgFill(vg);
 
-  CLAY(CLAY_ID("RightSidebar"),
-       (Clay_ElementDeclaration){
-           .layout =
-               {
-                   .sizing = {.width = CLAY_SIZING_GROW(),
-                              .height = CLAY_SIZING_GROW()},
-                   .layoutDirection = CLAY_TOP_TO_BOTTOM,
-               },
-           .backgroundColor = ui->dark_mode ? (Clay_Color){32, 34, 40, 255} : (Clay_Color){248, 248, 250, 255},
-       }) {
+  NVGcolor sep_col = dark ? nvgRGBA(50, 52, 60, 255) : nvgRGBA(220, 220, 225, 255);
 
-    // ── Sidebar Tabs ──
-    CLAY(CLAY_ID("SidebarTabs"),
-         (Clay_ElementDeclaration){
-             .layout =
-                 {
-                     .sizing = {.width = CLAY_SIZING_GROW(),
-                                .height = CLAY_SIZING_FIXED(36)},
-                     .layoutDirection = CLAY_LEFT_TO_RIGHT,
-                     .padding = {8, 8, 0, 0},
-                     .childGap = 4,
-                 },
-             .border = { .width = { .bottom = 1 }, .color = ui->dark_mode ? (Clay_Color){50, 52, 60, 255} : (Clay_Color){220, 220, 225, 255} },
-         }) {
-      const char *tab_lbls[] = {"Properties", "Layers", "Page"};
-      for (int i = 0; i < 3; i++) {
-        bool active = (ui->design_bottom_tab == i);
-        Clay_Color text_col = active ? (ui->dark_mode ? (Clay_Color){255, 255, 255, 255} : (Clay_Color){30, 30, 40, 255})
-                                     : (ui->dark_mode ? (Clay_Color){140, 142, 155, 255} : (Clay_Color){130, 130, 145, 255});
+  // Left border
+  nvgBeginPath(vg);
+  nvgMoveTo(vg, 0, 0);  nvgLineTo(vg, 0, height);
+  nvgStrokeColor(vg, sep_col);  nvgStrokeWidth(vg, 1.0f);  nvgStroke(vg);
 
-        CLAY(CLAY_IDI("Tab", i),
-             (Clay_ElementDeclaration){
-                 .layout = { .sizing = { .width = CLAY_SIZING_GROW(), .height = CLAY_SIZING_FIXED(28) }, .childAlignment = { .x = CLAY_ALIGN_X_CENTER, .y = CLAY_ALIGN_Y_CENTER } },
-                 .backgroundColor = active ? (ui->dark_mode ? (Clay_Color){50, 52, 62, 255} : (Clay_Color){255, 255, 255, 255}) : (Clay_Color){0, 0, 0, 0},
-                 .cornerRadius = CLAY_CORNER_RADIUS(4),
-             }) {
-          Clay_String ts = { .length = (int)strlen(tab_lbls[i]), .chars = tab_lbls[i] };
-          CLAY_TEXT(ts, CLAY_TEXT_CONFIG({ .textColor = text_col, .fontId = ASLAN_FONT_INTER, .fontSize = 13 }));
-        }
+  // ── Tab bar ───────────────────────────────────────────────────────
+  const float tab_bar_h   = 36.0f;
+  const float inner_tab_h = 28.0f;
+  const float tab_pad     = 8.0f;
+  const float tab_gap     = 4.0f;
+  float tab_w = (width - tab_pad * 2.0f - tab_gap * 2.0f) / 3.0f;
+  float tab_top = (tab_bar_h - inner_tab_h) / 2.0f;
 
-        // Tab Interaction
-        Clay_ElementId tid = CLAY_IDI("Tab", i);
-        if (Clay_PointerOver(tid) && clay_host_mouse_pressed(ui->clay)) {
-          ui->design_bottom_tab = i;
-        }
-      }
+  const char *tab_lbls[] = {"Properties", "Layers", "Page"};
+  for (int i = 0; i < 3; i++) {
+    float tx     = tab_pad + (float)i * (tab_w + tab_gap);
+    bool  active = (ui->design_bottom_tab == i);
+
+    if (active) {
+      nvgBeginPath(vg);
+      nvgRoundedRect(vg, tx, tab_top, tab_w, inner_tab_h, 4.0f);
+      nvgFillColor(vg, dark ? nvgRGBA(50, 52, 62, 255) : nvgRGBA(255, 255, 255, 255));
+      nvgFill(vg);
     }
 
-    // ── Content area ──
-    CLAY(CLAY_ID("SidebarContent"),
-         (Clay_ElementDeclaration){
-             .layout =
-                 {
-                     .sizing = {.width = CLAY_SIZING_GROW(),
-                                .height = CLAY_SIZING_GROW()},
-                     .padding = {12, 12, 12, 12},
-                     .layoutDirection = CLAY_TOP_TO_BOTTOM,
-                     .childGap = 12,
-                 },
-             .clip = { .vertical = true },
-         }) {
+    nvgFontSize(vg, 13.0f);
+    nvgFontFace(vg, "Inter");
+    nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+    nvgFillColor(vg, active
+      ? (dark ? nvgRGBA(255, 255, 255, 255) : nvgRGBA(30,  30,  40,  255))
+      : (dark ? nvgRGBA(140, 142, 155, 255) : nvgRGBA(130, 130, 145, 255)));
+    nvgText(vg, tx + tab_w * 0.5f, tab_top + inner_tab_h * 0.5f, tab_lbls[i], NULL);
 
-      if (ui->design_bottom_tab == 0) {
-        // Properties Tab
-        if (!ui->selected_node) {
-          CLAY(CLAY_ID("NoSelection"), (Clay_ElementDeclaration){ .layout = { .sizing = { .width = CLAY_SIZING_GROW() }, .childAlignment = { .x = CLAY_ALIGN_X_CENTER } } }) {
-            CLAY(CLAY_ID("NoSelectPadding"), (Clay_ElementDeclaration){ .layout = { .padding = {0, 0, 40, 0} } }) {
-              CLAY_TEXT(CLAY_STRING("No element selected"), CLAY_TEXT_CONFIG({ .textColor = {160, 160, 175, 255}, .fontId = ASLAN_FONT_INTER, .fontSize = 14 }));
-            }
-          }
-        }
-      } else if (ui->design_bottom_tab == 1) {
-        CLAY(CLAY_ID("LayersContainer"), (Clay_ElementDeclaration){ .layout = { .sizing = { .width = CLAY_SIZING_GROW(), .height = CLAY_SIZING_GROW() } } }) {}
-      } else if (ui->design_bottom_tab == 2) {
-        CLAY(CLAY_ID("PageContainer"), (Clay_ElementDeclaration){ .layout = { .sizing = { .width = CLAY_SIZING_GROW(), .height = CLAY_SIZING_GROW() }, .layoutDirection = CLAY_TOP_TO_BOTTOM, .childGap = 12 } }) {}
-      }
+    // Click — use offset-corrected local mouse coords
+    float mlx = ui->nvgw.mouse_x - abs_x;
+    float mly = ui->nvgw.mouse_y - ui->abs_offset_y;
+    bool hov = (mlx >= tx && mlx < tx + tab_w && mly >= tab_top && mly < tab_top + inner_tab_h);
+    uint32_t tid = nvgw_id_str("SbTab") ^ (uint32_t)i;
+    if (hov) ui->nvgw.hot_id = tid;
+    if (hov && ui->nvgw.mouse_clicked)  ui->nvgw.active_id = tid;
+    if (ui->nvgw.active_id == tid && ui->nvgw.mouse_released && hov) {
+      ui->nvgw.active_id = 0;
+      ui->design_bottom_tab = i;
+      ui_request_redraw(ui);
     }
   }
 
-  Clay_RenderCommandArray cmds = Clay_EndLayout();
+  // Separator below tabs
+  nvgBeginPath(vg);
+  nvgMoveTo(vg, 0, tab_bar_h);  nvgLineTo(vg, width, tab_bar_h);
+  nvgStrokeColor(vg, sep_col);  nvgStrokeWidth(vg, 1.0f);  nvgStroke(vg);
 
-  // Reset pointer state for other layouts in the frame
-  Clay_SetPointerState((Clay_Vector2){ui->mouse_x, ui->mouse_y}, (ui->mouse_buttons & 1) != 0);
+  // ── Content area coords (local, 0-based) ──────────────────────────
+  float cx    = 12.0f;
+  float cy    = tab_bar_h + 1.0f;
+  float cw    = width - 24.0f;
+  float ch_h  = height - cy;
 
-  nvgSave(ui->vg);
-  nvgTranslate(ui->vg, bounds.x, bounds.y);
-  clay_host_render_clay_commands(ui->clay, cmds);
-
-  // ── Render NanoVG Widgets over Clay regions ──
-
-  if (ui->design_bottom_tab == 0 && ui->selected_node) {
-    Node *node = ui->selected_node;
-    Clay_ElementData content_data = Clay_GetElementData(CLAY_ID("SidebarContent"));
-    if (content_data.found) {
-      float y_off = content_data.boundingBox.y + 12;
-      float x_ptr = content_data.boundingBox.x + 12;
-      float w_ptr = content_data.boundingBox.width - 24;
-      float half_w = (w_ptr - 8) / 2.0f;
+  if (ui->design_bottom_tab == 0) {
+    // ── Properties ────────────────────────────────────────────────
+    if (!ui->selected_node) {
+      nvgFontSize(vg, 14.0f);
+      nvgFontFace(vg, "Inter");
+      nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+      nvgFillColor(vg, dark ? nvgRGBA(100, 102, 115, 255) : nvgRGBA(160, 162, 175, 255));
+      nvgText(vg, width * 0.5f, cy + 60.0f, "No element selected", NULL);
+    } else {
+      Node *node = ui->selected_node;
+      {
+      float y_off = cy + 4.0f;
+      float x_ptr = cx;
+      float w_ptr = cw;
+      float half_w = (w_ptr - 6) / 2.0f;
+      const float lbl_w = 52.0f; // consistent label column width
+      const float row_h = 28.0f;
+      const float row_gap = 6.0f;
       char buf[64];
+      bool dark = ui->dark_mode != 0;
+      NVGcolor col_section = dark ? nvgRGBA(110, 112, 128, 255) : nvgRGBA(140, 142, 158, 255);
+      NVGcolor col_label   = dark ? nvgRGBA(160, 162, 178, 255) : nvgRGBA(110, 112, 130, 255);
+      NVGcolor col_sep     = dark ? nvgRGBA(55, 57, 68, 255)    : nvgRGBA(220, 220, 228, 255);
 
-      nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 20, "GEOMETRY", NVG_ALIGN_LEFT, nvgRGBA(140, 140, 155, 255), 11);
-      y_off += 24;
+      // Helper macro: draw separator line
+#define PROP_SEPARATOR() do { \
+        nvgBeginPath(vg); \
+        nvgMoveTo(vg, x_ptr, y_off + 4); \
+        nvgLineTo(vg, x_ptr + w_ptr, y_off + 4); \
+        nvgStrokeColor(vg, col_sep); \
+        nvgStrokeWidth(vg, 1.0f); \
+        nvgStroke(vg); \
+        y_off += 14; \
+      } while(0)
 
+      // ── Node name (editable) ──────────────────────────────────────
+      if (!node->name[0]) {
+        // auto-fill with type name so field is never blank
+        switch (node->type) {
+          case NODE_TYPE_RECT:    strncpy(node->name, "Rectangle", 63); break;
+          case NODE_TYPE_ELLIPSE: strncpy(node->name, "Ellipse", 63);   break;
+          case NODE_TYPE_TEXT:    strncpy(node->name, "Text", 63);       break;
+          case NODE_TYPE_IMAGE:   strncpy(node->name, "Image", 63);      break;
+          case NODE_TYPE_LINE:    strncpy(node->name, "Line", 63);       break;
+          case NODE_TYPE_FRAME:   strncpy(node->name, "Frame", 63);      break;
+          case NODE_TYPE_GROUP:   strncpy(node->name, "Group", 63);      break;
+          default:                strncpy(node->name, "Element", 63);    break;
+        }
+      }
+      nvgw_text_input(&ui->nvgw, nvgw_id(node, 0), x_ptr, y_off, w_ptr, row_h, node->name, 64, 14);
+      y_off += row_h + row_gap + 4;
+
+      PROP_SEPARATOR();
+
+      // ── TRANSFORM ────────────────────────────────────────────────
+      nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 16, "TRANSFORM", NVG_ALIGN_LEFT, col_section, 10);
+      y_off += 20;
+
+      // Position: X | Y
+      nvgw_label(&ui->nvgw, x_ptr,              y_off, lbl_w, row_h, "X", NVG_ALIGN_LEFT, col_label, 12);
       snprintf(buf, 64, "%.1f", node->x);
-      nvgw_label(&ui->nvgw, x_ptr, y_off, 16, 24, "X", NVG_ALIGN_LEFT, nvgRGBA(160, 162, 175, 255), 12);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 1), x_ptr + 20, y_off, half_w - 20, 24, buf, 64, 13)) { node->x = (float)atof(buf); }
+      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 1), x_ptr + lbl_w, y_off, half_w - lbl_w, row_h, buf, 64, 13))
+        node->x = (float)atof(buf);
 
+      nvgw_label(&ui->nvgw, x_ptr + half_w + 6, y_off, lbl_w, row_h, "Y", NVG_ALIGN_LEFT, col_label, 12);
       snprintf(buf, 64, "%.1f", node->y);
-      nvgw_label(&ui->nvgw, x_ptr + half_w + 8, y_off, 16, 24, "Y", NVG_ALIGN_LEFT, nvgRGBA(160, 162, 175, 255), 12);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 2), x_ptr + half_w + 28, y_off, half_w - 20, 24, buf, 64, 13)) { node->y = (float)atof(buf); }
-      y_off += 32;
+      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 2), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, buf, 64, 13))
+        node->y = (float)atof(buf);
+      y_off += row_h + row_gap;
 
+      // Size: W | H
+      nvgw_label(&ui->nvgw, x_ptr,              y_off, lbl_w, row_h, "W", NVG_ALIGN_LEFT, col_label, 12);
       snprintf(buf, 64, "%.1f", node->width);
-      nvgw_label(&ui->nvgw, x_ptr, y_off, 16, 24, "W", NVG_ALIGN_LEFT, nvgRGBA(160, 162, 175, 255), 12);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 3), x_ptr + 20, y_off, half_w - 20, 24, buf, 64, 13)) {
+      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 3), x_ptr + lbl_w, y_off, half_w - lbl_w, row_h, buf, 64, 13)) {
         float old = node->width; node->width = (float)atof(buf);
-        if (node->lock_ratio && old > 0) node->height *= (node->width / old);
+        if (node->lock_ratio && old > 0.0f) node->height *= (node->width / old);
       }
+      nvgw_label(&ui->nvgw, x_ptr + half_w + 6, y_off, lbl_w, row_h, "H", NVG_ALIGN_LEFT, col_label, 12);
       snprintf(buf, 64, "%.1f", node->height);
-      nvgw_label(&ui->nvgw, x_ptr + half_w + 8, y_off, 16, 24, "H", NVG_ALIGN_LEFT, nvgRGBA(160, 162, 175, 255), 12);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 4), x_ptr + half_w + 28, y_off, half_w - 20, 24, buf, 64, 13)) {
+      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 4), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, buf, 64, 13)) {
         float old = node->height; node->height = (float)atof(buf);
-        if (node->lock_ratio && old > 0) node->width *= (node->height / old);
+        if (node->lock_ratio && old > 0.0f) node->width *= (node->height / old);
       }
-      y_off += 40;
+      y_off += row_h + row_gap;
 
-      nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 20, "APPEARANCE", NVG_ALIGN_LEFT, nvgRGBA(140, 140, 155, 255), 11);
-      y_off += 24;
+      // Rotation | Opacity (0-100)
+      nvgw_label(&ui->nvgw, x_ptr,              y_off, lbl_w, row_h, "Rotation", NVG_ALIGN_LEFT, col_label, 12);
+      snprintf(buf, 64, "%.1f", node->rotation);
+      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 12), x_ptr + lbl_w, y_off, half_w - lbl_w, row_h, buf, 64, 13))
+        node->rotation = (float)atof(buf);
 
-      nvgw_label(&ui->nvgw, x_ptr, y_off, 60, 24, "Fill", NVG_ALIGN_LEFT, nvgRGBA(200, 202, 215, 255), 13);
-      NVGcolor fill = nvgRGBA((node->fill_color >> 24) & 0xFF, (node->fill_color >> 16) & 0xFF, (node->fill_color >> 8) & 0xFF, node->fill_color & 0xFF);
-      if (nvgw_color_picker(&ui->nvgw, nvgw_id(node, 5), x_ptr + 80, y_off, w_ptr - 80, 24, &fill)) {
-        node->fill_color = ((uint32_t)(fill.r * 255.0f) << 24) | ((uint32_t)(fill.g * 255.0f) << 16) | ((uint32_t)(fill.b * 255.0f) << 8) | (uint32_t)(fill.a * 255.0f);
+      nvgw_label(&ui->nvgw, x_ptr + half_w + 6, y_off, lbl_w, row_h, "Opacity", NVG_ALIGN_LEFT, col_label, 12);
+      snprintf(buf, 64, "%.0f", node->opacity * 100.0f);
+      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 13), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, buf, 64, 13)) {
+        float v = (float)atof(buf) / 100.0f;
+        if (v < 0.0f) v = 0.0f;
+        if (v > 1.0f) v = 1.0f;
+        node->opacity = v;
       }
-      y_off += 32;
+      y_off += row_h + row_gap + 4;
 
-      nvgw_label(&ui->nvgw, x_ptr, y_off, 60, 24, "Stroke", NVG_ALIGN_LEFT, nvgRGBA(200, 202, 215, 255), 13);
-      snprintf(buf, 64, "%.1f", node->stroke_width);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 6), x_ptr + 80, y_off, w_ptr - 80, 24, buf, 64, 13)) { node->stroke_width = (float)atof(buf); }
-      y_off += 32;
+      PROP_SEPARATOR();
 
-      nvgw_label(&ui->nvgw, x_ptr, y_off, 60, 24, "Radius", NVG_ALIGN_LEFT, nvgRGBA(200, 202, 215, 255), 13);
-      snprintf(buf, 64, "%.1f", node->corner_radius);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 7), x_ptr + 80, y_off, w_ptr - 80, 24, buf, 64, 13)) { node->corner_radius = (float)atof(buf); }
-      y_off += 40;
+      // ── STYLE ────────────────────────────────────────────────────
+      nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 16, "STYLE", NVG_ALIGN_LEFT, col_section, 10);
+      y_off += 20;
 
+      // Fill color (full width swatch)
+      nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Fill", NVG_ALIGN_LEFT, col_label, 13);
+      {
+        NVGcolor fill = nvgRGBA((node->fill_color >> 24) & 0xFF, (node->fill_color >> 16) & 0xFF,
+                                (node->fill_color >> 8) & 0xFF, node->fill_color & 0xFF);
+        if (nvgw_color_picker(&ui->nvgw, nvgw_id(node, 5), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, &fill))
+          node->fill_color = ((uint32_t)(fill.r * 255.0f) << 24) | ((uint32_t)(fill.g * 255.0f) << 16)
+                            | ((uint32_t)(fill.b * 255.0f) << 8)  | (uint32_t)(fill.a * 255.0f);
+      }
+      y_off += row_h + row_gap;
+
+      // Stroke color | stroke width
+      nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Stroke", NVG_ALIGN_LEFT, col_label, 13);
+      {
+        NVGcolor sc = nvgRGBA((node->stroke_color >> 24) & 0xFF, (node->stroke_color >> 16) & 0xFF,
+                              (node->stroke_color >> 8) & 0xFF, node->stroke_color & 0xFF);
+        float sw_col_w = half_w - lbl_w - 4;
+        if (nvgw_color_picker(&ui->nvgw, nvgw_id(node, 6), x_ptr + lbl_w, y_off, sw_col_w, row_h, &sc))
+          node->stroke_color = ((uint32_t)(sc.r * 255.0f) << 24) | ((uint32_t)(sc.g * 255.0f) << 16)
+                              | ((uint32_t)(sc.b * 255.0f) << 8)  | (uint32_t)(sc.a * 255.0f);
+        snprintf(buf, 64, "%.1f", node->stroke_width);
+        nvgw_label(&ui->nvgw, x_ptr + half_w + 6, y_off, lbl_w, row_h, "Width", NVG_ALIGN_LEFT, col_label, 13);
+        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 14), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, buf, 64, 13))
+          node->stroke_width = (float)atof(buf);
+      }
+      y_off += row_h + row_gap;
+
+      // Corner radius (only for non-line, non-text nodes)
+      if (node->type != NODE_TYPE_LINE && node->type != NODE_TYPE_STROKE) {
+        nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Radius", NVG_ALIGN_LEFT, col_label, 13);
+        snprintf(buf, 64, "%.1f", node->corner_radius);
+        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 7), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, buf, 64, 13))
+          node->corner_radius = (float)atof(buf);
+        y_off += row_h + row_gap;
+      }
+      y_off += 4;
+
+      // ── TYPE-SPECIFIC ─────────────────────────────────────────────
       if (node->type == NODE_TYPE_TEXT) {
-        nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 20, "TEXT", NVG_ALIGN_LEFT, nvgRGBA(140, 140, 155, 255), 11);
-        y_off += 24;
+        PROP_SEPARATOR();
+        nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 16, "TEXT", NVG_ALIGN_LEFT, col_section, 10);
+        y_off += 20;
         snprintf(buf, 64, "%.1f", node->font_size);
-        nvgw_label(&ui->nvgw, x_ptr, y_off, 60, 24, "Size", NVG_ALIGN_LEFT, nvgRGBA(200, 202, 215, 255), 13);
-        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 8), x_ptr + 80, y_off, w_ptr - 80, 24, buf, 64, 13)) { node->font_size = (float)atof(buf); }
-        y_off += 32;
-        nvgw_label(&ui->nvgw, x_ptr, y_off, 60, 24, "Content", NVG_ALIGN_LEFT, nvgRGBA(200, 202, 215, 255), 13);
-        nvgw_text_input(&ui->nvgw, nvgw_id(node, 9), x_ptr + 80, y_off, w_ptr - 80, 24, node->text, sizeof(node->text), 13);
-        y_off += 32;
+        nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Size", NVG_ALIGN_LEFT, col_label, 13);
+        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 8), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, buf, 64, 13))
+          node->font_size = (float)atof(buf);
+        y_off += row_h + row_gap;
+        nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Content", NVG_ALIGN_LEFT, col_label, 13);
+        nvgw_text_input(&ui->nvgw, nvgw_id(node, 9), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, node->text, sizeof(node->text), 13);
+        y_off += row_h + row_gap;
       } else if (node->type == NODE_TYPE_IMAGE) {
-        nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 20, "IMAGE", NVG_ALIGN_LEFT, nvgRGBA(140, 140, 155, 255), 11);
-        y_off += 24;
-        if (nvgw_button(&ui->nvgw, nvgw_id(node, 10), x_ptr, y_off, w_ptr, 24, "Select Image...")) {
+        PROP_SEPARATOR();
+        nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 16, "IMAGE", NVG_ALIGN_LEFT, col_section, 10);
+        y_off += 20;
+        if (nvgw_button(&ui->nvgw, nvgw_id(node, 10), x_ptr, y_off, w_ptr, row_h, "Select Image...")) {
           char new_path[512];
           if (open_image_file_dialog(new_path, sizeof(new_path))) {
             char doc_dir[512] = ".";
             if (engine->doc->filepath[0]) {
-               strncpy(doc_dir, engine->doc->filepath, 511);
-               char *ls = strrchr(doc_dir, '/'); if(ls) *ls = '\0';
+              strncpy(doc_dir, engine->doc->filepath, 511);
+              char *ls = strrchr(doc_dir, '/'); if (ls) *ls = '\0';
             }
             copy_image_to_assets(new_path, doc_dir, node->image_path, sizeof(node->image_path));
           }
         }
-        y_off += 32;
+        y_off += row_h + row_gap;
       } else if (node->type == NODE_TYPE_CHART && node->chart_data) {
         ChartData *cd = node->chart_data;
-        nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 20, "CHART", NVG_ALIGN_LEFT, nvgRGBA(140, 140, 155, 255), 11);
-        y_off += 24;
+        PROP_SEPARATOR();
+        nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 16, "CHART", NVG_ALIGN_LEFT, col_section, 10);
+        y_off += 20;
         const char *chart_types[] = {"Bar", "Line", "Pie", "Gantt"};
         int cur_type = (int)cd->type;
-        if (nvgw_dropdown_select(&ui->nvgw, nvgw_id(node, 11), x_ptr, y_off, w_ptr, 24, chart_types, 4, &cur_type)) {
+        nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Type", NVG_ALIGN_LEFT, col_label, 13);
+        if (nvgw_dropdown_select(&ui->nvgw, nvgw_id(node, 11), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, chart_types, 4, &cur_type))
           cd->type = (ChartType)cur_type;
-        }
-        y_off += 32;
+        y_off += row_h + row_gap;
       }
-    }
+
+      (void)y_off; // suppress unused warning
+#undef PROP_SEPARATOR
+      } // end properties block
+    } // end selected_node
   } else if (ui->design_bottom_tab == 1) {
-    Clay_ElementData layers_data = Clay_GetElementData(CLAY_ID("LayersContainer"));
-    if (layers_data.found) {
-      ui_render_sidebar_layers(ui, block, layers_data.boundingBox.x, layers_data.boundingBox.y, layers_data.boundingBox.width, layers_data.boundingBox.height);
-    }
+    // ── Layers ────────────────────────────────────────────────────
+    ui_render_sidebar_layers(ui, block, cx, cy, cw, ch_h);
   } else if (ui->design_bottom_tab == 2) {
-    Clay_ElementData page_data = Clay_GetElementData(CLAY_ID("PageContainer"));
-    if (page_data.found) {
-      float y_p = page_data.boundingBox.y + 12;
-      float x_p = page_data.boundingBox.x + 12;
-      float w_p = page_data.boundingBox.width - 24;
-      nvgw_label(&ui->nvgw, x_p, y_p, w_p, 20, "CANVAS", NVG_ALIGN_LEFT, nvgRGBA(140, 140, 155, 255), 11);
-      y_p += 24;
-      bool nl = dd->no_limits;
-      if (nvgw_checkbox(&ui->nvgw, nvgw_id_str("InfCanv"), x_p, y_p, w_p, 24, "Infinite Canvas", &nl)) { dd->no_limits = nl; }
-      y_p += 32;
-      if (!dd->no_limits) {
-        char bw[32], bh[32]; snprintf(bw, 32, "%.0f", dd->width); snprintf(bh, 32, "%.0f", dd->height);
-        nvgw_label(&ui->nvgw, x_p, y_p, 30, 24, "W", NVG_ALIGN_LEFT, nvgRGBA(160, 162, 175, 255), 12);
-        if (nvgw_text_input(&ui->nvgw, nvgw_id_str("CanvW"), x_p + 30, y_p, w_p/2-30, 24, bw, 32, 13)) { dd->width = (float)atof(bw); }
-        nvgw_label(&ui->nvgw, x_p + w_p/2, y_p, 30, 24, "H", NVG_ALIGN_LEFT, nvgRGBA(160, 162, 175, 255), 12);
-        if (nvgw_text_input(&ui->nvgw, nvgw_id_str("CanvH"), x_p + w_p/2 + 30, y_p, w_p/2-30, 24, bh, 32, 13)) { dd->height = (float)atof(bh); }
-        y_p += 40;
-      }
-      nvgw_label(&ui->nvgw, x_p, y_p, w_p, 20, "BACKGROUND", NVG_ALIGN_LEFT, nvgRGBA(140, 140, 155, 255), 11);
-      y_p += 24;
-      NVGcolor bgc = nvgRGBA((dd->bg_color >> 24) & 0xFF, (dd->bg_color >> 16) & 0xFF, (dd->bg_color >> 8) & 0xFF, dd->bg_color & 0xFF);
-      if (nvgw_color_picker(&ui->nvgw, nvgw_id_str("PgBG"), x_p, y_p, w_p, 24, &bgc)) {
-        dd->bg_color = ((uint32_t)(bgc.r * 255.0f) << 24) | ((uint32_t)(bgc.g * 255.0f) << 16) | ((uint32_t)(bgc.b * 255.0f) << 8) | (uint32_t)(bgc.a * 255.0f);
-      }
+    // ── Page settings ─────────────────────────────────────────────
+    float y_p = cy + 12.0f;
+    float x_p = cx;
+    float w_p = cw;
+    NVGcolor col_s = dark ? nvgRGBA(110, 112, 128, 255) : nvgRGBA(140, 142, 158, 255);
+    NVGcolor col_l = dark ? nvgRGBA(160, 162, 178, 255) : nvgRGBA(110, 112, 130, 255);
+    nvgw_label(&ui->nvgw, x_p, y_p, w_p, 16, "CANVAS", NVG_ALIGN_LEFT, col_s, 10);
+    y_p += 20;
+    bool nl = dd->no_limits;
+    if (nvgw_checkbox(&ui->nvgw, nvgw_id_str("InfCanv"), x_p, y_p, w_p, 28, "Infinite Canvas", &nl)) { dd->no_limits = nl; }
+    y_p += 34;
+    if (!dd->no_limits) {
+      char bw[32], bh[32]; snprintf(bw, 32, "%.0f", dd->width); snprintf(bh, 32, "%.0f", dd->height);
+      float hw = (w_p - 8) / 2.0f;
+      nvgw_label(&ui->nvgw, x_p,        y_p, 24, 28, "W", NVG_ALIGN_LEFT, col_l, 12);
+      if (nvgw_text_input(&ui->nvgw, nvgw_id_str("CanvW"), x_p + 24, y_p, hw - 24, 28, bw, 32, 13)) { dd->width  = (float)atof(bw); }
+      nvgw_label(&ui->nvgw, x_p + hw + 8, y_p, 24, 28, "H", NVG_ALIGN_LEFT, col_l, 12);
+      if (nvgw_text_input(&ui->nvgw, nvgw_id_str("CanvH"), x_p + hw + 32, y_p, hw - 24, 28, bh, 32, 13)) { dd->height = (float)atof(bh); }
+      y_p += 34;
     }
+    // Separator
+    nvgBeginPath(vg); nvgMoveTo(vg, x_p, y_p + 4); nvgLineTo(vg, x_p + w_p, y_p + 4);
+    nvgStrokeColor(vg, sep_col); nvgStrokeWidth(vg, 1.0f); nvgStroke(vg);
+    y_p += 14;
+    nvgw_label(&ui->nvgw, x_p, y_p, w_p, 16, "BACKGROUND", NVG_ALIGN_LEFT, col_s, 10);
+    y_p += 20;
+    NVGcolor bgc = nvgRGBA((dd->bg_color >> 24) & 0xFF, (dd->bg_color >> 16) & 0xFF, (dd->bg_color >> 8) & 0xFF, dd->bg_color & 0xFF);
+    if (nvgw_color_picker(&ui->nvgw, nvgw_id_str("PgBG"), x_p, y_p, w_p, 28, &bgc)) {
+      dd->bg_color = ((uint32_t)(bgc.r * 255.0f) << 24) | ((uint32_t)(bgc.g * 255.0f) << 16) | ((uint32_t)(bgc.b * 255.0f) << 8) | (uint32_t)(bgc.a * 255.0f);
+    }
+    (void)y_p;
   }
 
-  nvgRestore(ui->vg);
+  (void)ch_h;
 }
 
 void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,

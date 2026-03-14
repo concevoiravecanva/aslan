@@ -533,9 +533,11 @@ static void ui_render_layer_item(UIHost *ui, Block *block, Node *node,
 
   float indent_w = 4.0f + (float)depth * 16.0f;
 
+  float lmx = nvgw->mouse_x - nvgw->offset_x;
+  float lmy = nvgw->mouse_y - nvgw->offset_y;
   int is_hovered =
-      (nvgw->mouse_x >= x && nvgw->mouse_x < x + w &&
-       nvgw->mouse_y >= current_y && nvgw->mouse_y < current_y + row_h);
+      (lmx >= x && lmx < x + w &&
+       lmy >= current_y && lmy < current_y + row_h);
 
   // Background
   if (is_selected) {
