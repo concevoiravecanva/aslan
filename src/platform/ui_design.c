@@ -954,6 +954,28 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
       if (nvgw_color_picker(&ui->nvgw, nvgw_id_str("PgBG"), x_p, y_p, w_p, _rh, &bgc))
         OPEN_PICKER_PAGE(&dd->pages[dd->current_page].bg_color, x_p, y_p);
 #undef OPEN_PICKER_PAGE
+      y_p += _rh + 8;
+    }
+    // Separator
+    nvgBeginPath(vg); nvgMoveTo(vg, x_p, y_p + 4); nvgLineTo(vg, x_p + w_p, y_p + 4);
+    nvgStrokeColor(vg, sep_col); nvgStrokeWidth(vg, 1.0f); nvgStroke(vg);
+    y_p += 14;
+    nvgw_label(&ui->nvgw, x_p, y_p, w_p, 16, "EXPORT", NVG_ALIGN_LEFT, col_s, 10);
+    y_p += 20;
+    {
+      const float exp_h = 28.0f;
+      const float exp_gap = 4.0f;
+      float hw2 = (w_p - exp_gap) / 2.0f;
+      if (nvgw_button(&ui->nvgw, nvgw_id_str("ExpPNG"), x_p,           y_p, hw2, exp_h, "Export PNG"))
+        ui_host_export_png_jpeg(ui, engine, 0);
+      if (nvgw_button(&ui->nvgw, nvgw_id_str("ExpJPG"), x_p + hw2 + exp_gap, y_p, hw2, exp_h, "Export JPEG"))
+        ui_host_export_png_jpeg(ui, engine, 1);
+      y_p += exp_h + exp_gap;
+      if (nvgw_button(&ui->nvgw, nvgw_id_str("ExpSVG"), x_p,           y_p, hw2, exp_h, "Export SVG"))
+        ui_host_export_svg(ui, engine);
+      if (nvgw_button(&ui->nvgw, nvgw_id_str("ExpPDF"), x_p + hw2 + exp_gap, y_p, hw2, exp_h, "Export PDF"))
+        ui_host_export_pdf(ui, engine);
+      y_p += exp_h + exp_gap;
     }
     (void)y_p;
   }
