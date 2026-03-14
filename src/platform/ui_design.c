@@ -657,7 +657,6 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
       const float lbl_w = 52.0f; // consistent label column width
       const float row_h = 28.0f;
       const float row_gap = 6.0f;
-      char buf[64];
       // Reset persistent input buffers when the selected node changes
       if (ui->prop_input_node != (void *)node) {
         memset(ui->prop_input_bufs, 0, sizeof(ui->prop_input_bufs));
@@ -848,10 +847,10 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         PROP_SEPARATOR();
         nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 16, "CHART", NVG_ALIGN_LEFT, col_section, 10);
         y_off += 20;
-        const char *chart_types[] = {"Bar", "Line", "Pie", "Gantt"};
+        const char *chart_types[] = {"Bar", "Line", "Pie", "Gantt", "Donut", "Area", "H-Bar", "Scatter"};
         int cur_type = (int)cd->type;
         nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Type", NVG_ALIGN_LEFT, col_label, 13);
-        if (nvgw_dropdown_select(&ui->nvgw, nvgw_id(node, 11), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, chart_types, 4, &cur_type))
+        if (nvgw_dropdown_select(&ui->nvgw, nvgw_id(node, 11), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, chart_types, 8, &cur_type))
           cd->type = (ChartType)cur_type;
         y_off += row_h + row_gap;
       }

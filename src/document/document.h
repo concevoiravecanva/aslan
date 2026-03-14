@@ -269,13 +269,23 @@ typedef struct {
 
 // --- Chart Block Data (Data-Driven) ---
 
-typedef enum { CHART_BAR = 0, CHART_LINE, CHART_PIE, CHART_GANTT } ChartType;
+typedef enum {
+  CHART_BAR = 0,   // Vertical bars
+  CHART_LINE,      // Line with dots
+  CHART_PIE,       // Pie slices
+  CHART_GANTT,     // Horizontal Gantt bars (DATE + DURATION columns)
+  CHART_DONUT,     // Donut (pie with hole)
+  CHART_AREA,      // Filled area under line
+  CHART_HBAR,      // Horizontal bars
+  CHART_SCATTER    // Scatter plot (label_col = X, value_col = Y)
+} ChartType;
 
 struct ChartData {
   ChartType type;
   uint32_t source_table_id; // ID of the source table block
-  int label_col_idx;        // Column index for X-axis/Labels (-1 if none)
-  int value_col_idx;        // Column index for Y-axis/Values (-1 if none)
+  int label_col_idx;        // Column index for X-axis/Labels (-1 = auto)
+  int value_col_idx;        // Column index for Y-axis/Values (-1 = auto)
+  int col_idx_2;            // Secondary column (Gantt: duration col)
 
   uint32_t color;   // Main chart color (RGBA)
   bool show_values; // Draw values on chart
