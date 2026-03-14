@@ -318,6 +318,7 @@ typedef struct UIHost {
   uint32_t expanded_block_id; // Block currently in full-screen mode (0=none)
   int editing_cursor_pos;
   int text_input_active;
+  int scroll_inhibited; // 1 = UI widget is handling scroll, skip page scroll
 
   // Block drag-and-drop
   struct {
@@ -471,8 +472,12 @@ typedef struct UIHost {
     int last_hdr_click_col;       // Column index of last header click
     // Per-column widths (0 = unset → use default 120px)
     float col_widths[64];
-    // Row area scroll offset
+    // Scroll offsets
+    float row_scroll_x;
     float row_scroll_y;
+    int dragging_scroll_x; // 1 = dragging horizontal scrollbar
+    int dragging_scroll_y; // 1 = dragging vertical scrollbar
+    float scroll_drag_start; // starting offset when drag began
     // Footer aggregation type per column: 0=sum 1=avg 2=count 3=min 4=max
     int footer_agg[64];
     // Footer aggregation popup

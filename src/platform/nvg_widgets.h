@@ -17,7 +17,8 @@ typedef struct {
   bool mouse_down_prev;
   bool mouse_clicked;  // Was Primary mouse button clicked this frame?
   bool mouse_released; // Was Primary mouse button released this frame?
-  float scroll_y;      // Scroll wheel delta this frame
+  float scroll_x;      // Scroll wheel delta X this frame
+  float scroll_y;      // Scroll wheel delta Y this frame
 
   // Keyboard state
   char text_input[32]; // UTF-8 text input this frame
@@ -51,7 +52,7 @@ void nvgw_set_fonts(NvgWidgetCtx *ctx, int font_main, int font_icons);
 // Update input state per frame
 void nvgw_input_begin(NvgWidgetCtx *ctx);
 void nvgw_input_mouse(NvgWidgetCtx *ctx, float mx, float my, bool mdown,
-                      float scroll_y);
+                      float scroll_x, float scroll_y);
 void nvgw_input_keyboard(NvgWidgetCtx *ctx, const char *text_input,
                          bool backspace, bool enter);
 void nvgw_input_end(NvgWidgetCtx *ctx);
@@ -93,6 +94,9 @@ bool nvgw_checkbox(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,
 // Returns the new content_offset_y
 void nvgw_begin_scroll_area(NvgWidgetCtx *ctx, float x, float y, float w,
                             float h, float content_h, float *offset_y);
+void nvgw_begin_scroll_area_2d(NvgWidgetCtx *ctx, float x, float y, float w,
+                               float h, float content_w, float content_h,
+                               float *offset_x, float *offset_y);
 void nvgw_end_scroll_area(NvgWidgetCtx *ctx);
 
 #endif // NVG_WIDGETS_H

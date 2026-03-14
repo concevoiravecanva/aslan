@@ -161,6 +161,7 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
         // inside ui_handle_event() via nvgw_input_keyboard().
         // Only forward scroll events here.
         if (e.type == SDL_MOUSEWHEEL) {
+          ui->nvgw.scroll_x += e.wheel.x;
           ui->nvgw.scroll_y += e.wheel.y;
         }
 
@@ -215,7 +216,7 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
     uint32_t gmstate = SDL_GetMouseState(&gmx, &gmy);
     nvgw_input_mouse(&ui->nvgw, (float)gmx, (float)gmy,
                      (gmstate & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0,
-                     ui->nvgw.scroll_y);
+                     ui->nvgw.scroll_x, ui->nvgw.scroll_y);
     // NOTE: nvgw_input_end is called AFTER rendering so widgets can
     // read mouse_clicked / mouse_released / active_id during the render pass.
 

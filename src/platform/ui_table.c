@@ -156,7 +156,7 @@ static bool tbl_text_input(NVGcontext *vg, NvgWidgetCtx *wc, uint32_t id,
 
 static float col_x(UIHost *ui, AslanTable *table, int idx) {
     (void)table;
-    float x = TBL_IDX_COL_W; // offset for row-index column
+    float x = TBL_IDX_COL_W - ui->table_state.row_scroll_x; // offset for row-index column
     for (int i = 0; i < idx; i++) {
         float w = ui->table_state.col_widths[i];
         x += (w > 0 ? w : TBL_DEFAULT_COL_W);
@@ -205,8 +205,10 @@ static void render_header(UIHost *ui, Engine *engine, AslanTable *table,
     nvgMoveTo(vg, TBL_IDX_COL_W, 0);
     nvgLineTo(vg, TBL_IDX_COL_W, header_h);
     nvgStrokeColor(vg, tbl_border(dark));
-    nvgStrokeWidth(vg, 1.0f);
     nvgStroke(vg);
+ 
+    nvgSave(vg);
+    nvgScissor(vg, TBL_IDX_COL_W, 0, width - TBL_IDX_COL_W, header_h);
 
     for (size_t c = 0; c < table->column_count; c++) {
         float cx = col_x(ui, table, (int)c);
@@ -530,7 +532,7 @@ static void render_header(UIHost *ui, Engine *engine, AslanTable *table,
     }
 
     // "+" Add column button
-    float add_x = table_total_w(ui, table);
+    float add_x = table_total_w(ui, table) - ui->table_state.row_scroll_x;
     uint32_t add_id = nvgw_id(&block->id, sizeof(block->id)) ^ nvgw_id_str("add_col");
     float add_w = 56.0f;
 
@@ -566,6 +568,8 @@ static void render_header(UIHost *ui, Engine *engine, AslanTable *table,
         }
         ui_request_redraw(ui);
     }
+
+    nvgRestore(vg);
 
     // Bottom border
     nvgBeginPath(vg);
@@ -637,10 +641,12 @@ static void render_rows(UIHost *ui, Engine *engine __attribute__((unused)),
     float rows_area_h = height - header_h - TBL_FOOTER_H;
     size_t count = aslan_table_view_count(table);
     float content_h = (float)(count + 1) * row_h; // +1 for ghost row
+    float content_w = table_total_w(ui, table);
 
     // Scroll area
-    nvgw_begin_scroll_area(wc, 0, header_h, width, rows_area_h,
-                            content_h, &ui->table_state.row_scroll_y);
+    nvgw_begin_scroll_area_2d(wc, 0, header_h, width, rows_area_h,
+                               content_w, content_h, 
+                               &ui->table_state.row_scroll_x, &ui->table_state.row_scroll_y);
     float scroll = ui->table_state.row_scroll_y;
 
     // Determine which popups are open (to suppress cell clicks underneath)
@@ -796,6 +802,8 @@ static void render_rows(UIHost *ui, Engine *engine __attribute__((unused)),
         }
 
         // Cells
+        nvgSave(vg);
+        nvgScissor(vg, TBL_IDX_COL_W, header_h, width - TBL_IDX_COL_W, row_h * count + row_h); 
         for (size_t c = 0; c < table->column_count; c++) {
             float cx = col_x(ui, table, (int)c);
             float cw_v = col_w(ui, (int)c);
@@ -1082,6 +1090,7 @@ static void render_rows(UIHost *ui, Engine *engine __attribute__((unused)),
             nvgStrokeWidth(vg, 0.5f);
             nvgStroke(vg);
         }
+        nvgRestore(vg);
 
         // Horizontal row separator
         nvgBeginPath(vg);
@@ -1148,17 +1157,8 @@ static void render_rows(UIHost *ui, Engine *engine __attribute__((unused)),
     wc->mouse_clicked = saved_clicked;
     nvgw_end_scroll_area(wc);
 
-    // Scrollbar indicator (when content taller than visible area)
-    if (content_h > rows_area_h) {
-        float sb_x = width - TBL_SCROLLBAR_W - 2;
-        float sb_ratio = rows_area_h / content_h;
-        float sb_h = rows_area_h * sb_ratio;
-        float sb_y = header_h + ui->table_state.row_scroll_y * (rows_area_h / content_h);
-        nvgBeginPath(vg);
-        nvgRoundedRect(vg, sb_x, sb_y, TBL_SCROLLBAR_W - 2, sb_h, 4.0f);
-        nvgFillColor(vg, dark ? nvgRGBA(180,182,195,80) : nvgRGBA(0,0,0,50));
-        nvgFill(vg);
-    }
+    wc->mouse_clicked = saved_clicked;
+    nvgw_end_scroll_area(wc);
 }
 
 // -----------------------------------------------------------------------------
@@ -2001,6 +2001,12 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
     int dark = ui->dark_mode;
     NvgWidgetCtx *wc = &ui->nvgw;
     nvgw_set_offset(wc, ui->abs_offset_x, ui->abs_offset_y);
+ 
+    float h_mx = ui->mouse_x - ui->abs_offset_x;
+    float h_my = ui->mouse_y - ui->abs_offset_y;
+    if (h_mx >= 0 && h_mx < width && h_my >= 0 && h_my < height) {
+        ui->scroll_inhibited = 1;
+    }
 
     // Reset column resize state if mouse released globally
     if (ui->table_state.resizing_col >= 0 && !(ui->mouse_buttons & 1)) {
@@ -2112,6 +2118,8 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
         float fmx = ui->mouse_x - ui->abs_offset_x;
         float fmy = ui->mouse_y - ui->abs_offset_y;
 
+        nvgSave(vg);
+        nvgScissor(vg, TBL_IDX_COL_W, fy, width - TBL_IDX_COL_W, TBL_FOOTER_H);
         for (size_t c = 0; c < table->column_count; c++) {
             float cx = col_x(ui, table, (int)c);
             float cw_v = col_w(ui, (int)c);
@@ -2186,11 +2194,110 @@ void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
             nvgStrokeWidth(vg, 0.5f);
             nvgStroke(vg);
         }
+        nvgRestore(vg);
     }
     } // end else (column_count > 0)
 
     nvgRestore(vg);
+ 
+    // ── Consolidated Scrollbars (Rendered on top of footer/rows) ───────────
+    float rows_area_h = height - TBL_HEADER_H - TBL_FOOTER_H;
+    size_t row_count = aslan_table_view_count(table);
+    float content_h = (float)(row_count + 1) * TBL_ROW_H;
+    float content_w = table_total_w(ui, table);
 
+    // Vertical Scrollbar
+    if (content_h > rows_area_h && rows_area_h > 20) {
+        float sb_w = 12.0f;
+        float sb_x = width - sb_w - 4;
+        float sb_ratio = rows_area_h / content_h;
+        float sb_h = rows_area_h * sb_ratio;
+        if (sb_h < 20) sb_h = 20; // minimum handle size
+        float sb_y = TBL_HEADER_H + ui->table_state.row_scroll_y * (rows_area_h / content_h);
+
+        uint32_t vsb_id = nvgw_id_str("vscrollbar") ^ nvgw_id(&block->id, sizeof(block->id));
+        bool vsb_hov = (h_mx >= sb_x - 4 && h_mx < width && h_my >= TBL_HEADER_H && h_my < TBL_HEADER_H + rows_area_h);
+
+        if (vsb_hov) {
+            wc->hot_id = vsb_id;
+            ui_set_cursor(ui, UI_CURSOR_HAND);
+        }
+        if (wc->hot_id == vsb_id && wc->mouse_clicked) {
+            wc->active_id = vsb_id;
+            ui->table_state.dragging_scroll_y = 1;
+            ui->table_state.scroll_drag_start = ui->table_state.row_scroll_y;
+        }
+        if (ui->table_state.dragging_scroll_y && wc->active_id == vsb_id) {
+            float dy = h_my - (TBL_HEADER_H + (ui->table_state.scroll_drag_start / content_h) * rows_area_h + sb_h * 0.5f);
+            ui->table_state.row_scroll_y += dy * (content_h / rows_area_h);
+            ui_request_redraw(ui);
+        }
+        if (ui->table_state.dragging_scroll_y && !(ui->mouse_buttons & 1)) ui->table_state.dragging_scroll_y = 0;
+
+        // Track
+        nvgBeginPath(vg);
+        nvgRoundedRect(vg, sb_x, TBL_HEADER_H, sb_w, rows_area_h, sb_w * 0.5f);
+        nvgFillColor(vg, dark ? nvgRGBA(40,42,48,220) : nvgRGBA(220,222,230,220));
+        nvgFill(vg);
+        nvgStrokeColor(vg, dark ? nvgRGBA(255,255,255,30) : nvgRGBA(0,0,0,20));
+        nvgStrokeWidth(vg, 1.0f);
+        nvgStroke(vg);
+
+        // Handle
+        nvgBeginPath(vg);
+        nvgRoundedRect(vg, sb_x + 2, sb_y + 2, sb_w - 4, sb_h - 4, (sb_w - 4) * 0.5f);
+        bool active = (ui->table_state.dragging_scroll_y || wc->hot_id == vsb_id);
+        nvgFillColor(vg, active ? tbl_accent() : (dark ? nvgRGBA(180,182,195,200) : nvgRGBA(80,82,95,200)));
+        nvgFill(vg);
+    }
+
+    // Horizontal Scrollbar
+    if (content_w > width) {
+        float hsb_h = 12.0f;
+        float hsb_y = height - hsb_h - 4;
+        float hsb_ratio = width / content_w;
+        float hsb_w = width * hsb_ratio;
+        if (hsb_w < 20) hsb_w = 20;
+        float hsb_x = ui->table_state.row_scroll_x * hsb_ratio;
+
+        uint32_t hsb_id = nvgw_id_str("hscrollbar") ^ nvgw_id(&block->id, sizeof(block->id));
+        bool hsb_hov = (h_mx >= 0 && h_mx < width && h_my >= height - 16 && h_my < height);
+
+        if (hsb_hov) {
+            wc->hot_id = hsb_id;
+            ui_set_cursor(ui, UI_CURSOR_HAND);
+        }
+        if (wc->hot_id == hsb_id && wc->mouse_clicked) {
+            wc->active_id = hsb_id;
+            ui->table_state.dragging_scroll_x = 1;
+            ui->table_state.scroll_drag_start = ui->table_state.row_scroll_x;
+        }
+        if (ui->table_state.dragging_scroll_x && wc->active_id == hsb_id) {
+            float dx = h_mx - ((ui->table_state.scroll_drag_start / content_w) * width + hsb_w * 0.5f);
+            ui->table_state.row_scroll_x += dx * (content_w / width);
+            ui_request_redraw(ui);
+        }
+
+        if (ui->table_state.dragging_scroll_x && !(ui->mouse_buttons & 1)) {
+            ui->table_state.dragging_scroll_x = 0;
+            wc->active_id = 0;
+        }
+
+        nvgBeginPath(vg);
+        nvgRoundedRect(vg, hsb_x, hsb_y, hsb_w, hsb_h, hsb_h * 0.5f);
+        nvgFillColor(vg, (ui->table_state.dragging_scroll_x || wc->hot_id == hsb_id)
+                         ? (dark ? nvgRGBA(255,255,255,230) : nvgRGBA(0,0,0,210))
+                         : (dark ? nvgRGBA(200,202,215,160) : nvgRGBA(0,0,0,100)));
+        nvgFill(vg);
+
+        // Optional: subtle border
+        nvgBeginPath(vg);
+        nvgRoundedRect(vg, hsb_x + 0.5f, hsb_y + 0.5f, hsb_w - 1, hsb_h - 1, (hsb_h - 1) * 0.5f);
+        nvgStrokeColor(vg, dark ? nvgRGBA(255,255,255,30) : nvgRGBA(0,0,0,20));
+        nvgStrokeWidth(vg, 1.0f);
+        nvgStroke(vg);
+    }
+ 
     // ── Popups (rendered last, float above clipped content) ─────────────────
     // NOTE: popups use absolute screen coords so nvgSave/Restore is needed
     nvgSave(vg);

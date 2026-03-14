@@ -21,13 +21,14 @@ void nvgw_input_begin(NvgWidgetCtx *ctx) {
   ctx->key_tab       = false;
   ctx->key_tab_back  = false;
   ctx->key_escape    = false;
+  ctx->scroll_x = 0.0f;
   ctx->scroll_y = 0.0f;
   ctx->mouse_clicked = false;
   ctx->mouse_released = false;
 }
 
 void nvgw_input_mouse(NvgWidgetCtx *ctx, float mx, float my, bool mdown,
-                      float scroll_y) {
+                      float scroll_x, float scroll_y) {
   ctx->mouse_x = mx;
   ctx->mouse_y = my;
   ctx->mouse_down_prev = ctx->mouse_down;
@@ -38,6 +39,7 @@ void nvgw_input_mouse(NvgWidgetCtx *ctx, float mx, float my, bool mdown,
     ctx->mouse_released = true;
 
   ctx->mouse_down = mdown;
+  ctx->scroll_x += scroll_x;
   ctx->scroll_y += scroll_y;
 }
 
@@ -395,6 +397,39 @@ void nvgw_begin_scroll_area(NvgWidgetCtx *ctx, float x, float y, float w,
 
   if (*offset_y < 0.0f)
     *offset_y = 0.0f;
+  if (content_h > h && *offset_y > content_h - h) {
+    *offset_y = content_h - h;
+  } else if (content_h <= h) {
+    *offset_y = 0.0f;
+  }
+
+  NVGcontext *vg = ctx->vg;
+  nvgSave(vg);
+  nvgScissor(vg, x, y, w, h);
+}
+
+void nvgw_end_scroll_area(NvgWidgetCtx *ctx);
+
+void nvgw_begin_scroll_area_2d(NvgWidgetCtx *ctx, float x, float y, float w,
+                               float h, float content_w, float content_h,
+                               float *offset_x, float *offset_y) {
+  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h,
+                               ctx->offset_x, ctx->offset_y);
+  if (hovered) {
+    if (ctx->scroll_x != 0.0f) *offset_x -= ctx->scroll_x * 20.0f;
+    if (ctx->scroll_y != 0.0f) *offset_y -= ctx->scroll_y * 10.0f;
+  }
+
+  // Horizontal clamping
+  if (*offset_x < 0.0f) *offset_x = 0.0f;
+  if (content_w > w && *offset_x > content_w - w) {
+    *offset_x = content_w - w;
+  } else if (content_w <= w) {
+    *offset_x = 0.0f;
+  }
+
+  // Vertical clamping
+  if (*offset_y < 0.0f) *offset_y = 0.0f;
   if (content_h > h && *offset_y > content_h - h) {
     *offset_y = content_h - h;
   } else if (content_h <= h) {

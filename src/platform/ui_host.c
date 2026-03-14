@@ -1568,7 +1568,7 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       cs->cam_x = world_x - mouse_rel_x / cs->zoom;
       cs->cam_y = world_y - mouse_rel_y / cs->zoom;
       ASLAN_DEBUG("Canvas Zoom: %.2f (wheel.y=%d)", cs->zoom, evt->wheel.y);
-    } else {
+    } else if (!ui->scroll_inhibited) {
       // Global Page Scroll (Default behavior)
       float scroll_amount = 60.0f;
       ui->scroll_target_y -= evt->wheel.y * scroll_amount;
@@ -1577,6 +1577,7 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       ASLAN_DEBUG("Page Scroll: %.1f (wheel.y=%d)", ui->scroll_target_y,
                   evt->wheel.y);
     }
+    // Flag is reset at start of frame to allow tools to inhibit next scroll event
   }
 }
 
@@ -1985,10 +1986,49 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
     ui_render_panel_view(ui, engine, page, 1, view_x_right, view_y_right,
                          view_w_right, view_h_right);
   }
+
+  // Fade overlay: panel fades to white when width < 15% of window
+  NVGcontext *vg = ui->vg;
+  NVGcolor bg = ui->dark_mode
+    ? nvgRGBA(28, 28, 30, 255)
+    : nvgRGBA(255, 255, 255, 255);
+
+  // Left panel fade
+  {
+    float frac = left_w / (float)win_w;
+    if (frac < 0.15f) {
+      float t = 1.0f - (frac - 0.10f) / 0.05f;
+      if (t < 0.0f) t = 0.0f;
+      if (t > 1.0f) t = 1.0f;
+      NVGcolor col = bg;
+      col.a = t;
+      nvgBeginPath(vg);
+      nvgRect(vg, 0, 0, left_w, (float)win_h);
+      nvgFillColor(vg, col);
+      nvgFill(vg);
+    }
+  }
+
+  // Right panel fade
+  {
+    float frac = right_w / (float)win_w;
+    if (frac < 0.15f) {
+      float t = 1.0f - (frac - 0.10f) / 0.05f;
+      if (t < 0.0f) t = 0.0f;
+      if (t > 1.0f) t = 1.0f;
+      NVGcolor col = bg;
+      col.a = t;
+      nvgBeginPath(vg);
+      nvgRect(vg, left_w + spl_w, 0, right_w + spl_w, (float)win_h);
+      nvgFillColor(vg, col);
+      nvgFill(vg);
+    }
+  }
 }
 
 void ui_begin_frame(UIHost *ui) {
   if (!ui) return;
+  ui->scroll_inhibited = 0;
   nvgw_input_begin(&ui->nvgw);
   if (ui->clay) {
     clay_host_begin_frame(ui->clay);
