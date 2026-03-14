@@ -586,7 +586,7 @@ static void ui_render_layer_item(UIHost *ui, Block *block, Node *node,
       w - (cur_x - x) - 24 * 3; // remaining space minus right buttons
   if (is_renaming) {
     if (nvgw_text_input(nvgw, node->id, cur_x, current_y + 4, name_w, 22,
-                        ui->node_rename_buffer, 63, 14)) {
+                        ui->node_rename_buffer, 63, 14, false)) {
       strncpy(node->name, ui->node_rename_buffer, 63);
       ui->renaming_node_id = 0;
     }

@@ -697,7 +697,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           default:                strncpy(node->name, "Element", 63);    break;
         }
       }
-      nvgw_text_input(&ui->nvgw, nvgw_id(node, 0), x_ptr, y_off, w_ptr, row_h, node->name, 64, 14);
+      nvgw_text_input(&ui->nvgw, nvgw_id(node, 0), x_ptr, y_off, w_ptr, row_h, node->name, 64, 14, false);
       y_off += row_h + row_gap + 4;
 
       PROP_SEPARATOR();
@@ -709,25 +709,25 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
       // Position: X | Y
       nvgw_label(&ui->nvgw, x_ptr,              y_off, lbl_w, row_h, "X", NVG_ALIGN_LEFT, col_label, 12);
       PROP_SYNC(1, "%.1f", node->x);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 1), x_ptr + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[1], 64, 13))
+      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 1), x_ptr + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[1], 64, 13, true))
         node->x = (float)atof(ui->prop_input_bufs[1]);
 
       nvgw_label(&ui->nvgw, x_ptr + half_w + 6, y_off, lbl_w, row_h, "Y", NVG_ALIGN_LEFT, col_label, 12);
       PROP_SYNC(2, "%.1f", node->y);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 2), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[2], 64, 13))
+      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 2), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[2], 64, 13, true))
         node->y = (float)atof(ui->prop_input_bufs[2]);
       y_off += row_h + row_gap;
 
       // Size: W | H
       nvgw_label(&ui->nvgw, x_ptr,              y_off, lbl_w, row_h, "W", NVG_ALIGN_LEFT, col_label, 12);
       PROP_SYNC(3, "%.1f", node->width);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 3), x_ptr + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[3], 64, 13)) {
+      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 3), x_ptr + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[3], 64, 13, true)) {
         float old = node->width; node->width = (float)atof(ui->prop_input_bufs[3]);
         if (node->lock_ratio && old > 0.0f) node->height *= (node->width / old);
       }
       nvgw_label(&ui->nvgw, x_ptr + half_w + 6, y_off, lbl_w, row_h, "H", NVG_ALIGN_LEFT, col_label, 12);
       PROP_SYNC(4, "%.1f", node->height);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 4), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[4], 64, 13)) {
+      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 4), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[4], 64, 13, true)) {
         float old = node->height; node->height = (float)atof(ui->prop_input_bufs[4]);
         if (node->lock_ratio && old > 0.0f) node->width *= (node->height / old);
       }
@@ -736,12 +736,12 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
       // Rotation | Opacity (0-100)
       nvgw_label(&ui->nvgw, x_ptr,              y_off, lbl_w, row_h, "Rotation", NVG_ALIGN_LEFT, col_label, 12);
       PROP_SYNC(12, "%.1f", node->rotation);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 12), x_ptr + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[12], 64, 13))
+      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 12), x_ptr + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[12], 64, 13, true))
         node->rotation = (float)atof(ui->prop_input_bufs[12]);
 
       nvgw_label(&ui->nvgw, x_ptr + half_w + 6, y_off, lbl_w, row_h, "Opacity", NVG_ALIGN_LEFT, col_label, 12);
       PROP_SYNC(13, "%.0f", node->opacity * 100.0f);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 13), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[13], 64, 13)) {
+      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 13), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[13], 64, 13, true)) {
         float v = (float)atof(ui->prop_input_bufs[13]) / 100.0f;
         if (v < 0.0f) v = 0.0f;
         if (v > 1.0f) v = 1.0f;
@@ -799,7 +799,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
           OPEN_PICKER(&node->stroke_color, x_ptr + lbl_w, y_off);
         PROP_SYNC(14, "%.1f", node->stroke_width);
         nvgw_label(&ui->nvgw, x_ptr + half_w + 6, y_off, lbl_w, row_h, "Width", NVG_ALIGN_LEFT, col_label, 13);
-        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 14), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[14], 64, 13))
+        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 14), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[14], 64, 13, true))
           node->stroke_width = (float)atof(ui->prop_input_bufs[14]);
       }
       y_off += row_h + row_gap;
@@ -808,7 +808,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
       if (node->type != NODE_TYPE_LINE && node->type != NODE_TYPE_STROKE) {
         nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Radius", NVG_ALIGN_LEFT, col_label, 13);
         PROP_SYNC(7, "%.1f", node->corner_radius);
-        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 7), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, ui->prop_input_bufs[7], 64, 13))
+        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 7), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, ui->prop_input_bufs[7], 64, 13, true))
           node->corner_radius = (float)atof(ui->prop_input_bufs[7]);
         y_off += row_h + row_gap;
       }
@@ -821,11 +821,11 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         y_off += 20;
         PROP_SYNC(8, "%.1f", node->font_size);
         nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Size", NVG_ALIGN_LEFT, col_label, 13);
-        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 8), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, ui->prop_input_bufs[8], 64, 13))
+        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 8), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, ui->prop_input_bufs[8], 64, 13, true))
           node->font_size = (float)atof(ui->prop_input_bufs[8]);
         y_off += row_h + row_gap;
         nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Content", NVG_ALIGN_LEFT, col_label, 13);
-        nvgw_text_input(&ui->nvgw, nvgw_id(node, 9), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, node->text, sizeof(node->text), 13);
+        nvgw_text_input(&ui->nvgw, nvgw_id(node, 9), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, node->text, sizeof(node->text), 13, false);
         y_off += row_h + row_gap;
       } else if (node->type == NODE_TYPE_IMAGE) {
         PROP_SEPARATOR();
@@ -881,9 +881,9 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
       char bw[32], bh[32]; snprintf(bw, 32, "%.0f", dd->width); snprintf(bh, 32, "%.0f", dd->height);
       float hw = (w_p - 8) / 2.0f;
       nvgw_label(&ui->nvgw, x_p,        y_p, 24, 28, "W", NVG_ALIGN_LEFT, col_l, 12);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id_str("CanvW"), x_p + 24, y_p, hw - 24, 28, bw, 32, 13)) { dd->width  = (float)atof(bw); }
+      if (nvgw_text_input(&ui->nvgw, nvgw_id_str("CanvW"), x_p + 24, y_p, hw - 24, 28, bw, 32, 13, true)) { dd->width  = (float)atof(bw); }
       nvgw_label(&ui->nvgw, x_p + hw + 8, y_p, 24, 28, "H", NVG_ALIGN_LEFT, col_l, 12);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id_str("CanvH"), x_p + hw + 32, y_p, hw - 24, 28, bh, 32, 13)) { dd->height = (float)atof(bh); }
+      if (nvgw_text_input(&ui->nvgw, nvgw_id_str("CanvH"), x_p + hw + 32, y_p, hw - 24, 28, bh, 32, 13, true)) { dd->height = (float)atof(bh); }
       y_p += 34;
     }
     // Separator

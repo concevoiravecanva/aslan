@@ -80,11 +80,12 @@ bool nvgw_button_icon(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,
 void nvgw_panel(NvgWidgetCtx *ctx, float x, float y, float w, float h,
                 NVGcolor bg_color, float corner_radius);
 
-// Single-line Text Input. Returns true if Enter was pressed or focus lost
-// (editing finished).
+// Single-line Text Input. Returns true if Enter was pressed (editing finished).
+// clear_on_focus: if true, buffer is cleared when the field first gains focus
+// (useful for numeric fields so user types a fresh value instead of appending).
 bool nvgw_text_input(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,
                      float h, char *buffer, size_t buffer_size,
-                     float font_size);
+                     float font_size, bool clear_on_focus);
 
 // Checkbox. Returns true if toggled. Modifies *checked.
 bool nvgw_checkbox(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,

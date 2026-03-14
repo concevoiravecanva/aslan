@@ -243,13 +243,15 @@ void nvgw_panel(NvgWidgetCtx *ctx, float x, float y, float w, float h,
 // Single-line Text Input
 bool nvgw_text_input(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,
                      float h, char *buffer, size_t buffer_size,
-                     float font_size) {
+                     float font_size, bool clear_on_focus) {
   bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h, ctx->offset_x, ctx->offset_y);
   if (hovered) {
     ctx->hot_id = id;
   }
 
   if (ctx->hot_id == id && ctx->mouse_clicked) {
+    if (clear_on_focus && ctx->focus_id != id && buffer)
+      buffer[0] = '\0'; // clear so user types a fresh value
     ctx->focus_id = id;
   }
 
