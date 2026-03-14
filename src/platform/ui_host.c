@@ -2090,53 +2090,203 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     // the outer frame.
     ui_render_split_view(ui, engine, win_w, win_h);
 
-    // --- Floating color picker window (Properties panel colors) ---
-    // Rendered as a separate window so it does NOT put the
-    // Properties group into ROM mode (which happens when combos/popups
-    // are inside a group).
+    // --- Floating HSV color picker ---
     if (ui->color_picker_open && ui->color_picker_ptr) {
+      // Ensure nvgw offset is at screen root so hit-tests are absolute
+      nvgw_set_offset(&ui->nvgw, 0.0f, 0.0f);
+
+      const float pw = 220.0f, ph = 270.0f;
       float px = ui->color_picker_x;
       float py = ui->color_picker_y;
-      float pw = 220.0f,
-            ph = 260.0f; // Adjusted height for NanoVG nvgw_color_picker
-      if (py + ph > (float)win_h)
-        py = (float)win_h - ph - 4.0f;
-      if (px + pw > (float)win_w)
-        px = (float)win_w - pw - 4.0f;
-      if (py < 0)
-        py = 0;
-      if (px < 0)
-        px = 0;
+      if (px + pw > (float)win_w) px = (float)win_w - pw - 4.0f;
+      if (py + ph > (float)win_h) py = (float)win_h - ph - 4.0f;
+      if (px < 0) px = 0.0f;
+      if (py < 0) py = 0.0f;
 
-      NVGcolor bg = ui->dark_mode ? nvgRGBA(45, 46, 50, 255)
-                                  : nvgRGBA(255, 255, 255, 255);
-      nvgw_panel(&ui->nvgw, px, py, pw, ph, bg, 8.0f);
+      NVGcontext *vg = ui->vg;
+      bool dark = ui->dark_mode != 0;
 
-      // Border and shadow
-      nvgBeginPath(ui->vg);
-      nvgRoundedRect(ui->vg, px, py, pw, ph, 8.0f);
-      nvgStrokeColor(ui->vg, ui->dark_mode ? nvgRGBA(60, 60, 68, 255)
-                                           : nvgRGBA(228, 228, 231, 255));
-      nvgStrokeWidth(ui->vg, 1.0f);
-      nvgStroke(ui->vg);
+      // Shadow
+      nvgBeginPath(vg);
+      nvgRoundedRect(vg, px+2, py+4, pw, ph, 8.0f);
+      nvgFillColor(vg, nvgRGBA(0,0,0,30));
+      nvgFill(vg);
 
+      // Panel background
+      nvgBeginPath(vg);
+      nvgRoundedRect(vg, px, py, pw, ph, 8.0f);
+      nvgFillColor(vg, dark ? nvgRGBA(38,40,46,255) : nvgRGBA(255,255,255,255));
+      nvgFill(vg);
+      nvgBeginPath(vg);
+      nvgRoundedRect(vg, px, py, pw, ph, 8.0f);
+      nvgStrokeColor(vg, dark ? nvgRGBA(60,62,72,255) : nvgRGBA(220,220,225,255));
+      nvgStrokeWidth(vg, 1.0f);
+      nvgStroke(vg);
+
+      float h = ui->color_picker_h;
+      float s = ui->color_picker_s;
+      float v = ui->color_picker_v;
+      float a = ui->color_picker_a;
       uint32_t *cp = ui->color_picker_ptr;
-      NVGcolor c = nvgRGBA((*cp >> 24) & 0xFF, (*cp >> 16) & 0xFF,
-                           (*cp >> 8) & 0xFF, *cp & 0xFF);
 
-      if (nvgw_color_picker(&ui->nvgw, nvgw_id_str("color_picker"), px + 10,
-                            py + 10, pw - 20, ph - 20, &c)) {
-        *cp = ((uint32_t)(c.r * 255.0f) << 24) |
-              ((uint32_t)(c.g * 255.0f) << 16) |
-              ((uint32_t)(c.b * 255.0f) << 8) | (uint32_t)(c.a * 255.0f);
+      // Layout
+      float sx = px + 10.0f, sy = py + 10.0f;
+      float sw = pw - 20.0f, sq_h = 140.0f;
+      float bar_h = 14.0f, bar_gap = 8.0f;
+
+      // ── SV Square ────────────────────────────────────────────────
+      // Hue base color (full saturation & value)
+      NVGcolor hue_c = nvgHSLA(h, 1.0f, 0.5f, 255);
+      // White → hue (saturation axis)
+      NVGpaint sp = nvgLinearGradient(vg, sx, sy, sx+sw, sy,
+                      nvgRGBA(255,255,255,255), hue_c);
+      nvgBeginPath(vg); nvgRect(vg, sx, sy, sw, sq_h);
+      nvgFillPaint(vg, sp); nvgFill(vg);
+      // Transparent → black (value axis)
+      NVGpaint vp = nvgLinearGradient(vg, sx, sy, sx, sy+sq_h,
+                      nvgRGBA(0,0,0,0), nvgRGBA(0,0,0,255));
+      nvgBeginPath(vg); nvgRect(vg, sx, sy, sw, sq_h);
+      nvgFillPaint(vg, vp); nvgFill(vg);
+      // Border
+      nvgBeginPath(vg); nvgRect(vg, sx, sy, sw, sq_h);
+      nvgStrokeColor(vg, nvgRGBA(0,0,0,40)); nvgStrokeWidth(vg,1); nvgStroke(vg);
+      // Crosshair
+      float cx_pos = sx + s * sw;
+      float cy_pos = sy + (1.0f - v) * sq_h;
+      nvgBeginPath(vg); nvgCircle(vg, cx_pos, cy_pos, 5.0f);
+      nvgStrokeColor(vg, nvgRGBA(255,255,255,220)); nvgStrokeWidth(vg,2); nvgStroke(vg);
+      nvgBeginPath(vg); nvgCircle(vg, cx_pos, cy_pos, 5.0f);
+      nvgStrokeColor(vg, nvgRGBA(0,0,0,100)); nvgStrokeWidth(vg,1); nvgStroke(vg);
+
+      // SV drag
+      bool in_sv = (ui->nvgw.mouse_x >= sx && ui->nvgw.mouse_x < sx+sw &&
+                    ui->nvgw.mouse_y >= sy && ui->nvgw.mouse_y < sy+sq_h);
+      if (in_sv && ui->nvgw.mouse_clicked) ui->color_picker_drag = 1;
+      if (ui->color_picker_drag == 1) {
+        if (ui->nvgw.mouse_down) {
+          s = (ui->nvgw.mouse_x - sx) / sw;
+          v = 1.0f - (ui->nvgw.mouse_y - sy) / sq_h;
+          if (s < 0) s = 0; if (s > 1) s = 1;
+          if (v < 0) v = 0; if (v > 1) v = 1;
+        } else { ui->color_picker_drag = 0; }
       }
 
-      // Close when the user clicks outside the picker window
+      // ── Hue bar ───────────────────────────────────────────────────
+      float hy = sy + sq_h + bar_gap;
+      for (int i = 0; i < 6; i++) {
+        NVGcolor c1 = nvgHSLA((float)i / 6.0f,       1.0f, 0.5f, 255);
+        NVGcolor c2 = nvgHSLA((float)(i+1) / 6.0f,   1.0f, 0.5f, 255);
+        NVGpaint hp2 = nvgLinearGradient(vg, sx + i*sw/6.0f, hy,
+                                         sx + (i+1)*sw/6.0f, hy, c1, c2);
+        nvgBeginPath(vg);
+        nvgRect(vg, sx + (float)i*sw/6.0f, hy, sw/6.0f + 1.0f, bar_h);
+        nvgFillPaint(vg, hp2); nvgFill(vg);
+      }
+      nvgBeginPath(vg); nvgRect(vg, sx, hy, sw, bar_h);
+      nvgStrokeColor(vg, nvgRGBA(0,0,0,40)); nvgStrokeWidth(vg,1); nvgStroke(vg);
+      // Hue cursor
+      float hx_pos = sx + h * sw;
+      nvgBeginPath(vg); nvgRect(vg, hx_pos - 3, hy - 2, 6, bar_h + 4);
+      nvgFillColor(vg, nvgRGBA(255,255,255,230)); nvgFill(vg);
+      nvgBeginPath(vg); nvgRect(vg, hx_pos - 3, hy - 2, 6, bar_h + 4);
+      nvgStrokeColor(vg, nvgRGBA(0,0,0,120)); nvgStrokeWidth(vg,1); nvgStroke(vg);
+
+      bool in_hue = (ui->nvgw.mouse_x >= sx && ui->nvgw.mouse_x < sx+sw &&
+                     ui->nvgw.mouse_y >= hy && ui->nvgw.mouse_y < hy+bar_h);
+      if (in_hue && ui->nvgw.mouse_clicked) ui->color_picker_drag = 2;
+      if (ui->color_picker_drag == 2) {
+        if (ui->nvgw.mouse_down) {
+          h = (ui->nvgw.mouse_x - sx) / sw;
+          if (h < 0) h = 0; if (h > 1) h = 1;
+        } else { ui->color_picker_drag = 0; }
+      }
+
+      // ── Alpha bar ─────────────────────────────────────────────────
+      float ay = hy + bar_h + bar_gap;
+      // Checkerboard hint
+      for (int i = 0; i < (int)(sw/8); i++) {
+        NVGcolor checker = (i % 2 == 0) ? nvgRGBA(200,200,200,255) : nvgRGBA(240,240,240,255);
+        nvgBeginPath(vg); nvgRect(vg, sx + i*8.0f, ay, 8.0f, bar_h);
+        nvgFillColor(vg, checker); nvgFill(vg);
+      }
+      NVGcolor cur_col = nvgHSLA(h, s, v * 0.5f + (1.0f-s)*0.5f, 255); // approximate
+      (void)cur_col;
+      NVGpaint ap = nvgLinearGradient(vg, sx, ay, sx+sw, ay,
+                      nvgRGBA(0,0,0,0),
+                      nvgHSLA(h, s, s*v*0.5f + (1.0f-s)*0.5f, 255));
+      nvgBeginPath(vg); nvgRect(vg, sx, ay, sw, bar_h);
+      nvgFillPaint(vg, ap); nvgFill(vg);
+      nvgBeginPath(vg); nvgRect(vg, sx, ay, sw, bar_h);
+      nvgStrokeColor(vg, nvgRGBA(0,0,0,40)); nvgStrokeWidth(vg,1); nvgStroke(vg);
+      float ax_pos = sx + a * sw;
+      nvgBeginPath(vg); nvgRect(vg, ax_pos - 3, ay - 2, 6, bar_h + 4);
+      nvgFillColor(vg, nvgRGBA(255,255,255,230)); nvgFill(vg);
+      nvgBeginPath(vg); nvgRect(vg, ax_pos - 3, ay - 2, 6, bar_h + 4);
+      nvgStrokeColor(vg, nvgRGBA(0,0,0,120)); nvgStrokeWidth(vg,1); nvgStroke(vg);
+
+      bool in_alpha = (ui->nvgw.mouse_x >= sx && ui->nvgw.mouse_x < sx+sw &&
+                       ui->nvgw.mouse_y >= ay && ui->nvgw.mouse_y < ay+bar_h);
+      if (in_alpha && ui->nvgw.mouse_clicked) ui->color_picker_drag = 3;
+      if (ui->color_picker_drag == 3) {
+        if (ui->nvgw.mouse_down) {
+          a = (ui->nvgw.mouse_x - sx) / sw;
+          if (a < 0) a = 0; if (a > 1) a = 1;
+        } else { ui->color_picker_drag = 0; }
+      }
+
+      // ── Color preview & old value ──────────────────────────────────
+      float preview_y = ay + bar_h + bar_gap;
+      float half_sw = sw / 2.0f - 2.0f;
+      // New color
+      NVGcolor new_col = nvgHSLA(h, s, 0.0f, (uint8_t)(a * 255.0f));
+      // Compute RGB from HSV manually (nvgHSLA is HSL not HSV)
+      {
+        float hh = h * 6.0f;
+        int   hi = (int)hh % 6;
+        float ff = hh - (float)hi;
+        float p  = v * (1.0f - s);
+        float q  = v * (1.0f - s * ff);
+        float t2 = v * (1.0f - s * (1.0f - ff));
+        float r, g, b2;
+        switch (hi) {
+          case 0: r=v; g=t2; b2=p; break;
+          case 1: r=q; g=v;  b2=p; break;
+          case 2: r=p; g=v;  b2=t2; break;
+          case 3: r=p; g=q;  b2=v; break;
+          case 4: r=t2;g=p;  b2=v; break;
+          default:r=v; g=p;  b2=q; break;
+        }
+        new_col = nvgRGBAf(r, g, b2, a);
+        // Write back to the target color
+        *cp = ((uint32_t)(r  * 255.0f) << 24) |
+              ((uint32_t)(g  * 255.0f) << 16) |
+              ((uint32_t)(b2 * 255.0f) << 8)  |
+               (uint32_t)(a  * 255.0f);
+      }
+      nvgBeginPath(vg); nvgRect(vg, sx, preview_y, half_sw, 20.0f);
+      nvgFillColor(vg, new_col); nvgFill(vg);
+      // Old color (original before drag started - use current ptr for now)
+      nvgBeginPath(vg); nvgRect(vg, sx + half_sw + 4, preview_y, half_sw, 20.0f);
+      nvgFillColor(vg, dark ? nvgRGBA(60,62,70,255) : nvgRGBA(230,230,235,255)); nvgFill(vg);
+      nvgFontSize(vg, 11.0f); nvgFontFace(vg, "Inter");
+      nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+      nvgFillColor(vg, dark ? nvgRGBA(180,182,195,255) : nvgRGBA(120,120,130,255));
+      nvgText(vg, sx + half_sw + 4 + half_sw/2.0f, preview_y + 10.0f, "original", NULL);
+
+      // Persist updated HSV
+      ui->color_picker_h = h;
+      ui->color_picker_s = s;
+      ui->color_picker_v = v;
+      ui->color_picker_a = a;
+      ui_request_redraw(ui);
+
+      // Close when clicking outside
       if (ui->nvgw.mouse_clicked) {
         if (ui->nvgw.mouse_x < px || ui->nvgw.mouse_x > px + pw ||
             ui->nvgw.mouse_y < py || ui->nvgw.mouse_y > py + ph) {
-          ui->color_picker_open = 0;
-          ui->color_picker_ptr = NULL;
+          ui->color_picker_open  = 0;
+          ui->color_picker_ptr   = NULL;
+          ui->color_picker_drag  = 0;
         }
       }
     }

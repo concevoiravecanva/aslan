@@ -503,6 +503,15 @@ typedef struct UIHost {
   uint32_t *color_picker_ptr; // pointer to the RGBA32 color being edited
   float color_picker_x;       // screen position of the picker window
   float color_picker_y;
+  float color_picker_h;       // current hue   [0..1]
+  float color_picker_s;       // current sat   [0..1]
+  float color_picker_v;       // current value [0..1]
+  float color_picker_a;       // current alpha [0..1]
+  int   color_picker_drag;    // 0=none 1=sv-square 2=hue-bar 3=alpha-bar
+
+  // Persistent text-input buffers for property panel (survives frame resets)
+  char  prop_input_bufs[20][64]; // indexed by nvgw_id(node, N) slot N
+  void *prop_input_node;         // which node owns these buffers (NULL = stale)
 
   // Layer sidebar state
   uint32_t renaming_node_id;

@@ -658,6 +658,15 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
       const float row_h = 28.0f;
       const float row_gap = 6.0f;
       char buf[64];
+      // Reset persistent input buffers when the selected node changes
+      if (ui->prop_input_node != (void *)node) {
+        memset(ui->prop_input_bufs, 0, sizeof(ui->prop_input_bufs));
+        ui->prop_input_node = (void *)node;
+      }
+      // Macro: only refresh buffer from node value when field is not focused
+#define PROP_SYNC(N, FMT, VAL) \
+      if (ui->nvgw.focus_id != nvgw_id(node, (N))) \
+        snprintf(ui->prop_input_bufs[(N)], 64, (FMT), (VAL))
       bool dark = ui->dark_mode != 0;
       NVGcolor col_section = dark ? nvgRGBA(110, 112, 128, 255) : nvgRGBA(140, 142, 158, 255);
       NVGcolor col_label   = dark ? nvgRGBA(160, 162, 178, 255) : nvgRGBA(110, 112, 130, 255);
@@ -699,41 +708,41 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
 
       // Position: X | Y
       nvgw_label(&ui->nvgw, x_ptr,              y_off, lbl_w, row_h, "X", NVG_ALIGN_LEFT, col_label, 12);
-      snprintf(buf, 64, "%.1f", node->x);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 1), x_ptr + lbl_w, y_off, half_w - lbl_w, row_h, buf, 64, 13))
-        node->x = (float)atof(buf);
+      PROP_SYNC(1, "%.1f", node->x);
+      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 1), x_ptr + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[1], 64, 13))
+        node->x = (float)atof(ui->prop_input_bufs[1]);
 
       nvgw_label(&ui->nvgw, x_ptr + half_w + 6, y_off, lbl_w, row_h, "Y", NVG_ALIGN_LEFT, col_label, 12);
-      snprintf(buf, 64, "%.1f", node->y);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 2), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, buf, 64, 13))
-        node->y = (float)atof(buf);
+      PROP_SYNC(2, "%.1f", node->y);
+      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 2), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[2], 64, 13))
+        node->y = (float)atof(ui->prop_input_bufs[2]);
       y_off += row_h + row_gap;
 
       // Size: W | H
       nvgw_label(&ui->nvgw, x_ptr,              y_off, lbl_w, row_h, "W", NVG_ALIGN_LEFT, col_label, 12);
-      snprintf(buf, 64, "%.1f", node->width);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 3), x_ptr + lbl_w, y_off, half_w - lbl_w, row_h, buf, 64, 13)) {
-        float old = node->width; node->width = (float)atof(buf);
+      PROP_SYNC(3, "%.1f", node->width);
+      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 3), x_ptr + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[3], 64, 13)) {
+        float old = node->width; node->width = (float)atof(ui->prop_input_bufs[3]);
         if (node->lock_ratio && old > 0.0f) node->height *= (node->width / old);
       }
       nvgw_label(&ui->nvgw, x_ptr + half_w + 6, y_off, lbl_w, row_h, "H", NVG_ALIGN_LEFT, col_label, 12);
-      snprintf(buf, 64, "%.1f", node->height);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 4), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, buf, 64, 13)) {
-        float old = node->height; node->height = (float)atof(buf);
+      PROP_SYNC(4, "%.1f", node->height);
+      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 4), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[4], 64, 13)) {
+        float old = node->height; node->height = (float)atof(ui->prop_input_bufs[4]);
         if (node->lock_ratio && old > 0.0f) node->width *= (node->height / old);
       }
       y_off += row_h + row_gap;
 
       // Rotation | Opacity (0-100)
       nvgw_label(&ui->nvgw, x_ptr,              y_off, lbl_w, row_h, "Rotation", NVG_ALIGN_LEFT, col_label, 12);
-      snprintf(buf, 64, "%.1f", node->rotation);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 12), x_ptr + lbl_w, y_off, half_w - lbl_w, row_h, buf, 64, 13))
-        node->rotation = (float)atof(buf);
+      PROP_SYNC(12, "%.1f", node->rotation);
+      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 12), x_ptr + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[12], 64, 13))
+        node->rotation = (float)atof(ui->prop_input_bufs[12]);
 
       nvgw_label(&ui->nvgw, x_ptr + half_w + 6, y_off, lbl_w, row_h, "Opacity", NVG_ALIGN_LEFT, col_label, 12);
-      snprintf(buf, 64, "%.0f", node->opacity * 100.0f);
-      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 13), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, buf, 64, 13)) {
-        float v = (float)atof(buf) / 100.0f;
+      PROP_SYNC(13, "%.0f", node->opacity * 100.0f);
+      if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 13), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[13], 64, 13)) {
+        float v = (float)atof(ui->prop_input_bufs[13]) / 100.0f;
         if (v < 0.0f) v = 0.0f;
         if (v > 1.0f) v = 1.0f;
         node->opacity = v;
@@ -746,14 +755,37 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
       nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 16, "STYLE", NVG_ALIGN_LEFT, col_section, 10);
       y_off += 20;
 
+      // Helper: open the floating HSV picker initialised from a uint32 RGBA field
+#define OPEN_PICKER(field_ptr, swatch_x, swatch_y) do { \
+        uint32_t _c = *(field_ptr); \
+        float _r = ((_c >> 24) & 0xFF) / 255.0f; \
+        float _g = ((_c >> 16) & 0xFF) / 255.0f; \
+        float _b = ((_c >>  8) & 0xFF) / 255.0f; \
+        float _a = ( _c        & 0xFF) / 255.0f; \
+        float _mx = _r>_g?(_r>_b?_r:_b):(_g>_b?_g:_b); \
+        float _mn = _r<_g?(_r<_b?_r:_b):(_g<_b?_g:_b); \
+        float _d  = _mx - _mn; \
+        ui->color_picker_v = _mx; \
+        ui->color_picker_s = (_mx > 0.001f) ? _d / _mx : 0.0f; \
+        if      (_d < 0.001f)  ui->color_picker_h = 0.0f; \
+        else if (_mx == _r)    ui->color_picker_h = fmodf((_g - _b) / _d / 6.0f + 1.0f, 1.0f); \
+        else if (_mx == _g)    ui->color_picker_h = ((_b - _r) / _d + 2.0f) / 6.0f; \
+        else                   ui->color_picker_h = ((_r - _g) / _d + 4.0f) / 6.0f; \
+        ui->color_picker_a    = _a; \
+        ui->color_picker_ptr  = (field_ptr); \
+        ui->color_picker_open = 1; \
+        ui->color_picker_drag = 0; \
+        ui->color_picker_x    = abs_x + (swatch_x); \
+        ui->color_picker_y    = ui->abs_offset_y + (swatch_y) + row_h + 2.0f; \
+      } while(0)
+
       // Fill color (full width swatch)
       nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Fill", NVG_ALIGN_LEFT, col_label, 13);
       {
         NVGcolor fill = nvgRGBA((node->fill_color >> 24) & 0xFF, (node->fill_color >> 16) & 0xFF,
                                 (node->fill_color >> 8) & 0xFF, node->fill_color & 0xFF);
         if (nvgw_color_picker(&ui->nvgw, nvgw_id(node, 5), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, &fill))
-          node->fill_color = ((uint32_t)(fill.r * 255.0f) << 24) | ((uint32_t)(fill.g * 255.0f) << 16)
-                            | ((uint32_t)(fill.b * 255.0f) << 8)  | (uint32_t)(fill.a * 255.0f);
+          OPEN_PICKER(&node->fill_color, x_ptr + lbl_w, y_off);
       }
       y_off += row_h + row_gap;
 
@@ -764,21 +796,20 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
                               (node->stroke_color >> 8) & 0xFF, node->stroke_color & 0xFF);
         float sw_col_w = half_w - lbl_w - 4;
         if (nvgw_color_picker(&ui->nvgw, nvgw_id(node, 6), x_ptr + lbl_w, y_off, sw_col_w, row_h, &sc))
-          node->stroke_color = ((uint32_t)(sc.r * 255.0f) << 24) | ((uint32_t)(sc.g * 255.0f) << 16)
-                              | ((uint32_t)(sc.b * 255.0f) << 8)  | (uint32_t)(sc.a * 255.0f);
-        snprintf(buf, 64, "%.1f", node->stroke_width);
+          OPEN_PICKER(&node->stroke_color, x_ptr + lbl_w, y_off);
+        PROP_SYNC(14, "%.1f", node->stroke_width);
         nvgw_label(&ui->nvgw, x_ptr + half_w + 6, y_off, lbl_w, row_h, "Width", NVG_ALIGN_LEFT, col_label, 13);
-        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 14), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, buf, 64, 13))
-          node->stroke_width = (float)atof(buf);
+        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 14), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[14], 64, 13))
+          node->stroke_width = (float)atof(ui->prop_input_bufs[14]);
       }
       y_off += row_h + row_gap;
 
       // Corner radius (only for non-line, non-text nodes)
       if (node->type != NODE_TYPE_LINE && node->type != NODE_TYPE_STROKE) {
         nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Radius", NVG_ALIGN_LEFT, col_label, 13);
-        snprintf(buf, 64, "%.1f", node->corner_radius);
-        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 7), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, buf, 64, 13))
-          node->corner_radius = (float)atof(buf);
+        PROP_SYNC(7, "%.1f", node->corner_radius);
+        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 7), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, ui->prop_input_bufs[7], 64, 13))
+          node->corner_radius = (float)atof(ui->prop_input_bufs[7]);
         y_off += row_h + row_gap;
       }
       y_off += 4;
@@ -788,10 +819,10 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         PROP_SEPARATOR();
         nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 16, "TEXT", NVG_ALIGN_LEFT, col_section, 10);
         y_off += 20;
-        snprintf(buf, 64, "%.1f", node->font_size);
+        PROP_SYNC(8, "%.1f", node->font_size);
         nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Size", NVG_ALIGN_LEFT, col_label, 13);
-        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 8), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, buf, 64, 13))
-          node->font_size = (float)atof(buf);
+        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 8), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, ui->prop_input_bufs[8], 64, 13))
+          node->font_size = (float)atof(ui->prop_input_bufs[8]);
         y_off += row_h + row_gap;
         nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Content", NVG_ALIGN_LEFT, col_label, 13);
         nvgw_text_input(&ui->nvgw, nvgw_id(node, 9), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, node->text, sizeof(node->text), 13);
@@ -827,6 +858,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
 
       (void)y_off; // suppress unused warning
 #undef PROP_SEPARATOR
+#undef OPEN_PICKER
+#undef PROP_SYNC
       } // end properties block
     } // end selected_node
   } else if (ui->design_bottom_tab == 1) {
@@ -859,9 +892,31 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
     y_p += 14;
     nvgw_label(&ui->nvgw, x_p, y_p, w_p, 16, "BACKGROUND", NVG_ALIGN_LEFT, col_s, 10);
     y_p += 20;
-    NVGcolor bgc = nvgRGBA((dd->bg_color >> 24) & 0xFF, (dd->bg_color >> 16) & 0xFF, (dd->bg_color >> 8) & 0xFF, dd->bg_color & 0xFF);
-    if (nvgw_color_picker(&ui->nvgw, nvgw_id_str("PgBG"), x_p, y_p, w_p, 28, &bgc)) {
-      dd->bg_color = ((uint32_t)(bgc.r * 255.0f) << 24) | ((uint32_t)(bgc.g * 255.0f) << 16) | ((uint32_t)(bgc.b * 255.0f) << 8) | (uint32_t)(bgc.a * 255.0f);
+    uint32_t _pg_bg = dd->pages[dd->current_page].bg_color;
+    NVGcolor bgc = nvgRGBA((_pg_bg >> 24) & 0xFF, (_pg_bg >> 16) & 0xFF, (_pg_bg >> 8) & 0xFF, _pg_bg & 0xFF);
+    {
+      const float _rh = 28.0f;
+#define OPEN_PICKER_PAGE(field_ptr, swatch_x, swatch_y) do { \
+        uint32_t _c = *(field_ptr); \
+        float _r2 = ((_c >> 24) & 0xFF) / 255.0f, _g2 = ((_c >> 16) & 0xFF) / 255.0f; \
+        float _b2 = ((_c >>  8) & 0xFF) / 255.0f, _a2 = ( _c        & 0xFF) / 255.0f; \
+        float _mx2=_r2>_g2?(_r2>_b2?_r2:_b2):(_g2>_b2?_g2:_b2); \
+        float _mn2=_r2<_g2?(_r2<_b2?_r2:_b2):(_g2<_b2?_g2:_b2); \
+        float _d2=_mx2-_mn2; \
+        ui->color_picker_v=_mx2; \
+        ui->color_picker_s=(_mx2>0.001f)?_d2/_mx2:0.0f; \
+        if      (_d2<0.001f)   ui->color_picker_h=0.0f; \
+        else if (_mx2==_r2)    ui->color_picker_h=fmodf((_g2-_b2)/_d2/6.0f+1.0f,1.0f); \
+        else if (_mx2==_g2)    ui->color_picker_h=((_b2-_r2)/_d2+2.0f)/6.0f; \
+        else                   ui->color_picker_h=((_r2-_g2)/_d2+4.0f)/6.0f; \
+        ui->color_picker_a=_a2; ui->color_picker_ptr=(field_ptr); \
+        ui->color_picker_open=1; ui->color_picker_drag=0; \
+        ui->color_picker_x=abs_x+(swatch_x); \
+        ui->color_picker_y=ui->abs_offset_y+(swatch_y)+_rh+2.0f; \
+      } while(0)
+      if (nvgw_color_picker(&ui->nvgw, nvgw_id_str("PgBG"), x_p, y_p, w_p, _rh, &bgc))
+        OPEN_PICKER_PAGE(&dd->pages[dd->current_page].bg_color, x_p, y_p);
+#undef OPEN_PICKER_PAGE
     }
     (void)y_p;
   }
