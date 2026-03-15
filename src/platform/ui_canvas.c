@@ -304,12 +304,6 @@ int canvas_point_in_toolbar(float bx, float by, float bw, float bh,
 // Canvas Helper: Render floating toolbar (Apple Freeform style)
 // -----------------------------------------------------------------------------
 
-// Check if tool is a form tool
-int is_form_tool(CanvasToolMode tool) {
-  return tool == CANVAS_TOOL_FORM_RECT || tool == CANVAS_TOOL_FORM_ELLIPSE ||
-         tool == CANVAS_TOOL_FORM_TRIANGLE || tool == CANVAS_TOOL_FORM_LINE;
-}
-
 void canvas_render_sub_menu(UIHost *ui, float x, float y, CanvasCategory cat) {
   CanvasInteraction *cs = &ui->canvas_state;
   const float item_h = 32.0f;
@@ -487,37 +481,6 @@ static const char *node_type_display_name(NodeType type) {
   }
 }
 
-// Helper: get icon for node type
-static const char *node_type_icon(Node *node) {
-  switch (node->type) {
-  case NODE_TYPE_RECT:
-    return "\xEE\xBD\xB5"; // ri-rectangle-line (U+EF75)
-  case NODE_TYPE_ELLIPSE:
-    return "\xEE\xA6\xB1"; // ri-circle-line (U+E9B1)
-  case NODE_TYPE_TRIANGLE:
-    return "\xEF\x82\x98"; // ri-triangle-line (U+F098)
-  case NODE_TYPE_TEXT:
-    return ICON_TEXT;
-  case NODE_TYPE_IMAGE:
-    return ICON_IMAGE;
-  case NODE_TYPE_LINE:
-    return "\xEE\xBC\xAE"; // ri-separator (U+EF2E)
-  case NODE_TYPE_PATH:
-    return ICON_MAGIC;
-  case NODE_TYPE_STROKE:
-    return (node->stroke_data && node->stroke_data->type == STROKE_TYPE_MARKER)
-               ? ICON_MARKER
-               : ICON_BRUSH;
-  case NODE_TYPE_CHART:
-    return ICON_CHART;
-  case NODE_TYPE_FRAME:
-    return ICON_CANVAS;
-  case NODE_TYPE_GROUP:
-    return ICON_DESIGN;
-  default:
-    return ICON_SHAPE;
-  }
-}
 
 static void ui_render_layer_item(UIHost *ui, Block *block, Node *node,
                                  int depth, float x, float *cy, float w) {

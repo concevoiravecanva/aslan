@@ -53,8 +53,6 @@ Node *design_find_node_at(DesignData *dd, float world_x, float world_y);
 
 void recursive_convert_to_path(Node *node);
 
-int is_form_tool(CanvasToolMode tool);
-
 // -----------------------------------------------------------------------------
 // Test Function
 // -----------------------------------------------------------------------------
