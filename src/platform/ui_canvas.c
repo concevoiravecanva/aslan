@@ -560,6 +560,61 @@ static void ui_render_layer_item(UIHost *ui, Block *block, Node *node,
 
   if (is_hovered && nvgw->mouse_clicked) {
     ui->selected_node = node;
+    // Start drag
+    ui->sidebar_drag_node_id = node->id;
+    ui->sidebar_drag_started = 0;
+  }
+
+  // Track drag movement
+  if (ui->sidebar_drag_node_id == node->id && nvgw->mouse_down && !nvgw->mouse_clicked) {
+    ui->sidebar_drag_started = 1;
+  }
+
+  // During drag: check if mouse is over this row to mark as drop target
+  int is_drag_active = (ui->sidebar_drag_started &&
+                        ui->sidebar_drag_node_id != 0 &&
+                        ui->sidebar_drag_node_id != node->id);
+  if (is_drag_active && is_hovered) {
+    ui->sidebar_drop_target_id = node->id;
+    ui->sidebar_drag_drop_above = (lmy < current_y + row_h * 0.5f) ? 1 : 0;
+  }
+
+  // Draw drop indicator line
+  int is_drop_target = (ui->sidebar_drop_target_id == node->id && is_drag_active);
+  if (is_drop_target) {
+    float line_y = ui->sidebar_drag_drop_above
+                       ? current_y
+                       : current_y + row_h;
+    nvgBeginPath(ui->vg);
+    nvgMoveTo(ui->vg, x + 4, line_y);
+    nvgLineTo(ui->vg, x + w - 4, line_y);
+    nvgStrokeColor(ui->vg, nvgRGB(60, 110, 180));
+    nvgStrokeWidth(ui->vg, 2.0f);
+    nvgStroke(ui->vg);
+  }
+
+  // On release: perform reorder
+  if (ui->sidebar_drag_node_id == node->id && nvgw->mouse_released) {
+    if (ui->sidebar_drag_started && ui->sidebar_drop_target_id != 0 &&
+        ui->sidebar_drop_target_id != node->id) {
+      // find target node from block
+      Node *root2 = (block->type == BLOCK_DESIGN) ? block->data.design.root : NULL;
+      if (root2) {
+        Node *target = NULL;
+        for (Node *n = root2->first_child; n; n = n->next_sibling) {
+          if (n->id == ui->sidebar_drop_target_id) { target = n; break; }
+        }
+        if (target) {
+          if (ui->sidebar_drag_drop_above)
+            node_insert_before(node, target);
+          else
+            node_insert_after(node, target);
+        }
+      }
+    }
+    ui->sidebar_drag_node_id = 0;
+    ui->sidebar_drag_started = 0;
+    ui->sidebar_drop_target_id = 0;
   }
 
   float cur_x = x + indent_w;
@@ -574,12 +629,6 @@ static void ui_render_layer_item(UIHost *ui, Block *block, Node *node,
     }
   }
   cur_x += 16.0f;
-
-  // Type icon
-  nvgw_label(nvgw, cur_x, current_y, 24, row_h, node_type_icon(node),
-             NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE,
-             is_selected ? nvgRGB(60, 110, 180) : nvgRGB(110, 110, 125), 16);
-  cur_x += 24.0f;
 
   // Name
   float name_w =
@@ -645,6 +694,10 @@ void ui_render_sidebar_layers(UIHost *ui, Block *block, float x, float y,
     return;
 
   ui->hovered_node_id = 0;
+
+  // Reset drop target each frame so it tracks current mouse position
+  if (ui->sidebar_drag_started)
+    ui->sidebar_drop_target_id = 0;
 
   Node *nodes[256];
   int count = 0;

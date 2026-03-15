@@ -522,6 +522,7 @@ typedef struct UIHost {
   uint32_t sidebar_drop_target_id;
   uint32_t hovered_node_id;
   int sidebar_drag_started;
+  int sidebar_drag_drop_above; // 1 = insert before target, 0 = insert after
 
   // Sidebar state: 0=Properties/Layers, 1=Shape Selection
   int sidebar_mode;
