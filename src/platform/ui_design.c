@@ -810,6 +810,66 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         ui->color_picker_y    = ui->abs_offset_y + (swatch_y) + row_h + 2.0f; \
       } while(0)
 
+      // Shape type switcher (only for geometric shape nodes)
+      {
+        int is_shape = (node->type == NODE_TYPE_RECT     ||
+                        node->type == NODE_TYPE_ELLIPSE  ||
+                        node->type == NODE_TYPE_TRIANGLE ||
+                        node->type == NODE_TYPE_PENTAGON ||
+                        node->type == NODE_TYPE_HEXAGON  ||
+                        node->type == NODE_TYPE_OCTAGON  ||
+                        node->type == NODE_TYPE_STAR     ||
+                        node->type == NODE_TYPE_HEART);
+        if (is_shape) {
+          nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 14, "Shape", NVG_ALIGN_LEFT, col_label, 11);
+          y_off += 18;
+
+          static const struct { NodeType type; const char *label; } shapes[] = {
+            { NODE_TYPE_RECT,     "Rect"     },
+            { NODE_TYPE_ELLIPSE,  "Circle"   },
+            { NODE_TYPE_TRIANGLE, "Triangle" },
+            { NODE_TYPE_PENTAGON, "Pentagon" },
+            { NODE_TYPE_HEXAGON,  "Hexagon"  },
+            { NODE_TYPE_OCTAGON,  "Octagon"  },
+            { NODE_TYPE_STAR,     "Star"     },
+            { NODE_TYPE_HEART,    "Heart"    },
+          };
+          const int n_shapes = 8;
+          const int sh_cols = 4;
+          const float sh_gap = 4.0f;
+          float sh_btn_w = (w_ptr - (sh_cols - 1) * sh_gap) / sh_cols;
+          float sh_btn_h = 24.0f;
+
+          for (int si = 0; si < n_shapes; si++) {
+            int r = si / sh_cols, c = si % sh_cols;
+            float bx = x_ptr + c * (sh_btn_w + sh_gap);
+            float by = y_off + r * (sh_btn_h + sh_gap);
+            bool active = (node->type == shapes[si].type);
+            float mx = ui->nvgw.mouse_x - ui->nvgw.offset_x;
+            float my = ui->nvgw.mouse_y - ui->nvgw.offset_y;
+            bool hov = mx >= bx && mx < bx+sh_btn_w && my >= by && my < by+sh_btn_h;
+            NVGcolor bg = active
+              ? nvgRGBA(60,120,220,255)
+              : (hov ? (dark ? nvgRGBA(60,62,74,255) : nvgRGBA(210,212,222,255))
+                     : (dark ? nvgRGBA(45,47,57,255) : nvgRGBA(225,226,234,255)));
+            NVGcolor fg = active
+              ? nvgRGBA(255,255,255,255)
+              : (dark ? nvgRGBA(180,182,196,255) : nvgRGBA(55,57,75,255));
+            nvgBeginPath(vg); nvgRoundedRect(vg, bx, by, sh_btn_w, sh_btn_h, 5.0f);
+            nvgFillColor(vg, bg); nvgFill(vg);
+            nvgFontSize(vg, 11.0f); nvgFontFaceId(vg, ui->nvgw.font_main);
+            nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+            nvgFillColor(vg, fg);
+            nvgText(vg, bx + sh_btn_w * 0.5f, by + sh_btn_h * 0.5f, shapes[si].label, NULL);
+            if (hov && ui->nvgw.mouse_clicked) {
+              node->type = shapes[si].type;
+              ui_request_redraw(ui);
+            }
+          }
+          y_off += (n_shapes / sh_cols) * (sh_btn_h + sh_gap) + 4.0f;
+        }
+      }
+
       // Fill color + gradient toggle
       nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Fill", NVG_ALIGN_LEFT, col_label, 13);
       {
