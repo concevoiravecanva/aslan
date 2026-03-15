@@ -270,14 +270,20 @@ typedef struct {
 // --- Chart Block Data (Data-Driven) ---
 
 typedef enum {
-  CHART_BAR = 0,   // Vertical bars
-  CHART_LINE,      // Line with dots
-  CHART_PIE,       // Pie slices
-  CHART_GANTT,     // Horizontal Gantt bars (DATE + DURATION columns)
-  CHART_DONUT,     // Donut (pie with hole)
-  CHART_AREA,      // Filled area under line
-  CHART_HBAR,      // Horizontal bars
-  CHART_SCATTER    // Scatter plot (label_col = X, value_col = Y)
+  CHART_BAR = 0,    // Vertical bars
+  CHART_LINE,       // Line with dots
+  CHART_PIE,        // Pie slices
+  CHART_GANTT,      // Horizontal Gantt bars (DATE + DURATION columns)
+  CHART_DONUT,      // Donut (pie with hole)
+  CHART_AREA,       // Filled area under line
+  CHART_HBAR,       // Horizontal bars
+  CHART_SCATTER,    // Scatter plot (label_col = X, value_col = Y)
+  CHART_STACKED_BAR, // Stacked vertical bars (3 series)
+  CHART_WATERFALL,   // Cumulative waterfall (increments)
+  CHART_RADAR,       // Spider/radar polygon chart
+  CHART_FUNNEL,      // Funnel / conversion chart
+  CHART_KANBAN,      // Kanban board (3 columns: To Do / In Progress / Done)
+  CHART_TODO         // Task list with checkboxes and progress bar
 } ChartType;
 
 struct ChartData {

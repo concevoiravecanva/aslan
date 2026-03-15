@@ -851,15 +851,21 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         PROP_SEPARATOR();
         nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 16, "CHART", NVG_ALIGN_LEFT, col_section, 10);
         y_off += 20;
-        // 4×2 grid of chart type buttons
+        // 4×4 grid of chart / view type buttons
         {
-          static const char *ct_labels[] = {"Bar","Line","Pie","Gantt","Donut","Area","H-Bar","Scatter"};
-          const int n_cols = 4;
+          static const char *ct_labels[] = {
+            "Bar","Line","Pie","Gantt",
+            "Donut","Area","H-Bar","Scatter",
+            "Stacked","Waterfall","Radar","Funnel",
+            "Kanban","To Do"
+          };
+          const int n_types = 14;
+          const int n_cols  = 4;
           const float btn_h = 26.0f;
           const float gap   = 4.0f;
           float btn_w = (w_ptr - gap * (n_cols - 1)) / n_cols;
           NVGcontext *vg2 = ui->vg;
-          for (int ti = 0; ti < 8; ti++) {
+          for (int ti = 0; ti < n_types; ti++) {
             int col = ti % n_cols;
             int row2 = ti / n_cols;
             float bx = x_ptr + col * (btn_w + gap);
@@ -889,7 +895,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
             if (hov && ui->nvgw.mouse_clicked)
               cd->type = (ChartType)ti;
           }
-          y_off += 2 * btn_h + gap + row_gap;
+          y_off += 4 * btn_h + 3*gap + row_gap;
         }
       }
 
