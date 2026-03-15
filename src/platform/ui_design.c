@@ -943,93 +943,103 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
             }
             y_off += row_h + row_gap;
           }
+
+          // Lock ratio toggle
+          {
+            nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Ratio", NVG_ALIGN_LEFT, col_label, 13);
+            bool locked = (node->lock_ratio == 1);
+            const float tog_w = 52.0f;
+            float tog_x = x_ptr + lbl_w;
+            float mx = ui->nvgw.mouse_x - ui->nvgw.offset_x;
+            float my = ui->nvgw.mouse_y - ui->nvgw.offset_y;
+            NVGcolor tog_bg = locked ? nvgRGBA(60,120,220,255)
+                                     : (dark ? nvgRGBA(50,52,62,255) : nvgRGBA(222,224,232,255));
+            NVGcolor tog_fg = locked ? nvgRGBA(255,255,255,255)
+                                     : (dark ? nvgRGBA(150,152,168,255) : nvgRGBA(90,92,110,255));
+            nvgBeginPath(vg); nvgRoundedRect(vg, tog_x, y_off, tog_w, row_h, 4.0f);
+            nvgFillColor(vg, tog_bg); nvgFill(vg);
+            nvgFontSize(vg, 11.0f); nvgFontFaceId(vg, ui->nvgw.font_main);
+            nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+            nvgFillColor(vg, tog_fg);
+            nvgText(vg, tog_x + tog_w * 0.5f, y_off + row_h * 0.5f, locked ? "Locked" : "Free", NULL);
+            bool hov_tog = mx >= tog_x && mx < tog_x+tog_w && my >= y_off && my < y_off+row_h;
+            if (hov_tog && ui->nvgw.mouse_clicked) {
+              node->lock_ratio = locked ? 0 : 1;
+              ui_request_redraw(ui);
+            }
+            y_off += row_h + row_gap;
+          }
         }
       }
 
-      // Fill color + gradient toggle
-      nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Fill", NVG_ALIGN_LEFT, col_label, 13);
+      // Fill [swatch][Grad]  |  Radius [input]  — single row
       {
-        const float tog_w = 40.0f, tog_gap = 4.0f;
-        float swatch_w = w_ptr - lbl_w - tog_w - tog_gap;
-        // Swatch color 1
-        NVGcolor fill = nvgRGBA((node->fill_color >> 24) & 0xFF, (node->fill_color >> 16) & 0xFF,
-                                (node->fill_color >> 8) & 0xFF, node->fill_color & 0xFF);
-        if (nvgw_color_picker(&ui->nvgw, nvgw_id(node, 5), x_ptr + lbl_w, y_off, swatch_w, row_h, &fill))
-          OPEN_PICKER(&node->fill_color, x_ptr + lbl_w, y_off);
-        // "Grad" toggle button
+        const float fl = 36.0f;  // "Fill" label width
+        const float gr = 38.0f;  // "Grad" button width
+        const float rl = 36.0f;  // "Rad" label width
+        const float gap4 = 4.0f;
+        float fill_sw = half_w - fl - gap4 - gr;   // swatch width
+        float rad_inp = half_w - rl - 6.0f;        // radius input width
+
+        // Fill label + swatch
+        nvgw_label(&ui->nvgw, x_ptr, y_off, fl, row_h, "Fill", NVG_ALIGN_LEFT, col_label, 13);
+        NVGcolor fill_col = nvgRGBA((node->fill_color >> 24) & 0xFF, (node->fill_color >> 16) & 0xFF,
+                                    (node->fill_color >> 8) & 0xFF, node->fill_color & 0xFF);
+        if (nvgw_color_picker(&ui->nvgw, nvgw_id(node, 5), x_ptr + fl, y_off, fill_sw, row_h, &fill_col))
+          OPEN_PICKER(&node->fill_color, x_ptr + fl, y_off);
+
+        // Grad toggle
         bool grad_on = (node->fill_type == 1);
-        float btn_x  = x_ptr + lbl_w + swatch_w + tog_gap;
-        NVGcolor btn_bg = grad_on
-          ? nvgRGBA(60,120,220,255)
-          : (dark ? nvgRGBA(50,52,62,255) : nvgRGBA(222,224,232,255));
-        NVGcolor btn_fg = grad_on
-          ? nvgRGBA(255,255,255,255)
-          : (dark ? nvgRGBA(150,152,168,255) : nvgRGBA(90,92,110,255));
-        nvgBeginPath(vg); nvgRoundedRect(vg, btn_x, y_off, tog_w, row_h, 4.0f);
-        nvgFillColor(vg, btn_bg); nvgFill(vg);
+        float gx = x_ptr + fl + fill_sw + gap4;
+        NVGcolor gbg = grad_on ? nvgRGBA(60,120,220,255) : (dark ? nvgRGBA(50,52,62,255) : nvgRGBA(222,224,232,255));
+        NVGcolor gfg = grad_on ? nvgRGBA(255,255,255,255) : (dark ? nvgRGBA(150,152,168,255) : nvgRGBA(90,92,110,255));
+        nvgBeginPath(vg); nvgRoundedRect(vg, gx, y_off, gr, row_h, 4.0f);
+        nvgFillColor(vg, gbg); nvgFill(vg);
         nvgFontSize(vg, 11.0f); nvgFontFaceId(vg, ui->nvgw.font_main);
         nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
-        nvgFillColor(vg, btn_fg);
-        nvgText(vg, btn_x + tog_w * 0.5f, y_off + row_h * 0.5f, "Grad", NULL);
-        float _mx = ui->nvgw.mouse_x - ui->nvgw.offset_x;
-        float _my = ui->nvgw.mouse_y - ui->nvgw.offset_y;
-        bool hov_tog = _mx >= btn_x && _mx < btn_x+tog_w && _my >= y_off && _my < y_off+row_h;
-        if (hov_tog && ui->nvgw.mouse_clicked) {
-          node->fill_type = grad_on ? 0 : 1;
-          if (node->fill_type == 1 && node->fill_color_2 == 0)
-            node->fill_color_2 = 0xFFFFFFFF;
-          ui_request_redraw(ui);
-        }
-      }
-      y_off += row_h + row_gap;
-
-      // Gradient: color 2 + angle (only when active)
-      if (node->fill_type == 1) {
-        nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Color 2", NVG_ALIGN_LEFT, col_label, 12);
+        nvgFillColor(vg, gfg);
+        nvgText(vg, gx + gr * 0.5f, y_off + row_h * 0.5f, "Grad", NULL);
         {
-          float sw2 = half_w - lbl_w - 3;
-          NVGcolor c2 = nvgRGBA((node->fill_color_2 >> 24) & 0xFF,
-                                (node->fill_color_2 >> 16) & 0xFF,
-                                (node->fill_color_2 >> 8)  & 0xFF,
-                                 node->fill_color_2        & 0xFF);
-          if (nvgw_color_picker(&ui->nvgw, nvgw_id(node, 19), x_ptr + lbl_w, y_off, sw2, row_h, &c2))
-            OPEN_PICKER(&node->fill_color_2, x_ptr + lbl_w, y_off);
-          // Angle
-          const float albl = 36.0f;
-          float ax = x_ptr + half_w + 6;
-          nvgw_label(&ui->nvgw, ax, y_off, albl, row_h, "Angle", NVG_ALIGN_LEFT, col_label, 12);
-          PROP_SYNC(15, "%.0f", node->gradient_angle);
-          if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 15), ax + albl, y_off,
-                              half_w - albl, row_h, ui->prop_input_bufs[15], 64, 12, true))
-            node->gradient_angle = (float)atof(ui->prop_input_bufs[15]);
+          float _mx = ui->nvgw.mouse_x - ui->nvgw.offset_x;
+          float _my = ui->nvgw.mouse_y - ui->nvgw.offset_y;
+          if (_mx >= gx && _mx < gx+gr && _my >= y_off && _my < y_off+row_h && ui->nvgw.mouse_clicked) {
+            node->fill_type = grad_on ? 0 : 1;
+            if (node->fill_type == 1 && node->fill_color_2 == 0) node->fill_color_2 = 0xFFFFFFFF;
+            ui_request_redraw(ui);
+          }
         }
-        y_off += row_h + row_gap;
-      }
 
-      // Stroke color | stroke width
-      nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Stroke", NVG_ALIGN_LEFT, col_label, 13);
-      {
-        NVGcolor sc = nvgRGBA((node->stroke_color >> 24) & 0xFF, (node->stroke_color >> 16) & 0xFF,
-                              (node->stroke_color >> 8) & 0xFF, node->stroke_color & 0xFF);
-        float sw_col_w = half_w - lbl_w - 4;
-        if (nvgw_color_picker(&ui->nvgw, nvgw_id(node, 6), x_ptr + lbl_w, y_off, sw_col_w, row_h, &sc))
-          OPEN_PICKER(&node->stroke_color, x_ptr + lbl_w, y_off);
-        PROP_SYNC(14, "%.1f", node->stroke_width);
-        nvgw_label(&ui->nvgw, x_ptr + half_w + 6, y_off, lbl_w, row_h, "Width", NVG_ALIGN_LEFT, col_label, 13);
-        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 14), x_ptr + half_w + 6 + lbl_w, y_off, half_w - lbl_w, row_h, ui->prop_input_bufs[14], 64, 13, true))
-          node->stroke_width = (float)atof(ui->prop_input_bufs[14]);
+        // Radius (right half) — only for non-line nodes
+        if (node->type != NODE_TYPE_LINE && node->type != NODE_TYPE_STROKE) {
+          float rx = x_ptr + half_w + 6;
+          nvgw_label(&ui->nvgw, rx, y_off, rl, row_h, "Radius", NVG_ALIGN_LEFT, col_label, 12);
+          PROP_SYNC(7, "%.1f", node->corner_radius);
+          if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 7), rx + rl, y_off, rad_inp, row_h,
+                              ui->prop_input_bufs[7], 64, 12, true))
+            node->corner_radius = (float)atof(ui->prop_input_bufs[7]);
+        }
       }
       y_off += row_h + row_gap;
 
-      // Corner radius (only for non-line, non-text nodes)
-      if (node->type != NODE_TYPE_LINE && node->type != NODE_TYPE_STROKE) {
-        nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Radius", NVG_ALIGN_LEFT, col_label, 13);
-        PROP_SYNC(7, "%.1f", node->corner_radius);
-        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 7), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, ui->prop_input_bufs[7], 64, 13, true))
-          node->corner_radius = (float)atof(ui->prop_input_bufs[7]);
+      // Gradient row: Color 2 | Angle (only when gradient active)
+      if (node->fill_type == 1) {
+        const float c2l = 42.0f;
+        float sw2 = half_w - c2l - 3;
+        nvgw_label(&ui->nvgw, x_ptr, y_off, c2l, row_h, "Color 2", NVG_ALIGN_LEFT, col_label, 12);
+        NVGcolor c2 = nvgRGBA((node->fill_color_2 >> 24) & 0xFF, (node->fill_color_2 >> 16) & 0xFF,
+                              (node->fill_color_2 >> 8) & 0xFF, node->fill_color_2 & 0xFF);
+        if (nvgw_color_picker(&ui->nvgw, nvgw_id(node, 19), x_ptr + c2l, y_off, sw2, row_h, &c2))
+          OPEN_PICKER(&node->fill_color_2, x_ptr + c2l, y_off);
+        float ax = x_ptr + half_w + 6;
+        const float albl = 38.0f;
+        nvgw_label(&ui->nvgw, ax, y_off, albl, row_h, "Angle", NVG_ALIGN_LEFT, col_label, 12);
+        PROP_SYNC(15, "%.0f", node->gradient_angle);
+        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 15), ax + albl, y_off,
+                            half_w - albl - 6, row_h, ui->prop_input_bufs[15], 64, 12, true))
+          node->gradient_angle = (float)atof(ui->prop_input_bufs[15]);
         y_off += row_h + row_gap;
       }
-      y_off += 4;
+      y_off += 2;
 
       } // end if not chart
 
