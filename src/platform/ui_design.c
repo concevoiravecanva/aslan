@@ -65,7 +65,7 @@ typedef struct { float x, y; } AslanVec2;
 static void fill_rounded_polygon(UIHost *ui, const AslanVec2 *points,
                                  int count, float radius, NVGcolor col,
                                  int is_stroke, float thickness,
-                                 NVGpaint *grad) {
+                                 NVGpaint *grad, NVGpaint *img_paint) {
   if (count < 3)
     return;
   float out_pts[1024]; // max 512 points for rounded version
@@ -159,6 +159,9 @@ static void fill_rounded_polygon(UIHost *ui, const AslanVec2 *points,
     nvgStrokeColor(ui->vg, col);
     nvgStrokeWidth(ui->vg, thickness);
     nvgStroke(ui->vg);
+  } else if (img_paint) {
+    nvgFillPaint(ui->vg, *img_paint);
+    nvgFill(ui->vg);
   } else if (grad) {
     nvgFillPaint(ui->vg, *grad);
     nvgFill(ui->vg);
@@ -679,6 +682,25 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
       nvgText(vg, width * 0.5f, cy + 60.0f, "No element selected", NULL);
     } else {
       Node *node = ui->selected_node;
+      // Reset scroll when selected node changes
+      if (ui->prop_input_node != (void *)node)
+        ui->prop_scroll_y = 0.0f;
+      // Handle scroll wheel inside Properties panel
+      {
+        float _mx = ui->nvgw.mouse_x - ui->nvgw.offset_x;
+        float _my = ui->nvgw.mouse_y - ui->nvgw.offset_y;
+        bool in_panel = _mx >= 0 && _mx < width && _my >= cy && _my < height;
+        if (in_panel && ui->nvgw.scroll_y != 0.0f) {
+          ui->prop_scroll_y -= ui->nvgw.scroll_y * 22.0f;
+          if (ui->prop_scroll_y < 0.0f) ui->prop_scroll_y = 0.0f;
+          ui_request_redraw(ui);
+        }
+      }
+      // Apply scissor to clip panel content to panel area
+      nvgScissor(vg, 0, cy, width, height - cy);
+      nvgSave(vg);
+      nvgTranslate(vg, 0, -ui->prop_scroll_y);
+      nvgw_set_offset(&ui->nvgw, ui->nvgw.offset_x, ui->abs_offset_y - ui->prop_scroll_y);
       {
       float y_off = cy + 4.0f;
       float x_ptr = cx;
@@ -818,8 +840,7 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
                         node->type == NODE_TYPE_PENTAGON ||
                         node->type == NODE_TYPE_HEXAGON  ||
                         node->type == NODE_TYPE_OCTAGON  ||
-                        node->type == NODE_TYPE_STAR     ||
-                        node->type == NODE_TYPE_HEART);
+                        node->type == NODE_TYPE_STAR);
         if (is_shape) {
           nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 14, "Shape", NVG_ALIGN_LEFT, col_label, 11);
           y_off += 18;
@@ -832,9 +853,8 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
             { NODE_TYPE_HEXAGON,  "Hexagon"  },
             { NODE_TYPE_OCTAGON,  "Octagon"  },
             { NODE_TYPE_STAR,     "Star"     },
-            { NODE_TYPE_HEART,    "Heart"    },
           };
-          const int n_shapes = 8;
+          const int n_shapes = 7;
           const int sh_cols = 4;
           const float sh_gap = 4.0f;
           float sh_btn_w = (w_ptr - (sh_cols - 1) * sh_gap) / sh_cols;
@@ -866,7 +886,63 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
               ui_request_redraw(ui);
             }
           }
-          y_off += (n_shapes / sh_cols) * (sh_btn_h + sh_gap) + 4.0f;
+          int sh_rows = (n_shapes + sh_cols - 1) / sh_cols;
+          y_off += sh_rows * (sh_btn_h + sh_gap) + 4.0f;
+
+          // Image container toggle + info
+          {
+            const float tog_w = 52.0f;
+            bool img_on = (node->is_container == 1);
+            float mx = ui->nvgw.mouse_x - ui->nvgw.offset_x;
+            float my = ui->nvgw.mouse_y - ui->nvgw.offset_y;
+            // Label
+            nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Image", NVG_ALIGN_LEFT, col_label, 13);
+            // Toggle button
+            float tog_x = x_ptr + lbl_w;
+            NVGcolor tog_bg = img_on ? nvgRGBA(60,120,220,255)
+                                     : (dark ? nvgRGBA(50,52,62,255) : nvgRGBA(222,224,232,255));
+            NVGcolor tog_fg = img_on ? nvgRGBA(255,255,255,255)
+                                     : (dark ? nvgRGBA(150,152,168,255) : nvgRGBA(90,92,110,255));
+            nvgBeginPath(vg); nvgRoundedRect(vg, tog_x, y_off, tog_w, row_h, 4.0f);
+            nvgFillColor(vg, tog_bg); nvgFill(vg);
+            nvgFontSize(vg, 11.0f); nvgFontFaceId(vg, ui->nvgw.font_main);
+            nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+            nvgFillColor(vg, tog_fg);
+            nvgText(vg, tog_x + tog_w * 0.5f, y_off + row_h * 0.5f, img_on ? "On" : "Off", NULL);
+            bool hov_tog = mx >= tog_x && mx < tog_x+tog_w && my >= y_off && my < y_off+row_h;
+            if (hov_tog && ui->nvgw.mouse_clicked) {
+              node->is_container = img_on ? 0 : 1;
+              if (!node->is_container) node->image_path[0] = '\0';
+              ui_request_redraw(ui);
+            }
+            // When active: show filename + clear button
+            if (img_on && node->image_path[0]) {
+              float clr_w = 22.0f, clr_x = x_ptr + w_ptr - clr_w;
+              // Filename (truncated)
+              const char *fname = node->image_path;
+              const char *slash = strrchr(fname, '/');
+              if (slash) fname = slash + 1;
+              nvgFontSize(vg, 11.0f); nvgFontFaceId(vg, ui->nvgw.font_main);
+              nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
+              nvgFillColor(vg, dark ? nvgRGBA(160,162,180,255) : nvgRGBA(80,82,100,255));
+              nvgScissor(vg, tog_x + tog_w + 4, y_off, clr_x - tog_x - tog_w - 8, row_h);
+              nvgText(vg, tog_x + tog_w + 6, y_off + row_h * 0.5f, fname, NULL);
+              nvgResetScissor(vg);
+              // Clear (×) button
+              bool hov_clr = mx >= clr_x && mx < clr_x+clr_w && my >= y_off && my < y_off+row_h;
+              NVGcolor clr_bg = hov_clr ? nvgRGBA(200,60,60,255) : (dark ? nvgRGBA(70,40,40,255) : nvgRGBA(240,220,220,255));
+              nvgBeginPath(vg); nvgRoundedRect(vg, clr_x, y_off, clr_w, row_h, 4.0f);
+              nvgFillColor(vg, clr_bg); nvgFill(vg);
+              nvgFontSize(vg, 13.0f); nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+              nvgFillColor(vg, nvgRGBA(220,80,80,255));
+              nvgText(vg, clr_x + clr_w * 0.5f, y_off + row_h * 0.5f, "×", NULL);
+              if (hov_clr && ui->nvgw.mouse_clicked) {
+                node->image_path[0] = '\0';
+                ui_request_redraw(ui);
+              }
+            }
+            y_off += row_h + row_gap;
+          }
         }
       }
 
@@ -1044,6 +1120,10 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
 #undef OPEN_PICKER
 #undef PROP_SYNC
       } // end properties block
+      nvgRestore(vg);
+      nvgResetScissor(vg);
+      // Restore nvgw offset
+      nvgw_set_offset(&ui->nvgw, ui->nvgw.offset_x, ui->abs_offset_y);
     } // end selected_node
   } else if (ui->design_bottom_tab == 1) {
     // ── Layers ────────────────────────────────────────────────────
@@ -1285,16 +1365,19 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
     gp = &node_grad_paint;
   }
 
+  // Precompute image paint for container shapes (used per shape type below)
+  NVGpaint node_img_paint;
+  NVGpaint *ip = NULL;
   if (node->is_container && node->image_path[0]) {
-    int img = get_image_texture(ui, node->image_path);
-    if (img != 0) {
-      NVGpaint imgPaint = nvgImagePattern(ui->vg, nr.x, nr.y, nr.w, nr.h, 0.0f,
-                                          img, 1.0f);
-      nvgBeginPath(ui->vg);
-      nvgRect(ui->vg, nr.x, nr.y, nr.w, nr.h);
-      nvgFillPaint(ui->vg, imgPaint);
-      nvgFill(ui->vg);
-      drawn_image = 1;
+    int _cimg = get_image_texture(ui, node->image_path);
+    if (_cimg) {
+      float _iw = nr.w * (node->image_scale > 0.01f ? node->image_scale : 1.0f);
+      float _ih = nr.h * (node->image_scale > 0.01f ? node->image_scale : 1.0f);
+      node_img_paint = nvgImagePattern(ui->vg,
+                                       nr.x + node->image_crop_x * scale,
+                                       nr.y + node->image_crop_y * scale,
+                                       _iw, _ih, 0.0f, _cimg, 1.0f);
+      ip = &node_img_paint;
     }
   }
 
@@ -1663,6 +1746,13 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       }
       drawn_image = 1;
     }
+    if (!drawn_image && ip) {
+      nvgBeginPath(ui->vg);
+      nvgRoundedRect(ui->vg, nr.x, nr.y, nr.w, nr.h, node->corner_radius * scale);
+      nvgFillPaint(ui->vg, *ip);
+      nvgFill(ui->vg);
+      drawn_image = 1;
+    }
     if (!drawn_image && has_fill) {
       nvgSave(ui->vg);
       nvgTranslate(ui->vg, nr.x + nr.w / 2, nr.y + nr.h / 2);
@@ -1991,6 +2081,13 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       }
       drawn_image = 1;
     }
+    if (!drawn_image && ip) {
+      nvgBeginPath(ui->vg);
+      nvgEllipse(ui->vg, nr.x + nr.w / 2, nr.y + nr.h / 2, nr.w / 2, nr.h / 2);
+      nvgFillPaint(ui->vg, *ip);
+      nvgFill(ui->vg);
+      drawn_image = 1;
+    }
     if (!drawn_image && has_fill) {
       nvgSave(ui->vg);
       nvgTranslate(ui->vg, nr.x + nr.w / 2, nr.y + nr.h / 2);
@@ -2038,8 +2135,10 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
     AslanVec2 pts[3] = {{cx + p0x * c - p0y * s, cy + p0x * s + p0y * c},
                              {cx + p1x * c - p1y * s, cy + p1x * s + p1y * c},
                              {cx + p2x * c - p2y * s, cy + p2x * s + p2y * c}};
-    if (!drawn_image && has_fill)
-      fill_rounded_polygon(ui, pts, 3, node->corner_radius * scale, fill, 0, 0, gp);
+    if (ip && !drawn_image)
+      fill_rounded_polygon(ui, pts, 3, node->corner_radius * scale, fill, 0, 0, NULL, ip);
+    else if (!drawn_image && has_fill)
+      fill_rounded_polygon(ui, pts, 3, node->corner_radius * scale, fill, 0, 0, gp, NULL);
   } else if (node->type == NODE_TYPE_PENTAGON) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;
@@ -2053,8 +2152,10 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       pts[i].x = cx + px * c_rot - py * s_rot;
       pts[i].y = cy + px * s_rot + py * c_rot;
     }
-    if (!drawn_image && has_fill)
-      fill_rounded_polygon(ui, pts, 5, node->corner_radius * scale, fill, 0, 0, gp);
+    if (ip && !drawn_image)
+      fill_rounded_polygon(ui, pts, 5, node->corner_radius * scale, fill, 0, 0, NULL, ip);
+    else if (!drawn_image && has_fill)
+      fill_rounded_polygon(ui, pts, 5, node->corner_radius * scale, fill, 0, 0, gp, NULL);
   } else if (node->type == NODE_TYPE_HEXAGON) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;
@@ -2068,8 +2169,10 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       pts[i].x = cx + px * c_rot - py * s_rot;
       pts[i].y = cy + px * s_rot + py * c_rot;
     }
-    if (!drawn_image && has_fill)
-      fill_rounded_polygon(ui, pts, 6, node->corner_radius * scale, fill, 0, 0, gp);
+    if (ip && !drawn_image)
+      fill_rounded_polygon(ui, pts, 6, node->corner_radius * scale, fill, 0, 0, NULL, ip);
+    else if (!drawn_image && has_fill)
+      fill_rounded_polygon(ui, pts, 6, node->corner_radius * scale, fill, 0, 0, gp, NULL);
   } else if (node->type == NODE_TYPE_OCTAGON) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;
@@ -2083,8 +2186,10 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       pts[i].x = cx + px * c_rot - py * s_rot;
       pts[i].y = cy + px * s_rot + py * c_rot;
     }
-    if (!drawn_image && has_fill)
-      fill_rounded_polygon(ui, pts, 8, node->corner_radius * scale, fill, 0, 0, gp);
+    if (ip && !drawn_image)
+      fill_rounded_polygon(ui, pts, 8, node->corner_radius * scale, fill, 0, 0, NULL, ip);
+    else if (!drawn_image && has_fill)
+      fill_rounded_polygon(ui, pts, 8, node->corner_radius * scale, fill, 0, 0, gp, NULL);
   } else if (node->type == NODE_TYPE_STAR) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;
@@ -2099,9 +2204,11 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       pts[i].x = cx + px * c_rot - py * s_rot;
       pts[i].y = cy + px * s_rot + py * c_rot;
     }
-    if (!drawn_image && has_fill)
+    if (ip && !drawn_image)
+      fill_rounded_polygon(ui, pts, 10, node->corner_radius * scale, fill, 0, 0, NULL, ip);
+    else if (!drawn_image && has_fill)
       fill_rounded_polygon(ui, pts, 10, node->corner_radius * scale, fill, 0,
-                           0, gp);
+                           0, gp, NULL);
   } else if (node->type == NODE_TYPE_HEART) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;

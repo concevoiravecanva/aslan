@@ -512,6 +512,7 @@ typedef struct UIHost {
   // Persistent text-input buffers for property panel (survives frame resets)
   char  prop_input_bufs[20][64]; // indexed by nvgw_id(node, N) slot N
   void *prop_input_node;         // which node owns these buffers (NULL = stale)
+  float prop_scroll_y;           // vertical scroll offset for Properties panel
 
   // Layer sidebar state
   uint32_t renaming_node_id;
