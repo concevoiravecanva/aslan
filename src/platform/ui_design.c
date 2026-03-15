@@ -974,11 +974,6 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
   float sw = node->width * scale;
   float sh = node->height * scale;
   AslanRect nr = {sx, sy, sw, sh};
-  // Hover detection (Canvas -> Sidebar)
-  if (0) { // (nk_input_is_mouse_hovering_rect(&ctx->input, nr) && !ui->design_state.is_dragging_node && !ui->sidebar_drag_node_id) {
-    ui->hovered_node_id = node->id;
-  }
-
   // Highlight if hovered (Sidebar -> Canvas or Canvas -> Sidebar)
   if (ui->hovered_node_id == node->id) {
     NVGcolor highlight_col = nvgRGBA(110, 110, 130, 255);
@@ -2110,10 +2105,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
     }
 
     if (is_editing) {
-//       ui->editing_node_rect = nk_rect(nr.x, nr.y, nr.w, nr.h);
-      // We do not render the nk_edit here because nk_layout_space is not
-      // active in this group traverse. Instead, we pass the absolute screen
-      // bounds out, and render the text input overlay after the group.
+      // Text input overlay is rendered after the group traverse.
     }
   }
 
@@ -2471,12 +2463,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
   if (display_h < 100.0f)
     display_h = 100.0f;
 
-  // Workspace column (dynamic width) + sidebar column (fixed width)
-//   nk_layout_row_template_begin(ctx, row_h);
-//   nk_layout_row_template_push_dynamic(ctx);
-//   nk_layout_row_template_push_static(ctx, sidebar_w);
-//   nk_layout_row_template_end(ctx);
-
   float sidebar_w = 260.0f;
   float ws_width = width - sidebar_w;
   if (ws_width < 100.0f) ws_width = width; // fail-safe if panel too narrow
@@ -2486,10 +2472,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
     DesignInteraction *ds = &ui->design_state;
     float mx = ui->mouse_x - ui->abs_offset_x;
     float my = ui->mouse_y - ui->abs_offset_y;
-
-    if (0) { // (nk_input_is_mouse_click_in_rect(&ctx->input, NK_BUTTON_LEFT, ws_bounds)) {
-      ui->active_block_id = block->id;
-    }
 
     // Pre-calculate toolbar flags for interaction logic (8 buttons in
     // design)
@@ -2504,13 +2486,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
 
     // Early check for active state
     int is_active_design = (ds->active_design_id == block->id);
-
-    // Hardened Input Check: Sync Nuklear input state (only if inside
-    // workspace)
-    // Hardened Input Check: Sync Nuklear input state (only if inside workspace)
-    if (0) { // (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) && !ui->block_drag.is_active && ui->mouse_x >= ws_bounds.x && ui->mouse_x < ws_bounds.x + ws_bounds.w && ui->mouse_y >= ws_bounds.y && ui->mouse_y < ws_bounds.y + ws_bounds.h) {
-      ds->mouse_just_pressed = 1;
-    }
 
     float scale = 1.0f;
 
@@ -2574,9 +2549,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       design_draw_rulers(ui, sc_bounds, zoom, cur_dp, dd->width, dd->height);
       nvgScissor(ui->vg, sc_bounds.x, sc_bounds.y, sc_bounds.w, sc_bounds.h);
 
-      // Use full workspace as coordinate space
-//       nk_layout_space_begin(ctx, NK_STATIC, ws_bounds.h, 1);
-//       nk_layout_space_push(ctx, nk_rect(0, 0, ws_bounds.w, ws_bounds.h));
     } else {
       // --- Fixed Artboard Mode ---
       nvgBeginPath(ui->vg);
@@ -2645,15 +2617,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         design_draw_rulers(ui, art_rect, scale, cur_dp, dd->width, dd->height);
       }
 
-//       nk_layout_space_begin(ctx, NK_STATIC, ws_bounds.h, 1);
-//       nk_layout_space_push(
-//           ctx, nk_rect(sx - ws_bounds.x, sy - ws_bounds.y, art_w, art_h));
     }
 
     // --- Shared content rendering (both modes) ---
-//     nk_style_push_style_item(ctx, &ctx->style.window.fixed_background,
-//                              nk_style_item_color(nk_rgba(0, 0, 0, 0)));
-//     nk_style_push_float(ctx, &ctx->style.window.border, 0.0f);
     ASLAN_DEBUG("BEGIN design_content");
     int group_res = 1;
 //         nk_group_begin(ctx, "design_content", NK_WINDOW_NO_SCROLLBAR);
@@ -2867,7 +2833,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       // --- Apply artboard scissor ---
       // artboard_clip was set to art_rect (fixed) or infinite (free) above.
       if (dd->no_limits) {
-//         ui->artboard_clip = nk_rect(-8192, -8192, 16384, 16384);
       } else {
         // artboard_clip already set to art_rect — apply it now
         nvgScissor(ui->vg, ui->artboard_clip.x, ui->artboard_clip.y,
@@ -3799,9 +3764,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
 
       // Close Design content group (Artboard)
       ASLAN_DEBUG("END design_content");
-//       nk_group_end(ctx);
     }
-//     nk_layout_space_end(ctx);
 
     // --- Fixed artboard: draw border on top of clipped content ---
     if (!dd->no_limits) {
@@ -3914,42 +3877,11 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
     // --- Native Inline Text Editor Overlay ---
     if (ui->editing_node && ui->editing_node->type == NODE_TYPE_TEXT &&
         is_active_design) {
-      Node *enode = ui->editing_node;
-      AslanRect ebounds = ui->editing_node_rect;
-      (void)ebounds;
-
-      AslanColor txt_color = {(enode->stroke_color >> 24) & 0xFF,
-                                   (enode->stroke_color >> 16) & 0xFF,
-                                   (enode->stroke_color >> 8) & 0xFF,
-                                   enode->stroke_color & 0xFF};
-      (void)txt_color;
-
-    // Native UI Editor stub
-      if (0) {
-
-//         nk_layout_row_dynamic(ctx, ebounds.h, 1);
-
-        // text fonts handled natively
-
-//         nk_style_push_font(ctx, font);
-
-        if (ui->rename_needs_focus) {
-//           nk_edit_focus(ctx, NK_EDIT_DEFAULT);
-          ui->rename_needs_focus = 0;
-        }
-
-        if (0) {
-          ui->editing_node = NULL;
-        }
-
-//         nk_popup_end(ctx);
-      } else {
-        ui->editing_node = NULL; // Failsafe
-      }
+      if (ui->rename_needs_focus)
+        ui->rename_needs_focus = 0;
+      ui->editing_node = NULL;
     }
 
-    // Close Workspace group (Column 1)
-//     nk_group_end(ctx);
   }
 
   // --- Rendering Sidebar ---

@@ -322,7 +322,6 @@ static void prerender_special_nodes(UIHost *ui, Engine *engine, Block *block) {
   (void)engine;
   (void)block;
 }
-static void cleanup_special_nodes(Block *block) { (void)block; }
 
 void ui_host_export_svg(UIHost *ui, Engine *engine) {
   Page *page = doc_page_get_active(engine->doc);
@@ -349,7 +348,6 @@ void ui_host_export_svg(UIHost *ui, Engine *engine) {
     if (block_design_export_svg(design_block, filename, NULL, 0)) {
       ASLAN_DEBUG("Exported SVG to: %s", filename);
     }
-    cleanup_special_nodes(design_block);
   }
 }
 
@@ -404,7 +402,6 @@ void ui_host_export_svg_merge(UIHost *ui, Engine *engine,
         ASLAN_DEBUG("Exported SVG merge row %d to: %s", i + 1, out_file);
       }
     }
-    cleanup_special_nodes(design_block);
   }
 }
 
@@ -458,10 +455,6 @@ void ui_host_export_pdf(UIHost *ui, Engine *engine) {
   if (save_native_file_dialog(filename, sizeof(filename), default_name,
                               "Export Design as PDF")) {
     prerender_special_nodes(ui, engine, design_block);
-//     if (block_design_export_pdf(design_block, filename, NULL, 0)) {
-//       ASLAN_DEBUG("Exported PDF to: %s", filename);
-//     }
-    cleanup_special_nodes(design_block);
   }
 }
 
@@ -591,7 +584,6 @@ UIHost *ui_init(SDL_Window *win) {
   ASLAN_INFO("UI Init started (Aslan v0.1.7)");
 
   // Load fonts
-//   nk_sdl_font_stash_begin(&ui->atlas);
 
   // Font paths removed
   // Nuklear fonts and styles removed.
@@ -646,7 +638,6 @@ void ui_shutdown(UIHost *ui) {
   }
   clay_host_destroy(ui->clay);
   ui->clay = NULL;
-//   nk_sdl_shutdown();
   free(ui);
 }
 
