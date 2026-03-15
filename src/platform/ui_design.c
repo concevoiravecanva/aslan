@@ -64,7 +64,8 @@ typedef struct { float x, y; } AslanVec2;
 
 static void fill_rounded_polygon(UIHost *ui, const AslanVec2 *points,
                                  int count, float radius, NVGcolor col,
-                                 int is_stroke, float thickness) {
+                                 int is_stroke, float thickness,
+                                 NVGpaint *grad) {
   if (count < 3)
     return;
   float out_pts[1024]; // max 512 points for rounded version
@@ -158,6 +159,9 @@ static void fill_rounded_polygon(UIHost *ui, const AslanVec2 *points,
     nvgStrokeColor(ui->vg, col);
     nvgStrokeWidth(ui->vg, thickness);
     nvgStroke(ui->vg);
+  } else if (grad) {
+    nvgFillPaint(ui->vg, *grad);
+    nvgFill(ui->vg);
   } else {
     nvgFillColor(ui->vg, col);
     nvgFill(ui->vg);
@@ -806,15 +810,65 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         ui->color_picker_y    = ui->abs_offset_y + (swatch_y) + row_h + 2.0f; \
       } while(0)
 
-      // Fill color (full width swatch)
+      // Fill color + gradient toggle
       nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Fill", NVG_ALIGN_LEFT, col_label, 13);
       {
+        const float tog_w = 40.0f, tog_gap = 4.0f;
+        float swatch_w = w_ptr - lbl_w - tog_w - tog_gap;
+        // Swatch color 1
         NVGcolor fill = nvgRGBA((node->fill_color >> 24) & 0xFF, (node->fill_color >> 16) & 0xFF,
                                 (node->fill_color >> 8) & 0xFF, node->fill_color & 0xFF);
-        if (nvgw_color_picker(&ui->nvgw, nvgw_id(node, 5), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, &fill))
+        if (nvgw_color_picker(&ui->nvgw, nvgw_id(node, 5), x_ptr + lbl_w, y_off, swatch_w, row_h, &fill))
           OPEN_PICKER(&node->fill_color, x_ptr + lbl_w, y_off);
+        // "Grad" toggle button
+        bool grad_on = (node->fill_type == 1);
+        float btn_x  = x_ptr + lbl_w + swatch_w + tog_gap;
+        NVGcolor btn_bg = grad_on
+          ? nvgRGBA(60,120,220,255)
+          : (dark ? nvgRGBA(50,52,62,255) : nvgRGBA(222,224,232,255));
+        NVGcolor btn_fg = grad_on
+          ? nvgRGBA(255,255,255,255)
+          : (dark ? nvgRGBA(150,152,168,255) : nvgRGBA(90,92,110,255));
+        nvgBeginPath(vg); nvgRoundedRect(vg, btn_x, y_off, tog_w, row_h, 4.0f);
+        nvgFillColor(vg, btn_bg); nvgFill(vg);
+        nvgFontSize(vg, 11.0f); nvgFontFaceId(vg, ui->nvgw.font_main);
+        nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+        nvgFillColor(vg, btn_fg);
+        nvgText(vg, btn_x + tog_w * 0.5f, y_off + row_h * 0.5f, "Grad", NULL);
+        float _mx = ui->nvgw.mouse_x - ui->nvgw.offset_x;
+        float _my = ui->nvgw.mouse_y - ui->nvgw.offset_y;
+        bool hov_tog = _mx >= btn_x && _mx < btn_x+tog_w && _my >= y_off && _my < y_off+row_h;
+        if (hov_tog && ui->nvgw.mouse_clicked) {
+          node->fill_type = grad_on ? 0 : 1;
+          if (node->fill_type == 1 && node->fill_color_2 == 0)
+            node->fill_color_2 = 0xFFFFFFFF;
+          ui_request_redraw(ui);
+        }
       }
       y_off += row_h + row_gap;
+
+      // Gradient: color 2 + angle (only when active)
+      if (node->fill_type == 1) {
+        nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Color 2", NVG_ALIGN_LEFT, col_label, 12);
+        {
+          float sw2 = half_w - lbl_w - 3;
+          NVGcolor c2 = nvgRGBA((node->fill_color_2 >> 24) & 0xFF,
+                                (node->fill_color_2 >> 16) & 0xFF,
+                                (node->fill_color_2 >> 8)  & 0xFF,
+                                 node->fill_color_2        & 0xFF);
+          if (nvgw_color_picker(&ui->nvgw, nvgw_id(node, 19), x_ptr + lbl_w, y_off, sw2, row_h, &c2))
+            OPEN_PICKER(&node->fill_color_2, x_ptr + lbl_w, y_off);
+          // Angle
+          const float albl = 36.0f;
+          float ax = x_ptr + half_w + 6;
+          nvgw_label(&ui->nvgw, ax, y_off, albl, row_h, "Angle", NVG_ALIGN_LEFT, col_label, 12);
+          PROP_SYNC(15, "%.0f", node->gradient_angle);
+          if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 15), ax + albl, y_off,
+                              half_w - albl, row_h, ui->prop_input_bufs[15], 64, 12, true))
+            node->gradient_angle = (float)atof(ui->prop_input_bufs[15]);
+        }
+        y_off += row_h + row_gap;
+      }
 
       // Stroke color | stroke width
       nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Stroke", NVG_ALIGN_LEFT, col_label, 13);
@@ -1151,6 +1205,25 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
 
   int drawn_image = 0;
   int has_fill = (node->fill_color & 0xFF) > 10;
+
+  // Precompute gradient paint (used by all shape types)
+  NVGpaint node_grad_paint;
+  NVGpaint *gp = NULL;
+  if (node->fill_type == 1 && has_fill) {
+    NVGcolor c2 = nvgRGBA((node->fill_color_2 >> 24) & 0xFF,
+                          (node->fill_color_2 >> 16) & 0xFF,
+                          (node->fill_color_2 >>  8) & 0xFF,
+                          (int)((node->fill_color_2 & 0xFF) * opacity));
+    float grad_rad = node->gradient_angle * NVG_PI / 180.0f;
+    float gdx = cosf(grad_rad) * sw * 0.5f;
+    float gdy = sinf(grad_rad) * sh * 0.5f;
+    float gcx = sx + sw * 0.5f, gcy = sy + sh * 0.5f;
+    node_grad_paint = nvgLinearGradient(ui->vg,
+                                        gcx - gdx, gcy - gdy,
+                                        gcx + gdx, gcy + gdy,
+                                        fill, c2);
+    gp = &node_grad_paint;
+  }
 
   if (node->is_container && node->image_path[0]) {
     int img = get_image_texture(ui, node->image_path);
@@ -1866,7 +1939,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       }
       nvgBeginPath(ui->vg);
       nvgEllipse(ui->vg, 0, 0, nr.w / 2, nr.h / 2);
-      nvgFillColor(ui->vg, fill);
+      if (gp) { nvgFillPaint(ui->vg, *gp); } else { nvgFillColor(ui->vg, fill); }
       nvgFill(ui->vg);
       nvgRestore(ui->vg);
     }
@@ -1906,7 +1979,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
                              {cx + p1x * c - p1y * s, cy + p1x * s + p1y * c},
                              {cx + p2x * c - p2y * s, cy + p2x * s + p2y * c}};
     if (!drawn_image && has_fill)
-      fill_rounded_polygon(ui, pts, 3, node->corner_radius * scale, fill, 0, 0);
+      fill_rounded_polygon(ui, pts, 3, node->corner_radius * scale, fill, 0, 0, gp);
   } else if (node->type == NODE_TYPE_PENTAGON) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;
@@ -1921,7 +1994,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       pts[i].y = cy + px * s_rot + py * c_rot;
     }
     if (!drawn_image && has_fill)
-      fill_rounded_polygon(ui, pts, 5, node->corner_radius * scale, fill, 0, 0);
+      fill_rounded_polygon(ui, pts, 5, node->corner_radius * scale, fill, 0, 0, gp);
   } else if (node->type == NODE_TYPE_HEXAGON) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;
@@ -1936,7 +2009,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       pts[i].y = cy + px * s_rot + py * c_rot;
     }
     if (!drawn_image && has_fill)
-      fill_rounded_polygon(ui, pts, 6, node->corner_radius * scale, fill, 0, 0);
+      fill_rounded_polygon(ui, pts, 6, node->corner_radius * scale, fill, 0, 0, gp);
   } else if (node->type == NODE_TYPE_OCTAGON) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;
@@ -1951,7 +2024,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       pts[i].y = cy + px * s_rot + py * c_rot;
     }
     if (!drawn_image && has_fill)
-      fill_rounded_polygon(ui, pts, 8, node->corner_radius * scale, fill, 0, 0);
+      fill_rounded_polygon(ui, pts, 8, node->corner_radius * scale, fill, 0, 0, gp);
   } else if (node->type == NODE_TYPE_STAR) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;
@@ -1968,7 +2041,7 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
     }
     if (!drawn_image && has_fill)
       fill_rounded_polygon(ui, pts, 10, node->corner_radius * scale, fill, 0,
-                           0);
+                           0, gp);
   } else if (node->type == NODE_TYPE_HEART) {
     float cx = sx + sw / 2.0f;
     float cy = sy + sh / 2.0f;
