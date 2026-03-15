@@ -587,37 +587,63 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
   nvgStrokeColor(vg, sep_col);  nvgStrokeWidth(vg, 1.0f);  nvgStroke(vg);
 
   // ── Tab bar ───────────────────────────────────────────────────────
-  const float tab_bar_h   = 36.0f;
-  const float inner_tab_h = 28.0f;
-  const float tab_pad     = 8.0f;
-  const float tab_gap     = 4.0f;
-  float tab_w = (width - tab_pad * 2.0f - tab_gap * 2.0f) / 3.0f;
-  float tab_top = (tab_bar_h - inner_tab_h) / 2.0f;
+  const float tab_bar_h = 40.0f;
+  float tab_w = width / 3.0f;
+
+  // Tab bar background (slightly darker than sidebar content)
+  nvgBeginPath(vg);
+  nvgRect(vg, 0, 0, width, tab_bar_h);
+  nvgFillColor(vg, dark ? nvgRGBA(26, 28, 36, 255) : nvgRGBA(240, 241, 245, 255));
+  nvgFill(vg);
 
   const char *tab_lbls[] = {"Properties", "Layers", "Page"};
-  for (int i = 0; i < 3; i++) {
-    float tx     = tab_pad + (float)i * (tab_w + tab_gap);
-    bool  active = (ui->design_bottom_tab == i);
+  float mlx = ui->nvgw.mouse_x - abs_x;
+  float mly = ui->nvgw.mouse_y - ui->abs_offset_y;
 
-    if (active) {
+  for (int i = 0; i < 3; i++) {
+    float tx    = (float)i * tab_w;
+    bool active = (ui->design_bottom_tab == i);
+    bool hov    = (mlx >= tx && mlx < tx + tab_w && mly >= 0 && mly < tab_bar_h);
+
+    // Hover tint
+    if (hov && !active) {
       nvgBeginPath(vg);
-      nvgRoundedRect(vg, tx, tab_top, tab_w, inner_tab_h, 4.0f);
-      nvgFillColor(vg, dark ? nvgRGBA(50, 52, 62, 255) : nvgRGBA(255, 255, 255, 255));
+      nvgRect(vg, tx, 0, tab_w, tab_bar_h);
+      nvgFillColor(vg, dark ? nvgRGBA(255,255,255,10) : nvgRGBA(0,0,0,6));
       nvgFill(vg);
     }
 
-    nvgFontSize(vg, 13.0f);
-    nvgFontFace(vg, "Inter");
+    // Label
+    nvgFontSize(vg, 12.5f);
+    nvgFontFaceId(vg, ui->nvgw.font_main);
     nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
     nvgFillColor(vg, active
-      ? (dark ? nvgRGBA(255, 255, 255, 255) : nvgRGBA(30,  30,  40,  255))
-      : (dark ? nvgRGBA(140, 142, 155, 255) : nvgRGBA(130, 130, 145, 255)));
-    nvgText(vg, tx + tab_w * 0.5f, tab_top + inner_tab_h * 0.5f, tab_lbls[i], NULL);
+      ? (dark ? nvgRGBA(235, 237, 250, 255) : nvgRGBA(22,  24,  40,  255))
+      : (hov
+        ? (dark ? nvgRGBA(175, 177, 195, 255) : nvgRGBA(90,  92, 110, 255))
+        : (dark ? nvgRGBA(110, 112, 130, 255) : nvgRGBA(145, 147, 165, 255))));
+    nvgText(vg, tx + tab_w * 0.5f, tab_bar_h * 0.5f, tab_lbls[i], NULL);
 
-    // Click — use offset-corrected local mouse coords
-    float mlx = ui->nvgw.mouse_x - abs_x;
-    float mly = ui->nvgw.mouse_y - ui->abs_offset_y;
-    bool hov = (mlx >= tx && mlx < tx + tab_w && mly >= tab_top && mly < tab_top + inner_tab_h);
+    // Active accent — short underline bar centred under label
+    if (active) {
+      float iw = fminf(tab_w * 0.55f, 52.0f);
+      float ix  = tx + (tab_w - iw) * 0.5f;
+      nvgBeginPath(vg);
+      nvgRoundedRect(vg, ix, tab_bar_h - 2.5f, iw, 2.5f, 1.5f);
+      nvgFillColor(vg, nvgRGBA(60, 120, 220, 255));
+      nvgFill(vg);
+    }
+
+    // Subtle vertical divider between tabs
+    if (i < 2) {
+      nvgBeginPath(vg);
+      nvgMoveTo(vg, tx + tab_w, tab_bar_h * 0.25f);
+      nvgLineTo(vg, tx + tab_w, tab_bar_h * 0.75f);
+      nvgStrokeColor(vg, dark ? nvgRGBA(48,50,62,200) : nvgRGBA(210,212,222,200));
+      nvgStrokeWidth(vg, 1.0f); nvgStroke(vg);
+    }
+
+    // Click handling
     uint32_t tid = nvgw_id_str("SbTab") ^ (uint32_t)i;
     if (hov) ui->nvgw.hot_id = tid;
     if (hov && ui->nvgw.mouse_clicked)  ui->nvgw.active_id = tid;
@@ -628,10 +654,10 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
     }
   }
 
-  // Separator below tabs
+  // Separator below tab bar
   nvgBeginPath(vg);
-  nvgMoveTo(vg, 0, tab_bar_h);  nvgLineTo(vg, width, tab_bar_h);
-  nvgStrokeColor(vg, sep_col);  nvgStrokeWidth(vg, 1.0f);  nvgStroke(vg);
+  nvgMoveTo(vg, 0, tab_bar_h); nvgLineTo(vg, width, tab_bar_h);
+  nvgStrokeColor(vg, sep_col); nvgStrokeWidth(vg, 1.0f); nvgStroke(vg);
 
   // ── Content area coords (local, 0-based) ──────────────────────────
   float cx    = 12.0f;
