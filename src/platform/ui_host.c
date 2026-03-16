@@ -19,6 +19,7 @@
 #endif
 #define NANOVG_GL3
 #include "../vendor/nanovg/nanovg_gl.h"
+#include "../vendor/nanovg/nanovg_gl_utils.h"
 
 #define MAX_VERTEX_BUFFER (512 * 1024)
 #define MAX_ELEMENT_BUFFER (128 * 1024)
@@ -405,19 +406,92 @@ void ui_host_export_svg_merge(UIHost *ui, Engine *engine,
   }
 }
 
+// Render the design artboard to a pixel buffer. Returns RGBA malloc'd buffer
+// (caller must free). Sets *out_w and *out_h to artboard dimensions.
+static unsigned char *render_design_to_pixels(UIHost *ui, Engine *engine,
+                                              Block *block,
+                                              int *out_w, int *out_h) {
+  DesignData *dd = &block->data.design;
+  if (!dd->pages || dd->current_page < 0 ||
+      dd->current_page >= dd->page_count)
+    return NULL;
+
+  int w = dd->width  > 0 ? (int)dd->width  : 800;
+  int h = dd->height > 0 ? (int)dd->height : 600;
+  *out_w = w;
+  *out_h = h;
+
+  // Create offscreen FBO at artboard dimensions
+  NVGLUframebuffer *fb = nvgluCreateFramebuffer(ui->vg, w, h, 0);
+  if (!fb)
+    return NULL;
+
+  nvgluBindFramebuffer(fb);
+  glViewport(0, 0, w, h);
+  glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+  glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+  nvgBeginFrame(ui->vg, (float)w, (float)h, 1.0f);
+
+  // Background
+  DesignPage *dp = &dd->pages[dd->current_page];
+  uint32_t bg = dp->bg_color ? dp->bg_color : 0xFFFFFFFF;
+  NVGcolor bg_col = nvgRGBA((bg >> 24) & 0xFF, (bg >> 16) & 0xFF,
+                            (bg >>  8) & 0xFF,  bg & 0xFF);
+  nvgBeginPath(ui->vg);
+  nvgRect(ui->vg, 0, 0, (float)w, (float)h);
+  nvgFillColor(ui->vg, bg_col);
+  nvgFill(ui->vg);
+
+  // Render all nodes at scale=1, origin (0,0) — no sidebar, no toolbar
+  AslanRect bounds = {0, 0, (float)w, (float)h};
+  if (dd->root) {
+    for (Node *node = dd->root->first_child; node;
+         node = node->next_sibling) {
+      ui_render_node_tree(ui, engine, block, dd, node, bounds,
+                         1.0f, 0.0f, 0.0f);
+    }
+  }
+
+  nvgEndFrame(ui->vg);
+
+  // Read pixels (OpenGL gives bottom-up, we flip to top-down)
+  unsigned char *pixels = (unsigned char *)malloc((size_t)w * h * 4);
+  if (!pixels) {
+    nvgluDeleteFramebuffer(fb);
+    nvgluBindFramebuffer(NULL);
+    glViewport(0, 0, ui->win_width, ui->win_height);
+    return NULL;
+  }
+  glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+
+  // Flip vertically
+  unsigned char *row = (unsigned char *)malloc((size_t)w * 4);
+  if (row) {
+    for (int y = 0; y < h / 2; y++) {
+      memcpy(row,                       pixels + (size_t) y          * w * 4, (size_t)w * 4);
+      memcpy(pixels + (size_t) y          * w * 4,
+             pixels + (size_t)(h - 1 - y) * w * 4, (size_t)w * 4);
+      memcpy(pixels + (size_t)(h - 1 - y) * w * 4, row, (size_t)w * 4);
+    }
+    free(row);
+  }
+
+  nvgluDeleteFramebuffer(fb);
+  nvgluBindFramebuffer(NULL);
+  glViewport(0, 0, ui->win_width, ui->win_height);
+
+  return pixels;
+}
+
 void ui_host_export_png_jpeg(UIHost *ui, Engine *engine, int is_jpeg) {
-  (void)ui;
   Page *page = doc_page_get_active(engine->doc);
   if (!page)
     return;
 
-  // Find the first design block on this page
   Block *design_block = NULL;
   for (Block *b = page->first_block; b; b = b->next) {
-    if (b->type == BLOCK_DESIGN) {
-      design_block = b;
-      break;
-    }
+    if (b->type == BLOCK_DESIGN) { design_block = b; break; }
   }
   if (!design_block)
     return;
@@ -427,11 +501,32 @@ void ui_host_export_png_jpeg(UIHost *ui, Engine *engine, int is_jpeg) {
   snprintf(default_name, sizeof(default_name), "%s.%s", page->name,
            is_jpeg ? "jpg" : "png");
 
-  if (save_native_file_dialog(filename, sizeof(filename), default_name,
-                              is_jpeg ? "Export Design as JPEG"
-                                      : "Export Design as PNG")) {
-    ASLAN_WARN("Raster export (PNG/JPEG) is not supported in this build.");
+  if (!save_native_file_dialog(filename, sizeof(filename), default_name,
+                               is_jpeg ? "Export Design as JPEG"
+                                       : "Export Design as PNG"))
+    return;
+
+  int w = 0, h = 0;
+  unsigned char *pixels =
+      render_design_to_pixels(ui, engine, design_block, &w, &h);
+  if (!pixels) {
+    ASLAN_WARN("Raster export: failed to render design to pixels");
+    return;
   }
+
+  int ok = 0;
+  if (is_jpeg) {
+    ok = stbi_write_jpg(filename, w, h, 4, pixels, 92);
+  } else {
+    ok = stbi_write_png(filename, w, h, 4, pixels, w * 4);
+  }
+
+  free(pixels);
+
+  if (ok)
+    ASLAN_DEBUG("Exported %s to: %s", is_jpeg ? "JPEG" : "PNG", filename);
+  else
+    ASLAN_WARN("Raster export: stb_image_write failed for %s", filename);
 }
 
 void ui_host_export_pdf(UIHost *ui, Engine *engine) {
@@ -455,6 +550,10 @@ void ui_host_export_pdf(UIHost *ui, Engine *engine) {
   if (save_native_file_dialog(filename, sizeof(filename), default_name,
                               "Export Design as PDF")) {
     prerender_special_nodes(ui, engine, design_block);
+    if (block_design_export_pdf(design_block, filename, NULL, 0))
+      ASLAN_DEBUG("Exported PDF to: %s", filename);
+    else
+      ASLAN_WARN("PDF export failed for: %s", filename);
   }
 }
 
@@ -1593,7 +1692,6 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 
 // Overlay toolbar: draws compact icons at (x_right, y_top) without
 // consuming layout space. Elegant floating pill with subtle border.
-/*
 /*
   if (_btn_hovered && mouse_down && !ui->block_drag.is_active) {
     ui->block_drag.is_active = 1;

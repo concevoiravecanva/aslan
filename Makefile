@@ -9,6 +9,10 @@ LUA_LIB =
 SDL_INC = -I/opt/homebrew/include/SDL2
 SDL_LIB = -L/opt/homebrew/lib -lSDL2
 
+# Paths for libharu (PDF export)
+HPDF_INC = -I/opt/homebrew/include
+HPDF_LIB = -L/opt/homebrew/lib -lhpdf
+
 CFLAGS = -Wall -Wextra -std=c99 -I./src -I./include -DSTBTT_STATIC
 
 # Core, Document & Platform sources
@@ -36,7 +40,7 @@ VENDOR_OBJS = src/vendor/tinyexpr.o \
 OBJS = src/main.o $(VENDOR_OBJS) $(CORE_OBJS) $(DOC_OBJS) $(PLATFORM_OBJS)
 
 TARGET = aslan
-LDFLAGS = -framework Cocoa -framework CoreGraphics -framework ImageIO -framework OpenGL -lm -lz -lpng
+LDFLAGS = -framework Cocoa -framework CoreGraphics -framework ImageIO -framework OpenGL -lm -lz -lpng $(HPDF_LIB)
 
 all: $(TARGET)
 
@@ -54,10 +58,10 @@ test: $(TEST_TARGET)
 	./$(TEST_TARGET)
 
 %.o: %.c $(wildcard src/*.h) $(wildcard src/**/*.h) $(wildcard include/*.h)
-	$(CC) $(CFLAGS) $(LUA_INC) $(SDL_INC) -c $< -o $@
+	$(CC) $(CFLAGS) $(LUA_INC) $(SDL_INC) $(HPDF_INC) -c $< -o $@
 
 %.o: %.m $(wildcard src/*.h) $(wildcard src/**/*.h) $(wildcard include/*.h)
-	$(CC) $(CFLAGS) $(LUA_INC) $(SDL_INC) -c $< -o $@
+	$(CC) $(CFLAGS) $(LUA_INC) $(SDL_INC) $(HPDF_INC) -c $< -o $@
 
 clean:
 	rm -f $(OBJS) $(CORE_OBJS) $(TEST_OBJ) $(TARGET) $(TEST_TARGET)

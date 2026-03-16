@@ -1,5 +1,6 @@
 #include "document.h"
 #include "aslan_table.h"
+#include <hpdf.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -2170,6 +2171,257 @@ bool block_design_export_svg(const Block *block, const char *filepath,
 
   fprintf(fp, "</svg>\n");
   fclose(fp);
+  return true;
+}
+
+// =============================================================================
+// PDF EXPORT (libharu)
+// =============================================================================
+
+static void pdf_set_fill_color(HPDF_Page page, uint32_t rgba) {
+  float r = ((rgba >> 24) & 0xFF) / 255.0f;
+  float g = ((rgba >> 16) & 0xFF) / 255.0f;
+  float b = ((rgba >>  8) & 0xFF) / 255.0f;
+  HPDF_Page_SetRGBFill(page, r, g, b);
+}
+
+static void pdf_set_stroke_color(HPDF_Page page, uint32_t rgba) {
+  float r = ((rgba >> 24) & 0xFF) / 255.0f;
+  float g = ((rgba >> 16) & 0xFF) / 255.0f;
+  float b = ((rgba >>  8) & 0xFF) / 255.0f;
+  HPDF_Page_SetRGBStroke(page, r, g, b);
+}
+
+static void pdf_write_node(HPDF_Page page, HPDF_Doc pdf, float page_h,
+                           const Node *node, struct AslanTable *linked_tbl,
+                           uint64_t linked_row_id) {
+  if (!node || !node->visible)
+    return;
+
+  float x = node->x;
+  float y = page_h - node->y - node->height;
+  float w = node->width;
+  float h = node->height;
+
+  pdf_set_fill_color(page, node->fill_color);
+  pdf_set_stroke_color(page, node->stroke_color);
+  if (node->stroke_width > 0)
+    HPDF_Page_SetLineWidth(page, node->stroke_width);
+
+  switch (node->type) {
+  case NODE_TYPE_RECT:
+  case NODE_TYPE_FRAME:
+    HPDF_Page_Rectangle(page, x, y, w, h);
+    if (node->stroke_width > 0) HPDF_Page_FillStroke(page);
+    else                        HPDF_Page_Fill(page);
+    break;
+
+  case NODE_TYPE_ELLIPSE: {
+    float cx = x + w * 0.5f, cy = y + h * 0.5f;
+    float rx = w * 0.5f,     ry = h * 0.5f;
+    float kx = rx * 0.5523f, ky = ry * 0.5523f;
+    HPDF_Page_MoveTo(page, cx, cy + ry);
+    HPDF_Page_CurveTo(page, cx+kx, cy+ry, cx+rx, cy+ky, cx+rx, cy);
+    HPDF_Page_CurveTo(page, cx+rx, cy-ky, cx+kx, cy-ry, cx,    cy-ry);
+    HPDF_Page_CurveTo(page, cx-kx, cy-ry, cx-rx, cy-ky, cx-rx, cy);
+    HPDF_Page_CurveTo(page, cx-rx, cy+ky, cx-kx, cy+ry, cx,    cy+ry);
+    if (node->stroke_width > 0) HPDF_Page_FillStroke(page);
+    else                        HPDF_Page_Fill(page);
+    break;
+  }
+
+  case NODE_TYPE_TEXT: {
+    HPDF_Font font = HPDF_GetFont(pdf, "Helvetica", NULL);
+    float fs = node->font_size > 0 ? node->font_size : 14.0f;
+    HPDF_Page_SetFontAndSize(page, font, fs);
+    pdf_set_fill_color(page, node->fill_color);
+    const char *display_text = node->text;
+    char linked_val_buf[256];
+    if (node->linked_col_name[0] && linked_tbl) {
+      for (int lk = 0; lk < (int)linked_tbl->column_count; lk++) {
+        if (strcmp(linked_tbl->columns[lk].name, node->linked_col_name) == 0) {
+          const char *val = aslan_table_get_cell_display(
+              linked_tbl, lk, linked_row_id,
+              linked_val_buf, sizeof(linked_val_buf));
+          if (val && val[0]) display_text = val;
+          break;
+        }
+      }
+    }
+    HPDF_Page_BeginText(page);
+    HPDF_Page_TextOut(page, node->x, page_h - node->y - fs, display_text);
+    HPDF_Page_EndText(page);
+    break;
+  }
+
+  case NODE_TYPE_LINE:
+    HPDF_Page_MoveTo(page, node->x, page_h - node->y);
+    HPDF_Page_LineTo(page, node->x + node->width,
+                     page_h - node->y - node->height);
+    HPDF_Page_Stroke(page);
+    break;
+
+  case NODE_TYPE_TRIANGLE: {
+    float nx = node->x, ny = node->y;
+    HPDF_Page_MoveTo(page, nx + w * 0.5f, page_h - ny);
+    HPDF_Page_LineTo(page, nx,            page_h - ny - h);
+    HPDF_Page_LineTo(page, nx + w,        page_h - ny - h);
+    HPDF_Page_ClosePath(page);
+    if (node->stroke_width > 0) HPDF_Page_FillStroke(page);
+    else                        HPDF_Page_Fill(page);
+    break;
+  }
+
+  case NODE_TYPE_PENTAGON:
+  case NODE_TYPE_HEXAGON:
+  case NODE_TYPE_OCTAGON: {
+    int sides = (node->type == NODE_TYPE_PENTAGON) ? 5
+              : (node->type == NODE_TYPE_HEXAGON)  ? 6 : 8;
+    float cx = node->x + w * 0.5f;
+    float cy_pdf = page_h - node->y - h * 0.5f;
+    float rx = w * 0.5f, ry = h * 0.5f;
+    for (int i = 0; i < sides; i++) {
+      double a = (i * 2.0 * 3.14159265 / sides) - 3.14159265 / 2.0;
+      float px = cx + rx * (float)cos(a);
+      float py = cy_pdf + ry * (float)sin(a);
+      if (i == 0) HPDF_Page_MoveTo(page, px, py);
+      else        HPDF_Page_LineTo(page, px, py);
+    }
+    HPDF_Page_ClosePath(page);
+    if (node->stroke_width > 0) HPDF_Page_FillStroke(page);
+    else                        HPDF_Page_Fill(page);
+    break;
+  }
+
+  case NODE_TYPE_STAR: {
+    float cx = node->x + w * 0.5f;
+    float cy_pdf = page_h - node->y - h * 0.5f;
+    float rx = w * 0.5f, ry = h * 0.5f;
+    for (int i = 0; i < 10; i++) {
+      double a = (i * 2.0 * 3.14159265 / 10.0) - 3.14159265 / 2.0;
+      float r = (i % 2 == 0) ? 1.0f : 0.4f;
+      float px = cx + rx * r * (float)cos(a);
+      float py = cy_pdf + ry * r * (float)sin(a);
+      if (i == 0) HPDF_Page_MoveTo(page, px, py);
+      else        HPDF_Page_LineTo(page, px, py);
+    }
+    HPDF_Page_ClosePath(page);
+    if (node->stroke_width > 0) HPDF_Page_FillStroke(page);
+    else                        HPDF_Page_Fill(page);
+    break;
+  }
+
+  case NODE_TYPE_PATH:
+    if (node->path_points && node->path_point_count > 0) {
+      HPDF_Page_MoveTo(page,
+          node->x + node->path_points[0].x,
+          page_h - node->y - node->path_points[0].y);
+      for (int i = 1; i < node->path_point_count; i++) {
+        NodePathPoint *pt   = &node->path_points[i];
+        NodePathPoint *prev = &node->path_points[i - 1];
+        if (pt->type == 1)
+          HPDF_Page_CurveTo(page,
+              node->x + prev->cp2x, page_h - node->y - prev->cp2y,
+              node->x + pt->cp1x,  page_h - node->y - pt->cp1y,
+              node->x + pt->x,     page_h - node->y - pt->y);
+        else
+          HPDF_Page_LineTo(page,
+              node->x + pt->x, page_h - node->y - pt->y);
+      }
+      HPDF_Page_ClosePath(page);
+      if (node->stroke_width > 0) HPDF_Page_FillStroke(page);
+      else                        HPDF_Page_Fill(page);
+    }
+    break;
+
+  case NODE_TYPE_STROKE:
+    if (node->stroke_data && node->stroke_data->count > 0) {
+      Stroke *s = node->stroke_data;
+      HPDF_Page_MoveTo(page, s->points[0].x, page_h - s->points[0].y);
+      for (int i = 1; i < s->count; i++)
+        HPDF_Page_LineTo(page, s->points[i].x, page_h - s->points[i].y);
+      HPDF_Page_Stroke(page);
+    }
+    break;
+
+  case NODE_TYPE_IMAGE:
+    if (node->image_path[0]) {
+      HPDF_Image img = NULL;
+      const char *ext = strrchr(node->image_path, '.');
+      if (ext) {
+        if (strcmp(ext, ".png") == 0)
+          img = HPDF_LoadPngImageFromFile(pdf, node->image_path);
+        else if (strcmp(ext, ".jpg") == 0 || strcmp(ext, ".jpeg") == 0)
+          img = HPDF_LoadJpegImageFromFile(pdf, node->image_path);
+      }
+      if (img)
+        HPDF_Page_DrawImage(page, img, x, y, w, h);
+      else {
+        // Fallback: grey placeholder rectangle
+        pdf_set_fill_color(page, 0xF0F0F0FF);
+        HPDF_Page_Rectangle(page, x, y, w, h);
+        HPDF_Page_Fill(page);
+      }
+    }
+    break;
+
+  case NODE_TYPE_CHART:
+  case NODE_TYPE_TABLE_VIEW: {
+    // Use pre-rendered snapshot if available (written by prerender_special_nodes)
+    char snap_path[256];
+    snprintf(snap_path, sizeof(snap_path), "/tmp/aslan_node_%u.png", node->id);
+    HPDF_Image snap = HPDF_LoadPngImageFromFile(pdf, snap_path);
+    if (snap)
+      HPDF_Page_DrawImage(page, snap, x, y, w, h);
+    break;
+  }
+
+  default:
+    break;
+  }
+
+  // Recurse into children
+  for (Node *child = node->first_child; child; child = child->next_sibling)
+    pdf_write_node(page, pdf, page_h, child, linked_tbl, linked_row_id);
+}
+
+bool block_design_export_pdf(const Block *block, const char *filepath,
+                             struct AslanTable *linked_tbl,
+                             uint64_t linked_row_id) {
+  if (!block || block->type != BLOCK_DESIGN || !filepath)
+    return false;
+
+  const DesignData *dd = &block->data.design;
+  if (!dd->pages || dd->current_page < 0 ||
+      dd->current_page >= dd->page_count)
+    return false;
+
+  const DesignPage *dp = &dd->pages[dd->current_page];
+  if (!dp->root)
+    return false;
+
+  HPDF_Doc pdf = HPDF_New(NULL, NULL);
+  if (!pdf)
+    return false;
+
+  float w = (float)(dd->width  > 0 ? dd->width  : 800);
+  float h = (float)(dd->height > 0 ? dd->height : 600);
+
+  HPDF_Page page = HPDF_AddPage(pdf);
+  HPDF_Page_SetWidth(page, w);
+  HPDF_Page_SetHeight(page, h);
+
+  // Background
+  uint32_t bg = dp->bg_color ? dp->bg_color : 0xFFFFFFFF;
+  pdf_set_fill_color(page, bg);
+  HPDF_Page_Rectangle(page, 0, 0, w, h);
+  HPDF_Page_Fill(page);
+
+  for (Node *node = dp->root->first_child; node; node = node->next_sibling)
+    pdf_write_node(page, pdf, h, node, linked_tbl, linked_row_id);
+
+  HPDF_SaveToFile(pdf, filepath);
+  HPDF_Free(pdf);
   return true;
 }
 
