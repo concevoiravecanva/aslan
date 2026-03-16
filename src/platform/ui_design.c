@@ -734,14 +734,138 @@ static void design_render_sidebar(UIHost *ui, Engine *engine,
         PROP_SEPARATOR();
         nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 16, "TEXT", NVG_ALIGN_LEFT, col_section, 10);
         y_off += 20;
-        PROP_SYNC(8, "%.1f", node->font_size);
-        nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Size", NVG_ALIGN_LEFT, col_label, 13);
-        if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 8), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, ui->prop_input_bufs[8], 64, 13, true))
-          node->font_size = (float)atof(ui->prop_input_bufs[8]);
+
+        // ── Font selector ─────────────────────────────────────────
+        nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Font", NVG_ALIGN_LEFT, col_label, 13);
+        {
+          const char *builtin_names[]  = { "Inter", "Bold" };
+          const char *builtin_faces[]  = { "Inter", "Bold" };
+          int n_total = 2 + ui->custom_font_count;
+          if (n_total > 6) n_total = 6;
+          int n_row1 = n_total < 3 ? n_total : 3; // up to 3 per row
+          float bw = (w_ptr - lbl_w - (n_row1 - 1) * 3.0f) / (float)n_row1;
+          for (int fi = 0; fi < n_total; fi++) {
+            const char *fname = (fi < 2) ? builtin_names[fi] : ui->custom_fonts[fi - 2].name;
+            const char *fface = (fi < 2) ? builtin_faces[fi] : ui->custom_fonts[fi - 2].name;
+            int row_i = fi / n_row1, col_i = fi % n_row1;
+            float bx = x_ptr + lbl_w + col_i * (bw + 3);
+            float by = y_off + row_i * (row_h + row_gap);
+            if (nvgw_button(&ui->nvgw, nvgw_id(node, 20 + fi), bx, by, bw, row_h, fname)) {
+              strncpy(node->font_face, fface, 63);
+              node->font_face[63] = '\0';
+            }
+            // active indicator: blue bottom border
+            bool active = (fi == 0 && node->font_face[0] == '\0') ||
+                          strcmp(node->font_face, fface) == 0;
+            if (active) {
+              nvgBeginPath(vg);
+              nvgRect(vg, bx + 2, by + row_h - 2, bw - 4, 2);
+              nvgFillColor(vg, nvgRGBA(80, 120, 220, 255));
+              nvgFill(vg);
+            }
+          }
+          // Import button at end of row 1
+          int import_col = n_total % n_row1;
+          float imp_x = x_ptr + lbl_w + import_col * (bw + 3);
+          float imp_y = y_off + (n_total / n_row1) * (row_h + row_gap);
+          if (nvgw_button(&ui->nvgw, nvgw_id_str("FontImport"), imp_x, imp_y, bw, row_h, "Import...")) {
+            ui_host_open_and_import_font(ui);
+          }
+          int total_rows = (n_total + 1 + n_row1 - 1) / n_row1; // include import slot
+          y_off += total_rows * (row_h + row_gap);
+        }
+
+        // ── Size + Align row ──────────────────────────────────────
+        {
+          float size_lbl = 30.0f;
+          float size_inp = 48.0f;
+          float align_x = x_ptr + size_lbl + size_inp + 8;
+          float align_bw = (w_ptr - size_lbl - size_inp - 8 - 2 * 3.0f) / 3.0f;
+          nvgw_label(&ui->nvgw, x_ptr, y_off, size_lbl, row_h, "Size", NVG_ALIGN_LEFT, col_label, 13);
+          PROP_SYNC(8, "%.1f", node->font_size);
+          if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 8), x_ptr + size_lbl, y_off, size_inp, row_h, ui->prop_input_bufs[8], 64, 13, true))
+            node->font_size = (float)atof(ui->prop_input_bufs[8]);
+          const char *aligns[] = { "L", "C", "R" };
+          for (int ai = 0; ai < 3; ai++) {
+            float ax2 = align_x + ai * (align_bw + 3);
+            if (nvgw_button(&ui->nvgw, nvgw_id(node, 30 + ai), ax2, y_off, align_bw, row_h, aligns[ai])) {
+              node->text_align = ai;
+            }
+            if (node->text_align == ai) {
+              nvgBeginPath(vg);
+              nvgRect(vg, ax2 + 2, y_off + row_h - 2, align_bw - 4, 2);
+              nvgFillColor(vg, nvgRGBA(80, 120, 220, 255));
+              nvgFill(vg);
+            }
+          }
+        }
         y_off += row_h + row_gap;
+
+        // ── Line height + Letter spacing ──────────────────────────
+        {
+          float half = (w_ptr - 6) / 2.0f;
+          float lh_lbl = 38.0f, ls_lbl = 46.0f;
+          nvgw_label(&ui->nvgw, x_ptr, y_off, lh_lbl, row_h, "Lead", NVG_ALIGN_LEFT, col_label, 12);
+          PROP_SYNC(16, "%.2f", node->line_height > 0.0f ? node->line_height : 1.2f);
+          if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 16), x_ptr + lh_lbl, y_off, half - lh_lbl, row_h, ui->prop_input_bufs[16], 64, 13, true)) {
+            float v = (float)atof(ui->prop_input_bufs[16]);
+            node->line_height = (v > 0.3f && v < 5.0f) ? v : 1.2f;
+          }
+          nvgw_label(&ui->nvgw, x_ptr + half + 6, y_off, ls_lbl, row_h, "Spacing", NVG_ALIGN_LEFT, col_label, 12);
+          PROP_SYNC(17, "%.1f", node->letter_spacing);
+          if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 17), x_ptr + half + 6 + ls_lbl, y_off, half - ls_lbl, row_h, ui->prop_input_bufs[17], 64, 13, true))
+            node->letter_spacing = (float)atof(ui->prop_input_bufs[17]);
+        }
+        y_off += row_h + row_gap;
+
+        // ── Content ───────────────────────────────────────────────
         nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Content", NVG_ALIGN_LEFT, col_label, 13);
         nvgw_text_input(&ui->nvgw, nvgw_id(node, 9), x_ptr + lbl_w, y_off, w_ptr - lbl_w, row_h, node->text, sizeof(node->text), 13, false);
         y_off += row_h + row_gap;
+
+        // ── Linked column ─────────────────────────────────────────
+        if (dd->linked_table_id && engine && engine->doc) {
+          AslanTable *ltbl = NULL;
+          for (int pi = 0; pi < 32 && !ltbl; pi++) {
+            Page *pp = &engine->doc->pages[pi];
+            if (!pp->in_use) continue;
+            Block *tb = page_find_block_by_id(pp, dd->linked_table_id);
+            if (tb && tb->type == BLOCK_TABLE && tb->data.table.columnar)
+              ltbl = tb->data.table.columnar;
+          }
+          if (ltbl && ltbl->column_count > 0) {
+            PROP_SEPARATOR();
+            nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 16, "LINK TO COLUMN", NVG_ALIGN_LEFT, col_section, 10);
+            y_off += 20;
+            int ncols = (int)ltbl->column_count;
+            if (ncols > 8) ncols = 8;
+            int cols_per_row = 3;
+            float cbw = (w_ptr - (cols_per_row - 1) * 3.0f) / (float)cols_per_row;
+            for (int ci = 0; ci < ncols; ci++) {
+              int row_i = ci / cols_per_row, col_i = ci % cols_per_row;
+              float cbx = x_ptr + col_i * (cbw + 3);
+              float cby = y_off + row_i * (row_h + row_gap);
+              bool active = (node->linked_col_name[0] != '\0') &&
+                            strcmp(node->linked_col_name, ltbl->columns[ci].name) == 0;
+              if (nvgw_button(&ui->nvgw, nvgw_id(node, 40 + ci), cbx, cby, cbw, row_h, ltbl->columns[ci].name)) {
+                if (active) {
+                  node->linked_col_name[0] = '\0';
+                } else {
+                  strncpy(node->linked_col_name, ltbl->columns[ci].name, 63);
+                  node->linked_col_name[63] = '\0';
+                }
+              }
+              if (active) {
+                nvgBeginPath(vg);
+                nvgRect(vg, cbx + 2, cby + row_h - 2, cbw - 4, 2);
+                nvgFillColor(vg, nvgRGBA(80, 120, 220, 255));
+                nvgFill(vg);
+              }
+            }
+            int col_rows = (ncols + cols_per_row - 1) / cols_per_row;
+            y_off += col_rows * (row_h + row_gap);
+          }
+        }
       } else if (node->type == NODE_TYPE_IMAGE) {
         PROP_SEPARATOR();
         nvgw_label(&ui->nvgw, x_ptr, y_off, w_ptr, 16, "IMAGE", NVG_ALIGN_LEFT, col_section, 10);
@@ -1994,12 +2118,9 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
     // Auto-resize text node to fit content
     if (display_text && strlen(display_text) > 0) {
       nvgFontSize(ui->vg, ui->font_size_px);
-      nvgFontFace(
-          ui->vg,
-          "Inter"); // Assume Inter by default for measurements if not icons
-      if (node->font_type == 4) {
-        nvgFontFace(ui->vg, "Icons");
-      }
+      const char *_face = (node->font_face[0]) ? node->font_face : "Inter";
+      if (node->font_type == 4) _face = "Icons";
+      nvgFontFace(ui->vg, _face);
       // NanoVG multi-line measurement and Auto-resize
       char *text_copy = strdup(display_text);
       float max_w = 0;
@@ -2072,6 +2193,9 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
 
       nvgFillColor(ui->vg, txt_color);
       nvgFontSize(ui->vg, node->font_size * scale);
+      const char *_rface = (node->font_face[0]) ? node->font_face : "Inter";
+      if (node->font_type == 4) _rface = "Icons";
+      nvgFontFace(ui->vg, _rface);
 
       for (int i = 0; i < line_count; i++) {
         char *line = lines_arr[i];

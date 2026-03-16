@@ -66,6 +66,70 @@ int open_image_file_dialog(char *out_path, size_t path_size) {
   return 0;
 }
 
+// Opens a native file dialog to select a font file (.ttf / .otf)
+static int open_font_file_dialog(char *out_path, size_t path_size) {
+  const char *script =
+      "osascript -e 'set theFile to choose file of type "
+      "{\"public.truetype-ttf-font\", \"public.opentype-font\", "
+      "\"org.gnu.gnu-type-font\", \"public.font\"} "
+      "with prompt \"Select a font file (.ttf or .otf)\"' "
+      "-e 'POSIX path of theFile' 2>/dev/null";
+  FILE *fp = popen(script, "r");
+  if (!fp) return 0;
+  char result[512] = {0};
+  if (fgets(result, sizeof(result), fp)) {
+    size_t len = strlen(result);
+    if (len > 0 && result[len - 1] == '\n') result[--len] = '\0';
+    if (len > 0) {
+      strncpy(out_path, result, path_size - 1);
+      out_path[path_size - 1] = '\0';
+      pclose(fp);
+      return 1;
+    }
+  }
+  pclose(fp);
+  return 0;
+}
+
+// Import a font file, load it into NanoVG, register in UIHost.
+// Returns the NanoVG font name on success (points into ui->custom_fonts), or NULL.
+const char *ui_host_import_font(UIHost *ui, const char *path) {
+  if (!ui || !path || ui->custom_font_count >= ASLAN_MAX_CUSTOM_FONTS)
+    return NULL;
+
+  // Derive a short display name from filename (strip directory + extension)
+  const char *base = strrchr(path, '/');
+  base = base ? base + 1 : path;
+  char name[64];
+  strncpy(name, base, sizeof(name) - 1);
+  name[sizeof(name) - 1] = '\0';
+  char *dot = strrchr(name, '.');
+  if (dot) *dot = '\0';
+
+  // Ensure unique name (avoid collisions with existing NanoVG fonts)
+  char unique[64];
+  snprintf(unique, sizeof(unique), "custom_%s", name);
+
+  int fid = nvgCreateFont(ui->vg, unique, path);
+  if (fid < 0) {
+    ASLAN_WARN("Failed to load font: %s", path);
+    return NULL;
+  }
+
+  int idx = ui->custom_font_count++;
+  strncpy(ui->custom_fonts[idx].name, unique, 63);
+  strncpy(ui->custom_fonts[idx].path, path,   255);
+  ASLAN_DEBUG("Imported font '%s' from %s", unique, path);
+  return ui->custom_fonts[idx].name;
+}
+
+// Opens dialog + imports font. Returns the font name or NULL.
+const char *ui_host_open_and_import_font(UIHost *ui) {
+  char path[512];
+  if (!open_font_file_dialog(path, sizeof(path))) return NULL;
+  return ui_host_import_font(ui, path);
+}
+
 // Opens a native file dialog to select a CSV file for import
 int open_csv_file_dialog(char *out_path, size_t path_size) {
   const char *script =

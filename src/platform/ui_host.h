@@ -288,6 +288,14 @@ typedef struct UIHost {
   int win_width;
   int win_height;
 
+  // Custom imported fonts
+#define ASLAN_MAX_CUSTOM_FONTS 16
+  struct {
+    char name[64];   // NanoVG font name
+    char path[256];  // Original file path (for display)
+  } custom_fonts[ASLAN_MAX_CUSTOM_FONTS];
+  int custom_font_count;
+
   // Cursor handling
   UICursorType cursor_type;
 
@@ -586,6 +594,8 @@ void ui_host_export_svg_merge(UIHost *ui, Engine *engine,
                               struct AslanTable *linked_tbl);
 void ui_host_export_png_jpeg(UIHost *ui, Engine *engine, int is_jpeg);
 void ui_host_export_pdf(UIHost *ui, Engine *engine);
+const char *ui_host_import_font(UIHost *ui, const char *path);
+const char *ui_host_open_and_import_font(UIHost *ui);
 void ui_host_copy_node(UIHost *ui, Engine *engine);
 void ui_host_paste_node(UIHost *ui, Engine *engine);
 void ui_begin_frame(UIHost *ui);

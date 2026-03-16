@@ -122,8 +122,9 @@ typedef struct Node {
 
   // Text content (for NODE_TYPE_TEXT)
   char text[256];
-  float font_size; // Default 20.0f
-  int font_type;   // 0=Inter, 1=H1, 2=H2, 3=H3, 4=Mono
+  float font_size;     // Default 20.0f
+  int font_type;       // 0=Inter, 1=Bold, 4=Icons (legacy)
+  char font_face[64];  // NanoVG font name; empty = "Inter"
 
   // Advanced Typography
   int text_align;       // 0=Left, 1=Center, 2=Right
