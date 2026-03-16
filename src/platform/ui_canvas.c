@@ -1203,11 +1203,11 @@ Node *design_find_node_at(DesignData *dd, float x, float y) {
     if (!node->visible)
       continue;
 
-    // Stroke/path nodes have thin bounding boxes
-    // — add hit padding
+    // Stroke/path nodes have thin bounding boxes — add hit padding.
+    // Text nodes can also be tiny — add padding to make them easier to grab.
     float pad = (node->type == NODE_TYPE_STROKE || node->type == NODE_TYPE_PATH)
                     ? 8.0f
-                    : 0.0f;
+                    : (node->type == NODE_TYPE_TEXT ? 12.0f : 0.0f);
 
     float rad = node->rotation * 3.14159f / 180.0f;
     if (rad == 0.0f) {

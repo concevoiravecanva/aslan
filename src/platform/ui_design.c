@@ -2612,6 +2612,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
     int is_active_design = (ds->active_design_id == block->id);
 
     float scale = 1.0f;
+    AslanRect art_rect = {0, 0, 0, 0}; // populated in fixed-artboard branch
 
     if (dd->no_limits) {
       // --- Infinite Canvas Mode ---
@@ -2696,7 +2697,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       float sx = ws_bounds.x + (ws_bounds.w - art_w) / 2.0f;
       float sy = ws_bounds.y + (display_h - art_h) / 2.0f;
 
-      AslanRect art_rect = {sx, sy, art_w, art_h};
+      art_rect = (AslanRect){sx, sy, art_w, art_h};
       NVGcolor c1 =
           nvgRGBA((dd->pages[dd->current_page].bg_color >> 24) & 0xFF,
                   (dd->pages[dd->current_page].bg_color >> 16) & 0xFF,
@@ -2760,13 +2761,19 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         bounds = (AslanRect){ws_bounds.x - cam_x * zoom, ws_bounds.y - cam_y * zoom,
                     ws_bounds.w, ws_bounds.h};
       } else {
-        bounds = ws_bounds;
+        // Use art_rect as the rendering origin so nodes are positioned
+        // relative to the (centered) artboard, not the panel top-left.
+        // This prevents nodes from drifting when the split-view divider
+        // is moved and the panel width/scale changes.
+        bounds = art_rect;
       }
 
-      ds->bounds_x = ws_bounds.x;
-      ds->bounds_y = ws_bounds.y;
-      ds->bounds_w = ws_bounds.w;
-      ds->bounds_h = ws_bounds.h;
+      // Expose bounds in screen-space for hit-tests in ui_host.c.
+      // In fixed artboard mode the interactive area is the artboard itself.
+      ds->bounds_x = dd->no_limits ? ws_bounds.x : (ui->abs_offset_x + art_rect.x);
+      ds->bounds_y = dd->no_limits ? ws_bounds.y : (ui->abs_offset_y + art_rect.y);
+      ds->bounds_w = dd->no_limits ? ws_bounds.w : art_rect.w;
+      ds->bounds_h = dd->no_limits ? ws_bounds.h : art_rect.h;
       ds->scale = scale;
 
       // Track if this design is active
