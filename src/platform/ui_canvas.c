@@ -556,29 +556,6 @@ static void ui_render_layer_item(UIHost *ui, Block *block, Node *node,
     nvgStroke(ui->vg);
   }
 
-  // On release: perform reorder
-  if (ui->sidebar_drag_node_id == node->id && nvgw->mouse_released) {
-    if (ui->sidebar_drag_started && ui->sidebar_drop_target_id != 0 &&
-        ui->sidebar_drop_target_id != node->id) {
-      // find target node from block
-      Node *root2 = (block->type == BLOCK_DESIGN) ? block->data.design.root : NULL;
-      if (root2) {
-        Node *target = NULL;
-        for (Node *n = root2->first_child; n; n = n->next_sibling) {
-          if (n->id == ui->sidebar_drop_target_id) { target = n; break; }
-        }
-        if (target) {
-          if (ui->sidebar_drag_drop_above)
-            node_insert_before(node, target);
-          else
-            node_insert_after(node, target);
-        }
-      }
-    }
-    ui->sidebar_drag_node_id = 0;
-    ui->sidebar_drag_started = 0;
-    ui->sidebar_drop_target_id = 0;
-  }
 
   float cur_x = x + indent_w;
 
@@ -672,6 +649,32 @@ void ui_render_sidebar_layers(UIHost *ui, Block *block, float x, float y,
   float cy = y;
   for (int i = count - 1; i >= 0; i--) {
     ui_render_layer_item(ui, block, nodes[i], 0, x, &cy, w);
+  }
+
+  // Perform reorder after full traversal so drop_target_id is set correctly
+  if (ui->nvgw.mouse_released && ui->sidebar_drag_started &&
+      ui->sidebar_drag_node_id != 0 && ui->sidebar_drop_target_id != 0 &&
+      ui->sidebar_drag_node_id != ui->sidebar_drop_target_id) {
+    Node *dragged = NULL, *target = NULL;
+    for (Node *n = root->first_child; n; n = n->next_sibling) {
+      if (n->id == ui->sidebar_drag_node_id)   dragged = n;
+      if (n->id == ui->sidebar_drop_target_id) target  = n;
+    }
+    if (dragged && target) {
+      // Panel is reversed: top of panel = end of list (drawn last = on top).
+      // "above in panel" means later in list → node_insert_after
+      // "below in panel" means earlier in list → node_insert_before
+      if (ui->sidebar_drag_drop_above)
+        node_insert_after(dragged, target);
+      else
+        node_insert_before(dragged, target);
+    }
+  }
+
+  if (ui->nvgw.mouse_released) {
+    ui->sidebar_drag_node_id  = 0;
+    ui->sidebar_drag_started  = 0;
+    ui->sidebar_drop_target_id = 0;
   }
 }
 
