@@ -1777,33 +1777,187 @@ void doc_save_aof(const Document *doc, FILE *fp) {
 // =============================================================================
 
 // Convert RGBA uint32 to SVG color string: "rgba(r,g,b,a)"
+// Output "rgb(r,g,b)" into buf
 static void svg_color(uint32_t rgba, char *buf, size_t len) {
-  uint8_t r = (rgba >> 24) & 0xFF;
-  uint8_t g = (rgba >> 16) & 0xFF;
-  uint8_t b = (rgba >> 8) & 0xFF;
-  uint8_t a = rgba & 0xFF;
-  if (a == 255)
-    snprintf(buf, len, "rgb(%d,%d,%d)", r, g, b);
-  else
-    snprintf(buf, len, "rgba(%d,%d,%d,%.2f)", r, g, b, a / 255.0);
+  snprintf(buf, len, "rgb(%d,%d,%d)",
+           (rgba >> 24) & 0xFF,
+           (rgba >> 16) & 0xFF,
+           (rgba >> 8)  & 0xFF);
 }
 
-// Write SVG for a single node (recursive for children)
+// Return normalised alpha [0..1] from an RGBA value
+static float svg_alpha(uint32_t rgba) {
+  return (rgba & 0xFF) / 255.0f;
+}
+
+// Base64 encode a block of bytes into fp
+static void svg_base64(FILE *fp, const unsigned char *data, long len) {
+  static const char b64[] =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  for (long i = 0; i < len; i += 3) {
+    unsigned int n = (unsigned int)data[i] << 16;
+    if (i + 1 < len) n |= (unsigned int)data[i + 1] << 8;
+    if (i + 2 < len) n |= (unsigned int)data[i + 2];
+    fputc(b64[(n >> 18) & 0x3F], fp);
+    fputc(b64[(n >> 12) & 0x3F], fp);
+    fputc((i + 1 < len) ? b64[(n >> 6) & 0x3F] : '=', fp);
+    fputc((i + 2 < len) ? b64[n & 0x3F]        : '=', fp);
+  }
+}
+
+// Escape XML special chars into fp
+static void svg_fputs_escaped(FILE *fp, const char *s) {
+  for (; *s; s++) {
+    switch (*s) {
+    case '<':  fputs("&lt;",   fp); break;
+    case '>':  fputs("&gt;",   fp); break;
+    case '&':  fputs("&amp;",  fp); break;
+    case '"':  fputs("&quot;", fp); break;
+    default:   fputc(*s, fp);       break;
+    }
+  }
+}
+
+// Embed an image file as a base64 data-URI <image> element.
+// Tries path as-is, then doc_dir/path.
+static void svg_embed_image(FILE *fp, const Node *node,
+                            const char *doc_dir,
+                            float ax, float ay,
+                            const char *transform) {
+  char resolved[512];
+  FILE *img = fopen(node->image_path, "rb");
+  if (!img && doc_dir && doc_dir[0]) {
+    snprintf(resolved, sizeof(resolved), "%s/%s", doc_dir, node->image_path);
+    img = fopen(resolved, "rb");
+  }
+
+  char fill[64], stroke[64];
+  svg_color(node->fill_color,   fill,   sizeof(fill));
+  svg_color(node->stroke_color, stroke, sizeof(stroke));
+
+  if (img) {
+    fseek(img, 0, SEEK_END);
+    long sz = ftell(img);
+    fseek(img, 0, SEEK_SET);
+    if (sz > 0 && sz < 10 * 1024 * 1024) {
+      unsigned char *buf = (unsigned char *)malloc(sz);
+      if (buf && fread(buf, 1, sz, img) == (size_t)sz) {
+        const char *mime = "image/png";
+        const char *ext = strrchr(node->image_path, '.');
+        if (ext) {
+          if (strcmp(ext, ".jpg") == 0 || strcmp(ext, ".jpeg") == 0)
+            mime = "image/jpeg";
+          else if (strcmp(ext, ".gif") == 0)
+            mime = "image/gif";
+          else if (strcmp(ext, ".webp") == 0)
+            mime = "image/webp";
+        }
+        fprintf(fp,
+                "  <image x=\"%.1f\" y=\"%.1f\" width=\"%.1f\" height=\"%.1f\""
+                " opacity=\"%.2f\" href=\"data:%s;base64,",
+                ax, ay, node->width, node->height,
+                node->opacity > 0 ? node->opacity : 1.0f, mime);
+        svg_base64(fp, buf, sz);
+        fprintf(fp, "\" preserveAspectRatio=\"xMidYMid slice\"%s/>\n", transform);
+      }
+      free(buf);
+    }
+    fclose(img);
+  } else {
+    // Placeholder when image is missing
+    fprintf(fp,
+            "  <rect x=\"%.1f\" y=\"%.1f\" width=\"%.1f\" height=\"%.1f\""
+            " fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
+            ax, ay, node->width, node->height,
+            fill, stroke, node->stroke_width, transform);
+    fprintf(fp,
+            "  <text x=\"%.1f\" y=\"%.1f\" font-size=\"12\""
+            " fill=\"rgb(120,120,120)\" text-anchor=\"middle\">Image</text>\n",
+            ax + node->width / 2, ay + node->height / 2 + 4);
+  }
+}
+
+// Write SVG gradient defs + fill/stroke strings for a node.
+// Returns true if a gradient was written (caller must close </defs>).
+static bool svg_write_fill(FILE *fp, const Node *node,
+                           char *fill_attr, size_t fill_len,
+                           char *stroke_attr, size_t stroke_len) {
+  float fill_a   = svg_alpha(node->fill_color);
+  float stroke_a = svg_alpha(node->stroke_color);
+
+  svg_color(node->stroke_color, stroke_attr, stroke_len);
+
+  bool has_gradient = (node->fill_color_2 != 0 &&
+                       (node->fill_color_2 & 0xFF) > 0);
+
+  if (has_gradient) {
+    char c1[64], c2[64];
+    svg_color(node->fill_color,   c1, sizeof(c1));
+    svg_color(node->fill_color_2, c2, sizeof(c2));
+    float a1 = fill_a;
+    float a2 = svg_alpha(node->fill_color_2);
+
+    // Convert gradient angle to x1/y1/x2/y2
+    double rad  = node->gradient_angle * 3.14159265 / 180.0;
+    double x2   = 0.5 + 0.5 * cos(rad - 3.14159265 / 2);
+    double y2   = 0.5 + 0.5 * sin(rad - 3.14159265 / 2);
+    double x1   = 1.0 - x2;
+    double y1   = 1.0 - y2;
+
+    fprintf(fp, "  <defs>\n");
+    fprintf(fp,
+            "    <linearGradient id=\"g%u\" x1=\"%.2f%%\" y1=\"%.2f%%\""
+            " x2=\"%.2f%%\" y2=\"%.2f%%\">\n",
+            node->id, x1 * 100, y1 * 100, x2 * 100, y2 * 100);
+    fprintf(fp,
+            "      <stop offset=\"0%%\" stop-color=\"%s\" stop-opacity=\"%.2f\"/>\n",
+            c1, a1);
+    fprintf(fp,
+            "      <stop offset=\"100%%\" stop-color=\"%s\" stop-opacity=\"%.2f\"/>\n",
+            c2, a2);
+    fprintf(fp, "    </linearGradient>\n");
+    fprintf(fp, "  </defs>\n");
+
+    snprintf(fill_attr, fill_len, "url(#g%u)", node->id);
+    return true;
+  }
+
+  svg_color(node->fill_color, fill_attr, fill_len);
+  (void)stroke_a; // used via stroke_attr
+  return false;
+}
+
+// Write SVG for a single node. parent_x/parent_y are absolute coords of parent.
 static void svg_write_node(FILE *fp, const Node *node,
                            struct AslanTable *linked_tbl,
-                           uint64_t linked_row_id) {
+                           uint64_t linked_row_id,
+                           float parent_x, float parent_y,
+                           const char *doc_dir) {
   if (!node || !node->visible)
     return;
 
-  char fill[64], stroke[64];
-  svg_color(node->fill_color, fill, sizeof(fill));
-  svg_color(node->stroke_color, stroke, sizeof(stroke));
+  // Absolute position of this node
+  float ax = parent_x + node->x;
+  float ay = parent_y + node->y;
 
-  // Rotation transform
-  char transform[128] = "";
+  // Opacity (default 1 if unset)
+  float op = (node->opacity > 0.0f) ? node->opacity : 1.0f;
+  char op_attr[32] = "";
+  if (op < 0.999f)
+    snprintf(op_attr, sizeof(op_attr), " opacity=\"%.2f\"", op);
+
+  // Fill, stroke, and optional gradient defs
+  char fill[80], stroke[64];
+  svg_write_fill(fp, node, fill, sizeof(fill), stroke, sizeof(stroke));
+
+  float fill_a   = svg_alpha(node->fill_color);
+  float stroke_a = svg_alpha(node->stroke_color);
+
+  // Rotation transform around node centre
+  char transform[160] = "";
   if (node->rotation != 0.0f) {
-    float cx = node->x + node->width / 2.0f;
-    float cy = node->y + node->height / 2.0f;
+    float cx = ax + node->width  / 2.0f;
+    float cy = ay + node->height / 2.0f;
     snprintf(transform, sizeof(transform),
              " transform=\"rotate(%.1f %.1f %.1f)\"", node->rotation, cx, cy);
   }
@@ -1811,65 +1965,70 @@ static void svg_write_node(FILE *fp, const Node *node,
   switch (node->type) {
   case NODE_TYPE_RECT:
   case NODE_TYPE_FRAME:
-    fprintf(
-        fp,
-        "  <rect x=\"%.1f\" y=\"%.1f\" width=\"%.1f\" height=\"%.1f\""
-        " rx=\"%.1f\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
-        node->x, node->y, node->width, node->height, node->corner_radius, fill,
-        stroke, node->stroke_width, transform);
+    fprintf(fp,
+            "  <rect x=\"%.1f\" y=\"%.1f\" width=\"%.1f\" height=\"%.1f\""
+            " rx=\"%.1f\" fill=\"%s\" fill-opacity=\"%.2f\""
+            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s/>\n",
+            ax, ay, node->width, node->height, node->corner_radius,
+            fill, fill_a, stroke, stroke_a, node->stroke_width,
+            op_attr, transform);
+    // Children rendered below in their own coordinate space
     break;
 
   case NODE_TYPE_ELLIPSE: {
-    float cx = node->x + node->width / 2.0f;
-    float cy = node->y + node->height / 2.0f;
+    float cx = ax + node->width  / 2.0f;
+    float cy = ay + node->height / 2.0f;
     fprintf(fp,
             "  <ellipse cx=\"%.1f\" cy=\"%.1f\" rx=\"%.1f\" ry=\"%.1f\""
-            " fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
-            cx, cy, node->width / 2.0f, node->height / 2.0f, fill, stroke,
-            node->stroke_width, transform);
+            " fill=\"%s\" fill-opacity=\"%.2f\""
+            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s/>\n",
+            cx, cy, node->width / 2.0f, node->height / 2.0f,
+            fill, fill_a, stroke, stroke_a, node->stroke_width,
+            op_attr, transform);
     break;
   }
 
   case NODE_TYPE_TEXT: {
-    fprintf(fp,
-            "  <text x=\"%.1f\" y=\"%.1f\" font-size=\"%.1f\""
-            " fill=\"%s\"%s>",
-            node->x, node->y + node->font_size, node->font_size, fill,
-            transform);
+    // Resolve linked column value
     const char *display_text = node->text;
     char linked_val_buf[256];
     if (node->linked_col_name[0] && linked_tbl) {
       for (int lk = 0; lk < (int)linked_tbl->column_count; lk++) {
         if (strcmp(linked_tbl->columns[lk].name, node->linked_col_name) == 0) {
           const char *val = aslan_table_get_cell_display(
-              linked_tbl, lk, linked_row_id, linked_val_buf,
-              sizeof(linked_val_buf));
+              linked_tbl, lk, linked_row_id,
+              linked_val_buf, sizeof(linked_val_buf));
           if (val && val[0])
             display_text = val;
           break;
         }
       }
     }
-    // Escape XML entities in text
-    for (const char *p = display_text; *p; p++) {
-      switch (*p) {
-      case '<':
-        fputs("&lt;", fp);
-        break;
-      case '>':
-        fputs("&gt;", fp);
-        break;
-      case '&':
-        fputs("&amp;", fp);
-        break;
-      case '"':
-        fputs("&quot;", fp);
-        break;
-      default:
-        fputc(*p, fp);
-        break;
-      }
+
+    // Font family & weight
+    const char *family = "Inter, sans-serif";
+    const char *weight = "normal";
+    if (node->font_face[0]) {
+      family = node->font_face;
+    } else if (node->font_type == 1) {
+      weight = "bold";
     }
+
+    // Text anchor from alignment
+    const char *anchor = "start";
+    float tx = ax;
+    if (node->text_align == 1) { anchor = "middle"; tx = ax + node->width / 2.0f; }
+    else if (node->text_align == 2) { anchor = "end";  tx = ax + node->width; }
+
+    fprintf(fp,
+            "  <text x=\"%.1f\" y=\"%.1f\" font-size=\"%.1f\""
+            " font-family=\"%s\" font-weight=\"%s\""
+            " text-anchor=\"%s\" dominant-baseline=\"text-before-edge\""
+            " fill=\"%s\" fill-opacity=\"%.2f\"%s%s>",
+            tx, ay, node->font_size,
+            family, weight, anchor,
+            fill, fill_a, op_attr, transform);
+    svg_fputs_escaped(fp, display_text);
     fprintf(fp, "</text>\n");
     break;
   }
@@ -1877,190 +2036,120 @@ static void svg_write_node(FILE *fp, const Node *node,
   case NODE_TYPE_LINE:
     fprintf(fp,
             "  <line x1=\"%.1f\" y1=\"%.1f\" x2=\"%.1f\" y2=\"%.1f\""
-            " stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
-            node->x, node->y, node->x + node->width, node->y + node->height,
-            stroke, node->stroke_width, transform);
+            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s/>\n",
+            ax, ay, ax + node->width, ay + node->height,
+            stroke, stroke_a, node->stroke_width, op_attr, transform);
     break;
 
   case NODE_TYPE_TRIANGLE: {
-    float x = node->x, y = node->y, w = node->width, h = node->height;
+    float w = node->width, h = node->height;
     fprintf(fp,
             "  <polygon points=\"%.1f,%.1f %.1f,%.1f %.1f,%.1f\""
-            " fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
-            x + w / 2, y, x, y + h, x + w, y + h, fill, stroke,
-            node->stroke_width, transform);
+            " fill=\"%s\" fill-opacity=\"%.2f\""
+            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s/>\n",
+            ax + w / 2, ay, ax, ay + h, ax + w, ay + h,
+            fill, fill_a, stroke, stroke_a, node->stroke_width, op_attr, transform);
     break;
   }
 
-  case NODE_TYPE_PENTAGON: {
-    float cx = node->x + node->width / 2, cy = node->y + node->height / 2;
-    float rx = node->width / 2, ry = node->height / 2;
-    fprintf(fp, "  <polygon points=\"");
-    for (int i = 0; i < 5; i++) {
-      double a = (i * 2 * 3.14159265 / 5) - 3.14159265 / 2;
-      fprintf(fp, "%.1f,%.1f ", cx + rx * cos(a), cy + ry * sin(a));
-    }
-    fprintf(fp, "\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
-            fill, stroke, node->stroke_width, transform);
-    break;
-  }
-
-  case NODE_TYPE_HEXAGON: {
-    float cx = node->x + node->width / 2, cy = node->y + node->height / 2;
-    float rx = node->width / 2, ry = node->height / 2;
-    fprintf(fp, "  <polygon points=\"");
-    for (int i = 0; i < 6; i++) {
-      double a = (i * 2 * 3.14159265 / 6) - 3.14159265 / 2;
-      fprintf(fp, "%.1f,%.1f ", cx + rx * cos(a), cy + ry * sin(a));
-    }
-    fprintf(fp, "\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
-            fill, stroke, node->stroke_width, transform);
-    break;
-  }
-
+  case NODE_TYPE_PENTAGON:
+  case NODE_TYPE_HEXAGON:
   case NODE_TYPE_OCTAGON: {
-    float cx = node->x + node->width / 2, cy = node->y + node->height / 2;
-    float rx = node->width / 2, ry = node->height / 2;
+    int sides = (node->type == NODE_TYPE_PENTAGON) ? 5
+              : (node->type == NODE_TYPE_HEXAGON)  ? 6 : 8;
+    float cx = ax + node->width / 2, cy = ay + node->height / 2;
+    float rx = node->width / 2,      ry = node->height / 2;
     fprintf(fp, "  <polygon points=\"");
-    for (int i = 0; i < 8; i++) {
-      double a = (i * 2 * 3.14159265 / 8) - 3.14159265 / 2;
+    for (int i = 0; i < sides; i++) {
+      double a = (i * 2 * 3.14159265 / sides) - 3.14159265 / 2;
       fprintf(fp, "%.1f,%.1f ", cx + rx * cos(a), cy + ry * sin(a));
     }
-    fprintf(fp, "\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
-            fill, stroke, node->stroke_width, transform);
+    fprintf(fp,
+            "\" fill=\"%s\" fill-opacity=\"%.2f\""
+            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s/>\n",
+            fill, fill_a, stroke, stroke_a, node->stroke_width, op_attr, transform);
     break;
   }
 
   case NODE_TYPE_STAR: {
-    float cx = node->x + node->width / 2, cy = node->y + node->height / 2;
-    float rx = node->width / 2, ry = node->height / 2;
+    float cx = ax + node->width / 2, cy = ay + node->height / 2;
+    float rx = node->width / 2,      ry = node->height / 2;
     fprintf(fp, "  <polygon points=\"");
     for (int i = 0; i < 10; i++) {
       double a = (i * 2 * 3.14159265 / 10) - 3.14159265 / 2;
       float r = (i % 2 == 0) ? 1.0f : 0.4f;
       fprintf(fp, "%.1f,%.1f ", cx + rx * r * cos(a), cy + ry * r * sin(a));
     }
-    fprintf(fp, "\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
-            fill, stroke, node->stroke_width, transform);
+    fprintf(fp,
+            "\" fill=\"%s\" fill-opacity=\"%.2f\""
+            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s/>\n",
+            fill, fill_a, stroke, stroke_a, node->stroke_width, op_attr, transform);
     break;
   }
 
   case NODE_TYPE_HEART: {
-    // Heart as a simplified SVG path
-    float x = node->x, y = node->y, w = node->width, h = node->height;
+    float w = node->width, h = node->height;
     fprintf(fp,
             "  <path d=\"M%.1f,%.1f C%.1f,%.1f %.1f,%.1f %.1f,%.1f"
             " C%.1f,%.1f %.1f,%.1f %.1f,%.1f Z\""
-            " fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
-            x + w / 2, y + h * 0.3, x + w * 0.1, y, x, y + h * 0.4, x + w / 2,
-            y + h, x + w, y + h * 0.4, x + w * 0.9, y, x + w / 2, y + h * 0.3,
-            fill, stroke, node->stroke_width, transform);
+            " fill=\"%s\" fill-opacity=\"%.2f\""
+            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s/>\n",
+            ax + w/2, ay + h*0.3f,
+            ax + w*0.1f, ay,  ax, ay + h*0.4f,  ax + w/2, ay + h,
+            ax + w,  ay + h*0.4f,  ax + w*0.9f, ay,  ax + w/2, ay + h*0.3f,
+            fill, fill_a, stroke, stroke_a, node->stroke_width, op_attr, transform);
     break;
   }
 
   case NODE_TYPE_PATH:
     if (node->path_points && node->path_point_count > 0) {
-      fprintf(fp, "  <path d=\"M%.1f,%.1f", node->x + node->path_points[0].x,
-              node->y + node->path_points[0].y);
+      fprintf(fp, "  <path d=\"M%.1f,%.1f",
+              ax + node->path_points[0].x, ay + node->path_points[0].y);
       for (int i = 1; i < node->path_point_count; i++) {
-        NodePathPoint *pt = &node->path_points[i];
+        const NodePathPoint *pt   = &node->path_points[i];
+        const NodePathPoint *prev = &node->path_points[i - 1];
         if (pt->type == 1) {
-          NodePathPoint *prev = &node->path_points[i - 1];
-          fprintf(fp, " C%.1f,%.1f %.1f,%.1f %.1f,%.1f", node->x + prev->cp2x,
-                  node->y + prev->cp2y, node->x + pt->cp1x, node->y + pt->cp1y,
-                  node->x + pt->x, node->y + pt->y);
+          fprintf(fp, " C%.1f,%.1f %.1f,%.1f %.1f,%.1f",
+                  ax + prev->cp2x, ay + prev->cp2y,
+                  ax + pt->cp1x,   ay + pt->cp1y,
+                  ax + pt->x,      ay + pt->y);
         } else {
-          fprintf(fp, " L%.1f,%.1f", node->x + pt->x, node->y + pt->y);
+          fprintf(fp, " L%.1f,%.1f", ax + pt->x, ay + pt->y);
         }
       }
-      fprintf(fp, "\" fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
-              fill, stroke, node->stroke_width, transform);
+      fprintf(fp,
+              "\" fill=\"%s\" fill-opacity=\"%.2f\""
+              " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s/>\n",
+              fill, fill_a, stroke, stroke_a, node->stroke_width, op_attr, transform);
     }
     break;
 
   case NODE_TYPE_STROKE:
     if (node->stroke_data) {
-      Stroke *s = node->stroke_data;
+      const Stroke *s = node->stroke_data;
       if (s->count > 0) {
         fprintf(fp, "  <polyline points=\"");
         for (int i = 0; i < s->count; i++) {
           fprintf(fp, "%.1f,%.1f ", s->points[i].x, s->points[i].y);
         }
+        float sw = node->stroke_width > 0 ? node->stroke_width : 2.0f;
         fprintf(fp,
-                "\" fill=\"none\" stroke=\"%s\" stroke-width=\"%.1f\""
-                " stroke-linecap=\"round\" stroke-linejoin=\"round\"/>\n",
-                stroke, node->stroke_width > 0 ? node->stroke_width : 2.0f);
+                "\" fill=\"none\" stroke=\"%s\" stroke-opacity=\"%.2f\""
+                " stroke-width=\"%.1f\""
+                " stroke-linecap=\"round\" stroke-linejoin=\"round\"%s/>\n",
+                stroke, stroke_a, sw, op_attr);
       }
     }
     break;
 
-  case NODE_TYPE_IMAGE: {
-    // Embed image as base64 data URI
-    if (node->image_path[0]) {
-      FILE *img = fopen(node->image_path, "rb");
-      if (img) {
-        fseek(img, 0, SEEK_END);
-        long img_size = ftell(img);
-        fseek(img, 0, SEEK_SET);
-        if (img_size > 0 && img_size < 10 * 1024 * 1024) {
-          unsigned char *img_data = (unsigned char *)malloc(img_size);
-          if (img_data &&
-              fread(img_data, 1, img_size, img) == (size_t)img_size) {
-            // Detect MIME type from extension
-            const char *mime = "image/png";
-            const char *ext = strrchr(node->image_path, '.');
-            if (ext) {
-              if (strcmp(ext, ".jpg") == 0 || strcmp(ext, ".jpeg") == 0)
-                mime = "image/jpeg";
-              else if (strcmp(ext, ".gif") == 0)
-                mime = "image/gif";
-              else if (strcmp(ext, ".webp") == 0)
-                mime = "image/webp";
-            }
-            // Base64 encode
-            static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn"
-                                      "opqrstuvwxyz0123456789+/";
-            fprintf(
-                fp,
-                "  <image x=\"%.1f\" y=\"%.1f\" width=\"%.1f\" height=\"%.1f\""
-                " href=\"data:%s;base64,",
-                node->x, node->y, node->width, node->height, mime);
-            for (long i = 0; i < img_size; i += 3) {
-              unsigned int n = (unsigned int)img_data[i] << 16;
-              if (i + 1 < img_size)
-                n |= (unsigned int)img_data[i + 1] << 8;
-              if (i + 2 < img_size)
-                n |= (unsigned int)img_data[i + 2];
-              fputc(b64[(n >> 18) & 0x3F], fp);
-              fputc(b64[(n >> 12) & 0x3F], fp);
-              fputc((i + 1 < img_size) ? b64[(n >> 6) & 0x3F] : '=', fp);
-              fputc((i + 2 < img_size) ? b64[n & 0x3F] : '=', fp);
-            }
-            fprintf(fp, "\" preserveAspectRatio=\"none\"%s/>\n", transform);
-          }
-          free(img_data);
-        }
-        fclose(img);
-      } else {
-        // Image file not found — draw placeholder
-        fprintf(fp,
-                "  <rect x=\"%.1f\" y=\"%.1f\" width=\"%.1f\" height=\"%.1f\""
-                " fill=\"%s\" stroke=\"%s\" stroke-width=\"%.1f\"%s/>\n",
-                node->x, node->y, node->width, node->height, fill, stroke,
-                node->stroke_width, transform);
-        fprintf(
-            fp,
-            "  <text x=\"%.1f\" y=\"%.1f\" font-size=\"12\""
-            " fill=\"rgb(120,120,120)\" text-anchor=\"middle\">Image</text>\n",
-            node->x + node->width / 2, node->y + node->height / 2 + 4);
-      }
-    }
+  case NODE_TYPE_IMAGE:
+    if (node->image_path[0])
+      svg_embed_image(fp, node, doc_dir, ax, ay, transform);
     break;
-  }
 
   case NODE_TYPE_CHART:
   case NODE_TYPE_TABLE_VIEW: {
-    // Try to embed pre-rendered snapshot from /tmp/
+    // Embed pre-rendered snapshot if available
     char snap_path[256];
     snprintf(snap_path, sizeof(snap_path), "/tmp/aslan_node_%u.png", node->id);
     FILE *snap = fopen(snap_path, "rb");
@@ -2072,24 +2161,11 @@ static void svg_write_node(FILE *fp, const Node *node,
         unsigned char *snap_data = (unsigned char *)malloc(snap_size);
         if (snap_data &&
             fread(snap_data, 1, snap_size, snap) == (size_t)snap_size) {
-          static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnop"
-                                    "qrstuvwxyz0123456789+/";
-          fprintf(
-              fp,
-              "  <image x=\"%.1f\" y=\"%.1f\" width=\"%.1f\" height=\"%.1f\""
-              " href=\"data:image/png;base64,",
-              node->x, node->y, node->width, node->height);
-          for (long i = 0; i < snap_size; i += 3) {
-            unsigned int n = (unsigned int)snap_data[i] << 16;
-            if (i + 1 < snap_size)
-              n |= (unsigned int)snap_data[i + 1] << 8;
-            if (i + 2 < snap_size)
-              n |= (unsigned int)snap_data[i + 2];
-            fputc(b64[(n >> 18) & 0x3F], fp);
-            fputc(b64[(n >> 12) & 0x3F], fp);
-            fputc((i + 1 < snap_size) ? b64[(n >> 6) & 0x3F] : '=', fp);
-            fputc((i + 2 < snap_size) ? b64[n & 0x3F] : '=', fp);
-          }
+          fprintf(fp,
+                  "  <image x=\"%.1f\" y=\"%.1f\" width=\"%.1f\" height=\"%.1f\""
+                  " href=\"data:image/png;base64,",
+                  ax, ay, node->width, node->height);
+          svg_base64(fp, snap_data, snap_size);
           fprintf(fp, "\" preserveAspectRatio=\"none\"%s/>\n", transform);
         }
         free(snap_data);
@@ -2100,13 +2176,14 @@ static void svg_write_node(FILE *fp, const Node *node,
   }
 
   default:
-    // GROUP, ROOT — skip
     break;
   }
 
-  // Recurse into children (for FRAME, GROUP, ROOT)
-  for (Node *child = node->first_child; child; child = child->next_sibling) {
-    svg_write_node(fp, child, linked_tbl, linked_row_id);
+  // Recurse into children (FRAME, GROUP) — children coords are relative to parent
+  if (node->first_child) {
+    for (Node *child = node->first_child; child; child = child->next_sibling) {
+      svg_write_node(fp, child, linked_tbl, linked_row_id, ax, ay, doc_dir);
+    }
   }
 }
 
@@ -2123,6 +2200,20 @@ bool block_design_export_svg(const Block *block, const char *filepath,
   const DesignPage *page = &dd->pages[dd->current_page];
   if (!page->root)
     return false;
+
+  // Derive directory of the output file so relative image paths resolve
+  char doc_dir[512] = ".";
+  {
+    const char *last_sep = NULL;
+    for (const char *p = filepath; *p; p++)
+      if (*p == '/' || *p == '\\')
+        last_sep = p;
+    if (last_sep && last_sep - filepath < (int)sizeof(doc_dir) - 1) {
+      size_t dlen = (size_t)(last_sep - filepath);
+      memcpy(doc_dir, filepath, dlen);
+      doc_dir[dlen] = '\0';
+    }
+  }
 
   FILE *fp = fopen(filepath, "w");
   if (!fp)
@@ -2164,9 +2255,9 @@ bool block_design_export_svg(const Block *block, const char *filepath,
     fprintf(fp, "  <rect width=\"%d\" height=\"%d\" fill=\"%s\"/>\n", w, h, bg);
   }
 
-  // Export all nodes in current page
+  // Export all nodes in current page (top-level: parent at 0,0)
   for (Node *node = page->root->first_child; node; node = node->next_sibling) {
-    svg_write_node(fp, node, linked_tbl, linked_row_id);
+    svg_write_node(fp, node, linked_tbl, linked_row_id, 0.0f, 0.0f, doc_dir);
   }
 
   fprintf(fp, "</svg>\n");
