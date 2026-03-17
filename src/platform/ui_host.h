@@ -589,6 +589,8 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt);
 void ui_host_handle_file_drop(UIHost *ui, const char *file_path, int mx,
                               int my);
 void ui_host_import_csv(UIHost *ui, Engine *engine);
+int open_csv_file_dialog(char *out_path, size_t path_size);
+int save_csv_file_dialog(char *out_path, size_t path_size, const char *default_name);
 void ui_host_export_svg(UIHost *ui, Engine *engine);
 void ui_host_export_svg_merge(UIHost *ui, Engine *engine,
                               struct AslanTable *linked_tbl);

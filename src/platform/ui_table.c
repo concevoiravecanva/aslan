@@ -569,6 +569,72 @@ static void render_header(UIHost *ui, Engine *engine, AslanTable *table,
         ui_request_redraw(ui);
     }
 
+    // ── Import / Export CSV buttons ───────────────────────────────────────
+    float csv_gap = 6.0f;
+    float csv_w = 72.0f;
+    float import_x = add_x + add_w + csv_gap;
+    float export_x = import_x + csv_w + csv_gap;
+
+    // Helper: draw one header action button and return true if clicked
+    // (inline lambda via macro)
+    #define DRAW_CSV_BTN(BX, LABEL, ID_STR)                                    \
+    do {                                                                         \
+        float _bx = (BX), _by = by, _bw = csv_w, _bh = bh;                    \
+        uint32_t _id = nvgw_id(&block->id, sizeof(block->id))                   \
+                     ^ nvgw_id_str(ID_STR);                                     \
+        float _mx = wc->mouse_x - wc->offset_x;                                \
+        float _my = wc->mouse_y - wc->offset_y;                                \
+        bool _hov = (_mx >= _bx && _mx < _bx + _bw &&                         \
+                     _my >= _by && _my < _by + _bh);                           \
+        if (_hov) wc->hot_id = _id;                                             \
+        if (wc->hot_id == _id && wc->mouse_clicked) wc->active_id = _id;       \
+        bool _clicked = (wc->active_id == _id && wc->mouse_released && _hov);  \
+        nvgBeginPath(vg);                                                        \
+        nvgRoundedRect(vg, _bx, _by, _bw, _bh, 4.0f);                         \
+        nvgFillColor(vg, _hov                                                   \
+            ? (dark ? nvgRGBA(255,255,255,14) : nvgRGBA(0,0,0,10))             \
+            : (dark ? nvgRGBA(255,255,255,6)  : nvgRGBA(0,0,0,4)));            \
+        nvgFill(vg);                                                             \
+        nvgFontSize(vg, 12.0f);                                                  \
+        nvgFontFace(vg, "Inter");                                                \
+        nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);                  \
+        nvgFillColor(vg, tbl_dim(dark));                                         \
+        nvgText(vg, _bx + _bw * 0.5f, _by + _bh * 0.5f, (LABEL), NULL);       \
+        if (_clicked)
+
+    DRAW_CSV_BTN(import_x, "\u2191 Import", "csv_import") {
+        char csv_path[1024];
+        if (open_csv_file_dialog(csv_path, sizeof(csv_path))) {
+            // Replace table content with imported CSV
+            aslan_table_import_csv(table, csv_path);
+            aslan_table_eval_formulas(table);
+            ui_request_redraw(ui);
+        }
+    } } while(0);
+
+    DRAW_CSV_BTN(export_x, "\u2193 Export", "csv_export") {
+        char filename[1024];
+        char clean[64];
+        if (table->name[0]) {
+            strncpy(clean, table->name, sizeof(clean) - 1);
+            clean[sizeof(clean)-1] = '\0';
+        } else {
+            strcpy(clean, "Table");
+        }
+        for (char *p = clean; *p; p++)
+            if (*p == ' ' || *p == '/' || *p == '\\') *p = '_';
+        time_t now = time(NULL); struct tm *t = localtime(&now);
+        char def[256];
+        snprintf(def, sizeof(def), "%s_%04d%02d%02d.csv",
+                 clean, t->tm_year+1900, t->tm_mon+1, t->tm_mday);
+        if (save_csv_file_dialog(filename, sizeof(filename), def)) {
+            aslan_table_export_csv(table, filename);
+            ui_request_redraw(ui);
+        }
+    } } while(0);
+
+    #undef DRAW_CSV_BTN
+
     nvgRestore(vg);
 
     // Bottom border
