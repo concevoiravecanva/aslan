@@ -1214,137 +1214,129 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       ui_render_chart_node_config_bar(ui, engine, node, nr, curr_page);
     }
   } else if (node->type == NODE_TYPE_TABLE_VIEW) {
-    // ── Embedded live-table (read-only) ──────────────────────────────────
-    // Find the linked table block
+    // ── Embedded live-table — mirrors ui_render_chart_impl pattern ──────
+    NVGcontext *vg = ui->vg;
+    // Find first TABLE block on active page
     AslanTable *tv_tbl = NULL;
-    for (int _pi = 0; _pi < engine->doc->page_count && !tv_tbl; _pi++) {
-      Page *_p = &engine->doc->pages[_pi];
-      if (!_p->in_use)
-        continue;
-      for (Block *_b = _p->first_block; _b && !tv_tbl; _b = _b->next) {
-        if (_b->type == BLOCK_TABLE && _b->data.table.columnar &&
-            (_b->id == node->linked_block_id ||
-             (node->linked_block_id == 0 && _b->id == dd->linked_table_id)))
+    Page *_active = doc_page_get_active(engine->doc);
+    if (_active) {
+      for (Block *_b = _active->first_block; _b; _b = _b->next) {
+        if (_b->type == BLOCK_TABLE && _b->data.table.columnar) {
           tv_tbl = _b->data.table.columnar;
+          break;
+        }
       }
     }
 
-    // White card background
-    nvgBeginPath(ui->vg);
-    nvgRoundedRect(ui->vg, nr.x, nr.y, nr.w, nr.h, 4.0f * scale);
-    nvgFillColor(ui->vg, nvgRGBA(255, 255, 255, 255));
-    nvgFill(ui->vg);
-    nvgStrokeColor(ui->vg, nvgRGBA(220, 220, 230, 255));
-    nvgStrokeWidth(ui->vg, 1.0f);
-    nvgStroke(ui->vg);
+    // Card background (same as charts, drawn before nvgSave)
+    nvgBeginPath(vg);
+    nvgRoundedRect(vg, nr.x, nr.y, nr.w, nr.h, 6);
+    nvgFillColor(vg, nvgRGBA(255, 255, 255, 255));
+    nvgFill(vg);
+    nvgBeginPath(vg);
+    nvgRoundedRect(vg, nr.x, nr.y, nr.w, nr.h, 6);
+    nvgStrokeColor(vg, nvgRGBA(220, 220, 228, 255));
+    nvgStrokeWidth(vg, 1.0f);
+    nvgStroke(vg);
+
+    // All content inside nvgSave/nvgRestore (same as charts)
+    nvgSave(vg);
+    nvgScissor(vg, nr.x + 1, nr.y + 1, nr.w - 2, nr.h - 2);
 
     if (tv_tbl && tv_tbl->column_count > 0) {
-      int ncols = tv_tbl->column_count;
+      int ncols = (int)tv_tbl->column_count;
+      if (ncols > 32) ncols = 32;
       int nrows = (int)aslan_table_view_count(tv_tbl);
-      float hdr_h = 26.0f * scale;
-      float row_h = 22.0f * scale;
-      float col_w = nr.w / (float)ncols;
 
-      // ── Header ──────────────────────────────────────────────────────────
+      const float HDR_H  = 28.0f;
+      const float ROW_H  = 24.0f;
+      const float PAD_X  = 8.0f;
+      const float FONT   = 11.5f;
+
+      // Equal column widths
+      float cw = nr.w / (float)ncols;
+
+      // ── Header ────────────────────────────────────────────────────────
+      nvgBeginPath(vg);
+      nvgRect(vg, nr.x, nr.y, nr.w, HDR_H);
+      nvgFillColor(vg, nvgRGBA(40, 42, 58, 255));
+      nvgFill(vg);
+
+      nvgFontSize(vg, FONT);
+      nvgFontFace(vg, "Inter");
+      nvgFillColor(vg, nvgRGBA(200, 205, 220, 255));
+      nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
       for (int c = 0; c < ncols; c++) {
-        AslanRect hcell = {nr.x + c * col_w, nr.y, col_w, hdr_h};
-        // Clip to node bounds
-        if (hcell.x + hcell.w > nr.x + nr.w)
-          hcell.w = nr.x + nr.w - hcell.x;
-        if (hcell.w <= 0)
-          continue;
-
-        nvgBeginPath(ui->vg);
-        nvgRect(ui->vg, hcell.x, hcell.y, hcell.w, hcell.h);
-        nvgFillColor(ui->vg, nvgRGBA(26, 115, 232, 255));
-        nvgFill(ui->vg);
-        // Separator
+        float cx = nr.x + c * cw;
         if (c > 0) {
-          nvgBeginPath(ui->vg);
-          nvgMoveTo(ui->vg, hcell.x, hcell.y);
-          nvgLineTo(ui->vg, hcell.x, hcell.y + hdr_h);
-          nvgStrokeColor(ui->vg, nvgRGBA(255, 255, 255, 60));
-          nvgStrokeWidth(ui->vg, 1.0f);
-          nvgStroke(ui->vg);
+          nvgBeginPath(vg);
+          nvgMoveTo(vg, cx, nr.y + 4);
+          nvgLineTo(vg, cx, nr.y + HDR_H - 4);
+          nvgStrokeColor(vg, nvgRGBA(255, 255, 255, 40));
+          nvgStrokeWidth(vg, 1.0f);
+          nvgStroke(vg);
         }
-        // Column name
-        const char *col_nm = tv_tbl->columns[c].name;
-        if (ui->font_inter) {
-          nvgFontSize(ui->vg, ui->font_size_px);
-          nvgFontFace(ui->vg, "Inter");
-          nvgFillColor(ui->vg, nvgRGBA(255, 255, 255, 255));
-          nvgTextAlign(ui->vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
-          nvgText(ui->vg, hcell.x + 4, hcell.y + hdr_h / 2.0f, col_nm, NULL);
-        }
+        nvgText(vg, cx + PAD_X, nr.y + HDR_H * 0.5f,
+                tv_tbl->columns[c].name, NULL);
       }
 
-      // ── Data rows ───────────────────────────────────────────────────────
-      int max_vis = (int)((nr.h - hdr_h) / row_h) + 1;
+      // ── Rows ──────────────────────────────────────────────────────────
+      float data_h = nr.h - HDR_H;
+      int max_vis = (int)(data_h / ROW_H);
       int draw_rows = nrows < max_vis ? nrows : max_vis;
 
       for (int r = 0; r < draw_rows; r++) {
-        float ry = nr.y + hdr_h + r * row_h;
-        if (ry >= nr.y + nr.h)
-          break;
+        float ry = nr.y + HDR_H + r * ROW_H;
+
+        // Alternating stripe
+        nvgBeginPath(vg);
+        nvgRect(vg, nr.x, ry, nr.w, ROW_H);
+        nvgFillColor(vg, (r & 1) ? nvgRGBA(245, 246, 250, 255)
+                                  : nvgRGBA(252, 252, 255, 255));
+        nvgFill(vg);
+
+        // Row separator
+        nvgBeginPath(vg);
+        nvgMoveTo(vg, nr.x, ry + ROW_H - 0.5f);
+        nvgLineTo(vg, nr.x + nr.w, ry + ROW_H - 0.5f);
+        nvgStrokeColor(vg, nvgRGBA(220, 221, 230, 255));
+        nvgStrokeWidth(vg, 0.5f);
+        nvgStroke(vg);
 
         uint64_t row_id = aslan_table_view_row_id(tv_tbl, r);
-        NVGcolor row_bg = (r % 2 == 0) ? nvgRGBA(248, 249, 250, 255)
-                                       : nvgRGBA(255, 255, 255, 255);
+        nvgFontSize(vg, FONT);
+        nvgFontFace(vg, "Inter");
+        nvgFillColor(vg, nvgRGBA(40, 42, 58, 255));
+        nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
 
         for (int c = 0; c < ncols; c++) {
-        AslanRect cell = {nr.x + c * col_w, ry, col_w, row_h};
-          if (cell.x + cell.w > nr.x + nr.w)
-            cell.w = nr.x + nr.w - cell.x;
-          if (cell.w <= 0 || cell.y + cell.h > nr.y + nr.h + 2)
-            continue;
-
-          nvgBeginPath(ui->vg);
-          nvgRect(ui->vg, cell.x, cell.y, cell.w, cell.h);
-          nvgFillColor(ui->vg, row_bg);
-          nvgFill(ui->vg);
-          // Horizontal line
-          nvgBeginPath(ui->vg);
-          nvgMoveTo(ui->vg, cell.x, cell.y + cell.h - 1.0f);
-          nvgLineTo(ui->vg, cell.x + cell.w, cell.y + cell.h - 1.0f);
-          nvgStrokeColor(ui->vg, nvgRGBA(230, 230, 235, 255));
-          nvgStrokeWidth(ui->vg, 1.0f);
-          nvgStroke(ui->vg);
-          // Vertical separator
+          float cx = nr.x + c * cw;
           if (c > 0) {
-            nvgBeginPath(ui->vg);
-            nvgMoveTo(ui->vg, cell.x, cell.y);
-            nvgLineTo(ui->vg, cell.x, cell.y + cell.h);
-            nvgStrokeColor(ui->vg, nvgRGBA(220, 220, 230, 255));
-            nvgStrokeWidth(ui->vg, 1.0f);
-            nvgStroke(ui->vg);
+            nvgBeginPath(vg);
+            nvgMoveTo(vg, cx, ry);
+            nvgLineTo(vg, cx, ry + ROW_H);
+            nvgStrokeColor(vg, nvgRGBA(220, 221, 230, 255));
+            nvgStrokeWidth(vg, 0.5f);
+            nvgStroke(vg);
           }
-
-          // Cell value
-          char _cbuf[128];
-          const char *val = aslan_table_get_cell_display(tv_tbl, c, row_id,
-                                                         _cbuf, sizeof(_cbuf));
-          if (val && val[0]) {
-            if (ui->font_inter) {
-              nvgFontSize(ui->vg, ui->font_size_px);
-              nvgFontFace(ui->vg, "Inter");
-              nvgFillColor(ui->vg, nvgRGBA(40, 40, 50, 255));
-              nvgTextAlign(ui->vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
-              nvgText(ui->vg, cell.x + 4, cell.y + cell.h / 2.0f, val, NULL);
-            }
-          }
+          char _buf[128];
+          const char *val = aslan_table_get_cell_display(
+              tv_tbl, c, row_id, _buf, sizeof(_buf));
+          if (val && val[0])
+            nvgText(vg, cx + PAD_X, ry + ROW_H * 0.5f, val, NULL);
         }
       }
     } else {
-      // No table linked — placeholder
-      const char *msg = "Link a table in the Page tab";
-      if (ui->font_inter) {
-        nvgFontSize(ui->vg, ui->font_size_px);
-        nvgFontFace(ui->vg, "Inter");
-        nvgFillColor(ui->vg, nvgRGBA(160, 160, 175, 255));
-        nvgTextAlign(ui->vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
-        nvgText(ui->vg, nr.x + nr.w / 2.0f, nr.y + nr.h / 2.0f, msg, NULL);
-      }
+      // Placeholder
+      nvgFontSize(vg, 12.0f);
+      nvgFontFace(vg, "Inter");
+      nvgFillColor(vg, nvgRGBA(160, 160, 175, 255));
+      nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+      nvgText(vg, nr.x + nr.w * 0.5f, nr.y + nr.h * 0.5f,
+              "No table data", NULL);
     }
+
+    nvgRestore(vg);
   } else if (node->type == NODE_TYPE_STROKE && node->stroke_data) {
     Stroke *s = node->stroke_data;
     if (s->count >= 2) {
