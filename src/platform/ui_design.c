@@ -2109,7 +2109,11 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
 
     // Auto-resize text node to fit content
     if (display_text && strlen(display_text) > 0) {
-      nvgFontSize(ui->vg, ui->font_size_px);
+      // Measure with the same font size used for rendering so that
+      // node->width/height match the actual drawn glyphs.
+      float measure_font_size = node->font_size * scale;
+      if (measure_font_size < 1.0f) measure_font_size = 1.0f;
+      nvgFontSize(ui->vg, measure_font_size);
       const char *_face = (node->font_face[0]) ? node->font_face : "Inter";
       if (node->font_type == 4) _face = "Icons";
       nvgFontFace(ui->vg, _face);
@@ -2145,13 +2149,20 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
         }
         free(text_copy);
       }
-      float text_w = max_w;
-      float text_h =
-          node->font_size * lines * node->line_height; // rough estimate
+      // Convert screen-pixel measurement back to design units
+      float text_w = (scale > 0.001f) ? max_w / scale : max_w;
+      float text_h = node->font_size * lines * node->line_height;
       if (lines == 0) {
-        text_w = 10;
-        text_h = 24.0f;
+        text_w = 20.0f;
+        text_h = node->font_size > 0 ? node->font_size * 1.4f : 24.0f;
       }
+      // Minimum grab area: 2× font width and 1.4× font height
+      float min_w = node->font_size * 2.0f;
+      float min_h = node->font_size * 1.4f;
+      if (min_w < 40.0f) min_w = 40.0f;
+      if (min_h < 24.0f) min_h = 24.0f;
+      if (text_w < min_w) text_w = min_w;
+      if (text_h < min_h) text_h = min_h;
 
       // Auto-resize
       if (fabsf(node->width - (text_w + 10.0f)) > 1.0f ||
