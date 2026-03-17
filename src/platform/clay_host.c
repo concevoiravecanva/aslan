@@ -528,8 +528,8 @@ float clay_host_render_tabs(ClayHost *ch, bool dark_mode, float panel_x,
   nvgFill(vg);
 
   // ── Tab pills ────────────────────────────────────────────────────────────
-  const char *tab_labels[] = {"Table", "Gantt"};
-  const int tab_count = 2;
+  const char *tab_labels[] = {"Table"};
+  const int tab_count = 1;
   const float pill_h = 26.0f;
   const float pill_y = (ASLAN_TAB_BAR_H - pill_h) * 0.5f;
   const float pad_x = 14.0f;

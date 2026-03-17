@@ -382,13 +382,8 @@ void ui_host_paste_node(UIHost *ui, Engine *engine) {
 }
 
 // stubbed out SDL_Renderer based helpers
-static void prerender_special_nodes(UIHost *ui, Engine *engine, Block *block) {
-  (void)ui;
-  (void)engine;
-  (void)block;
-}
-
 void ui_host_export_svg(UIHost *ui, Engine *engine) {
+  (void)ui;
   Page *page = doc_page_get_active(engine->doc);
   if (!page)
     return;
@@ -409,7 +404,7 @@ void ui_host_export_svg(UIHost *ui, Engine *engine) {
   snprintf(default_name, sizeof(default_name), "%s.svg", page->name);
   if (save_native_file_dialog(filename, sizeof(filename), default_name,
                               "Export Design as SVG")) {
-    prerender_special_nodes(ui, engine, design_block);
+
     if (block_design_export_svg(design_block, filename, NULL, 0)) {
       ASLAN_DEBUG("Exported SVG to: %s", filename);
     }
@@ -418,6 +413,7 @@ void ui_host_export_svg(UIHost *ui, Engine *engine) {
 
 void ui_host_export_svg_merge(UIHost *ui, Engine *engine,
                               struct AslanTable *linked_tbl) {
+  (void)ui;
   Page *page = doc_page_get_active(engine->doc);
   if (!page || !linked_tbl || linked_tbl->active_count == 0)
     return;
@@ -458,7 +454,7 @@ void ui_host_export_svg_merge(UIHost *ui, Engine *engine,
     if (ext)
       *ext = '\0';
 
-    prerender_special_nodes(ui, engine, design_block);
+
     for (int i = 0; i < (int)linked_tbl->active_count; i++) {
       char out_file[512];
       snprintf(out_file, sizeof(out_file), "%s_%d.svg", prefix, i + 1);
@@ -594,6 +590,7 @@ void ui_host_export_png_jpeg(UIHost *ui, Engine *engine, int is_jpeg) {
 }
 
 void ui_host_export_pdf(UIHost *ui, Engine *engine) {
+  (void)ui;
   Page *page = doc_page_get_active(engine->doc);
   if (!page)
     return;
@@ -613,7 +610,7 @@ void ui_host_export_pdf(UIHost *ui, Engine *engine) {
   snprintf(default_name, sizeof(default_name), "%s.pdf", page->name);
   if (save_native_file_dialog(filename, sizeof(filename), default_name,
                               "Export Design as PDF")) {
-    prerender_special_nodes(ui, engine, design_block);
+
     if (block_design_export_pdf(design_block, filename, NULL, 0))
       ASLAN_DEBUG("Exported PDF to: %s", filename);
     else
@@ -1739,17 +1736,6 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 // Top Bar - Block Insertion Menu
 // -----------------------------------------------------------------------------
 
-// Helper for icon buttons
-// ui_icon_button moved to ui_core.c
-
-// ui_render_top_bar moved to ui_core.c
-
-// -----------------------------------------------------------------------------
-// Bottom Bar - Page Tabs
-// -----------------------------------------------------------------------------
-
-// ui_render_bottom_bar moved to ui_core.c
-
 // -----------------------------------------------------------------------------
 // Block Renderers
 // -----------------------------------------------------------------------------
@@ -1917,11 +1903,7 @@ void ui_render_block(UIHost *ui, Engine *engine,
   }
 }
 
-// -----------------------------------------------------------------------------
-// Theme Application
-// -----------------------------------------------------------------------------
 
-// ui_apply_theme moved to ui_core.c
 
 // -----------------------------------------------------------------------------
 // Block Height Measurement (Adaptive Layout)
@@ -2015,12 +1997,6 @@ static Block *page_find_first_block_of_type(Page *page, BlockType type) {
 // Gantt View
 // =============================================================================
 
-static void ui_render_view_gantt(UIHost *ui, Engine *engine,
-                                 Block *block, float w,
-                                 float h) {
-  (void)ui; (void)engine; (void)block; (void)w; (void)h;
-  // Gantt logic removed
-}
 /// Render a single panel view: 0=Table (left), 1=Design (right)
 static void ui_render_panel_view(UIHost *ui, Engine *engine,
                                  Page *page, int view,
@@ -2037,11 +2013,7 @@ static void ui_render_panel_view(UIHost *ui, Engine *engine,
   if (view == 0) {
     // Left panel: Table view
     Block *table = page_find_first_block_of_type(page, BLOCK_TABLE);
-    if (ui->split_view.left_panel_tab == 1) {
-      if (table) {
-        ui_render_view_gantt(ui, engine, table, view_w, view_h);
-      }
-    } else if (table) {
+    if (table) {
       ui_render_block_table(ui, engine, table, view_w, view_h);
     }
   } else if (view == 1) {
@@ -2215,7 +2187,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   ui->cursor_type = UI_CURSOR_ARROW;
 
   // Apply current theme
-  ui_apply_theme(ui);
+
 
   // Main content area - always Editor
   if (ui->expanded_block_id != 0) {
@@ -2583,7 +2555,7 @@ void ui_render_document_menu(UIHost *ui) {
   if (nvgw_button(&ui->nvgw, nvgw_id_str("doc_theme"), px + 10, py + 70,
                   pw - 20, 24, theme_label)) {
     ui->dark_mode = !ui->dark_mode;
-    ui_apply_theme(ui);
+  
     ui->show_doc_menu = 0;
   }
 }

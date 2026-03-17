@@ -264,7 +264,6 @@ void renderer_draw_selection(Renderer *r, const Document *doc,
   }
 }
 
-// (renderer_draw_canvas_block removed — Canvas block type has been deleted)\n
 
 void renderer_draw_design_block(Renderer *r, const Block *block, float x,
                                 float y, float w, float h) {

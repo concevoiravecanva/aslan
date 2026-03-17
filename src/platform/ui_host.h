@@ -317,7 +317,7 @@ typedef struct UIHost {
     int is_dragging_splitter; // 1 = currently dragging the splitter
     int mode;                 // 0=collab(50/50), 1=design(3/97), 2=data(97/3)
     int selected_row;         // Selected row in table (-1=none)
-    int left_panel_tab;       // Active left-panel tab: 0=Table, 1=Gantt
+    int left_panel_tab;       // Reserved for future left-panel tabs
   } split_view;
 
   // Block editing state
@@ -601,7 +601,6 @@ void ui_host_paste_node(UIHost *ui, Engine *engine);
 void ui_begin_frame(UIHost *ui);
 void ui_update(UIHost *ui, Engine *engine);
 void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h);
-void ui_apply_theme(UIHost *ui);
 void ui_render_document_menu(UIHost *ui);
 
 // -----------------------------------------------------------------------------
@@ -617,9 +616,7 @@ void ui_render_block_heading(UIHost *ui, Block *block,
                              float width, int level);
 void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
                            float width, float height);
-void ui_render_block_canvas(UIHost *ui, Engine *engine,
-                            Block *block, float width);
-// ui_render_block_design moved to ui_design.c
+// ui_render_block_design is in ui_design.c
 void ui_render_chart_node(UIHost *ui, Node *node,
                           AslanRect bounds, Page *page);
 void ui_render_chart_node_config_bar(UIHost *ui, Engine *engine,
@@ -631,9 +628,6 @@ void ui_render_chart_impl(UIHost *ui, ChartData *cd,
 // Layer panel components
 void ui_render_layer_inspector(UIHost *ui,
                                Block *block);
-
-// Shared UI Helpers
-int ui_icon_button(UIHost *ui, const char *icon);
 
 // Image Utilities
 int open_image_file_dialog(char *out_path, size_t path_size);
@@ -647,10 +641,6 @@ int mac_get_image_size(const char *path, int *w, int *h);
 
 void ui_render_top_bar(UIHost *ui, Engine *engine,
                        int win_w);
-void ui_render_bottom_bar(UIHost *ui, Engine *engine,
-                          int win_w, int win_h);
-void ui_render_bottom_bar(UIHost *ui, Engine *engine,
-                          int win_w, int win_h);
 void ui_render_insert_menu(UIHost *ui, Engine *engine);
 
 // -----------------------------------------------------------------------------

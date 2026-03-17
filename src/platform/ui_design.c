@@ -2927,8 +2927,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           ui->selected_node->type == NODE_TYPE_PATH) {
         Node *node = ui->selected_node;
         if (ds->dragging_point_idx != -1 && (ui->mouse_buttons & 1)) {
-          float dx = 0; // TODO: ui->mouse_dx / scale;
-          float dy = 0; // TODO: ui->mouse_dy / scale;
+          float dx = 0;
+          float dy = 0;
           NodePathPoint *p = &node->path_points[ds->dragging_point_idx];
           if (ds->dragging_cp_idx == 0) {
             p->x += dx;
@@ -3410,7 +3410,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         float design_y = (my - bounds.y) / scale;
 
         // Shift+click = multi-selection toggle
-        int shift_click = 0; // TODO: support shift via ui->keys
+        int shift_click = 0;
 
         Node *hit = design_find_node_at(dd, design_x, design_y);
         if (hit && shift_click && ds->tool != CANVAS_TOOL_PEN) {
@@ -3451,7 +3451,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
             ui->selected_node = hit;
           } else {
             // Double-click: edit text / crop image
-            int is_double = 0; // TODO: support double click
+            int is_double = 0;
             if (is_double && hit == ui->selected_node) {
               if (hit->type == NODE_TYPE_TEXT) {
                 // Edit existing text node inline natively
@@ -3966,7 +3966,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           mx < ws_bounds.x + ws_bounds.w &&
           my >= ws_bounds.y &&
           my < ws_bounds.y + ws_bounds.h) {
-        float scroll = 0; // TODO input.mouse.scroll_delta.y
+        float scroll = 0;
         if (scroll != 0.0f) {
           float old_zoom = ds->zoom;
           if (scroll > 0)

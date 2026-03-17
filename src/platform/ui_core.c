@@ -10,53 +10,6 @@
 #include <string.h>
 
 // -----------------------------------------------------------------------------
-// Helper: Icon Buttons
-// -----------------------------------------------------------------------------
-
-int ui_icon_button(UIHost *ui, const char *icon) {
-  (void)ui; (void)icon;
-  return 0;
-}
-
-// -----------------------------------------------------------------------------
-// Top Bar - Block Insertion Menu
-// -----------------------------------------------------------------------------
-
-// -----------------------------------------------------------------------------
-// Document Toolbar - now rendered by clay_host_render_toolbar() in clay_host.c
-// (after nk_sdl_render, so it floats on top of all NK content)
-// -----------------------------------------------------------------------------
-
-void ui_render_document_toolbar(UIHost *ui, Engine *engine,
-                                int win_w, int win_h) {
-  // Replaced by Clay/SDL2 toolbar in clay_host.c — this stub is kept for ABI
-  // compatibility only.
-  (void)ui; (void)engine; (void)win_w; (void)win_h;
-}
-
-// -----------------------------------------------------------------------------
-// Bottom Bar - Page Tabs
-// -----------------------------------------------------------------------------
-
-void ui_render_bottom_bar(UIHost *ui, Engine *engine,
-                          int win_w, int win_h) {
-  // Function emptied as per user request to remove "old patterns"
-  (void)ui;
-  (void)engine;
-  (void)win_w;
-  (void)win_h;
-}
-
-// -----------------------------------------------------------------------------
-// Theme Application
-// -----------------------------------------------------------------------------
-
-void ui_apply_theme(UIHost *ui) {
-  // Nuklear themes no longer required.
-  (void)ui;
-}
-
-// -----------------------------------------------------------------------------
 // UI Cursors implementation
 // -----------------------------------------------------------------------------
 
