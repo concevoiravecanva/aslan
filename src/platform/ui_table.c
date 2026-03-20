@@ -982,12 +982,17 @@ static void render_rows(UIHost *ui, Engine *engine __attribute__((unused)),
                     // Text/Number/Link/File/Duration → inline edit
                     ui->table_state.active_col_idx = (int)c;
                     ui->table_state.select_popup_row = row_id;
+                    ui->table_state.active_block_id = block->id;
                     ui->table_state.is_editing_cell = 1;
                     char cur[1024] = "";
                     aslan_table_get_cell_display(table, (int)c, row_id, cur, sizeof(cur));
                     strncpy(ui->table_state.rename_buffer, cur,
                             sizeof(ui->table_state.rename_buffer) - 1);
+                    // Set both focus and hot so nvgw_input_end doesn't clear focus
+                    // on the same frame (cell_active was false when computed above)
                     wc->focus_id = cell_id;
+                    wc->hot_id   = cell_id;
+                    cell_active  = true;
                     ui_request_redraw(ui);
                 }
             }
