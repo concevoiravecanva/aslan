@@ -2,6 +2,7 @@
 #include "aslan_table.h"
 #include <hpdf.h>
 #include <math.h>
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -2269,6 +2270,44 @@ bool block_design_export_svg(const Block *block, const char *filepath,
 // PDF EXPORT (libharu)
 // =============================================================================
 
+// HPDF error handler — uses setjmp so HPDF errors don't crash the app
+static jmp_buf pdf_err_env;
+static void pdf_error_handler(HPDF_STATUS err, HPDF_STATUS detail, void *ud) {
+  (void)ud;
+  fprintf(stderr, "[PDF] HPDF error: 0x%04X detail: 0x%04X\n",
+          (unsigned)err, (unsigned)detail);
+  longjmp(pdf_err_env, 1);
+}
+
+// Convert UTF-8 string to WinAnsi (Latin-1 compatible) in-place copy.
+// Multi-byte sequences are decoded; codepoints 0x20-0xFF are kept as-is,
+// everything else is replaced with '?'.
+static void utf8_to_winansi(const char *src, char *dst, size_t dst_size) {
+  size_t out = 0;
+  const unsigned char *s = (const unsigned char *)src;
+  while (*s && out + 1 < dst_size) {
+    unsigned char c = *s;
+    if (c < 0x80) {
+      dst[out++] = (char)c;
+      s++;
+    } else if ((c & 0xE0) == 0xC0 && s[1]) {
+      unsigned cp = ((c & 0x1F) << 6) | (s[1] & 0x3F);
+      dst[out++] = (cp >= 0x20 && cp <= 0xFF) ? (char)cp : '?';
+      s += 2;
+    } else if ((c & 0xF0) == 0xE0 && s[1] && s[2]) {
+      dst[out++] = '?';
+      s += 3;
+    } else if ((c & 0xF8) == 0xF0 && s[1] && s[2] && s[3]) {
+      dst[out++] = '?';
+      s += 4;
+    } else {
+      dst[out++] = '?';
+      s++;
+    }
+  }
+  dst[out] = '\0';
+}
+
 static void pdf_set_fill_color(HPDF_Page page, uint32_t rgba) {
   float r = ((rgba >> 24) & 0xFF) / 255.0f;
   float g = ((rgba >> 16) & 0xFF) / 255.0f;
@@ -2322,9 +2361,9 @@ static void pdf_write_node(HPDF_Page page, HPDF_Doc pdf, float page_h,
   }
 
   case NODE_TYPE_TEXT: {
-    HPDF_Font font = HPDF_GetFont(pdf, "Helvetica", NULL);
+    HPDF_Font font = HPDF_GetFont(pdf, "Helvetica", "WinAnsiEncoding");
     float fs = node->font_size > 0 ? node->font_size : 14.0f;
-    HPDF_Page_SetFontAndSize(page, font, fs);
+    if (font) HPDF_Page_SetFontAndSize(page, font, fs);
     pdf_set_fill_color(page, node->fill_color);
     const char *display_text = node->text;
     char linked_val_buf[256];
@@ -2339,8 +2378,11 @@ static void pdf_write_node(HPDF_Page page, HPDF_Doc pdf, float page_h,
         }
       }
     }
+    // Convert UTF-8 to WinAnsi so accented chars (é, à, etc.) render correctly
+    char winansi_buf[512];
+    utf8_to_winansi(display_text, winansi_buf, sizeof(winansi_buf));
     HPDF_Page_BeginText(page);
-    HPDF_Page_TextOut(page, node->x, page_h - node->y - fs, display_text);
+    HPDF_Page_TextOut(page, node->x, page_h - node->y - fs, winansi_buf);
     HPDF_Page_EndText(page);
     break;
   }
@@ -2440,10 +2482,17 @@ static void pdf_write_node(HPDF_Page page, HPDF_Doc pdf, float page_h,
       HPDF_Image img = NULL;
       const char *ext = strrchr(node->image_path, '.');
       if (ext) {
-        if (strcmp(ext, ".png") == 0)
-          img = HPDF_LoadPngImageFromFile(pdf, node->image_path);
-        else if (strcmp(ext, ".jpg") == 0 || strcmp(ext, ".jpeg") == 0)
-          img = HPDF_LoadJpegImageFromFile(pdf, node->image_path);
+        // Only load if the file actually exists — HPDF raises a fatal error
+        // (HPDF_FILE_OPEN_ERROR) if the path is missing, which would abort
+        // the whole export via our longjmp error handler.
+        FILE *_chk = fopen(node->image_path, "rb");
+        if (_chk) {
+          fclose(_chk);
+          if (strcmp(ext, ".png") == 0)
+            img = HPDF_LoadPngImageFromFile(pdf, node->image_path);
+          else if (strcmp(ext, ".jpg") == 0 || strcmp(ext, ".jpeg") == 0)
+            img = HPDF_LoadJpegImageFromFile(pdf, node->image_path);
+        }
       }
       if (img)
         HPDF_Page_DrawImage(page, img, x, y, w, h);
@@ -2461,9 +2510,18 @@ static void pdf_write_node(HPDF_Page page, HPDF_Doc pdf, float page_h,
     // Use pre-rendered snapshot if available (written by prerender_special_nodes)
     char snap_path[256];
     snprintf(snap_path, sizeof(snap_path), "/tmp/aslan_node_%u.png", node->id);
-    HPDF_Image snap = HPDF_LoadPngImageFromFile(pdf, snap_path);
-    if (snap)
-      HPDF_Page_DrawImage(page, snap, x, y, w, h);
+    FILE *_snap_chk = fopen(snap_path, "rb");
+    if (_snap_chk) {
+      fclose(_snap_chk);
+      HPDF_Image snap = HPDF_LoadPngImageFromFile(pdf, snap_path);
+      if (snap)
+        HPDF_Page_DrawImage(page, snap, x, y, w, h);
+    } else {
+      // Snapshot not available — draw a light grey placeholder
+      pdf_set_fill_color(page, 0xF5F5F5FF);
+      HPDF_Page_Rectangle(page, x, y, w, h);
+      HPDF_Page_Fill(page);
+    }
     break;
   }
 
@@ -2491,9 +2549,15 @@ bool block_design_export_pdf(const Block *block, const char *filepath,
   if (!dp->root)
     return false;
 
-  HPDF_Doc pdf = HPDF_New(NULL, NULL);
+  HPDF_Doc pdf = HPDF_New(pdf_error_handler, NULL);
   if (!pdf)
     return false;
+
+  // If HPDF encounters any error, longjmp lands here and we return false
+  if (setjmp(pdf_err_env)) {
+    HPDF_Free(pdf);
+    return false;
+  }
 
   float w = (float)(dd->width  > 0 ? dd->width  : 800);
   float h = (float)(dd->height > 0 ? dd->height : 600);
@@ -2511,8 +2575,8 @@ bool block_design_export_pdf(const Block *block, const char *filepath,
   for (Node *node = dp->root->first_child; node; node = node->next_sibling)
     pdf_write_node(page, pdf, h, node, linked_tbl, linked_row_id);
 
-  HPDF_SaveToFile(pdf, filepath);
+  HPDF_STATUS save_status = HPDF_SaveToFile(pdf, filepath);
   HPDF_Free(pdf);
-  return true;
+  return (save_status == HPDF_OK);
 }
 
