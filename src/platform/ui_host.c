@@ -480,6 +480,55 @@ void ui_host_export_svg_merge(UIHost *ui, Engine *engine,
   }
 }
 
+// Bilinear upscale of an RGBA buffer from (sw×sh) to (dw×dh).
+// Returns a new malloc'd buffer; caller must free. Returns NULL on failure.
+static unsigned char *bilinear_upscale(const unsigned char *src,
+                                       int sw, int sh, int dw, int dh) {
+  if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return NULL;
+  // No-op: already at target size
+  if (sw == dw && sh == dh) {
+    unsigned char *copy = (unsigned char *)malloc((size_t)dw * dh * 4);
+    if (copy) memcpy(copy, src, (size_t)dw * dh * 4);
+    return copy;
+  }
+  unsigned char *dst = (unsigned char *)malloc((size_t)dw * dh * 4);
+  if (!dst) return NULL;
+
+  float sx_ratio = (float)(sw - 1) / (float)(dw > 1 ? dw - 1 : 1);
+  float sy_ratio = (float)(sh - 1) / (float)(dh > 1 ? dh - 1 : 1);
+
+  for (int dy = 0; dy < dh; dy++) {
+    float fy = dy * sy_ratio;
+    int   iy = (int)fy;
+    float ty = fy - iy;
+    int   iy2 = iy + 1 < sh ? iy + 1 : iy;
+
+    for (int dx = 0; dx < dw; dx++) {
+      float fx = dx * sx_ratio;
+      int   ix = (int)fx;
+      float tx = fx - ix;
+      int   ix2 = ix + 1 < sw ? ix + 1 : ix;
+
+      const unsigned char *p00 = src + ((size_t)iy  * sw + ix ) * 4;
+      const unsigned char *p10 = src + ((size_t)iy  * sw + ix2) * 4;
+      const unsigned char *p01 = src + ((size_t)iy2 * sw + ix ) * 4;
+      const unsigned char *p11 = src + ((size_t)iy2 * sw + ix2) * 4;
+      unsigned char *out = dst + ((size_t)dy * dw + dx) * 4;
+
+      float w00 = (1.0f - tx) * (1.0f - ty);
+      float w10 = tx           * (1.0f - ty);
+      float w01 = (1.0f - tx) * ty;
+      float w11 = tx           * ty;
+
+      for (int c = 0; c < 4; c++) {
+        float v = p00[c]*w00 + p10[c]*w10 + p01[c]*w01 + p11[c]*w11;
+        out[c] = (unsigned char)(v + 0.5f);
+      }
+    }
+  }
+  return dst;
+}
+
 // Render the design artboard to a pixel buffer. Returns RGBA malloc'd buffer
 // (caller must free). Sets *out_w/*out_h to the OUTPUT pixel dimensions
 // (artboard * pixel_scale). Use pixel_scale=1.0 for 1:1, 2.0 for high-DPI.
@@ -680,12 +729,21 @@ void ui_host_export_png_jpeg(UIHost *ui, Engine *engine, int is_jpeg) {
     return;
 
   int w = 0, h = 0;
-  // scale=0 → auto from live design_state.scale → identical to live view
+  // scale=0 → auto from live design_state.scale → correct proportions
   unsigned char *pixels =
       render_design_to_pixels(ui, engine, design_block, &w, &h, 0.0f);
   if (!pixels) {
     ASLAN_WARN("Raster export: failed to render design to pixels");
     return;
+  }
+
+  // Upscale to full artboard dimensions so the output isn't low-resolution
+  DesignData *_dd2 = &design_block->data.design;
+  int out_w = _dd2->width  > 0 ? (int)_dd2->width  : w;
+  int out_h = _dd2->height > 0 ? (int)_dd2->height : h;
+  if (out_w != w || out_h != h) {
+    unsigned char *up = bilinear_upscale(pixels, w, h, out_w, out_h);
+    if (up) { free(pixels); pixels = up; w = out_w; h = out_h; }
   }
 
   int ok = 0;
@@ -695,7 +753,6 @@ void ui_host_export_png_jpeg(UIHost *ui, Engine *engine, int is_jpeg) {
     if (rgb) {
       for (int i = 0; i < w * h; i++) {
         unsigned char a = pixels[i * 4 + 3];
-        // Pre-multiplied alpha blend onto white background
         rgb[i * 3 + 0] = (unsigned char)(pixels[i*4+0] * a / 255 + (255 - a));
         rgb[i * 3 + 1] = (unsigned char)(pixels[i*4+1] * a / 255 + (255 - a));
         rgb[i * 3 + 2] = (unsigned char)(pixels[i*4+2] * a / 255 + (255 - a));
@@ -736,13 +793,22 @@ void ui_host_export_pdf(UIHost *ui, Engine *engine) {
   if (save_native_file_dialog(filename, sizeof(filename), default_name,
                               "Export Design as PDF")) {
 
-    // scale=0 → auto from live design_state.scale → identical to live view
+    // scale=0 → auto from live design_state.scale → correct proportions
     int fw = 0, fh = 0;
     unsigned char *pixels = render_design_to_pixels(ui, engine, design_block,
                                                     &fw, &fh, 0.0f);
     if (!pixels) {
       ASLAN_WARN("PDF export: could not render artboard pixels");
       return;
+    }
+
+    // Upscale to full artboard dimensions for crisp PDF output
+    DesignData *_dd = &design_block->data.design;
+    int page_w = _dd->width  > 0 ? (int)_dd->width  : 800;
+    int page_h = _dd->height > 0 ? (int)_dd->height : 600;
+    if (fw != page_w || fh != page_h) {
+      unsigned char *up = bilinear_upscale(pixels, fw, fh, page_w, page_h);
+      if (up) { free(pixels); pixels = up; fw = page_w; fh = page_h; }
     }
 
     // Save pixels to a temp PNG
@@ -753,11 +819,6 @@ void ui_host_export_pdf(UIHost *ui, Engine *engine) {
       return;
     }
     free(pixels);
-
-    // PDF page = artboard dimensions in points (1 pt = 1 px at 72 DPI)
-    DesignData *_dd = &design_block->data.design;
-    int page_w = _dd->width  > 0 ? (int)_dd->width  : 800;
-    int page_h = _dd->height > 0 ? (int)_dd->height : 600;
 
     if (block_design_export_pdf_from_png(filename, tmp_png, page_w, page_h))
       ASLAN_DEBUG("Exported PDF to: %s", filename);
