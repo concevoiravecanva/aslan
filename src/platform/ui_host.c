@@ -492,7 +492,13 @@ static unsigned char *render_design_to_pixels(UIHost *ui, Engine *engine,
       dd->current_page >= dd->page_count)
     return NULL;
 
-  if (pixel_scale < 0.5f) pixel_scale = 0.5f;
+  // Use the live view's scale so hardcoded pixel values in chart/table
+  // renderers (font sizes, margins, row heights) produce identical proportions.
+  // pixel_scale=0 means "auto from live state".
+  if (pixel_scale <= 0.0f) {
+    pixel_scale = ui->design_state.scale > 0.05f ? ui->design_state.scale : 1.0f;
+  }
+  if (pixel_scale < 0.1f) pixel_scale = 0.1f;
 
   int aw = dd->width  > 0 ? (int)dd->width  : 800;  // artboard size
   int ah = dd->height > 0 ? (int)dd->height : 600;
@@ -511,27 +517,53 @@ static unsigned char *render_design_to_pixels(UIHost *ui, Engine *engine,
   glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-  // artboard_clip drives the image scissor in ui_render_node_tree.
-  // Override it to cover the full FBO so images aren't clipped away.
+  // ── Mirror exactly what ui_render_block_design does for live rendering ──
+
+  // 1. Sync dd->root to the current page (live view does this every frame)
+  if (dd->current_page >= 0 && dd->current_page < dd->page_count &&
+      dd->pages[dd->current_page].root) {
+    dd->root = dd->pages[dd->current_page].root;
+  }
+
+  // 2. artboard_clip / artboard_rect cover the full FBO (live view sets these
+  //    to art_rect before calling ui_render_node_tree)
   AslanRect saved_artboard_clip = ui->artboard_clip;
   AslanRect saved_artboard_rect  = ui->artboard_rect;
-  ui->artboard_clip = (AslanRect){0, 0, (float)fw, (float)fh};
-  ui->artboard_rect = ui->artboard_clip;
+  AslanRect fbo_rect = {0, 0, (float)fw, (float)fh};
+  ui->artboard_clip = fbo_rect;
+  ui->artboard_rect = fbo_rect;
 
   nvgBeginFrame(ui->vg, (float)fw, (float)fh, 1.0f);
 
-  // Background
+  // 3. Background — same logic as live view: solid / linear-gradient /
+  //    radial-gradient to match the design page background exactly.
   DesignPage *dp = &dd->pages[dd->current_page];
-  uint32_t bg = dp->bg_color ? dp->bg_color : 0xFFFFFFFF;
-  NVGcolor bg_col = nvgRGBA((bg >> 24) & 0xFF, (bg >> 16) & 0xFF,
-                            (bg >>  8) & 0xFF,  bg & 0xFF);
+  uint32_t bg1_u = dp->bg_color   ? dp->bg_color   : 0xFFFFFFFF;
+  uint32_t bg2_u = dp->bg_color_2 ? dp->bg_color_2 : 0xFFFFFFFF;
+  NVGcolor c1 = nvgRGBA((bg1_u>>24)&0xFF,(bg1_u>>16)&0xFF,
+                        (bg1_u>> 8)&0xFF, bg1_u&0xFF);
+  NVGcolor c2 = nvgRGBA((bg2_u>>24)&0xFF,(bg2_u>>16)&0xFF,
+                        (bg2_u>> 8)&0xFF, bg2_u&0xFF);
   nvgBeginPath(ui->vg);
   nvgRect(ui->vg, 0, 0, (float)fw, (float)fh);
-  nvgFillColor(ui->vg, bg_col);
+  if (dp->bg_type == 1) {           // linear vertical gradient
+    NVGpaint p = nvgLinearGradient(ui->vg, 0, 0, 0, (float)fh, c1, c2);
+    nvgFillPaint(ui->vg, p);
+  } else if (dp->bg_type == 2) {    // radial gradient
+    NVGpaint p = nvgRadialGradient(ui->vg, fw/2.0f, fh/2.0f,
+                                   0, fw/2.0f, c2, c1);
+    nvgFillPaint(ui->vg, p);
+  } else {                          // solid
+    nvgFillColor(ui->vg, c1);
+  }
   nvgFill(ui->vg);
 
-  // Render all nodes at pixel_scale, origin (0,0) — no sidebar, no toolbar
-  AslanRect bounds = {0, 0, (float)fw, (float)fh};
+  // 4. Scissor to artboard bounds (live view does this before rendering nodes)
+  nvgScissor(ui->vg, 0, 0, (float)fw, (float)fh);
+
+  // 5. Render all nodes — same call signature as live view
+  //    (parent_x = bounds.x = 0, parent_y = bounds.y = 0)
+  AslanRect bounds = fbo_rect;
   if (dd->root) {
     for (Node *node = dd->root->first_child; node;
          node = node->next_sibling) {
@@ -540,6 +572,7 @@ static unsigned char *render_design_to_pixels(UIHost *ui, Engine *engine,
     }
   }
 
+  nvgResetScissor(ui->vg);
   nvgEndFrame(ui->vg);
 
   // Read pixels (OpenGL gives bottom-up, we flip to top-down)
@@ -578,10 +611,13 @@ static unsigned char *render_design_to_pixels(UIHost *ui, Engine *engine,
 // Render each CHART / TABLE_VIEW node in the design to a PNG snapshot at
 // /tmp/aslan_node_<id>.png so block_design_export_svg can embed them.
 static void prerender_node_snapshots(UIHost *ui, Engine *engine, Block *block) {
-  int aw = 0, ah = 0;
+  int fw = 0, fh = 0;
+  // scale=0 → uses live design_state.scale so pixel positions match node coords
   unsigned char *full = render_design_to_pixels(ui, engine, block,
-                                                &aw, &ah, 1.0f);
+                                                &fw, &fh, 0.0f);
   if (!full) return;
+
+  float sc = ui->design_state.scale > 0.05f ? ui->design_state.scale : 1.0f;
 
   DesignData *dd = &block->data.design;
   if (!dd->root) { free(full); return; }
@@ -589,26 +625,27 @@ static void prerender_node_snapshots(UIHost *ui, Engine *engine, Block *block) {
   for (Node *node = dd->root->first_child; node; node = node->next_sibling) {
     if (node->type != NODE_TYPE_CHART && node->type != NODE_TYPE_TABLE_VIEW)
       continue;
-    int nx = (int)node->x, ny = (int)node->y;
-    int nw = (int)node->width, nh = (int)node->height;
+
+    // Node coordinates in the FBO are in scaled pixels
+    int nx = (int)(node->x * sc), ny = (int)(node->y * sc);
+    int nw = (int)(node->width  * sc), nh = (int)(node->height * sc);
     if (nw <= 0 || nh <= 0) continue;
 
-    // Clamp to artboard bounds
+    // Clamp to FBO bounds
     int x0 = nx < 0 ? 0 : nx, y0 = ny < 0 ? 0 : ny;
-    int x1 = (nx + nw) > aw ? aw : (nx + nw);
-    int y1 = (ny + nh) > ah ? ah : (ny + nh);
+    int x1 = (nx + nw) > fw ? fw : (nx + nw);
+    int y1 = (ny + nh) > fh ? fh : (ny + nh);
     if (x1 <= x0 || y1 <= y0) continue;
 
     int cw = x1 - x0, ch = y1 - y0;
     unsigned char *crop = (unsigned char *)malloc((size_t)nw * nh * 4);
     if (!crop) continue;
 
-    // Fill white, then copy the cropped region
     memset(crop, 0xFF, (size_t)nw * nh * 4);
     int dst_ox = x0 - nx, dst_oy = y0 - ny;
     for (int r = 0; r < ch; r++) {
       memcpy(crop + ((size_t)(dst_oy + r) * nw + dst_ox) * 4,
-             full + ((size_t)(y0 + r) * aw + x0) * 4,
+             full + ((size_t)(y0 + r) * fw + x0) * 4,
              (size_t)cw * 4);
     }
 
@@ -643,9 +680,9 @@ void ui_host_export_png_jpeg(UIHost *ui, Engine *engine, int is_jpeg) {
     return;
 
   int w = 0, h = 0;
-  // 2× scale → high-DPI output (crisper text and edges)
+  // scale=0 → auto from live design_state.scale → identical to live view
   unsigned char *pixels =
-      render_design_to_pixels(ui, engine, design_block, &w, &h, 2.0f);
+      render_design_to_pixels(ui, engine, design_block, &w, &h, 0.0f);
   if (!pixels) {
     ASLAN_WARN("Raster export: failed to render design to pixels");
     return;
@@ -699,11 +736,10 @@ void ui_host_export_pdf(UIHost *ui, Engine *engine) {
   if (save_native_file_dialog(filename, sizeof(filename), default_name,
                               "Export Design as PDF")) {
 
-    // Render the full artboard at 2× for crisp PDF output, then embed as
-    // a full-page image — guarantees pixel-perfect, high-resolution result.
+    // scale=0 → auto from live design_state.scale → identical to live view
     int fw = 0, fh = 0;
     unsigned char *pixels = render_design_to_pixels(ui, engine, design_block,
-                                                    &fw, &fh, 2.0f);
+                                                    &fw, &fh, 0.0f);
     if (!pixels) {
       ASLAN_WARN("PDF export: could not render artboard pixels");
       return;
@@ -718,7 +754,7 @@ void ui_host_export_pdf(UIHost *ui, Engine *engine) {
     }
     free(pixels);
 
-    // PDF page stays at artboard dimensions (in points); image is 2× resolution
+    // PDF page = artboard dimensions in points (1 pt = 1 px at 72 DPI)
     DesignData *_dd = &design_block->data.design;
     int page_w = _dd->width  > 0 ? (int)_dd->width  : 800;
     int page_h = _dd->height > 0 ? (int)_dd->height : 600;
