@@ -1878,6 +1878,66 @@ static void svg_embed_image(FILE *fp, const Node *node,
   }
 }
 
+// Write SVG filter for shadow if needed.
+static void svg_write_shadow_filter(FILE *fp, const Node *node, float opacity) {
+  if (!node->has_shadow) return;
+
+  char sc[64];
+  svg_color(node->shadow_color, sc, sizeof(sc));
+  float sa = svg_alpha(node->shadow_color) * opacity;
+
+  fprintf(fp, "  <defs>\n");
+  fprintf(fp, "    <filter id=\"sh%u\" x=\"-50%%\" y=\"-50%%\" width=\"200%%\" height=\"200%%\">\n", node->id);
+  // feDropShadow is widely supported in modern browsers
+  fprintf(fp, "      <feDropShadow dx=\"%.1f\" dy=\"%.1f\" stdDeviation=\"%.1f\" "
+              "flood-color=\"%s\" flood-opacity=\"%.2f\"/>\n",
+              node->shadow_offset_x, node->shadow_offset_y, node->shadow_blur * 0.5f,
+              sc, sa);
+  fprintf(fp, "    </filter>\n");
+  fprintf(fp, "  </defs>\n");
+}
+
+// Write SVG for stroke endings (Arrows, Circles)
+static void svg_write_stroke_endings(FILE *fp, const Node *node, float ax, float ay,
+                                     float x2, float y2, const char *stroke_col,
+                                     float stroke_a, float stroke_w, const char *transform) {
+  if (node->line_start_style == 0 && node->line_end_style == 0) return;
+
+  float size = (stroke_w > 2.0f ? stroke_w : 2.0f) * 4.0f;
+
+  // Start marker
+  if (node->line_start_style > 0) {
+    float dx = x2 - ax;
+    float dy = y2 - ay;
+    float angle = atan2f(dy, dx) * 180.0f / 3.14159265f;
+    if (node->line_start_style == 1) { // Circle
+      fprintf(fp, "  <circle cx=\"%.1f\" cy=\"%.1f\" r=\"%.1f\" fill=\"%s\" fill-opacity=\"%.2f\"%s/>\n",
+              ax, ay, size / 2.0f, stroke_col, stroke_a, transform);
+    } else if (node->line_start_style == 2) { // Arrow
+      fprintf(fp, "  <path d=\"M0,0 L%.1f,%.1f L%.1f,%.1f Z\" fill=\"%s\" fill-opacity=\"%.2f\""
+                  " transform=\"translate(%.1f %.1f) rotate(%.1f) translate(%.1f 0)%s\"/>\n",
+                  -size, size*0.4f, -size, -size*0.4f, stroke_col, stroke_a,
+                  ax, ay, angle, 0.0f, transform);
+    }
+  }
+
+  // End marker
+  if (node->line_end_style > 0) {
+    float dx = x2 - ax;
+    float dy = y2 - ay;
+    float angle = atan2f(dy, dx) * 180.0f / 3.14159265f;
+    if (node->line_end_style == 1) { // Circle
+      fprintf(fp, "  <circle cx=\"%.1f\" cy=\"%.1f\" r=\"%.1f\" fill=\"%s\" fill-opacity=\"%.2f\"%s/>\n",
+              x2, y2, size / 2.0f, stroke_col, stroke_a, transform);
+    } else if (node->line_end_style == 2) { // Arrow
+      fprintf(fp, "  <path d=\"M0,0 L%.1f,%.1f L%.1f,%.1f Z\" fill=\"%s\" fill-opacity=\"%.2f\""
+                  " transform=\"translate(%.1f %.1f) rotate(%.1f)%s\"/>\n",
+                  -size, size*0.4f, -size, -size*0.4f, stroke_col, stroke_a,
+                  x2, y2, angle, transform);
+    }
+  }
+}
+
 // Write SVG gradient defs + fill/stroke strings for a node.
 // Returns true if a gradient was written (caller must close </defs>).
 static bool svg_write_fill(FILE *fp, const Node *node,
@@ -1947,9 +2007,15 @@ static void svg_write_node(FILE *fp, const Node *node,
   if (op < 0.999f)
     snprintf(op_attr, sizeof(op_attr), " opacity=\"%.2f\"", op);
 
+  // Shadow filter def
+  if (node->has_shadow) svg_write_shadow_filter(fp, node, op);
+
   // Fill, stroke, and optional gradient defs
   char fill[80], stroke[64];
   svg_write_fill(fp, node, fill, sizeof(fill), stroke, sizeof(stroke));
+
+  char shadow_attr[32] = "";
+  if (node->has_shadow) snprintf(shadow_attr, sizeof(shadow_attr), " filter=\"url(#sh%u)\"", node->id);
 
   float fill_a   = svg_alpha(node->fill_color);
   float stroke_a = svg_alpha(node->stroke_color);
@@ -1969,10 +2035,10 @@ static void svg_write_node(FILE *fp, const Node *node,
     fprintf(fp,
             "  <rect x=\"%.1f\" y=\"%.1f\" width=\"%.1f\" height=\"%.1f\""
             " rx=\"%.1f\" fill=\"%s\" fill-opacity=\"%.2f\""
-            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s/>\n",
+            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s%s/>\n",
             ax, ay, node->width, node->height, node->corner_radius,
             fill, fill_a, stroke, stroke_a, node->stroke_width,
-            op_attr, transform);
+            op_attr, transform, shadow_attr);
     // Children rendered below in their own coordinate space
     break;
 
@@ -1982,10 +2048,10 @@ static void svg_write_node(FILE *fp, const Node *node,
     fprintf(fp,
             "  <ellipse cx=\"%.1f\" cy=\"%.1f\" rx=\"%.1f\" ry=\"%.1f\""
             " fill=\"%s\" fill-opacity=\"%.2f\""
-            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s/>\n",
+            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s%s/>\n",
             cx, cy, node->width / 2.0f, node->height / 2.0f,
             fill, fill_a, stroke, stroke_a, node->stroke_width,
-            op_attr, transform);
+            op_attr, transform, shadow_attr);
     break;
   }
 
@@ -2025,10 +2091,10 @@ static void svg_write_node(FILE *fp, const Node *node,
             "  <text x=\"%.1f\" y=\"%.1f\" font-size=\"%.1f\""
             " font-family=\"%s\" font-weight=\"%s\""
             " text-anchor=\"%s\" dominant-baseline=\"text-before-edge\""
-            " fill=\"%s\" fill-opacity=\"%.2f\"%s%s>",
+            " fill=\"%s\" fill-opacity=\"%.2f\"%s%s%s>",
             tx, ay, node->font_size,
             family, weight, anchor,
-            fill, fill_a, op_attr, transform);
+            fill, fill_a, op_attr, transform, shadow_attr);
     svg_fputs_escaped(fp, display_text);
     fprintf(fp, "</text>\n");
     break;
@@ -2037,9 +2103,11 @@ static void svg_write_node(FILE *fp, const Node *node,
   case NODE_TYPE_LINE:
     fprintf(fp,
             "  <line x1=\"%.1f\" y1=\"%.1f\" x2=\"%.1f\" y2=\"%.1f\""
-            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s/>\n",
+            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s%s/>\n",
             ax, ay, ax + node->width, ay + node->height,
-            stroke, stroke_a, node->stroke_width, op_attr, transform);
+            stroke, stroke_a, node->stroke_width, op_attr, transform, shadow_attr);
+    svg_write_stroke_endings(fp, node, ax, ay, ax + node->width, ay + node->height,
+                             stroke, stroke_a, node->stroke_width, transform);
     break;
 
   case NODE_TYPE_TRIANGLE: {
@@ -2047,9 +2115,9 @@ static void svg_write_node(FILE *fp, const Node *node,
     fprintf(fp,
             "  <polygon points=\"%.1f,%.1f %.1f,%.1f %.1f,%.1f\""
             " fill=\"%s\" fill-opacity=\"%.2f\""
-            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s/>\n",
+            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s%s/>\n",
             ax + w / 2, ay, ax, ay + h, ax + w, ay + h,
-            fill, fill_a, stroke, stroke_a, node->stroke_width, op_attr, transform);
+            fill, fill_a, stroke, stroke_a, node->stroke_width, op_attr, transform, shadow_attr);
     break;
   }
 
@@ -2067,8 +2135,8 @@ static void svg_write_node(FILE *fp, const Node *node,
     }
     fprintf(fp,
             "\" fill=\"%s\" fill-opacity=\"%.2f\""
-            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s/>\n",
-            fill, fill_a, stroke, stroke_a, node->stroke_width, op_attr, transform);
+            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s%s/>\n",
+            fill, fill_a, stroke, stroke_a, node->stroke_width, op_attr, transform, shadow_attr);
     break;
   }
 
@@ -2083,8 +2151,8 @@ static void svg_write_node(FILE *fp, const Node *node,
     }
     fprintf(fp,
             "\" fill=\"%s\" fill-opacity=\"%.2f\""
-            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s/>\n",
-            fill, fill_a, stroke, stroke_a, node->stroke_width, op_attr, transform);
+            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s%s/>\n",
+            fill, fill_a, stroke, stroke_a, node->stroke_width, op_attr, transform, shadow_attr);
     break;
   }
 
@@ -2094,11 +2162,11 @@ static void svg_write_node(FILE *fp, const Node *node,
             "  <path d=\"M%.1f,%.1f C%.1f,%.1f %.1f,%.1f %.1f,%.1f"
             " C%.1f,%.1f %.1f,%.1f %.1f,%.1f Z\""
             " fill=\"%s\" fill-opacity=\"%.2f\""
-            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s/>\n",
+            " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s%s/>\n",
             ax + w/2, ay + h*0.3f,
             ax + w*0.1f, ay,  ax, ay + h*0.4f,  ax + w/2, ay + h,
             ax + w,  ay + h*0.4f,  ax + w*0.9f, ay,  ax + w/2, ay + h*0.3f,
-            fill, fill_a, stroke, stroke_a, node->stroke_width, op_attr, transform);
+            fill, fill_a, stroke, stroke_a, node->stroke_width, op_attr, transform, shadow_attr);
     break;
   }
 
@@ -2120,8 +2188,9 @@ static void svg_write_node(FILE *fp, const Node *node,
       }
       fprintf(fp,
               "\" fill=\"%s\" fill-opacity=\"%.2f\""
-              " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s/>\n",
-              fill, fill_a, stroke, stroke_a, node->stroke_width, op_attr, transform);
+              " stroke=\"%s\" stroke-opacity=\"%.2f\" stroke-width=\"%.1f\"%s%s%s%s/>\n",
+              fill, fill_a, stroke, stroke_a, node->stroke_width, op_attr, transform, shadow_attr,
+              node->clip_content ? "" : " clip-path=\"none\"");
     }
     break;
 
@@ -2131,14 +2200,21 @@ static void svg_write_node(FILE *fp, const Node *node,
       if (s->count > 0) {
         fprintf(fp, "  <polyline points=\"");
         for (int i = 0; i < s->count; i++) {
-          fprintf(fp, "%.1f,%.1f ", s->points[i].x, s->points[i].y);
+          fprintf(fp, "%.1f,%.1f ", ax + s->points[i].x, ay + s->points[i].y);
         }
         float sw = node->stroke_width > 0 ? node->stroke_width : 2.0f;
         fprintf(fp,
                 "\" fill=\"none\" stroke=\"%s\" stroke-opacity=\"%.2f\""
                 " stroke-width=\"%.1f\""
-                " stroke-linecap=\"round\" stroke-linejoin=\"round\"%s/>\n",
-                stroke, stroke_a, sw, op_attr);
+                " stroke-linecap=\"round\" stroke-linejoin=\"round\"%s%s%s/>\n",
+                stroke, stroke_a, sw, op_attr, transform, shadow_attr);
+
+        if (s->count >= 2) {
+          // Add endings for regular strokes too
+          svg_write_stroke_endings(fp, node, ax + s->points[0].x, ay + s->points[0].y,
+                                   ax + s->points[s->count-1].x, ay + s->points[s->count-1].y,
+                                   stroke, stroke_a, sw, transform);
+        }
       }
     }
     break;
@@ -2578,5 +2654,33 @@ bool block_design_export_pdf(const Block *block, const char *filepath,
   HPDF_STATUS save_status = HPDF_SaveToFile(pdf, filepath);
   HPDF_Free(pdf);
   return (save_status == HPDF_OK);
+}
+
+bool block_design_export_pdf_from_png(const char *filepath,
+                                      const char *png_path,
+                                      int page_w, int page_h) {
+  if (!filepath || !png_path || page_w <= 0 || page_h <= 0)
+    return false;
+  FILE *chk = fopen(png_path, "rb");
+  if (!chk) return false;
+  fclose(chk);
+
+  HPDF_Doc pdf = HPDF_New(pdf_error_handler, NULL);
+  if (!pdf) return false;
+  if (setjmp(pdf_err_env)) { HPDF_Free(pdf); return false; }
+
+  HPDF_Page pg = HPDF_AddPage(pdf);
+  HPDF_Page_SetWidth(pg,  (HPDF_REAL)page_w);
+  HPDF_Page_SetHeight(pg, (HPDF_REAL)page_h);
+
+  HPDF_Image img = HPDF_LoadPngImageFromFile(pdf, png_path);
+  if (!img) { HPDF_Free(pdf); return false; }
+
+  // PNG is top-down; HPDF y=0 is bottom — drawing at (0,0,w,h) maps correctly
+  HPDF_Page_DrawImage(pg, img, 0, 0, (HPDF_REAL)page_w, (HPDF_REAL)page_h);
+
+  HPDF_STATUS st = HPDF_SaveToFile(pdf, filepath);
+  HPDF_Free(pdf);
+  return (st == HPDF_OK);
 }
 

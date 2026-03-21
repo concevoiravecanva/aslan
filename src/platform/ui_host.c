@@ -381,20 +381,20 @@ void ui_host_paste_node(UIHost *ui, Engine *engine) {
   ASLAN_DEBUG("Clipboard: pasted node '%s' as id=%u", pasted->name, new_id);
 }
 
-// stubbed out SDL_Renderer based helpers
+// Forward declarations for static helpers used by export functions
+static unsigned char *render_design_to_pixels(UIHost *ui, Engine *engine,
+                                              Block *block, int *out_w,
+                                              int *out_h, float pixel_scale);
+static void prerender_node_snapshots(UIHost *ui, Engine *engine, Block *block);
+
 void ui_host_export_svg(UIHost *ui, Engine *engine) {
-  (void)ui;
   Page *page = doc_page_get_active(engine->doc);
   if (!page)
     return;
 
-  // Find the first design block on this page
   Block *design_block = NULL;
   for (Block *b = page->first_block; b; b = b->next) {
-    if (b->type == BLOCK_DESIGN) {
-      design_block = b;
-      break;
-    }
+    if (b->type == BLOCK_DESIGN) { design_block = b; break; }
   }
   if (!design_block)
     return;
@@ -405,15 +405,16 @@ void ui_host_export_svg(UIHost *ui, Engine *engine) {
   if (save_native_file_dialog(filename, sizeof(filename), default_name,
                               "Export Design as SVG")) {
 
-    if (block_design_export_svg(design_block, filename, NULL, 0)) {
+    // Pre-render chart/table nodes to PNG snapshots so SVG can embed them
+    prerender_node_snapshots(ui, engine, design_block);
+
+    if (block_design_export_svg(design_block, filename, NULL, 0))
       ASLAN_DEBUG("Exported SVG to: %s", filename);
-    }
   }
 }
 
 void ui_host_export_svg_merge(UIHost *ui, Engine *engine,
                               struct AslanTable *linked_tbl) {
-  (void)ui;
   Page *page = doc_page_get_active(engine->doc);
   if (!page || !linked_tbl || linked_tbl->active_count == 0)
     return;
@@ -446,6 +447,9 @@ void ui_host_export_svg_merge(UIHost *ui, Engine *engine,
   snprintf(default_name, sizeof(default_name), "%s_Merge.svg", page->name);
   if (save_native_file_dialog(base_filename, sizeof(base_filename),
                               default_name, "Export Design as SVG")) {
+    // Pre-render chart/table snapshots once (shared by all rows)
+    prerender_node_snapshots(ui, engine, design_block);
+
     // Strip .svg to get base prefix
     char prefix[512];
     strncpy(prefix, base_filename, sizeof(prefix) - 1);
@@ -454,44 +458,67 @@ void ui_host_export_svg_merge(UIHost *ui, Engine *engine,
     if (ext)
       *ext = '\0';
 
-
     for (int i = 0; i < (int)linked_tbl->active_count; i++) {
-      char out_file[512];
-      snprintf(out_file, sizeof(out_file), "%s_%d.svg", prefix, i + 1);
-      uint64_t row_id = aslan_table_view_row_id(linked_tbl, i);
-      if (block_design_export_svg(design_block, out_file, linked_tbl, row_id)) {
-        ASLAN_DEBUG("Exported SVG merge row %d to: %s", i + 1, out_file);
+      // Use first-column value as filename suffix if available
+      char row_suffix[64];
+      const char *col0 = NULL;
+      if (linked_tbl->column_count > 0) {
+        uint64_t rid = aslan_table_view_row_id(linked_tbl, i);
+        col0 = aslan_table_get_cell_display(linked_tbl, 0, rid,
+                                            row_suffix, sizeof(row_suffix));
       }
+      char out_file[512];
+      if (col0 && col0[0])
+        snprintf(out_file, sizeof(out_file), "%s_%s.svg", prefix, col0);
+      else
+        snprintf(out_file, sizeof(out_file), "%s_%d.svg", prefix, i + 1);
+
+      uint64_t row_id = aslan_table_view_row_id(linked_tbl, i);
+      if (block_design_export_svg(design_block, out_file, linked_tbl, row_id))
+        ASLAN_DEBUG("Exported SVG merge row %d to: %s", i + 1, out_file);
     }
   }
 }
 
 // Render the design artboard to a pixel buffer. Returns RGBA malloc'd buffer
-// (caller must free). Sets *out_w and *out_h to artboard dimensions.
+// (caller must free). Sets *out_w/*out_h to the OUTPUT pixel dimensions
+// (artboard * pixel_scale). Use pixel_scale=1.0 for 1:1, 2.0 for high-DPI.
 static unsigned char *render_design_to_pixels(UIHost *ui, Engine *engine,
                                               Block *block,
-                                              int *out_w, int *out_h) {
+                                              int *out_w, int *out_h,
+                                              float pixel_scale) {
   DesignData *dd = &block->data.design;
   if (!dd->pages || dd->current_page < 0 ||
       dd->current_page >= dd->page_count)
     return NULL;
 
-  int w = dd->width  > 0 ? (int)dd->width  : 800;
-  int h = dd->height > 0 ? (int)dd->height : 600;
-  *out_w = w;
-  *out_h = h;
+  if (pixel_scale < 0.5f) pixel_scale = 0.5f;
 
-  // Create offscreen FBO at artboard dimensions
-  NVGLUframebuffer *fb = nvgluCreateFramebuffer(ui->vg, w, h, 0);
+  int aw = dd->width  > 0 ? (int)dd->width  : 800;  // artboard size
+  int ah = dd->height > 0 ? (int)dd->height : 600;
+  int fw = (int)(aw * pixel_scale);                  // FBO / output size
+  int fh = (int)(ah * pixel_scale);
+  *out_w = fw;
+  *out_h = fh;
+
+  // Create offscreen FBO at scaled dimensions
+  NVGLUframebuffer *fb = nvgluCreateFramebuffer(ui->vg, fw, fh, 0);
   if (!fb)
     return NULL;
 
   nvgluBindFramebuffer(fb);
-  glViewport(0, 0, w, h);
+  glViewport(0, 0, fw, fh);
   glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
   glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-  nvgBeginFrame(ui->vg, (float)w, (float)h, 1.0f);
+  // artboard_clip drives the image scissor in ui_render_node_tree.
+  // Override it to cover the full FBO so images aren't clipped away.
+  AslanRect saved_artboard_clip = ui->artboard_clip;
+  AslanRect saved_artboard_rect  = ui->artboard_rect;
+  ui->artboard_clip = (AslanRect){0, 0, (float)fw, (float)fh};
+  ui->artboard_rect = ui->artboard_clip;
+
+  nvgBeginFrame(ui->vg, (float)fw, (float)fh, 1.0f);
 
   // Background
   DesignPage *dp = &dd->pages[dd->current_page];
@@ -499,49 +526,98 @@ static unsigned char *render_design_to_pixels(UIHost *ui, Engine *engine,
   NVGcolor bg_col = nvgRGBA((bg >> 24) & 0xFF, (bg >> 16) & 0xFF,
                             (bg >>  8) & 0xFF,  bg & 0xFF);
   nvgBeginPath(ui->vg);
-  nvgRect(ui->vg, 0, 0, (float)w, (float)h);
+  nvgRect(ui->vg, 0, 0, (float)fw, (float)fh);
   nvgFillColor(ui->vg, bg_col);
   nvgFill(ui->vg);
 
-  // Render all nodes at scale=1, origin (0,0) — no sidebar, no toolbar
-  AslanRect bounds = {0, 0, (float)w, (float)h};
+  // Render all nodes at pixel_scale, origin (0,0) — no sidebar, no toolbar
+  AslanRect bounds = {0, 0, (float)fw, (float)fh};
   if (dd->root) {
     for (Node *node = dd->root->first_child; node;
          node = node->next_sibling) {
       ui_render_node_tree(ui, engine, block, dd, node, bounds,
-                         1.0f, 0.0f, 0.0f);
+                         pixel_scale, 0.0f, 0.0f);
     }
   }
 
   nvgEndFrame(ui->vg);
 
   // Read pixels (OpenGL gives bottom-up, we flip to top-down)
-  unsigned char *pixels = (unsigned char *)malloc((size_t)w * h * 4);
+  unsigned char *pixels = (unsigned char *)malloc((size_t)fw * fh * 4);
   if (!pixels) {
     nvgluDeleteFramebuffer(fb);
     nvgluBindFramebuffer(NULL);
     glViewport(0, 0, ui->win_width, ui->win_height);
     return NULL;
   }
-  glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+  glReadPixels(0, 0, fw, fh, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
 
   // Flip vertically
-  unsigned char *row = (unsigned char *)malloc((size_t)w * 4);
+  unsigned char *row = (unsigned char *)malloc((size_t)fw * 4);
   if (row) {
-    for (int y = 0; y < h / 2; y++) {
-      memcpy(row,                       pixels + (size_t) y          * w * 4, (size_t)w * 4);
-      memcpy(pixels + (size_t) y          * w * 4,
-             pixels + (size_t)(h - 1 - y) * w * 4, (size_t)w * 4);
-      memcpy(pixels + (size_t)(h - 1 - y) * w * 4, row, (size_t)w * 4);
+    for (int y = 0; y < fh / 2; y++) {
+      memcpy(row,                        pixels + (size_t) y           * fw * 4, (size_t)fw * 4);
+      memcpy(pixels + (size_t) y           * fw * 4,
+             pixels + (size_t)(fh - 1 - y) * fw * 4, (size_t)fw * 4);
+      memcpy(pixels + (size_t)(fh - 1 - y) * fw * 4, row, (size_t)fw * 4);
     }
     free(row);
   }
+
+  // Restore artboard clip to its screen-render values
+  ui->artboard_clip = saved_artboard_clip;
+  ui->artboard_rect  = saved_artboard_rect;
 
   nvgluDeleteFramebuffer(fb);
   nvgluBindFramebuffer(NULL);
   glViewport(0, 0, ui->win_width, ui->win_height);
 
   return pixels;
+}
+
+// Render each CHART / TABLE_VIEW node in the design to a PNG snapshot at
+// /tmp/aslan_node_<id>.png so block_design_export_svg can embed them.
+static void prerender_node_snapshots(UIHost *ui, Engine *engine, Block *block) {
+  int aw = 0, ah = 0;
+  unsigned char *full = render_design_to_pixels(ui, engine, block,
+                                                &aw, &ah, 1.0f);
+  if (!full) return;
+
+  DesignData *dd = &block->data.design;
+  if (!dd->root) { free(full); return; }
+
+  for (Node *node = dd->root->first_child; node; node = node->next_sibling) {
+    if (node->type != NODE_TYPE_CHART && node->type != NODE_TYPE_TABLE_VIEW)
+      continue;
+    int nx = (int)node->x, ny = (int)node->y;
+    int nw = (int)node->width, nh = (int)node->height;
+    if (nw <= 0 || nh <= 0) continue;
+
+    // Clamp to artboard bounds
+    int x0 = nx < 0 ? 0 : nx, y0 = ny < 0 ? 0 : ny;
+    int x1 = (nx + nw) > aw ? aw : (nx + nw);
+    int y1 = (ny + nh) > ah ? ah : (ny + nh);
+    if (x1 <= x0 || y1 <= y0) continue;
+
+    int cw = x1 - x0, ch = y1 - y0;
+    unsigned char *crop = (unsigned char *)malloc((size_t)nw * nh * 4);
+    if (!crop) continue;
+
+    // Fill white, then copy the cropped region
+    memset(crop, 0xFF, (size_t)nw * nh * 4);
+    int dst_ox = x0 - nx, dst_oy = y0 - ny;
+    for (int r = 0; r < ch; r++) {
+      memcpy(crop + ((size_t)(dst_oy + r) * nw + dst_ox) * 4,
+             full + ((size_t)(y0 + r) * aw + x0) * 4,
+             (size_t)cw * 4);
+    }
+
+    char snap_path[256];
+    snprintf(snap_path, sizeof(snap_path), "/tmp/aslan_node_%u.png", node->id);
+    stbi_write_png(snap_path, nw, nh, 4, crop, nw * 4);
+    free(crop);
+  }
+  free(full);
 }
 
 void ui_host_export_png_jpeg(UIHost *ui, Engine *engine, int is_jpeg) {
@@ -567,8 +643,9 @@ void ui_host_export_png_jpeg(UIHost *ui, Engine *engine, int is_jpeg) {
     return;
 
   int w = 0, h = 0;
+  // 2× scale → high-DPI output (crisper text and edges)
   unsigned char *pixels =
-      render_design_to_pixels(ui, engine, design_block, &w, &h);
+      render_design_to_pixels(ui, engine, design_block, &w, &h, 2.0f);
   if (!pixels) {
     ASLAN_WARN("Raster export: failed to render design to pixels");
     return;
@@ -576,7 +653,19 @@ void ui_host_export_png_jpeg(UIHost *ui, Engine *engine, int is_jpeg) {
 
   int ok = 0;
   if (is_jpeg) {
-    ok = stbi_write_jpg(filename, w, h, 4, pixels, 92);
+    // JPEG has no alpha channel — composite RGBA on white then write as RGB
+    unsigned char *rgb = (unsigned char *)malloc((size_t)w * h * 3);
+    if (rgb) {
+      for (int i = 0; i < w * h; i++) {
+        unsigned char a = pixels[i * 4 + 3];
+        // Pre-multiplied alpha blend onto white background
+        rgb[i * 3 + 0] = (unsigned char)(pixels[i*4+0] * a / 255 + (255 - a));
+        rgb[i * 3 + 1] = (unsigned char)(pixels[i*4+1] * a / 255 + (255 - a));
+        rgb[i * 3 + 2] = (unsigned char)(pixels[i*4+2] * a / 255 + (255 - a));
+      }
+      ok = stbi_write_jpg(filename, w, h, 3, rgb, 92);
+      free(rgb);
+    }
   } else {
     ok = stbi_write_png(filename, w, h, 4, pixels, w * 4);
   }
@@ -590,7 +679,6 @@ void ui_host_export_png_jpeg(UIHost *ui, Engine *engine, int is_jpeg) {
 }
 
 void ui_host_export_pdf(UIHost *ui, Engine *engine) {
-  (void)ui;
   Page *page = doc_page_get_active(engine->doc);
   if (!page)
     return;
@@ -611,7 +699,31 @@ void ui_host_export_pdf(UIHost *ui, Engine *engine) {
   if (save_native_file_dialog(filename, sizeof(filename), default_name,
                               "Export Design as PDF")) {
 
-    if (block_design_export_pdf(design_block, filename, NULL, 0))
+    // Render the full artboard at 2× for crisp PDF output, then embed as
+    // a full-page image — guarantees pixel-perfect, high-resolution result.
+    int fw = 0, fh = 0;
+    unsigned char *pixels = render_design_to_pixels(ui, engine, design_block,
+                                                    &fw, &fh, 2.0f);
+    if (!pixels) {
+      ASLAN_WARN("PDF export: could not render artboard pixels");
+      return;
+    }
+
+    // Save pixels to a temp PNG
+    const char *tmp_png = "/tmp/aslan_pdf_export.png";
+    if (!stbi_write_png(tmp_png, fw, fh, 4, pixels, fw * 4)) {
+      free(pixels);
+      ASLAN_WARN("PDF export: failed to write temp PNG");
+      return;
+    }
+    free(pixels);
+
+    // PDF page stays at artboard dimensions (in points); image is 2× resolution
+    DesignData *_dd = &design_block->data.design;
+    int page_w = _dd->width  > 0 ? (int)_dd->width  : 800;
+    int page_h = _dd->height > 0 ? (int)_dd->height : 600;
+
+    if (block_design_export_pdf_from_png(filename, tmp_png, page_w, page_h))
       ASLAN_DEBUG("Exported PDF to: %s", filename);
     else
       ASLAN_WARN("PDF export failed for: %s", filename);

@@ -531,6 +531,10 @@ bool block_design_export_svg(const Block *block, const char *filepath,
 bool block_design_export_pdf(const Block *block, const char *filepath,
                              struct AslanTable *linked_tbl,
                              uint64_t linked_row_id);
+// PDF Export from a pre-rendered PNG (pixel-perfect, embeds PNG as full page)
+bool block_design_export_pdf_from_png(const char *filepath,
+                                      const char *png_path,
+                                      int page_w, int page_h);
 
 // =============================================================================
 // UTILITY
