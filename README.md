@@ -38,7 +38,7 @@ Used in both **Canvas** (infinite) and **Design** (finite/multi-page) blocks:
 Aslan is built for speed and portability:
 - **Core Engine**: C99 (Cross-platform)
 - **Graphics**: SDL2 (Hardware accelerated)
-- **GUI**: Nuklear (Pure C, immediate-mode)
+- **GUI**: NanoVG & Clay (Vector-based immediate-mode GUI)
 - **Scripting**: Lua 5.4 (Sandbox implementation)
 - **Formulas**: TinyExpr (Expression evaluator)
 - **OS Integration**: Native macOS file dialogs via `osascript`.

@@ -59,7 +59,6 @@ static void fill_rotated_rounded_rect(UIHost *ui, float cx, float cy, float w,
   nvgRestore(ui->vg);
 }
 
-// simple struct for missing nk_vec2
 typedef struct { float x, y; } AslanVec2;
 
 static void fill_rounded_polygon(UIHost *ui, const AslanVec2 *points,
@@ -2581,7 +2580,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
   float toolbar_h = 52.0f;
   // float sidebar_w = 260.0f;
 
-//   float row_h = nk_window_get_content_region(ctx).h;
   float row_h = height;
                       // sidebar visibility
   ASLAN_DEBUG("Design block layout row_h = %f", row_h);
@@ -2750,11 +2748,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
     // --- Shared content rendering (both modes) ---
     ASLAN_DEBUG("BEGIN design_content");
     int group_res = 1;
-//         nk_group_begin(ctx, "design_content", NK_WINDOW_NO_SCROLLBAR);
-//     nk_style_pop_float(ctx);
-//     nk_style_pop_style_item(ctx);
     if (group_res) {
-//       AslanRect bounds_raw = nk_window_get_content_region(ctx);
       AslanRect bounds;
 
       if (dd->no_limits) {
