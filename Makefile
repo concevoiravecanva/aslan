@@ -13,7 +13,7 @@ SDL_LIB = -L/opt/homebrew/lib -lSDL2
 HPDF_INC = -I/opt/homebrew/include
 HPDF_LIB = -L/opt/homebrew/lib -lhpdf
 
-CFLAGS = -Wall -Wextra -std=c99 -I./src -I./include -DSTBTT_STATIC
+CFLAGS = -Wall -Wextra -std=c99 -I./src -I./include -DSTBTT_STATIC -Os
 
 # Core, Document & Platform sources
 CORE_OBJS = src/core/engine.o
@@ -40,12 +40,13 @@ VENDOR_OBJS = src/vendor/tinyexpr.o \
 OBJS = src/main.o $(VENDOR_OBJS) $(CORE_OBJS) $(DOC_OBJS) $(PLATFORM_OBJS)
 
 TARGET = aslan
-LDFLAGS = -framework Cocoa -framework CoreGraphics -framework ImageIO -framework OpenGL -lm -lz -lpng $(HPDF_LIB)
+LDFLAGS = -framework Cocoa -framework CoreGraphics -framework ImageIO -framework OpenGL -lm -lz -lpng $(HPDF_LIB) -Wl,-dead_strip
 
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
 	$(CC) $(OBJS) -o $(TARGET) $(LDFLAGS) $(SDL_LIB)
+	strip $(TARGET)
 
 no_lua: CFLAGS += -DNO_LUA
 no_lua: $(OBJS)
