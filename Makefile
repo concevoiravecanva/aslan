@@ -24,7 +24,10 @@ PLATFORM_OBJS = src/platform/platform.o \
            src/platform/clay_host.o \
            src/platform/ui_table.o \
            src/platform/ui_canvas.o \
+           src/platform/ui_toolbar.o \
+           src/platform/ui_properties.o \
            src/platform/ui_design.o \
+           src/platform/node_render.o \
            src/platform/ui_chart.o \
            src/platform/ui_core.o \
            src/platform/ui_host.o \

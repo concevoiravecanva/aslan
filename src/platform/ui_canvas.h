@@ -13,23 +13,16 @@
 // Canvas Drawing Helpers (shared by Design block)
 // -----------------------------------------------------------------------------
 
+#include "ui_toolbar.h"
+
 void canvas_draw_dot_grid(UIHost *ui, float bx, float by, float bw, float bh,
                           float cam_x, float cam_y, float zoom);
-
-int canvas_point_in_toolbar(float bx, float by, float bw, float bh,
-                            float mx, float my, CanvasInteraction *cs);
-
-void canvas_render_sub_menu(UIHost *ui, float x, float y, CanvasCategory cat);
-
-void canvas_render_toolbar(UIHost *ui, float bx, float by, float bw, float bh,
-                           Block *block);
 
 // -----------------------------------------------------------------------------
 // Canvas Sidebar Rendering (shared by Design block)
 // -----------------------------------------------------------------------------
 
-void ui_render_sidebar_layers(UIHost *ui, Block *block, float x, float y,
-                              float w, float h);
+#include "ui_properties.h"
 
 // -----------------------------------------------------------------------------
 // Shared Creation Helpers
