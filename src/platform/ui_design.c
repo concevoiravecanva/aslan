@@ -1,8 +1,6 @@
 #include "ui_design.h"
-#include "clay_host.h"
 #include "../document/aslan_table.h"
 #include "../document/document.h"
-#include "../vendor/clay.h"
 #include "ui_canvas.h"
 #include "ui_shared.h"
 #include "ui_properties.h"

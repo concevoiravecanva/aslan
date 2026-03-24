@@ -6,7 +6,7 @@
 #include "ui_host.h"
 #include "../document/aslan_table.h"
 
-#include "clay_host.h"
+#include "ui_shared.h"
 #include "ui_canvas.h"
 #include "ui_core.h"
 #include "ui_design.h"
@@ -978,15 +978,11 @@ UIHost *ui_init(SDL_Window *win) {
     ASLAN_ERROR("Failed to initialize NanoVG!");
   }
 
-  // Initialize Clay (layout engine + background rendering)
-  {
-    int ww = 1280, wh = 720;
-    SDL_GetWindowSize(win, &ww, &wh);
-    ui->clay = clay_host_init(ui->vg, ww, wh);
-    if (!ui->clay) {
-      ASLAN_WARN("Clay host init failed — running without Clay backgrounds");
-    }
-  }
+  // Load fonts (previously in clay_host_init)
+  ui->font_inter = nvgCreateFont(ui->vg, "Inter", "assets/fonts/Inter-Regular.ttf");
+  nvgCreateFont(ui->vg, "InterBold", "assets/fonts/Inter_28pt-Bold.ttf");
+  nvgCreateFont(ui->vg, "Bold", "assets/fonts/Inter_28pt-Bold.ttf");
+  nvgCreateFont(ui->vg, "Icons", "assets/remixicon.ttf");
 
   // Initialize NanoVG Widgets Context
   nvgw_init(&ui->nvgw, ui->vg);
@@ -1005,8 +1001,7 @@ void ui_shutdown(UIHost *ui) {
     // Pour simplifier on laisse l'OS nettoyer le contexte GL si on n'a pas
     // d'en-tête dédié facile à inclure ici sans polluer.
   }
-  clay_host_destroy(ui->clay);
-  ui->clay = NULL;
+
   free(ui);
 }
 
@@ -2270,10 +2265,53 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
 
   handle_splitter_input(ui, win_w, win_h, left_w, spl_w);
 
-  if (ui->clay) {
-    clay_host_render_split(ui->clay, ui->dark_mode != 0, ratio, 0,
-                           ui->split_view.is_dragging_splitter != 0, win_w,
-                           win_h);
+  // Draw split-view backgrounds (pure NanoVG, replaces Clay)
+  {
+    NVGcontext *vg = ui->vg;
+    NVGcolor left_bg, right_bg, spl_bg;
+    int is_dark = ui->dark_mode != 0;
+    int spl_active = ui->split_view.is_dragging_splitter != 0;
+
+    if (is_dark) {
+      left_bg  = nvgRGBA(28, 30, 36, 255);
+      right_bg = nvgRGBA(24, 26, 32, 255);
+      spl_bg   = spl_active ? nvgRGBA(55, 57, 68, 255) : nvgRGBA(42, 44, 52, 255);
+    } else {
+      left_bg  = nvgRGBA(252, 252, 253, 255);
+      right_bg = nvgRGBA(255, 255, 255, 255);
+      spl_bg   = spl_active ? nvgRGBA(218, 218, 225, 255) : nvgRGBA(235, 235, 238, 255);
+    }
+
+    // Left panel
+    nvgBeginPath(vg);
+    nvgRect(vg, 0, 0, left_w, (float)win_h);
+    nvgFillColor(vg, left_bg);
+    nvgFill(vg);
+
+    // Splitter
+    nvgBeginPath(vg);
+    nvgRect(vg, left_w, 0, spl_w, (float)win_h);
+    nvgFillColor(vg, spl_bg);
+    nvgFill(vg);
+
+    // Splitter dots
+    NVGcolor dot_col = is_dark
+      ? (spl_active ? nvgRGBA(120, 122, 135, 255) : nvgRGBA(80, 82, 92, 255))
+      : (spl_active ? nvgRGBA(140, 140, 150, 255) : nvgRGBA(180, 180, 188, 255));
+    float dot_x = left_w + spl_w * 0.5f - 1.5f;
+    float dot_y = (float)win_h * 0.5f - 10.0f;
+    for (int d = 0; d < 3; d++) {
+      nvgBeginPath(vg);
+      nvgRect(vg, dot_x, dot_y + (float)d * 7.0f, 3.0f, 3.0f);
+      nvgFillColor(vg, dot_col);
+      nvgFill(vg);
+    }
+
+    // Right panel
+    nvgBeginPath(vg);
+    nvgRect(vg, left_w + spl_w, 0, right_w + spl_w, (float)win_h);
+    nvgFillColor(vg, right_bg);
+    nvgFill(vg);
   }
 
   // Left Panel
@@ -2339,9 +2377,6 @@ void ui_begin_frame(UIHost *ui) {
   if (!ui) return;
   ui->scroll_inhibited = 0;
   nvgw_input_begin(&ui->nvgw);
-  if (ui->clay) {
-    clay_host_begin_frame(ui->clay);
-  }
 }
 
 void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {

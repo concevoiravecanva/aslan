@@ -2,9 +2,7 @@
 #define UI_HOST_H
 
 #include "../core/engine.h"
-#include "../vendor/clay.h"
 #include "../vendor/nanovg/nanovg.h"
-#include "clay_host.h"
 #include "nvg_widgets.h"
 #include "recents.h"
 #include "ui_shared.h"
@@ -185,8 +183,7 @@ typedef struct UIHost {
   // UI Context
   NVGcontext *vg;
 
-  // Clay host (layout + background rendering)
-  ClayHost *clay;
+
 
   // NanoVG Widgets context
   NvgWidgetCtx nvgw;

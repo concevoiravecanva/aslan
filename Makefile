@@ -21,7 +21,6 @@ DOC_OBJS = src/document/document.o \
            src/document/aslan_table.o
 PLATFORM_OBJS = src/platform/platform.o \
            src/platform/renderer.o \
-           src/platform/clay_host.o \
            src/platform/ui_table.o \
            src/platform/ui_canvas.o \
            src/platform/ui_toolbar.o \

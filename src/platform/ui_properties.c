@@ -2,7 +2,6 @@
 #include "ui_canvas.h"
 #include "ui_shared.h"
 #include "ui_host.h"
-#include "../vendor/clay.h"
 #include "../document/aslan_table.h"
 #include <math.h>
 #include <stdio.h>
@@ -288,7 +287,7 @@ void design_insert_tableau_layout(DesignData *dd) {
 // ── Main sidebar ─────────────────────────────────────────────────────────────
 
 
-// Font IDs for Clay (must match clay_host.c)
+// Font IDs (must match clay_host constants, now used standalone)
 #define ASLAN_FONT_INTER 0
 #define ASLAN_FONT_BOLD 1
 #define ASLAN_FONT_ICONS 2
