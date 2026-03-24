@@ -4,8 +4,8 @@
 #include "ui_host.h"
 #include "ui_shared.h"
 
-int canvas_point_in_toolbar(float bx, float by, float bw, float bh,
-                            float mx, float my, CanvasInteraction *cs);
+int canvas_point_in_toolbar(UIHost *ui, float bx, float by, float bw, float bh,
+                            float mx, float my);
 
 void canvas_render_sub_menu(UIHost *ui, float x, float y, CanvasCategory cat);
 

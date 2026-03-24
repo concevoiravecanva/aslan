@@ -6,8 +6,8 @@
 // Canvas Helper: Check if point is in toolbar area
 // -----------------------------------------------------------------------------
 
-int canvas_point_in_toolbar(float bx, float by, float bw, float bh,
-                            float mx, float my, CanvasInteraction *cs) {
+int canvas_point_in_toolbar(UIHost *ui, float bx, float by, float bw, float bh,
+                            float mx, float my) {
   const float btn_size = 36.0f;
   const float btn_spacing = 8.0f;
   const float toolbar_w = 7 * btn_size + 6 * btn_spacing + 24.0f; // 7 buttons
@@ -23,17 +23,17 @@ int canvas_point_in_toolbar(float bx, float by, float bw, float bh,
     return 1;
 
   // Sub-menu hit
-  if (cs->show_sub_menu) {
+  if (ui->editor.show_sub_menu) {
     const float menu_w = 140.0f;
     const float item_h = 32.0f;
     const float menu_padding = 8.0f;
-    int items = (cs->active_cat == CANVAS_CAT_SHAPES) ? 4 : 3;
+    int items = (ui->editor.active_category == CANVAS_CAT_SHAPES) ? 4 : 3;
     float menu_h = items * item_h + 2 * menu_padding;
 
     // Calculate which button is active to find menu_x
     float btn_x_start = toolbar_x + 12.0f;
     float active_btn_x =
-        btn_x_start + (int)cs->active_cat * (btn_size + btn_spacing);
+        btn_x_start + (int)ui->editor.active_category * (btn_size + btn_spacing);
     float menu_x = active_btn_x - menu_w / 2.0f + 16.0f;
     float menu_y = toolbar_y - menu_h - 12.0f;
 
@@ -50,7 +50,6 @@ int canvas_point_in_toolbar(float bx, float by, float bw, float bh,
 // -----------------------------------------------------------------------------
 
 void canvas_render_sub_menu(UIHost *ui, float x, float y, CanvasCategory cat) {
-  CanvasInteraction *cs = &ui->canvas_state;
   const float item_h = 32.0f;
   const float menu_padding = 8.0f;
   const float menu_w = 140.0f;
@@ -131,42 +130,42 @@ void canvas_render_sub_menu(UIHost *ui, float x, float y, CanvasCategory cat) {
       nvgFillColor(ui->vg, nvgRGBA(0, 0, 0, 15));
       nvgFill(ui->vg);
 
-      if (cs->mouse_just_pressed) {
+      if (ui->input.mouse_just_pressed) {
         // Handle sub-option selection
         if (cat == CANVAS_CAT_SHAPES) {
           // Set pending_create to 10-13 for shapes
-          cs->space_held = 0;    // Disable pan mode
-          cs->pan_from_menu = 0; // Clear menu pan
-          cs->is_panning = 0;    // Stop any active panning
+          ui->input.space_held = 0;    // Disable pan mode
+          ui->input.pan_from_menu = 0; // Clear menu pan
+          ui->input.mode = INTERACTION_NONE;    // Stop any active panning
           if (sub_opts[i] == CANVAS_SUB_SHAPE_RECT)
-            cs->pending_create = 10;
+            ui->input.pending_create = 10;
           else if (sub_opts[i] == CANVAS_SUB_SHAPE_ELLIPSE)
-            cs->pending_create = 11;
+            ui->input.pending_create = 11;
           else if (sub_opts[i] == CANVAS_SUB_SHAPE_TRIANGLE)
-            cs->pending_create = 12;
+            ui->input.pending_create = 12;
           else if (sub_opts[i] == CANVAS_SUB_SHAPE_LINE)
-            cs->pending_create = 13;
+            ui->input.pending_create = 13;
         } else if (cat == CANVAS_CAT_TEXT) {
-          cs->tool = CANVAS_TOOL_SELECT;
-          cs->space_held = 0;    // Disable pan mode
-          cs->pan_from_menu = 0; // Clear menu pan
-          cs->is_panning = 0;    // Stop any active panning
+          ui->editor.active_tool = CANVAS_TOOL_SELECT;
+          ui->input.space_held = 0;    // Disable pan mode
+          ui->input.pan_from_menu = 0; // Clear menu pan
+          ui->input.mode = INTERACTION_NONE;    // Stop any active panning
           // H1=6, Body=1, Sticky=2
           if (sub_opts[i] == CANVAS_SUB_TEXT_HEADING)
-            cs->pending_create = 6;
+            ui->input.pending_create = 6;
           else if (sub_opts[i] == CANVAS_SUB_TEXT_BODY)
-            cs->pending_create = 1;
+            ui->input.pending_create = 1;
           else if (sub_opts[i] == CANVAS_SUB_TEXT_STICKY)
-            cs->pending_create = 2;
+            ui->input.pending_create = 2;
         } else if (cat == CANVAS_CAT_MEDIA) {
-          cs->tool = CANVAS_TOOL_SELECT;
-          cs->space_held = 0;    // Disable pan mode
-          cs->pan_from_menu = 0; // Clear menu pan
-          cs->is_panning = 0;    // Stop any active panning
+          ui->editor.active_tool = CANVAS_TOOL_SELECT;
+          ui->input.space_held = 0;    // Disable pan mode
+          ui->input.pan_from_menu = 0; // Clear menu pan
+          ui->input.mode = INTERACTION_NONE;    // Stop any active panning
           if (sub_opts[i] == CANVAS_SUB_MEDIA_IMAGE)
-            cs->pending_create = 3;
+            ui->input.pending_create = 3;
         }
-        cs->show_sub_menu = 0;
+        ui->editor.show_sub_menu = 0;
       }
     }
 
@@ -205,8 +204,6 @@ void canvas_render_toolbar(UIHost *ui, float bx, float by, float bw, float bh,
   float toolbar_x = bx + (bw - toolbar_w) / 2.0f;
   float toolbar_y = by + bh - toolbar_h - margin;
 
-  CanvasInteraction *cs = &ui->canvas_state;
-
   // Shadow
   nvgBeginPath(ui->vg);
   nvgRoundedRect(ui->vg, toolbar_x + 2, toolbar_y + 4, toolbar_w, toolbar_h,
@@ -238,9 +235,9 @@ void canvas_render_toolbar(UIHost *ui, float bx, float by, float bw, float bh,
 
     // Map button index to category (skip
     // CANVAS_CAT_SELECT)
-    int is_active = (cs->active_cat == (CanvasCategory)(i + 1));
+    int is_active = (ui->editor.active_category == (CanvasCategory)(i + 1));
     if (i == 3)
-      is_active = (cs->pending_create == 11); // Chart active state (transient)
+      is_active = (ui->input.pending_create == 11); // Chart active state (transient)
     if (i == 4)
       is_active = 0; // Table layout — one-shot,
                      // never stays active
@@ -271,39 +268,39 @@ void canvas_render_toolbar(UIHost *ui, float bx, float by, float bw, float bh,
               tool_icons[i], NULL);
     }
 
-    if (hovered && cs->mouse_just_pressed) {
+    if (hovered && ui->input.mouse_just_pressed) {
       CanvasCategory cat = (CanvasCategory)(i + 1); // Skip
                                                     // CANVAS_CAT_SELECT
       if (cat == CANVAS_CAT_SHAPES) {
         // DEFAULT: Just create a rectangle
-        cs->pending_create = 10;
-        cs->show_sub_menu = 0;
+        ui->input.pending_create = 10;
+        ui->editor.show_sub_menu = 0;
       } else if (cat == CANVAS_CAT_TEXT) {
         // DIRECT ACTION: Create paragraph
-        cs->pending_create = 1; // 1 = Body Text
-        cs->show_sub_menu = 0;
+        ui->input.pending_create = 1; // 1 = Body Text
+        ui->editor.show_sub_menu = 0;
       } else if (cat == CANVAS_CAT_MEDIA) {
         // DIRECT ACTION: Open image dialog
-        cs->pending_create = 3; // 3 = Image
-        cs->show_sub_menu = 0;
+        ui->input.pending_create = 3; // 3 = Image
+        ui->editor.show_sub_menu = 0;
       } else if (i == 3) { // Chart button
                            // (direct action)
-        cs->pending_create = 11;
-        cs->show_sub_menu = 0;
+        ui->input.pending_create = 11;
+        ui->editor.show_sub_menu = 0;
       } else if (i == 4) { // Table layout button
                            // (direct action)
-        cs->pending_create = 20;
-        cs->show_sub_menu = 0;
-      } else if (cs->active_cat == cat) {
-        cs->show_sub_menu = !cs->show_sub_menu;
+        ui->input.pending_create = 20;
+        ui->editor.show_sub_menu = 0;
+      } else if (ui->editor.active_category == cat) {
+        ui->editor.show_sub_menu = !ui->editor.show_sub_menu;
       } else {
-        cs->active_cat = cat;
-        cs->show_sub_menu = 1; // Open sub-menu for others
+        ui->editor.active_category = cat;
+        ui->editor.show_sub_menu = 1; // Open sub-menu for others
       }
     }
 
     // Render sub-menu if active
-    if (is_active && cs->show_sub_menu) {
+    if (is_active && ui->editor.show_sub_menu) {
       canvas_render_sub_menu(ui, btn_ix, btn_iy,
                              (CanvasCategory)(i + 1)); // Skip
                                                        // CANVAS_CAT_SELECT

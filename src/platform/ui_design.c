@@ -358,7 +358,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
 
   if (1) {
     AslanRect ws_bounds = {0, 0, ws_width, row_h};
-    DesignInteraction *ds = &ui->design_state;
+    InputState *ds = &ui->input;
     float mx = ui->mouse_x - ui->abs_offset_x;
     float my = ui->mouse_y - ui->abs_offset_y;
 
@@ -374,7 +374,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
     int in_forms_menu = 0;
 
     // Early check for active state
-    int is_active_design = (ds->active_design_id == block->id);
+    int is_active_design = (ui->input.active_block_id == block->id);
 
     float scale = 1.0f;
     AslanRect art_rect = {0, 0, 0, 0}; // populated in fixed-artboard branch
@@ -385,14 +385,14 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       float cam_x = dd->view_x, cam_y = dd->view_y;
 
       // Sync design_state camera
-      if (ds->active_design_id != block->id) {
-        ds->cam_x = cam_x;
-        ds->cam_y = cam_y;
-        ds->zoom = zoom;
+      if (ui->input.active_block_id != block->id) {
+        ui->editor.cam_x = cam_x;
+        ui->editor.cam_y = cam_y;
+        ui->editor.zoom = zoom;
       } else {
-        cam_x = ds->cam_x;
-        cam_y = ds->cam_y;
-        zoom = ds->zoom > 0.01f ? ds->zoom : 1.0f;
+        cam_x = ui->editor.cam_x;
+        cam_y = ui->editor.cam_y;
+        zoom = ui->editor.zoom > 0.01f ? ui->editor.zoom : 1.0f;
       }
       scale = zoom;
 
@@ -517,8 +517,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
 
       if (dd->no_limits) {
         // Offset bounds so existing code (bounds.x + node.x * scale) works
-        float cam_x = ds->cam_x, cam_y = ds->cam_y;
-        float zoom = ds->zoom > 0.01f ? ds->zoom : 1.0f;
+        float cam_x = ui->editor.cam_x, cam_y = ui->editor.cam_y;
+        float zoom = ui->editor.zoom > 0.01f ? ui->editor.zoom : 1.0f;
         bounds = (AslanRect){ws_bounds.x - cam_x * zoom, ws_bounds.y - cam_y * zoom,
                     ws_bounds.w, ws_bounds.h};
       } else {
@@ -531,15 +531,15 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
 
       // Expose bounds in screen-space for hit-tests in ui_host.c.
       // In fixed artboard mode the interactive area is the artboard itself.
-      ds->bounds_x = dd->no_limits ? ws_bounds.x : (ui->abs_offset_x + art_rect.x);
-      ds->bounds_y = dd->no_limits ? ws_bounds.y : (ui->abs_offset_y + art_rect.y);
-      ds->bounds_w = dd->no_limits ? ws_bounds.w : art_rect.w;
-      ds->bounds_h = dd->no_limits ? ws_bounds.h : art_rect.h;
-      ds->scale = scale;
+      ui->input.bounds_x = dd->no_limits ? ws_bounds.x : (ui->abs_offset_x + art_rect.x);
+      ui->input.bounds_y = dd->no_limits ? ws_bounds.y : (ui->abs_offset_y + art_rect.y);
+      ui->input.bounds_w = dd->no_limits ? ws_bounds.w : art_rect.w;
+      ui->input.bounds_h = dd->no_limits ? ws_bounds.h : art_rect.h;
+      ui->input.scale = scale;
 
       // Track if this design is active
       // Track if this design is active
-      is_active_design = (ds->active_design_id == block->id);
+      is_active_design = (ui->input.active_block_id == block->id);
 
       // Auto-activate if clicked inside WORKSPACE (including toolbar)
       if (!is_active_design && !ui->block_drag.is_active &&
@@ -548,19 +548,19 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           mx < ws_bounds.x + ws_bounds.w &&
           my >= ws_bounds.y &&
           my < ws_bounds.y + ws_bounds.h) {
-        ds->active_design_id = block->id;
-        ds->active_block = block;
+        ui->input.active_block_id = block->id;
+        ui->input.active_block = block;
         ui->editing_block_id = block->id;
         is_active_design = 1;
       }
 
       // --- Handle pending element creation ---
-      if (is_active_design && ds->pending_create > 0) {
+      if (is_active_design && ui->input.pending_create > 0) {
         float nx, ny;
         if (dd->no_limits) {
           // Center in current infinite viewport (scale = zoom here)
-          nx = ds->cam_x + (ws_bounds.w / scale) / 2.0f - 50.0f;
-          ny = ds->cam_y + (ws_bounds.h / scale) / 2.0f - 40.0f;
+          nx = ui->editor.cam_x + (ws_bounds.w / scale) / 2.0f - 50.0f;
+          ny = ui->editor.cam_y + (ws_bounds.h / scale) / 2.0f - 40.0f;
         } else {
           // Center in fixed artboard
           nx = (float)dd->width / 2.0f - 50.0f;
@@ -569,26 +569,26 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         Node *new_node = NULL;
         float def_w = 100.0f, def_h = 80.0f;
 
-        if (ds->pending_create == 1) { // Body
+        if (ui->input.pending_create == 1) { // Body
           new_node = design_create_styled_node(
-              dd, NODE_STYLE_TEXT, nx, ny, 200.0f, 40.0f, ds->selected_color);
+              dd, NODE_STYLE_TEXT, nx, ny, 200.0f, 40.0f, ui->editor.selected_color);
           if (new_node)
             strncpy(new_node->text, "Body text", sizeof(new_node->text) - 1);
-        } else if (ds->pending_create == 6) { // H1
+        } else if (ui->input.pending_create == 6) { // H1
           new_node = design_create_styled_node(
-              dd, NODE_STYLE_TEXT, nx, ny, 300.0f, 60.0f, ds->selected_color);
+              dd, NODE_STYLE_TEXT, nx, ny, 300.0f, 60.0f, ui->editor.selected_color);
           if (new_node)
             strncpy(new_node->text, "Heading", sizeof(new_node->text) - 1);
-        } else if (ds->pending_create == 2) { // Sticky
+        } else if (ui->input.pending_create == 2) { // Sticky
           new_node = design_create_styled_node(
-              dd, NODE_STYLE_RECT, nx, ny, 120.0f, 120.0f, ds->selected_color);
+              dd, NODE_STYLE_RECT, nx, ny, 120.0f, 120.0f, ui->editor.selected_color);
           if (new_node) {
             new_node->fill_color = 0xFFF9C4FF;
             new_node->stroke_color = 0xFBC02DFF;
             new_node->type = NODE_TYPE_TEXT;
             strncpy(new_node->text, "Note...", sizeof(new_node->text) - 1);
           }
-        } else if (ds->pending_create == 3) { // Image
+        } else if (ui->input.pending_create == 3) { // Image
           char path[512] = {0};
           if (open_image_file_dialog(path, sizeof(path))) {
             char rel[256] = {0};
@@ -636,7 +636,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
               }
             }
           }
-        } else if (ds->pending_create == 11) {
+        } else if (ui->input.pending_create == 11) {
           // Chart
           new_node = node_create(dd->next_node_id++, NODE_TYPE_CHART, "Chart");
           if (new_node) {
@@ -658,52 +658,52 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
               }
             }
           }
-        } else if (ds->pending_create == 20) { // Table layout (from toolbar)
+        } else if (ui->input.pending_create == 20) { // Table layout (from toolbar)
           design_insert_tableau_layout(dd);
-          ds->pending_create = 0;
-        } else if (ds->pending_create == 12) { // Icon
+          ui->input.pending_create = 0;
+        } else if (ui->input.pending_create == 12) { // Icon
           new_node = design_create_styled_node(
-              dd, NODE_STYLE_TEXT, nx, ny, 60.0f, 60.0f, ds->selected_color);
+              dd, NODE_STYLE_TEXT, nx, ny, 60.0f, 60.0f, ui->editor.selected_color);
           if (new_node) {
             new_node->font_type = 4; // Assuming 4 is ui->font_icons
             new_node->font_size = 48.0f;
             strncpy(new_node->text, "\xF3\x87\xAF",
                     sizeof(new_node->text) - 1); // ri-remixicon-line
           }
-        } else if (ds->pending_create >= 10 && ds->pending_create <= 13) {
+        } else if (ui->input.pending_create >= 10 && ui->input.pending_create <= 13) {
           NodeStyleType styles[] = {NODE_STYLE_RECT, NODE_STYLE_ELLIPSE,
                                     NODE_STYLE_TRIANGLE, NODE_STYLE_LINE};
           new_node =
-              design_create_styled_node(dd, styles[ds->pending_create - 10], nx,
-                                        ny, def_w, def_h, ds->selected_color);
+              design_create_styled_node(dd, styles[ui->input.pending_create - 10], nx,
+                                        ny, def_w, def_h, ui->editor.selected_color);
         }
 
         if (new_node)
           ui->selected_node = new_node;
-        ds->pending_create = 0;
+        ui->input.pending_create = 0;
       }
 
       // Handle Bezier point dragging
-      if (ds->bezier_mode && ui->selected_node &&
+      if (ui->input.bezier_mode && ui->selected_node &&
           ui->selected_node->type == NODE_TYPE_PATH) {
         Node *node = ui->selected_node;
-        if (ds->dragging_point_idx != -1 && (ui->mouse_buttons & 1)) {
+        if (ui->input.dragging_point_idx != -1 && (ui->mouse_buttons & 1)) {
           float dx = 0;
           float dy = 0;
-          NodePathPoint *p = &node->path_points[ds->dragging_point_idx];
-          if (ds->dragging_cp_idx == 0) {
+          NodePathPoint *p = &node->path_points[ui->input.dragging_point_idx];
+          if (ui->input.dragging_cp_idx == 0) {
             p->x += dx;
             p->y += dy;
-          } else if (ds->dragging_cp_idx == 1) {
+          } else if (ui->input.dragging_cp_idx == 1) {
             p->cp1x += dx;
             p->cp1y += dy;
-          } else if (ds->dragging_cp_idx == 2) {
+          } else if (ui->input.dragging_cp_idx == 2) {
             p->cp2x += dx;
             p->cp2y += dy;
           }
           node_update_path_bounds(node);
         } else {
-          ds->dragging_point_idx = -1;
+          ui->input.dragging_point_idx = -1;
         }
       }
 
@@ -740,7 +740,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
                               bounds.x, bounds.y);
         }
         // Selection highlight over everything
-        if (ui->selected_node && is_active_design && !ds->bezier_mode) {
+        if (ui->selected_node && is_active_design && !ui->input.bezier_mode) {
           Node *node = ui->selected_node;
           float sx = bounds.x + node->x * scale;
           float sy = bounds.y + node->y * scale;
@@ -861,9 +861,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       // nodes from jumping or being accidentally moved.
       if (ui->split_view.is_dragging_splitter) {
         mouse_in_design = 0;
-        ds->is_dragging_node = 0;
-        ds->is_panning = 0;
-        ds->is_resizing = 0;
+        ui->input.mode = INTERACTION_NONE;
+        ui->input.mode = INTERACTION_NONE;
+        ui->input.mode = INTERACTION_NONE;
       }
 
       // --- Handle resize ---
@@ -932,32 +932,32 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       }
 
       // Start resize
-      if (mouse_in_design && ds->mouse_just_pressed && on_resize_handle &&
+      if (mouse_in_design && ui->input.mouse_just_pressed && on_resize_handle &&
           !on_rotate_handle && ui->selected_node && is_active_design) {
-        ds->is_resizing = 1;
-        ds->resize_handle = hit_handle_index;
-        ds->resize_start_w = ui->selected_node->width;
-        ds->resize_start_h = ui->selected_node->height;
-        ds->resize_start_x = mx;
-        ds->resize_start_y = my;
-        ds->resize_start_node_x = ui->selected_node->x;
-        ds->resize_start_node_y = ui->selected_node->y;
-        ds->resize_start_font_size = ui->selected_node->font_size;
+        ui->input.mode = INTERACTION_RESIZE_NODE;
+        ui->input.active_handle = hit_handle_index;
+        ui->input.start_w = ui->selected_node->width;
+        ui->input.start_h = ui->selected_node->height;
+        ui->input.start_x = mx;
+        ui->input.start_y = my;
+        ui->input.start_node_x = ui->selected_node->x;
+        ui->input.start_node_y = ui->selected_node->y;
+        ui->input.start_font_size = ui->selected_node->font_size;
       }
       // Handle resize dragging
-      else if (ds->is_resizing && ui->selected_node && is_active_design) {
-        float dx = (mx - ds->resize_start_x) / scale;
-        float dy = (my - ds->resize_start_y) / scale;
+      else if ((ui->input.mode == INTERACTION_RESIZE_NODE) && ui->selected_node && is_active_design) {
+        float dx = (mx - ui->input.start_x) / scale;
+        float dy = (my - ui->input.start_y) / scale;
         Node *sel = ui->selected_node;
 
-        int lr = sel->lock_ratio && ds->resize_start_h > 0.1f;
-        float ratio = lr ? ds->resize_start_w / ds->resize_start_h : 1.0f;
+        int lr = sel->lock_ratio && ui->input.start_h > 0.1f;
+        float ratio = lr ? ui->input.start_w / ui->input.start_h : 1.0f;
         float nw, nh;
 
-        switch (ds->resize_handle) {
+        switch (ui->input.active_handle) {
         case 0: // SE
-          nw = ds->resize_start_w + dx;
-          nh = ds->resize_start_h + dy;
+          nw = ui->input.start_w + dx;
+          nh = ui->input.start_h + dy;
           if (lr) {
             if (fabsf(dx) >= fabsf(dy))
               nh = nw / ratio;
@@ -968,8 +968,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           sel->height = fmaxf(20.0f, nh);
           break;
         case 1: // SW
-          nw = ds->resize_start_w - dx;
-          nh = ds->resize_start_h + dy;
+          nw = ui->input.start_w - dx;
+          nh = ui->input.start_h + dy;
           if (lr) {
             if (fabsf(dx) >= fabsf(dy))
               nh = nw / ratio;
@@ -978,11 +978,11 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           }
           sel->width = fmaxf(20.0f, nw);
           sel->height = fmaxf(20.0f, nh);
-          sel->x = ds->resize_start_node_x + (ds->resize_start_w - sel->width);
+          sel->x = ui->input.start_node_x + (ui->input.start_w - sel->width);
           break;
         case 2: // NW
-          nw = ds->resize_start_w - dx;
-          nh = ds->resize_start_h - dy;
+          nw = ui->input.start_w - dx;
+          nh = ui->input.start_h - dy;
           if (lr) {
             if (fabsf(dx) >= fabsf(dy))
               nh = nw / ratio;
@@ -991,12 +991,12 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           }
           sel->width = fmaxf(20.0f, nw);
           sel->height = fmaxf(20.0f, nh);
-          sel->x = ds->resize_start_node_x + (ds->resize_start_w - sel->width);
-          sel->y = ds->resize_start_node_y + (ds->resize_start_h - sel->height);
+          sel->x = ui->input.start_node_x + (ui->input.start_w - sel->width);
+          sel->y = ui->input.start_node_y + (ui->input.start_h - sel->height);
           break;
         case 3: // NE
-          nw = ds->resize_start_w + dx;
-          nh = ds->resize_start_h - dy;
+          nw = ui->input.start_w + dx;
+          nh = ui->input.start_h - dy;
           if (lr) {
             if (fabsf(dx) >= fabsf(dy))
               nh = nw / ratio;
@@ -1005,26 +1005,26 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           }
           sel->width = fmaxf(20.0f, nw);
           sel->height = fmaxf(20.0f, nh);
-          sel->y = ds->resize_start_node_y + (ds->resize_start_h - sel->height);
+          sel->y = ui->input.start_node_y + (ui->input.start_h - sel->height);
           break;
         }
 
         // Scale font size proportionally for text nodes
-        if (sel->type == NODE_TYPE_TEXT && ds->resize_start_w > 0.1f) {
-          float scale_factor = sel->width / ds->resize_start_w;
-          sel->font_size = ds->resize_start_font_size * scale_factor;
+        if (sel->type == NODE_TYPE_TEXT && ui->input.start_w > 0.1f) {
+          float scale_factor = sel->width / ui->input.start_w;
+          sel->font_size = ui->input.start_font_size * scale_factor;
           if (sel->font_size < 8.0f) {
             sel->font_size = 8.0f;
           }
         }
 
-        if (ds->mouse_just_released) {
-          ds->is_resizing = 0;
+        if (ui->input.mouse_just_released) {
+          ui->input.mode = INTERACTION_NONE;
         }
       }
 
       // Start rotation
-      if (mouse_in_design && ds->mouse_just_pressed && on_rotate_handle &&
+      if (mouse_in_design && ui->input.mouse_just_pressed && on_rotate_handle &&
           ui->selected_node && is_active_design) {
         Node *sel = ui->selected_node;
         float sx2 = bounds.x + sel->x * scale;
@@ -1033,12 +1033,12 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         float sh2 = sel->height * scale;
         float cx2 = sx2 + sw2 / 2.0f;
         float cy2 = sy2 + sh2 / 2.0f;
-        ds->is_rotating = 1;
-        ds->rotate_start_angle = atan2f(my - cy2, mx - cx2);
-        ds->rotate_start_node_rotation = sel->rotation;
+        ui->input.mode = INTERACTION_ROTATE_NODE;
+        ui->input.start_angle = atan2f(my - cy2, mx - cx2);
+        ui->input.start_node_rotation = sel->rotation;
       }
       // Handle rotation dragging
-      else if (ds->is_rotating && ui->selected_node && is_active_design) {
+      else if ((ui->input.mode == INTERACTION_ROTATE_NODE) && ui->selected_node && is_active_design) {
         Node *sel = ui->selected_node;
         float sx2 = bounds.x + sel->x * scale;
         float sy2 = bounds.y + sel->y * scale;
@@ -1048,15 +1048,15 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         float cy2 = sy2 + sh2 / 2.0f;
         float cur_angle = atan2f(my - cy2, mx - cx2);
         float delta_deg =
-            (cur_angle - ds->rotate_start_angle) * 180.0f / 3.14159f;
-        sel->rotation = ds->rotate_start_node_rotation + delta_deg;
-        if (ds->mouse_just_released)
-          ds->is_rotating = 0;
+            (cur_angle - ui->input.start_angle) * 180.0f / 3.14159f;
+        sel->rotation = ui->input.start_node_rotation + delta_deg;
+        if (ui->input.mouse_just_released)
+          ui->input.mode = INTERACTION_NONE;
       }
 
       // 4. Handle Bezier interaction priority
       int handle_hit = 0;
-      if (ds->bezier_mode && ui->selected_node &&
+      if (ui->input.bezier_mode && ui->selected_node &&
           ui->selected_node->type == NODE_TYPE_PATH && is_active_design) {
         Node *sel = ui->selected_node;
         float nsx = bounds.x + sel->x * scale;
@@ -1067,9 +1067,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           AslanRect r_anchor = {px - 10 * scale, py - 10 * scale, 20 * scale, 20 * scale};
           if (mx >= r_anchor.x && mx < r_anchor.x + r_anchor.w &&
               my >= r_anchor.y && my < r_anchor.y + r_anchor.h) {
-            if (ds->mouse_just_pressed) {
-              ds->dragging_point_idx = i;
-              ds->dragging_cp_idx = 0;
+            if (ui->input.mouse_just_pressed) {
+              ui->input.dragging_point_idx = i;
+              ui->input.dragging_cp_idx = 0;
             }
             handle_hit = 1;
             break;
@@ -1081,18 +1081,18 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
             AslanRect r2 = {cp2x - 8 * scale, cp2y - 8 * scale, 16 * scale, 16 * scale};
             if (mx >= r1.x && mx < r1.x + r1.w &&
                 my >= r1.y && my < r1.y + r1.h) {
-              if (ds->mouse_just_pressed) {
-                ds->dragging_point_idx = i;
-                ds->dragging_cp_idx = 1;
+              if (ui->input.mouse_just_pressed) {
+                ui->input.dragging_point_idx = i;
+                ui->input.dragging_cp_idx = 1;
               }
               handle_hit = 1;
               break;
             }
             if (mx >= r2.x && mx < r2.x + r2.w &&
                 my >= r2.y && my < r2.y + r2.h) {
-              if (ds->mouse_just_pressed) {
-                ds->dragging_point_idx = i;
-                ds->dragging_cp_idx = 2;
+              if (ui->input.mouse_just_pressed) {
+                ui->input.dragging_point_idx = i;
+                ui->input.dragging_cp_idx = 2;
               }
               handle_hit = 1;
               break;
@@ -1125,37 +1125,37 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           }
         }
 
-        if (ds->mouse_just_pressed &&
+        if (ui->input.mouse_just_pressed &&
             (hit_h_guide != -1 || hit_v_guide != -1)) {
           if (hit_h_guide != -1) {
-            ds->dragging_guide_type = 1;
-            ds->dragging_guide_idx = hit_h_guide;
+            ui->input.dragging_guide_type = 1;
+            ui->input.dragging_guide_idx = hit_h_guide;
           } else {
-            ds->dragging_guide_type = 2;
-            ds->dragging_guide_idx = hit_v_guide;
+            ui->input.dragging_guide_type = 2;
+            ui->input.dragging_guide_idx = hit_v_guide;
           }
           handle_hit = 1; // consume click
         }
 
         // Also update cursor
-        if (hit_h_guide != -1 || ds->dragging_guide_type == 1) {
+        if (hit_h_guide != -1 || ui->input.dragging_guide_type == 1) {
           ui_set_cursor(ui, UI_CURSOR_SIZENS);
-        } else if (hit_v_guide != -1 || ds->dragging_guide_type == 2) {
+        } else if (hit_v_guide != -1 || ui->input.dragging_guide_type == 2) {
           ui_set_cursor(ui, UI_CURSOR_SIZEWE);
         }
       }
 
-      if (ds->dragging_guide_type != 0 && is_active_design) {
+      if (ui->input.dragging_guide_type != 0 && is_active_design) {
         DesignPage *dp = &dd->pages[dd->current_page];
-        if (ds->dragging_guide_type == 1) { // H guide
-          dp->h_guides[ds->dragging_guide_idx] =
+        if (ui->input.dragging_guide_type == 1) { // H guide
+          dp->h_guides[ui->input.dragging_guide_idx] =
               (my - bounds.y) / scale;
-        } else if (ds->dragging_guide_type == 2) { // V guide
-          dp->v_guides[ds->dragging_guide_idx] =
+        } else if (ui->input.dragging_guide_type == 2) { // V guide
+          dp->v_guides[ui->input.dragging_guide_idx] =
               (mx - bounds.x) / scale;
         }
-        if (ds->mouse_just_released) {
-          ds->dragging_guide_type = 0;
+        if (ui->input.mouse_just_released) {
+          ui->input.dragging_guide_type = 0;
         }
         handle_hit = 1; // prevent other interactions while dragging guide
       }
@@ -1164,7 +1164,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       if (handle_hit) {
         // Handle hit, skip node selection
       } else if (mouse_in_design && !in_toolbar && !in_forms_menu &&
-                 ds->mouse_just_pressed && !on_resize_handle &&
+                 ui->input.mouse_just_pressed && !on_resize_handle &&
                  !on_rotate_handle && is_active_design) {
         // Convert to design coordinates
         float design_x = (mx - bounds.x) / scale;
@@ -1174,7 +1174,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         int shift_click = 0;
 
         Node *hit = design_find_node_at(dd, design_x, design_y);
-        if (hit && shift_click && ds->tool != CANVAS_TOOL_PEN) {
+        if (hit && shift_click && ui->editor.active_tool != CANVAS_TOOL_PEN) {
           // Toggle this node in/out of the multi-selection set
           int found = 0;
           for (int _si = 0; _si < ui->selected_count; _si++) {
@@ -1196,7 +1196,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
             // Normal click: clear multi-selection
             ui->selected_count = 0;
           }
-          if (ds->tool == CANVAS_TOOL_PEN) {
+          if (ui->editor.active_tool == CANVAS_TOOL_PEN) {
             // Skip node logic in pen mode to allow drawing over them
             hit = NULL;
           } else if (hit->is_container && !hit->image_path[0]) {
@@ -1224,71 +1224,71 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
               }
             }
             if (!ui->editing_node &&
-                !(ds->is_cropping && hit->type == NODE_TYPE_IMAGE)) {
+                !(ui->input.mode == INTERACTION_CROP_IMAGE && hit->type == NODE_TYPE_IMAGE)) {
               ui->selected_node = hit;
               // In bezier mode, only select — don't drag so handles take
               // priority
-              if (!ds->bezier_mode) {
-                ds->is_dragging_node = 1;
-                ds->drag_offset_x = design_x - hit->x;
-                ds->drag_offset_y = design_y - hit->y;
-                ds->drag_press_x = mx;
-                ds->drag_press_y = my;
+              if (!ui->input.bezier_mode) {
+                ui->input.mode = INTERACTION_DRAG_NODE;
+                ui->input.drag_offset_x = design_x - hit->x;
+                ui->input.drag_offset_y = design_y - hit->y;
+                ui->input.start_x = mx;
+                ui->input.start_y = my;
               }
             }
           }
         } else {
           ui->selected_node = NULL;
           ui->selected_count = 0;
-          ds->is_cropping = 0; // stop cropping
+          ui->input.mode = INTERACTION_NONE; // stop cropping
           if (ui->editing_node) {
             strncpy(ui->editing_node->text, ui->edit_buffer,
                     sizeof(ui->editing_node->text) - 1);
             ui->editing_node = NULL;
           }
           // Start panning in no_limits mode when clicking background
-          if (dd->no_limits && ds->tool != CANVAS_TOOL_PEN &&
+          if (dd->no_limits && ui->editor.active_tool != CANVAS_TOOL_PEN &&
               !ui->block_drag.is_active) {
-            ds->is_panning = 1;
-            ds->pan_start_x = mx;
-            ds->pan_start_y = my;
-            ds->cam_start_x = ds->cam_x;
-            ds->cam_start_y = ds->cam_y;
+            ui->input.mode = INTERACTION_PAN;
+            ui->input.start_x = mx;
+            ui->input.start_y = my;
+            ui->input.start_cam_x = ui->editor.cam_x;
+            ui->input.start_cam_y = ui->editor.cam_y;
           }
         }
       }
 
       // Handle image cropping dragging (active until user clicks crop btn
       // again)
-      if (ds->is_cropping && ui->selected_node &&
+      if (ui->input.mode == INTERACTION_CROP_IMAGE && ui->selected_node &&
           ui->selected_node->type == NODE_TYPE_IMAGE && is_active_design) {
         Node *sel = ui->selected_node;
         // Init start pos on each new press
-        if (ds->mouse_just_pressed && mouse_in_design) {
-          ds->crop_start_x = mx;
-          ds->crop_start_y = my;
-          ds->crop_start_node_x = sel->image_crop_x;
-          ds->crop_start_node_y = sel->image_crop_y;
+        if (ui->input.mouse_just_pressed && mouse_in_design) {
+          ui->input.start_x = mx;
+          ui->input.start_y = my;
+          ui->input.crop_start_node_x = sel->image_crop_x;
+          ui->input.crop_start_node_y = sel->image_crop_y;
         }
         if ((ui->mouse_buttons & 1) &&
             mouse_in_design &&
-            (ds->crop_start_x != 0 || ds->crop_start_y != 0)) {
-          float dx = (mx - ds->crop_start_x) / scale;
-          float dy = (my - ds->crop_start_y) / scale;
-          sel->image_crop_x = ds->crop_start_node_x + dx;
-          sel->image_crop_y = ds->crop_start_node_y + dy;
+            (ui->input.start_x != 0 || ui->input.start_y != 0)) {
+          float dx = (mx - ui->input.start_x) / scale;
+          float dy = (my - ui->input.start_y) / scale;
+          sel->image_crop_x = ui->input.crop_start_node_x + dx;
+          sel->image_crop_y = ui->input.crop_start_node_y + dy;
         }
         // Crop mode stays active — toggled off only via the button in
         // Properties
       }
       // Handle node dragging
-      else if (ds->is_dragging_node && ui->selected_node && is_active_design) {
+      else if ((ui->input.mode == INTERACTION_DRAG_NODE) && ui->selected_node && is_active_design) {
         // 5px threshold to prevent accidental drag on simple click
-        float pdx = mx - ds->drag_press_x;
-        float pdy = my - ds->drag_press_y;
+        float pdx = mx - ui->input.start_x;
+        float pdy = my - ui->input.start_y;
         if (fabsf(pdx) < 5.0f && fabsf(pdy) < 5.0f) {
-          if (ds->mouse_just_released)
-            ds->is_dragging_node = 0;
+          if (ui->input.mouse_just_released)
+            ui->input.mode = INTERACTION_NONE;
           goto after_drag;
         }
 
@@ -1296,8 +1296,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         float design_y = (my - bounds.y) / scale;
         Node *sel = ui->selected_node;
 
-        float new_x = design_x - ds->drag_offset_x;
-        float new_y = design_y - ds->drag_offset_y;
+        float new_x = design_x - ui->input.drag_offset_x;
+        float new_y = design_y - ui->input.drag_offset_y;
 
         // --- Snap to grid ---
         DesignPage *dp = &dd->pages[dd->current_page];
@@ -1346,15 +1346,15 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         }
         if (fabsf(best_dx) <= snap_tol) {
           new_x += best_dx;
-          ds->snap_guide_x = snap_sx;
+          ui->input.snap_guide_x = snap_sx;
         } else {
-          ds->snap_guide_x = -1;
+          ui->input.snap_guide_x = -1;
         }
         if (fabsf(best_dy) <= snap_tol) {
           new_y += best_dy;
-          ds->snap_guide_y = snap_sy;
+          ui->input.snap_guide_y = snap_sy;
         } else {
-          ds->snap_guide_y = -1;
+          ui->input.snap_guide_y = -1;
         }
 
         // Apply delta to secondary selected nodes
@@ -1385,10 +1385,10 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           }
         }
 
-        if (ds->mouse_just_released) {
-          ds->is_dragging_node = 0;
-          ds->snap_guide_x = -1;
-          ds->snap_guide_y = -1;
+        if (ui->input.mouse_just_released) {
+          ui->input.mode = INTERACTION_NONE;
+          ui->input.snap_guide_x = -1;
+          ui->input.snap_guide_y = -1;
         }
       }
     after_drag: (void)0;
@@ -1411,44 +1411,44 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       }
 
       // Close forms menu if clicking elsewhere
-      if (ds->mouse_just_pressed && !in_toolbar && !in_forms_menu &&
+      if (ui->input.mouse_just_pressed && !in_toolbar && !in_forms_menu &&
           is_active_design) {
       }
 
       // --- PEN TOOL logic (Adapted for Design) ---
-      if (ds->tool == CANVAS_TOOL_PEN && is_active_design && !in_toolbar &&
+      if (ui->editor.active_tool == CANVAS_TOOL_PEN && is_active_design && !in_toolbar &&
           !in_forms_menu && ((ui->mouse_buttons & 1))) {
         float wx = (mx - bounds.x) / scale;
         float wy = (my - bounds.y) / scale;
 
-        if (ds->mouse_just_pressed) {
-          ds->current_stroke = (Stroke *)calloc(1, sizeof(Stroke));
-          ds->current_stroke->capacity = 128;
-          ds->current_stroke->points = (Point *)calloc(128, sizeof(Point));
-          if (ds->pen_is_marker) {
-            ds->current_stroke->thickness = ds->pen_thickness * 10.0f;
-            uint32_t c = ds->selected_color;
+        if (ui->input.mouse_just_pressed) {
+          ui->input.current_stroke = (Stroke *)calloc(1, sizeof(Stroke));
+          ui->input.current_stroke->capacity = 128;
+          ui->input.current_stroke->points = (Point *)calloc(128, sizeof(Point));
+          if (ui->editor.pen_is_marker) {
+            ui->input.current_stroke->thickness = ui->editor.pen_thickness * 10.0f;
+            uint32_t c = ui->editor.selected_color;
             uint8_t r = (c >> 24) & 0xFF;
             uint8_t g = (c >> 16) & 0xFF;
             uint8_t b = (c >> 8) & 0xFF;
             uint8_t a = c & 0xFF;
             // Reduce alpha to 30% for marker effect
-            ds->current_stroke->color =
+            ui->input.current_stroke->color =
                 (r << 24) | (g << 16) | (b << 8) | (uint8_t)(a * 0.3f);
           } else {
-            ds->current_stroke->thickness = ds->pen_thickness;
-            ds->current_stroke->color = ds->selected_color;
+            ui->input.current_stroke->thickness = ui->editor.pen_thickness;
+            ui->input.current_stroke->color = ui->editor.selected_color;
           }
-          ds->current_stroke->points[0].x = wx;
-          ds->current_stroke->points[0].y = wy;
-          ds->current_stroke->count = 1;
+          ui->input.current_stroke->points[0].x = wx;
+          ui->input.current_stroke->points[0].y = wy;
+          ui->input.current_stroke->count = 1;
 
           // Wrap it in a Node so it appears in Layers
           Node *node = (Node *)calloc(1, sizeof(Node));
           if (node) {
             node->id = dd->next_node_id++;
             node->type = NODE_TYPE_STROKE;
-            node->stroke_data = ds->current_stroke;
+            node->stroke_data = ui->input.current_stroke;
             node->visible = 1;
             node->parent = dd->root;
 
@@ -1461,8 +1461,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
                 last = last->next_sibling;
               last->next_sibling = node;
             }
-            ds->current_stroke_node = node;
-            ds->stroke_block_id = block->id;
+            ui->input.current_stroke_node = node;
+            ui->input.stroke_block_id = block->id;
 
             // Initialize bounds
             node->x = wx;
@@ -1470,27 +1470,27 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
             node->width = 1.0f;
             node->height = 1.0f;
           }
-        } else if (ds->current_stroke && ds->stroke_block_id == block->id) {
-          if (ds->current_stroke->count >= ds->current_stroke->capacity) {
-            ds->current_stroke->capacity *= 2;
-            ds->current_stroke->points =
-                (Point *)realloc(ds->current_stroke->points,
-                                 ds->current_stroke->capacity * sizeof(Point));
+        } else if (ui->input.current_stroke && ui->input.stroke_block_id == block->id) {
+          if (ui->input.current_stroke->count >= ui->input.current_stroke->capacity) {
+            ui->input.current_stroke->capacity *= 2;
+            ui->input.current_stroke->points =
+                (Point *)realloc(ui->input.current_stroke->points,
+                                 ui->input.current_stroke->capacity * sizeof(Point));
           }
           Point last =
-              ds->current_stroke->points[ds->current_stroke->count - 1];
+              ui->input.current_stroke->points[ui->input.current_stroke->count - 1];
           if ((wx - last.x) * (wx - last.x) + (wy - last.y) * (wy - last.y) >
               4.0f) {
-            ds->current_stroke->points[ds->current_stroke->count].x = wx;
-            ds->current_stroke->points[ds->current_stroke->count].y = wy;
-            ds->current_stroke->count++;
+            ui->input.current_stroke->points[ui->input.current_stroke->count].x = wx;
+            ui->input.current_stroke->points[ui->input.current_stroke->count].y = wy;
+            ui->input.current_stroke->count++;
 
             // Update node bounds for culling
-            if (ds->current_stroke_node) {
-              float min_x = ds->current_stroke_node->x;
-              float min_y = ds->current_stroke_node->y;
-              float max_x = min_x + ds->current_stroke_node->width;
-              float max_y = min_y + ds->current_stroke_node->height;
+            if (ui->input.current_stroke_node) {
+              float min_x = ui->input.current_stroke_node->x;
+              float min_y = ui->input.current_stroke_node->y;
+              float max_x = min_x + ui->input.current_stroke_node->width;
+              float max_y = min_y + ui->input.current_stroke_node->height;
 
               if (wx < min_x)
                 min_x = wx;
@@ -1501,66 +1501,66 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
               if (wy > max_y)
                 max_y = wy;
 
-              ds->current_stroke_node->x = min_x;
-              ds->current_stroke_node->y = min_y;
-              ds->current_stroke_node->width = max_x - min_x;
-              ds->current_stroke_node->height = max_y - min_y;
+              ui->input.current_stroke_node->x = min_x;
+              ui->input.current_stroke_node->y = min_y;
+              ui->input.current_stroke_node->width = max_x - min_x;
+              ui->input.current_stroke_node->height = max_y - min_y;
             }
           }
         }
       } else if (!(ui->mouse_buttons & 1)) {
-        ds->current_stroke = NULL;
-        ds->stroke_block_id = 0;
+        ui->input.current_stroke = NULL;
+        ui->input.stroke_block_id = 0;
       }
 
       // --- Active Stroke Rendering ---
-      if (ds->current_stroke && ds->current_stroke->count > 1 &&
-          ds->stroke_block_id == block->id) {
-        if (ds->pen_is_marker) {
+      if (ui->input.current_stroke && ui->input.current_stroke->count > 1 &&
+          ui->input.stroke_block_id == block->id) {
+        if (ui->editor.pen_is_marker) {
           // Simplification, just draw the lines for now. Arrow heads will be
           // parsed on commit.
           {
             NVGcolor col =
-                nvgRGBA((ds->current_stroke->color >> 24) & 0xFF,
-                        (ds->current_stroke->color >> 16) & 0xFF,
-                        (ds->current_stroke->color >> 8) & 0xFF,
-                        ds->current_stroke->color & 0xFF);
-            for (int i = 0; i < ds->current_stroke->count - 1; i++) {
-              Point p1 = ds->current_stroke->points[i];
-              Point p2 = ds->current_stroke->points[i + 1];
+                nvgRGBA((ui->input.current_stroke->color >> 24) & 0xFF,
+                        (ui->input.current_stroke->color >> 16) & 0xFF,
+                        (ui->input.current_stroke->color >> 8) & 0xFF,
+                        ui->input.current_stroke->color & 0xFF);
+            for (int i = 0; i < ui->input.current_stroke->count - 1; i++) {
+              Point p1 = ui->input.current_stroke->points[i];
+              Point p2 = ui->input.current_stroke->points[i + 1];
               nvgBeginPath(ui->vg);
               nvgMoveTo(ui->vg, bounds.x + p1.x * scale,
                         bounds.y + p1.y * scale);
               nvgLineTo(ui->vg, bounds.x + p2.x * scale,
                         bounds.y + p2.y * scale);
               nvgStrokeColor(ui->vg, col);
-              nvgStrokeWidth(ui->vg, ds->current_stroke->thickness * scale);
+              nvgStrokeWidth(ui->vg, ui->input.current_stroke->thickness * scale);
               nvgStroke(ui->vg);
             }
           }
         } else {
           NVGcolor col =
-              nvgRGBA((ds->current_stroke->color >> 24) & 0xFF,
-                      (ds->current_stroke->color >> 16) & 0xFF,
-                      (ds->current_stroke->color >> 8) & 0xFF,
-                      ds->current_stroke->color & 0xFF);
-          for (int i = 0; i < ds->current_stroke->count - 1; i++) {
-            Point p1 = ds->current_stroke->points[i];
-            Point p2 = ds->current_stroke->points[i + 1];
+              nvgRGBA((ui->input.current_stroke->color >> 24) & 0xFF,
+                      (ui->input.current_stroke->color >> 16) & 0xFF,
+                      (ui->input.current_stroke->color >> 8) & 0xFF,
+                      ui->input.current_stroke->color & 0xFF);
+          for (int i = 0; i < ui->input.current_stroke->count - 1; i++) {
+            Point p1 = ui->input.current_stroke->points[i];
+            Point p2 = ui->input.current_stroke->points[i + 1];
             nvgBeginPath(ui->vg);
             nvgMoveTo(ui->vg, bounds.x + p1.x * scale,
                       bounds.y + p1.y * scale);
             nvgLineTo(ui->vg, bounds.x + p2.x * scale,
                       bounds.y + p2.y * scale);
             nvgStrokeColor(ui->vg, col);
-            nvgStrokeWidth(ui->vg, ds->current_stroke->thickness * scale);
+            nvgStrokeWidth(ui->vg, ui->input.current_stroke->thickness * scale);
             nvgStroke(ui->vg);
           }
         }
       }
 
       // --- Bezier Handles Rendering Overlay ---
-      if (ds->bezier_mode && is_active_design && ui->selected_node &&
+      if (ui->input.bezier_mode && is_active_design && ui->selected_node &&
           ui->selected_node->type == NODE_TYPE_PATH) {
         Node *node = ui->selected_node;
         // Ensure node belongs to this design block
@@ -1622,7 +1622,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       }
 
       // --- Alignment guides when dragging ---
-      if (ds->is_dragging_node && ui->selected_node) {
+      if ((ui->input.mode == INTERACTION_DRAG_NODE) && ui->selected_node) {
         Node *sel = ui->selected_node;
         float nsx = bounds.x + sel->x * scale;
         float nsy = bounds.y + sel->y * scale;
@@ -1634,20 +1634,20 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       }
 
       // --- Snap guide lines (element-to-element snap feedback) ---
-      if (ds->snap_guide_x >= 0 || ds->snap_guide_y >= 0) {
+      if (ui->input.snap_guide_x >= 0 || ui->input.snap_guide_y >= 0) {
         NVGcolor snap_col = nvgRGBA(0, 195, 215, 200);
-        if (ds->snap_guide_x >= 0) {
+        if (ui->input.snap_guide_x >= 0) {
           nvgBeginPath(ui->vg);
-          nvgMoveTo(ui->vg, ds->snap_guide_x, bounds.y);
-          nvgLineTo(ui->vg, ds->snap_guide_x, bounds.y + bounds.h);
+          nvgMoveTo(ui->vg, ui->input.snap_guide_x, bounds.y);
+          nvgLineTo(ui->vg, ui->input.snap_guide_x, bounds.y + bounds.h);
           nvgStrokeColor(ui->vg, snap_col);
           nvgStrokeWidth(ui->vg, 1.0f);
           nvgStroke(ui->vg);
         }
-        if (ds->snap_guide_y >= 0) {
+        if (ui->input.snap_guide_y >= 0) {
           nvgBeginPath(ui->vg);
-          nvgMoveTo(ui->vg, bounds.x, ds->snap_guide_y);
-          nvgLineTo(ui->vg, bounds.x + bounds.w, ds->snap_guide_y);
+          nvgMoveTo(ui->vg, bounds.x, ui->input.snap_guide_y);
+          nvgLineTo(ui->vg, bounds.x + bounds.w, ui->input.snap_guide_y);
           nvgStrokeColor(ui->vg, snap_col);
           nvgStrokeWidth(ui->vg, 1.0f);
           nvgStroke(ui->vg);
@@ -1671,51 +1671,15 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
     // --- Toolbar (same as Canvas) ---
     // Rendered in workspace coordinate space, not artboard space
 
-    // Render Toolbar using Canvas logic (with state swapping)
+    // Render Toolbar (now shared state automatically)
     {
-      CanvasInteraction temp_cs = ui->canvas_state;
-
-      // Map Design state to Canvas state
-      ui->canvas_state.tool = ds->tool;
-      ui->canvas_state.active_cat = ds->active_cat;
-      ui->canvas_state.show_sub_menu = ds->show_sub_menu;
-      ui->canvas_state.pending_create = ds->pending_create;
-      ui->canvas_state.mouse_just_pressed = ds->mouse_just_pressed;
-      ui->canvas_state.space_held = ds->space_held;
-      ui->canvas_state.pan_from_menu = ds->pan_from_menu;
-      ui->canvas_state.bezier_mode = ds->bezier_mode;
-      ui->canvas_state.dragging_point_idx = ds->dragging_point_idx;
-      ui->canvas_state.dragging_cp_idx = ds->dragging_cp_idx;
-      ui->canvas_state.selected_color = ds->selected_color;
-      ui->canvas_state.pen_thickness = ds->pen_thickness;
-      ui->canvas_state.pen_is_marker = ds->pen_is_marker;
-      ui->canvas_state.show_color_picker_popup = ds->show_color_picker_popup;
-
       // Position toolbar at bottom of workspace
       nvgResetScissor(ui->vg);
       canvas_render_toolbar(ui, ws_bounds.x, ws_bounds.y, ws_bounds.w,
                             ws_bounds.h, block);
-
-      // Copy back relevant state
-      ds->tool = ui->canvas_state.tool;
-      ds->active_cat = ui->canvas_state.active_cat;
-      ds->show_sub_menu = ui->canvas_state.show_sub_menu;
-      ds->pending_create = ui->canvas_state.pending_create;
-      ds->space_held = ui->canvas_state.space_held;
-      ds->pan_from_menu = ui->canvas_state.pan_from_menu;
-      ds->bezier_mode = ui->canvas_state.bezier_mode;
-      ds->dragging_point_idx = ui->canvas_state.dragging_point_idx;
-      ds->dragging_cp_idx = ui->canvas_state.dragging_cp_idx;
-      ds->selected_color = ui->canvas_state.selected_color;
-      ds->pen_thickness = ui->canvas_state.pen_thickness;
-      ds->pen_is_marker = ui->canvas_state.pen_is_marker;
-      ds->show_color_picker_popup = ui->canvas_state.show_color_picker_popup;
-
-      // Restore Canvas state
-      ui->canvas_state = temp_cs;
     }
 
-    if (ds->mouse_just_pressed &&
+    if (ui->input.mouse_just_pressed &&
         !(mx >= ws_bounds.x && mx < ws_bounds.x + ws_bounds.w &&
           my >= ws_bounds.y + ws_bounds.h - toolbar_h && my < ws_bounds.y + ws_bounds.h)) {
     }
@@ -1729,24 +1693,24 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           my < ws_bounds.y + ws_bounds.h) {
         float scroll = 0;
         if (scroll != 0.0f) {
-          float old_zoom = ds->zoom;
+          float old_zoom = ui->editor.zoom;
           if (scroll > 0)
-            ds->zoom *= 1.15f;
+            ui->editor.zoom *= 1.15f;
           else
-            ds->zoom *= 0.87f;
-          if (ds->zoom < 0.1f)
-            ds->zoom = 0.1f;
-          if (ds->zoom > 5.0f)
-            ds->zoom = 5.0f;
+            ui->editor.zoom *= 0.87f;
+          if (ui->editor.zoom < 0.1f)
+            ui->editor.zoom = 0.1f;
+          if (ui->editor.zoom > 5.0f)
+            ui->editor.zoom = 5.0f;
           float cx = ws_bounds.w / 2.0f, cy = ws_bounds.h / 2.0f;
-          ds->cam_x += cx / old_zoom - cx / ds->zoom;
-          ds->cam_y += cy / old_zoom - cy / ds->zoom;
+          ui->editor.cam_x += cx / old_zoom - cx / ui->editor.zoom;
+          ui->editor.cam_y += cy / old_zoom - cy / ui->editor.zoom;
         }
       }
 
       // Zoom percentage display
       char zoom_str[16];
-      snprintf(zoom_str, sizeof(zoom_str), "%d%%", (int)(ds->zoom * 100));
+      snprintf(zoom_str, sizeof(zoom_str), "%d%%", (int)(ui->editor.zoom * 100));
       float zx = ws_bounds.x + ws_bounds.w - 60.0f;
       float zy = ws_bounds.y + ws_bounds.h - 30.0f;
       if (ui->font_inter) {
@@ -1758,9 +1722,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       }
 
       // Save camera state back to DesignData
-      dd->view_x = ds->cam_x;
-      dd->view_y = ds->cam_y;
-      dd->zoom = ds->zoom;
+      dd->view_x = ui->editor.cam_x;
+      dd->view_y = ui->editor.cam_y;
+      dd->zoom = ui->editor.zoom;
     }
 
     // --- Right-click context menu ---

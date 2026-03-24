@@ -69,154 +69,91 @@ typedef enum {
 } CanvasSubOption;
 
 // -----------------------------------------------------------------------------
-// Canvas Interaction State (stored per-canvas in UIHost)
+// Unified Editor & Input State
 // -----------------------------------------------------------------------------
 
+typedef enum {
+  INTERACTION_NONE = 0,
+  INTERACTION_PAN,
+  INTERACTION_CREATE_NODE,
+  INTERACTION_DRAG_NODE,
+  INTERACTION_RESIZE_NODE,
+  INTERACTION_ROTATE_NODE,
+  INTERACTION_CROP_IMAGE,
+  INTERACTION_BEZIER_POINT,
+  INTERACTION_BEZIER_CTRL,
+  INTERACTION_DRAG_GUIDE,
+  INTERACTION_DRAW_PEN
+} InputMode;
+
 typedef struct {
-  // Current tool
-  CanvasToolMode tool;
-
-  // Categorized toolbar state
-  CanvasCategory active_cat;
+  // Tools & Preferences
+  CanvasToolMode active_tool;
+  CanvasCategory active_category;
   int show_sub_menu;
+  
+  uint32_t selected_color;
+  float pen_thickness;
+  int pen_is_marker;
 
-  // Camera state
+  // View & Camera
   float cam_x, cam_y;
   float zoom;
-
-  // Canvas bounds (set during render, used in events)
-  float bounds_x, bounds_y, bounds_w, bounds_h;
-  int mouse_in_canvas;
-
-  // Pan state
-  int is_panning;
-  int space_held;
-  int pan_from_menu; // Track if pan was activated from menu (not keyboard)
-  float pan_start_x, pan_start_y;
-  float cam_start_x, cam_start_y;
-
-  // Drawing/creating state
-  int is_creating;
-  float create_start_x, create_start_y; // World coords
-  float create_end_x, create_end_y;     // World coords
-
-  // Dragging state
-  int is_dragging_node;
-  float drag_offset_x, drag_offset_y; // Offset from node origin
-  float drag_press_x, drag_press_y;   // Screen pos at mouse-down (threshold)
-
-  // Mouse state for click detection
-  int mouse_just_pressed;  // Left button just pressed this frame
-  int mouse_just_released; // Left button just released this frame
-
-  // Forms menu state (Legacy, will be replaced by active_cat logic)
-
-  // Pending element creation (from toolbar click)
-  int pending_create; // 0=none, 1=text, 2=note, 3=image, 10+shape_index=form
-
-  // Resize state
-  int is_resizing;
-  int resize_handle; // Which handle: 0=SE, 1=SW, 2=NW, 3=NE
-  float resize_start_w, resize_start_h;
-  float resize_start_x, resize_start_y;           // Mouse start pos
-  float resize_start_node_x, resize_start_node_y; // Node start pos
-
-  // Target canvas block
-  uint32_t active_canvas_id;
-  Block *active_block; // Direct pointer for convenience
-
-  // Pen Tool State
-  uint32_t pen_color; // RGBA
-  float pen_thickness;
-  int pen_is_marker;                // 0=Pen, 1=Marker
-  struct Stroke *current_stroke;    // Active stroke being drawn
-  struct Node *current_stroke_node; // Node wrapping the active stroke
-  uint32_t stroke_block_id;         // Block ID where stroke started
-
-  // Bezier Tool State
-  int bezier_mode;
-  int dragging_point_idx; // Index of the point being dragged (-1 = none)
-  int dragging_cp_idx;    // 0 = anchor, 1 = cp1, 2 = cp2
-
-  // Color Selection
-  uint32_t
-      selected_color; // RGBA color for new shapes/strokes (default: 0x000000FF)
-  int show_color_picker_popup;
-} CanvasInteraction;
+  
+} EditorState;
 
 typedef struct {
-  // Current tool (same as canvas)
-  CanvasToolMode tool;
+  InputMode mode;
 
-  // Toolbar state (same as canvas)
-  CanvasCategory active_cat;
-  int show_sub_menu;
-
-  int space_held;    // For compatibility with Canvas toolbar
-  int pan_from_menu; // For compatibility with Canvas toolbar
-
-  int pending_create; // 0=none, 1=text, 2=image, 6=H1, 10+=forms
+  // Pointer context
+  float mouse_x, mouse_y;
   int mouse_just_pressed;
   int mouse_just_released;
-  int is_dragging_node;
-  float drag_offset_x, drag_offset_y;
-  float drag_press_x, drag_press_y;
-  int is_resizing;
-  int resize_handle;
-  float resize_start_w, resize_start_h;
-  float resize_start_x, resize_start_y;
-  float resize_start_node_x, resize_start_node_y;
-  float resize_start_font_size;
+  
+  // View context
+  float bounds_x, bounds_y, bounds_w, bounds_h; 
+  int mouse_in_view;                            
+  int space_held;
+  int pan_from_menu;
 
-  // Image Cropping
-  int is_cropping;
-  float crop_start_x, crop_start_y;
+  // Generic drag/interaction anchors
+  float start_x, start_y;             // World coords where interaction began
+  float end_x, end_y;                 // E.g. create_end_x
+  float start_cam_x, start_cam_y;     // Camera pos at start
+  float drag_offset_x, drag_offset_y; // Offset from node origin
+  float drag_press_x, drag_press_y;   // Threshold
+  float start_w, start_h;             // Node bounds at start
+  float start_node_x, start_node_y;   // Node pos at start
+  float start_angle;                  // Rotation at start
+  float start_node_rotation;          
+  float start_font_size;
+  int active_handle;                  // e.g., Resize handle index or guide type
+  int active_idx;                     // e.g., Bezier point idx, or guide idx
   float crop_start_node_x, crop_start_node_y;
-
-  // Rotation handle
-  int is_rotating;
-  float rotate_start_angle;
-  float rotate_start_node_rotation;
-
-  // Design bounds (set during render, used in events)
-  float bounds_x, bounds_y, bounds_w, bounds_h;
-  float scale;
-
-  // Panning (no_limits / infinite canvas mode)
-  int is_panning;
-  float pan_start_x, pan_start_y;
-  float cam_start_x, cam_start_y;
-  float cam_x, cam_y;
-  float zoom;
-
-  uint32_t active_design_id;
-  Block *active_block;
-
-  // Bezier Tool State
   int bezier_mode;
   int dragging_point_idx;
   int dragging_cp_idx;
+  int dragging_guide_type;
+  int dragging_guide_idx;
+  float scale;
+  
+  // Creation state
+  int pending_create; // 0=none, 1=text, 2=note, 3=image, 10+shape_index=form
 
-  // Pen Tool State
-  float pen_thickness;
-  int pen_is_marker;
-  struct Stroke *current_stroke;    // Active stroke being drawn
-  struct Node *current_stroke_node; // Node wrapping the active stroke
-  uint32_t stroke_block_id;         // Block ID where stroke started
-
-  // Color Selection
-  uint32_t selected_color; // RGBA color for new shapes (default: 0x000000FF)
-  int show_color_picker_popup;
-
-  // Snap guide positions (screen-space, -1 = none)
+  // Contextual targets
+  uint32_t active_block_id;
+  struct Block *active_block; 
+  struct Stroke *current_stroke;    
+  struct Node *current_stroke_node; 
+  uint32_t stroke_block_id;         
+  
+  // Guides
   float snap_guide_x;
   float snap_guide_y;
-
-  // Guide dragging
-  int dragging_guide_type; // 0=none, 1=horizontal, 2=vertical
-  int dragging_guide_idx;
-} DesignInteraction;
-
+  
+  // Color selection
+  int show_color_picker_popup;
+} InputState;
 // -----------------------------------------------------------------------------
 // UI Cursors
 // -----------------------------------------------------------------------------
@@ -394,10 +331,8 @@ typedef struct UIHost {
   Recents recents;
 
   // Canvas interaction state
-  CanvasInteraction canvas_state;
-
-  DesignInteraction design_state;
-
+  EditorState editor;
+  InputState input;
   // Mouse state for canvas
   float mouse_x, mouse_y;
   float abs_offset_x, abs_offset_y; // Current translation offset

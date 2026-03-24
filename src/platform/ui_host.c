@@ -545,7 +545,7 @@ static unsigned char *render_design_to_pixels(UIHost *ui, Engine *engine,
   // renderers (font sizes, margins, row heights) produce identical proportions.
   // pixel_scale=0 means "auto from live state".
   if (pixel_scale <= 0.0f) {
-    pixel_scale = ui->design_state.scale > 0.05f ? ui->design_state.scale : 1.0f;
+    pixel_scale = ui->input.scale > 0.05f ? ui->input.scale : 1.0f;
   }
   if (pixel_scale < 0.1f) pixel_scale = 0.1f;
 
@@ -666,7 +666,7 @@ static void prerender_node_snapshots(UIHost *ui, Engine *engine, Block *block) {
                                                 &fw, &fh, 0.0f);
   if (!full) return;
 
-  float sc = ui->design_state.scale > 0.05f ? ui->design_state.scale : 1.0f;
+  float sc = ui->input.scale > 0.05f ? ui->input.scale : 1.0f;
 
   DesignData *dd = &block->data.design;
   if (!dd->root) { free(full); return; }
@@ -965,12 +965,12 @@ UIHost *ui_init(SDL_Window *win) {
   ui->table_state.drop_target_col  = -1;
   ui->table_state.show_footer_popup = -1;
 
-  ui->canvas_state.selected_color = 0x000000FF; // Default black
-  ui->canvas_state.pen_thickness = 2.0f;
-  ui->canvas_state.pen_is_marker = 0;
-  ui->design_state.selected_color = 0x000000FF;
-  ui->design_state.pen_thickness = 2.0f;
-  ui->design_state.pen_is_marker = 0;
+  ui->editor.selected_color = 0x000000FF; // Default black
+  ui->editor.pen_thickness = 2.0f;
+  ui->editor.pen_is_marker = 0;
+  ui->editor.selected_color = 0x000000FF;
+  ui->editor.pen_thickness = 2.0f;
+  ui->editor.pen_is_marker = 0;
 
   // Initialize NanoVG
   ui->vg = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
@@ -1041,20 +1041,19 @@ void ui_host_handle_file_drop(UIHost *ui, const char *file_path, int mx,
   ASLAN_DEBUG("Document directory: %s", doc_dir);
 
   // 1. Try Canvas blocks
-  CanvasInteraction *cs = &ui->canvas_state;
-  ASLAN_DEBUG("Canvas bounds: x=%.1f y=%.1f w=%.1f h=%.1f", cs->bounds_x,
-              cs->bounds_y, cs->bounds_w, cs->bounds_h);
+  ASLAN_DEBUG("Canvas bounds: x=%.1f y=%.1f w=%.1f h=%.1f", ui->input.bounds_x,
+              ui->input.bounds_y, ui->input.bounds_w, ui->input.bounds_h);
 
-  if (mx >= cs->bounds_x && mx < cs->bounds_x + cs->bounds_w &&
-      my >= cs->bounds_y && my < cs->bounds_y + cs->bounds_h) {
+  if (mx >= ui->input.bounds_x && mx < ui->input.bounds_x + ui->input.bounds_w &&
+      my >= ui->input.bounds_y && my < ui->input.bounds_y + ui->input.bounds_h) {
     ASLAN_DEBUG("Mouse is in canvas bounds");
-    if (cs->active_block && cs->active_block->type == BLOCK_DESIGN) {
+    if (ui->input.active_block && ui->input.active_block->type == BLOCK_DESIGN) {
       ASLAN_DEBUG("Active design block found");
-      DesignData *dd = &cs->active_block->data.design;
-      float wx = cs->cam_x + (mx - cs->bounds_x) / cs->zoom;
-      float wy = cs->cam_y + (my - cs->bounds_y) / cs->zoom;
+      DesignData *dd = &ui->input.active_block->data.design;
+      float wx = ui->editor.cam_x + (mx - ui->input.bounds_x) / ui->editor.zoom;
+      float wy = ui->editor.cam_y + (my - ui->input.bounds_y) / ui->editor.zoom;
       ASLAN_DEBUG("World coords: wx=%.1f wy=%.1f (cam: %.1f,%.1f zoom: %.2f)",
-                  wx, wy, cs->cam_x, cs->cam_y, cs->zoom);
+                  wx, wy, ui->editor.cam_x, ui->editor.cam_y, ui->editor.zoom);
       Node *hit = design_find_node_at(dd, wx, wy);
       if (hit) {
         ASLAN_DEBUG("Hit node found, is_container=%d", hit->is_container);
@@ -1079,19 +1078,18 @@ void ui_host_handle_file_drop(UIHost *ui, const char *file_path, int mx,
   }
 
   // 2. Try Design blocks
-  DesignInteraction *ds = &ui->design_state;
-  ASLAN_DEBUG("Design bounds: x=%.1f y=%.1f w=%.1f h=%.1f", ds->bounds_x,
-              ds->bounds_y, ds->bounds_w, ds->bounds_h);
+  ASLAN_DEBUG("Design bounds: x=%.1f y=%.1f w=%.1f h=%.1f", ui->input.bounds_x,
+              ui->input.bounds_y, ui->input.bounds_w, ui->input.bounds_h);
 
-  if (mx >= ds->bounds_x && mx < ds->bounds_x + ds->bounds_w &&
-      my >= ds->bounds_y && my < ds->bounds_y + ds->bounds_h) {
+  if (mx >= ui->input.bounds_x && mx < ui->input.bounds_x + ui->input.bounds_w &&
+      my >= ui->input.bounds_y && my < ui->input.bounds_y + ui->input.bounds_h) {
     ASLAN_DEBUG("Mouse is in design bounds");
-    if (ds->active_block && ds->active_block->type == BLOCK_DESIGN) {
+    if (ui->input.active_block && ui->input.active_block->type == BLOCK_DESIGN) {
       ASLAN_DEBUG("Active design block found");
-      DesignData *dd = &ds->active_block->data.design;
-      float scale = ds->scale;
-      float design_x = (mx - ds->bounds_x) / (scale > 0 ? scale : 1.0f);
-      float design_y = (my - ds->bounds_y) / (scale > 0 ? scale : 1.0f);
+      DesignData *dd = &ui->input.active_block->data.design;
+      float scale = ui->input.scale;
+      float design_x = (mx - ui->input.bounds_x) / (scale > 0 ? scale : 1.0f);
+      float design_y = (my - ui->input.bounds_y) / (scale > 0 ? scale : 1.0f);
       ASLAN_DEBUG("Design coords: x=%.1f y=%.1f (scale: %.2f)", design_x,
                   design_y, scale);
       Node *hit = design_find_node_at(dd, design_x, design_y);
@@ -1161,89 +1159,70 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     }
 
     // Check if mouse is in canvas
-    CanvasInteraction *cs = &ui->canvas_state;
-    cs->mouse_in_canvas = (ui->mouse_x >= cs->bounds_x &&
-                           ui->mouse_x < cs->bounds_x + cs->bounds_w &&
-                           ui->mouse_y >= cs->bounds_y &&
-                           ui->mouse_y < cs->bounds_y + cs->bounds_h);
+    ui->input.mouse_in_view = (ui->mouse_x >= ui->input.bounds_x &&
+                           ui->mouse_x < ui->input.bounds_x + ui->input.bounds_w &&
+                           ui->mouse_y >= ui->input.bounds_y &&
+                           ui->mouse_y < ui->input.bounds_y + ui->input.bounds_h);
 
-    // Handle canvas panning
-    if (cs->is_panning) {
-      float dx = ui->mouse_x - cs->pan_start_x;
-      float dy = ui->mouse_y - cs->pan_start_y;
-      cs->cam_x = cs->cam_start_x - dx / cs->zoom;
-      cs->cam_y = cs->cam_start_y - dy / cs->zoom;
-    }
-
-    // Handle design panning (no_limits mode)
-    DesignInteraction *ds = &ui->design_state;
-    if (ds->is_panning) {
-      float dx = ui->mouse_x - ds->pan_start_x;
-      float dy = ui->mouse_y - ds->pan_start_y;
-      float zm = ds->zoom > 0.01f ? ds->zoom : 1.0f;
-      ds->cam_x = ds->cam_start_x - dx / zm;
-      ds->cam_y = ds->cam_start_y - dy / zm;
+    // Handle panning
+    if (ui->input.mode == INTERACTION_PAN) {
+      float dx = ui->mouse_x - ui->input.start_x;
+      float dy = ui->mouse_y - ui->input.start_y;
+      float zm = ui->editor.zoom > 0.01f ? ui->editor.zoom : 1.0f;
+      ui->editor.cam_x = ui->input.start_cam_x - dx / zm;
+      ui->editor.cam_y = ui->input.start_cam_y - dy / zm;
     }
 
     // Handle node dragging
-    if (cs->is_dragging_node && ui->selected_node) {
-      float world_x = cs->cam_x + (ui->mouse_x - cs->bounds_x) / cs->zoom;
-      float world_y = cs->cam_y + (ui->mouse_y - cs->bounds_y) / cs->zoom;
-      ui->selected_node->x = world_x - cs->drag_offset_x;
-      ui->selected_node->y = world_y - cs->drag_offset_y;
+    if ((ui->input.mode == INTERACTION_DRAG_NODE) && ui->selected_node) {
+      float world_x = ui->editor.cam_x + (ui->mouse_x - ui->input.bounds_x) / ui->editor.zoom;
+      float world_y = ui->editor.cam_y + (ui->mouse_y - ui->input.bounds_y) / ui->editor.zoom;
+      ui->selected_node->x = world_x - ui->input.drag_offset_x;
+      ui->selected_node->y = world_y - ui->input.drag_offset_y;
     }
 
-    cs->create_end_y = cs->cam_y + (ui->mouse_y - cs->bounds_y) / cs->zoom;
+    ui->input.end_y = ui->editor.cam_y + (ui->mouse_y - ui->input.bounds_y) / ui->editor.zoom;
   }
 
 
   // Track mouse buttons
   if (evt->type == SDL_MOUSEBUTTONDOWN) {
-    CanvasInteraction *cs = &ui->canvas_state;
 
     // IMPORTANT: Update mouse position from click event (not just motion)
     ui->mouse_x = (float)evt->button.x;
     ui->mouse_y = (float)evt->button.y;
 
     // Update mouse_in_canvas check
-    cs->mouse_in_canvas = (ui->mouse_x >= cs->bounds_x &&
-                           ui->mouse_x < cs->bounds_x + cs->bounds_w &&
-                           ui->mouse_y >= cs->bounds_y &&
-                           ui->mouse_y < cs->bounds_y + cs->bounds_h);
+    ui->input.mouse_in_view = (ui->mouse_x >= ui->input.bounds_x &&
+                           ui->mouse_x < ui->input.bounds_x + ui->input.bounds_w &&
+                           ui->mouse_y >= ui->input.bounds_y &&
+                           ui->mouse_y < ui->input.bounds_y + ui->input.bounds_h);
 
     if (evt->button.button == SDL_BUTTON_LEFT) {
       ui->mouse_buttons |= 1;
-      cs->mouse_just_pressed = 1;
-      ui->design_state.mouse_just_pressed = 1; // Also track for design
+      ui->input.mouse_just_pressed = 1;
+      ui->input.mouse_just_pressed = 1; // Also track for design
 
       ASLAN_DEBUG("SDL click down: (%d, %d)", evt->button.x, evt->button.y);
 
       // Start panning with space + left click (canvas)
-      if (cs->space_held && cs->mouse_in_canvas) {
-        cs->is_panning = 1;
-        cs->pan_start_x = ui->mouse_x;
-        cs->pan_start_y = ui->mouse_y;
-        cs->cam_start_x = cs->cam_x;
-        cs->cam_start_y = cs->cam_y;
+      if (ui->input.space_held && ui->input.mouse_in_view) {
+        ui->input.mode = INTERACTION_PAN;
+        ui->input.start_x = ui->mouse_x;
+        ui->input.start_y = ui->mouse_y;
+        ui->input.start_cam_x = ui->editor.cam_x;
+        ui->input.start_cam_y = ui->editor.cam_y;
       }
-      // Start panning with space + left click (design)
-      DesignInteraction *ds_sp = &ui->design_state;
-      if (ds_sp->space_held) {
-        ds_sp->is_panning = 1;
-        ds_sp->pan_start_x = ui->mouse_x;
-        ds_sp->pan_start_y = ui->mouse_y;
-        ds_sp->cam_start_x = ds_sp->cam_x;
-        ds_sp->cam_start_y = ds_sp->cam_y;
-      }
+      // Design panning handled identically above
     } else if (evt->button.button == SDL_BUTTON_MIDDLE) {
       ui->mouse_buttons |= 2;
       // Start panning with middle mouse button
-      if (cs->mouse_in_canvas) {
-        cs->is_panning = 1;
-        cs->pan_start_x = ui->mouse_x;
-        cs->pan_start_y = ui->mouse_y;
-        cs->cam_start_x = cs->cam_x;
-        cs->cam_start_y = cs->cam_y;
+      if (ui->input.mouse_in_view) {
+        ui->input.mode = INTERACTION_PAN;
+        ui->input.start_x = ui->mouse_x;
+        ui->input.start_y = ui->mouse_y;
+        ui->input.start_cam_x = ui->editor.cam_x;
+        ui->input.start_cam_y = ui->editor.cam_y;
       }
     } else if (evt->button.button == SDL_BUTTON_RIGHT) {
       ui->mouse_buttons |= 4;
@@ -1251,16 +1230,14 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
   }
 
   if (evt->type == SDL_MOUSEBUTTONUP) {
-    CanvasInteraction *cs = &ui->canvas_state;
-
     // Update mouse position from release event
     ui->mouse_x = (float)evt->button.x;
     ui->mouse_y = (float)evt->button.y;
 
     if (evt->button.button == SDL_BUTTON_LEFT) {
       ui->mouse_buttons &= ~1;
-      cs->mouse_just_released = 1;
-      ui->design_state.mouse_just_released = 1; // Also track for design
+      ui->input.mouse_just_released = 1;
+      ui->input.mouse_just_released = 1; // Also track for design
 
       // Block drag-and-drop: execute drop on mouse release
       if (ui->block_drag.is_active) {
@@ -1383,23 +1360,23 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       }
 
       // Stop panning
-      cs->is_panning = 0;
+      ui->input.mode = INTERACTION_NONE;
 
       // Stop dragging node
-      cs->is_dragging_node = 0;
+      ui->input.mode = INTERACTION_NONE;
 
       // Stop resizing
-      cs->is_resizing = 0;
+      ui->input.mode = INTERACTION_NONE;
 
       // Stop design dragging/resizing/panning
-      ui->design_state.is_dragging_node = 0;
-      ui->design_state.is_resizing = 0;
-      ui->design_state.is_panning = 0;
+      ui->input.mode = INTERACTION_NONE;
+      ui->input.mode = INTERACTION_NONE;
+      ui->input.mode = INTERACTION_NONE;
     }
 
   } else if (evt->button.button == SDL_BUTTON_MIDDLE) {
     ui->mouse_buttons &= ~2;
-    ui->canvas_state.is_panning = 0;
+    ui->input.mode = INTERACTION_NONE;
   } else if (evt->button.button == SDL_BUTTON_RIGHT) {
     ui->mouse_buttons &= ~4;
   }
@@ -1408,20 +1385,20 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 
   // Track spacebar for pan mode (canvas + design)
   if (evt->type == SDL_KEYDOWN && evt->key.keysym.sym == SDLK_SPACE) {
-    ui->canvas_state.space_held = 1;
-    ui->design_state.space_held = 1;
+    ui->input.space_held = 1;
+    ui->input.space_held = 1;
     ASLAN_DEBUG("Spacebar DOWN");
   }
   if (evt->type == SDL_KEYUP && evt->key.keysym.sym == SDLK_SPACE) {
     // Only clear space_held if pan wasn't activated from menu
-    if (!ui->canvas_state.pan_from_menu) {
-      ui->canvas_state.space_held = 0;
+    if (!ui->input.pan_from_menu) {
+      ui->input.space_held = 0;
     }
-    ui->canvas_state.is_panning = 0;
-    if (!ui->design_state.pan_from_menu) {
-      ui->design_state.space_held = 0;
+    ui->input.mode = INTERACTION_NONE;
+    if (!ui->input.pan_from_menu) {
+      ui->input.space_held = 0;
     }
-    ui->design_state.is_panning = 0;
+    ui->input.mode = INTERACTION_NONE;
     ASLAN_DEBUG("Spacebar UP");
   }
 
@@ -1514,13 +1491,13 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     // Determine active block (canvas or design)
     Block *active_block = NULL;
     int is_canvas = 0, is_design = 0;
-    if (ui->canvas_state.active_block &&
-        ui->canvas_state.active_canvas_id != 0) {
-      active_block = ui->canvas_state.active_block;
+    if (ui->input.active_block &&
+        ui->input.active_block_id != 0) {
+      active_block = ui->input.active_block;
       is_canvas = 1;
-    } else if (ui->design_state.active_block &&
-               ui->design_state.active_design_id != 0) {
-      active_block = ui->design_state.active_block;
+    } else if (ui->input.active_block &&
+               ui->input.active_block_id != 0) {
+      active_block = ui->input.active_block;
       is_design = 1;
     }
 
@@ -1561,16 +1538,16 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
         ui->selected_node = NULL;
       }
       if (is_canvas) {
-        ui->canvas_state.bezier_mode = 0;
-        ui->canvas_state.tool = CANVAS_TOOL_SELECT;
-        ui->canvas_state.active_cat = CANVAS_CAT_SELECT;
-        ui->canvas_state.show_sub_menu = 0;
+        ui->input.bezier_mode = 0;
+        ui->editor.active_tool = CANVAS_TOOL_SELECT;
+        ui->editor.active_category = CANVAS_CAT_SELECT;
+        ui->editor.show_sub_menu = 0;
       }
       if (is_design) {
-        ui->design_state.bezier_mode = 0;
-        ui->design_state.tool = CANVAS_TOOL_SELECT;
-        ui->design_state.active_cat = CANVAS_CAT_SELECT;
-        ui->design_state.show_sub_menu = 0;
+        ui->input.bezier_mode = 0;
+        ui->editor.active_tool = CANVAS_TOOL_SELECT;
+        ui->editor.active_category = CANVAS_CAT_SELECT;
+        ui->editor.show_sub_menu = 0;
       }
       return;
     }
@@ -1897,37 +1874,35 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
 
   // Handle canvas zoom or page scroll with mouse wheel
   if (evt->type == SDL_MOUSEWHEEL) {
-    CanvasInteraction *cs = &ui->canvas_state;
-
     // Initialize zoom if not set
-    if (cs->zoom < 0.01f)
-      cs->zoom = 1.0f;
+    if (ui->editor.zoom < 0.01f)
+      ui->editor.zoom = 1.0f;
 
     // Check for modifier keys
     SDL_Keymod mods = SDL_GetModState();
     bool cmd_or_ctrl = (mods & KMOD_GUI) || (mods & KMOD_CTRL);
 
-    if (cs->mouse_in_canvas && cmd_or_ctrl) {
+    if (ui->input.mouse_in_view && cmd_or_ctrl) {
       // Zoom Canvas only when Cmd/Ctrl is held
-      float old_zoom = cs->zoom;
+      float old_zoom = ui->editor.zoom;
       float zoom_factor = 1.1f;
       if (evt->wheel.y > 0)
-        cs->zoom *= zoom_factor;
+        ui->editor.zoom *= zoom_factor;
       else if (evt->wheel.y < 0)
-        cs->zoom /= zoom_factor;
+        ui->editor.zoom /= zoom_factor;
 
-      if (cs->zoom < 0.1f)
-        cs->zoom = 0.1f;
-      if (cs->zoom > 5.0f)
-        cs->zoom = 5.0f;
+      if (ui->editor.zoom < 0.1f)
+        ui->editor.zoom = 0.1f;
+      if (ui->editor.zoom > 5.0f)
+        ui->editor.zoom = 5.0f;
 
-      float mouse_rel_x = ui->mouse_x - cs->bounds_x;
-      float mouse_rel_y = ui->mouse_y - cs->bounds_y;
-      float world_x = cs->cam_x + mouse_rel_x / old_zoom;
-      float world_y = cs->cam_y + mouse_rel_y / old_zoom;
-      cs->cam_x = world_x - mouse_rel_x / cs->zoom;
-      cs->cam_y = world_y - mouse_rel_y / cs->zoom;
-      ASLAN_DEBUG("Canvas Zoom: %.2f (wheel.y=%d)", cs->zoom, evt->wheel.y);
+      float mouse_rel_x = ui->mouse_x - ui->input.bounds_x;
+      float mouse_rel_y = ui->mouse_y - ui->input.bounds_y;
+      float world_x = ui->editor.cam_x + mouse_rel_x / old_zoom;
+      float world_y = ui->editor.cam_y + mouse_rel_y / old_zoom;
+      ui->editor.cam_x = world_x - mouse_rel_x / ui->editor.zoom;
+      ui->editor.cam_y = world_y - mouse_rel_y / ui->editor.zoom;
+      ASLAN_DEBUG("Canvas Zoom: %.2f (wheel.y=%d)", ui->editor.zoom, evt->wheel.y);
     } else if (!ui->scroll_inhibited) {
       // Global Page Scroll (Default behavior)
       float scroll_amount = 60.0f;
@@ -2627,10 +2602,10 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
   }
 
   // Reset per-frame input state (after all processing is done)
-  ui->canvas_state.mouse_just_pressed = 0;
-  ui->canvas_state.mouse_just_released = 0;
-  ui->design_state.mouse_just_pressed = 0;
-  ui->design_state.mouse_just_released = 0;
+  ui->input.mouse_just_pressed = 0;
+  ui->input.mouse_just_released = 0;
+  ui->input.mouse_just_pressed = 0;
+  ui->input.mouse_just_released = 0;
 
   // Safety net: Reset table resizing state if mouse is released globally
   if (ui->table_state.resizing_col >= 0 && !ui->nvgw.mouse_down) {

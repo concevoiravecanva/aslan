@@ -122,7 +122,7 @@ void render_node_context_menu(UIHost *ui, Block *block) {
     nvgText(ui->vg, ir_x + 10, ir_y + item_h / 2.0f, labels[i], NULL);
 
     if (hovered && (ui->mouse_buttons & 1) &&
-        ui->canvas_state.mouse_just_pressed) {
+        ui->input.mouse_just_pressed) {
       if (i == 0) {
         // Duplicate
         Node *dup = NULL;
@@ -194,7 +194,7 @@ void render_node_context_menu(UIHost *ui, Block *block) {
   }
 
   // Close menu on left click outside
-  if ((ui->mouse_buttons & 1) && ui->canvas_state.mouse_just_pressed) {
+  if ((ui->mouse_buttons & 1) && ui->input.mouse_just_pressed) {
     int in_menu = (ui->mouse_x >= mx && ui->mouse_x < mx + menu_w &&
                    ui->mouse_y >= my && ui->mouse_y < my + menu_h);
     if (!in_menu) {
