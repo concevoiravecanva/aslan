@@ -52,42 +52,12 @@
 #define ASLAN_ASSERT_PTR(ptr) ASLAN_ASSERT((ptr) != NULL)
 
 // =============================================================================
-// Color Constants (Notion-style Gray Hierarchy)
-// =============================================================================
-
-// Light mode
-#define UI_COLOR_BG 0xFBFBFAFF // #FBFBFA
-#define UI_COLOR_PANEL 0xFBFBFAFF
-#define UI_COLOR_BORDER 0xEDECE9FF // #EDECE9
-#define UI_COLOR_TEXT 0x37352FFF   // #37352F (Anthracite)
-#define UI_COLOR_TEXT_DIM 0x8C8C8CFF
-#define UI_COLOR_ACCENT 0x6E6E82FF // Neutral grey-blue (#6E6E82)
-
-// Highlights
-#define UI_COLOR_HIGHLIGHT_YELLOW 0xFFF06450 // 80 alpha
-#define UI_COLOR_HIGHLIGHT_BLUE 0x8C8C8C30   // Neutral grey highight
-#define UI_COLOR_HIGHLIGHT_GREEN 0x64DC8C50
-
-// =============================================================================
-// UI Constants
-// =============================================================================
-
-#define UI_SIDE_PADDING 60.0f
-
-// =============================================================================
 // Utility Macros
 // =============================================================================
 
 #define UI_MIN(a, b) ((a) < (b) ? (a) : (b))
 #define UI_MAX(a, b) ((a) > (b) ? (a) : (b))
 #define UI_CLAMP(x, lo, hi) UI_MIN(UI_MAX(x, lo), hi)
-
-// =============================================================================
-// Test Function Prototype
-// =============================================================================
-
-// Each module implements: int test_<module>(void);
-// Returns 0 on success, non-zero on failure.
 
 // Node style types for creation (shared between canvas and design)
 typedef enum {

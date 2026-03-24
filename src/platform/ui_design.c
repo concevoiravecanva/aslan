@@ -356,7 +356,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
 
   if (1) {
     AslanRect ws_bounds = {0, 0, ws_width, row_h};
-    InputState *ds = &ui->input;
     float mx = ui->mouse_x - ui->abs_offset_x;
     float my = ui->mouse_y - ui->abs_offset_y;
 

@@ -19,8 +19,7 @@ CFLAGS = -Wall -Wextra -std=c99 -I./src -I./include -DSTBTT_STATIC -Os
 CORE_OBJS = src/core/engine.o
 DOC_OBJS = src/document/document.o \
            src/document/aslan_table.o
-PLATFORM_OBJS = src/platform/platform.o \
-           src/platform/renderer.o \
+PLATFORM_OBJS = src/platform/renderer.o \
            src/platform/ui_table.o \
            src/platform/ui_canvas.o \
            src/platform/ui_toolbar.o \

@@ -1,6 +1,5 @@
 #include "core/engine.h"
 #include "document/document.h"
-#include "platform/platform.h"
 #include "platform/renderer.h"
 #include "platform/ui_host.h"
 #include "platform/ui_shared.h"
@@ -260,8 +259,7 @@ int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
 
-  platform_init();
-  platform_log("Starting Aslan Visual Engine v0.1.7 (Interactive Phase 8)...");
+  printf("Starting Aslan Visual Engine v0.1.7 (Interactive Phase 8)...\n");
 
   // 1. Initialize Engine (Core)
   Engine *engine = engine_create();
@@ -307,7 +305,7 @@ int main(int argc, char **argv) {
   ui_shutdown(ui);
   renderer_destroy(renderer);
   engine_destroy(engine);
-  platform_shutdown();
+
 
   return 0;
 }

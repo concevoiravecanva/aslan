@@ -287,10 +287,7 @@ void design_insert_tableau_layout(DesignData *dd) {
 // ── Main sidebar ─────────────────────────────────────────────────────────────
 
 
-// Font IDs (must match clay_host constants, now used standalone)
-#define ASLAN_FONT_INTER 0
-#define ASLAN_FONT_BOLD 1
-#define ASLAN_FONT_ICONS 2
+
 
 void design_render_sidebar(UIHost *ui, Engine *engine,
                                   Block *block, float width, float height, float abs_x) {
