@@ -31,64 +31,33 @@
 #include <time.h>
 
 // -----------------------------------------------------------------------------
-// File Dialog Helper (macOS)
+// File Dialog Helpers (cross-platform via tinyfiledialogs)
 // -----------------------------------------------------------------------------
+#include "../vendor/tinyfiledialogs.h"
+
+static int _tfd_to_buf(const char *result, char *out_path, size_t path_size) {
+  if (!result || !result[0]) return 0;
+  strncpy(out_path, result, path_size - 1);
+  out_path[path_size - 1] = '\0';
+  return 1;
+}
 
 // Opens a native file dialog to select an image file
 // Returns 1 on success, 0 on cancel/error. Path is written to out_path.
 int open_image_file_dialog(char *out_path, size_t path_size) {
-  // Use osascript to open macOS native file dialog
-  const char *script =
-      "osascript -e 'set theFile to choose file of type {\"public.image\"} "
-      "with prompt \"Select an image\"' -e 'POSIX path of theFile' 2>/dev/null";
-
-  FILE *fp = popen(script, "r");
-  if (!fp)
-    return 0;
-
-  char result[512] = {0};
-  if (fgets(result, sizeof(result), fp) != NULL) {
-    // Remove trailing newline
-    size_t len = strlen(result);
-    if (len > 0 && result[len - 1] == '\n') {
-      result[len - 1] = '\0';
-      len--;
-    }
-    if (len > 0) {
-      strncpy(out_path, result, path_size - 1);
-      out_path[path_size - 1] = '\0';
-      pclose(fp);
-      return 1;
-    }
-  }
-
-  pclose(fp);
-  return 0;
+  const char *filters[] = { "*.png", "*.jpg", "*.jpeg", "*.gif",
+                             "*.bmp", "*.tiff", "*.webp" };
+  const char *result = tinyfd_openFileDialog(
+      "Select an image", "", 7, filters, "Image files", 0);
+  return _tfd_to_buf(result, out_path, path_size);
 }
 
 // Opens a native file dialog to select a font file (.ttf / .otf)
 static int open_font_file_dialog(char *out_path, size_t path_size) {
-  const char *script =
-      "osascript -e 'set theFile to choose file of type "
-      "{\"public.truetype-ttf-font\", \"public.opentype-font\", "
-      "\"org.gnu.gnu-type-font\", \"public.font\"} "
-      "with prompt \"Select a font file (.ttf or .otf)\"' "
-      "-e 'POSIX path of theFile' 2>/dev/null";
-  FILE *fp = popen(script, "r");
-  if (!fp) return 0;
-  char result[512] = {0};
-  if (fgets(result, sizeof(result), fp)) {
-    size_t len = strlen(result);
-    if (len > 0 && result[len - 1] == '\n') result[--len] = '\0';
-    if (len > 0) {
-      strncpy(out_path, result, path_size - 1);
-      out_path[path_size - 1] = '\0';
-      pclose(fp);
-      return 1;
-    }
-  }
-  pclose(fp);
-  return 0;
+  const char *filters[] = { "*.ttf", "*.otf" };
+  const char *result = tinyfd_openFileDialog(
+      "Select a font file (.ttf or .otf)", "", 2, filters, "Font files", 0);
+  return _tfd_to_buf(result, out_path, path_size);
 }
 
 // Import a font file, load it into NanoVG, register in UIHost.
@@ -132,102 +101,33 @@ const char *ui_host_open_and_import_font(UIHost *ui) {
 
 // Opens a native file dialog to select a CSV file for import
 int open_csv_file_dialog(char *out_path, size_t path_size) {
-  const char *script =
-      "osascript -e 'set theFile to choose file of type "
-      "{\"public.comma-separated-values-text\", \"public.text\"} "
-      "with prompt \"Select a CSV file\"' -e 'POSIX path of theFile' "
-      "2>/dev/null";
-  FILE *fp = popen(script, "r");
-  if (!fp)
-    return 0;
-  char result[512] = {0};
-  if (fgets(result, sizeof(result), fp) != NULL) {
-    size_t len = strlen(result);
-    if (len > 0 && result[len - 1] == '\n') {
-      result[len - 1] = '\0';
-      len--;
-    }
-    if (len > 0) {
-      strncpy(out_path, result, path_size - 1);
-      out_path[path_size - 1] = '\0';
-      pclose(fp);
-      return 1;
-    }
-  }
-  pclose(fp);
-  return 0;
+  const char *filters[] = { "*.csv", "*.txt" };
+  const char *result = tinyfd_openFileDialog(
+      "Select a CSV file", "", 2, filters, "CSV files", 0);
+  return _tfd_to_buf(result, out_path, path_size);
 }
 
-// Copy file to assets directory, returns path relative to document
-// Creates assets/ directory if needed
 // Opens a native file save dialog for CSV
-// Returns 1 on success, 0 on cancel/error. Path is written to out_path.
 int save_csv_file_dialog(char *out_path, size_t path_size,
                          const char *default_name) {
-  char script[1024];
-  snprintf(
-      script, sizeof(script),
-      "osascript -e 'set theName to \"%s\"' "
-      "-e 'set theFile to choose file name default name theName default "
-      "location (path to desktop folder) with prompt \"Export Table as CSV\"' "
-      "-e 'POSIX path of theFile' 2>/dev/null",
-      default_name ? default_name : "Export.csv");
-
-  FILE *fp = popen(script, "r");
-  if (!fp)
-    return 0;
-
-  char result[512] = {0};
-  if (fgets(result, sizeof(result), fp) != NULL) {
-    // Remove trailing newline
-    size_t len = strlen(result);
-    if (len > 0 && result[len - 1] == '\n') {
-      result[len - 1] = '\0';
-      len--;
-    }
-    if (len > 0) {
-      strncpy(out_path, result, path_size - 1);
-      out_path[path_size - 1] = '\0';
-      pclose(fp);
-      return 1;
-    }
-  }
-
-  pclose(fp);
-  return 0;
+  char default_path[512];
+  snprintf(default_path, sizeof(default_path), "%s",
+           default_name ? default_name : "Export.csv");
+  const char *filters[] = { "*.csv" };
+  const char *result = tinyfd_saveFileDialog(
+      "Export Table as CSV", default_path, 1, filters, "CSV files");
+  return _tfd_to_buf(result, out_path, path_size);
 }
 
-// General native file save dialog via AppleScript
+// General native file save dialog
 static int save_native_file_dialog(char *out_path, size_t path_size,
                                    const char *default_name,
                                    const char *prompt) {
-  char script[1024];
-  snprintf(script, sizeof(script),
-           "osascript -e 'set theName to \"%s\"' "
-           "-e 'set theFile to choose file name default name theName default "
-           "location (path to desktop folder) with prompt \"%s\"' "
-           "-e 'POSIX path of theFile' 2>/dev/null",
-           default_name ? default_name : "Export.file",
-           prompt ? prompt : "Export");
-  FILE *fp = popen(script, "r");
-  if (!fp)
-    return 0;
-  char result[512] = {0};
-  if (fgets(result, sizeof(result), fp) != NULL) {
-    size_t len = strlen(result);
-    if (len > 0 && result[len - 1] == '\n') {
-      result[len - 1] = '\0';
-      len--;
-    }
-    if (len > 0) {
-      strncpy(out_path, result, path_size - 1);
-      out_path[path_size - 1] = '\0';
-      pclose(fp);
-      return 1;
-    }
-  }
-  pclose(fp);
-  return 0;
+  const char *result = tinyfd_saveFileDialog(
+      prompt ? prompt : "Export",
+      default_name ? default_name : "Export.file",
+      0, NULL, NULL);
+  return _tfd_to_buf(result, out_path, path_size);
 }
 
 // Export active design block as SVG

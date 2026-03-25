@@ -35,6 +35,7 @@ PLATFORM_OBJS = src/platform/renderer.o \
            src/platform/mac_image.o
 VENDOR_OBJS = src/vendor/tinyexpr.o \
               src/vendor/stb_image_write.o \
+              src/vendor/tinyfiledialogs.o \
               src/vendor/nanovg/nanovg.o \
               src/vendor/nanovg/nanovg_gl_impl.o
 
@@ -58,6 +59,10 @@ $(TEST_TARGET): $(CORE_OBJS) $(TEST_OBJ)
 
 test: $(TEST_TARGET)
 	./$(TEST_TARGET)
+
+# tinyfiledialogs uses Cocoa APIs — compile without strict C99
+src/vendor/tinyfiledialogs.o: src/vendor/tinyfiledialogs.c
+	$(CC) -w -I./src -I./include -c $< -o $@
 
 %.o: %.c $(wildcard src/*.h) $(wildcard src/**/*.h) $(wildcard include/*.h)
 	$(CC) $(CFLAGS) $(LUA_INC) $(SDL_INC) $(HPDF_INC) -c $< -o $@
