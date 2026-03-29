@@ -1230,11 +1230,18 @@ static void render_type_menu(UIHost *ui, AslanTable *table, Block *block) {
     float menu_w = 170.0f, item_h = 30.0f;
     float menu_h = item_cnt * item_h + 12.0f;
 
-    float mx = ui->table_state.type_menu_x - ui->abs_offset_x;
-    float my = ui->table_state.type_menu_y - ui->abs_offset_y;
-    if (my < 0) my = 0; // clamp: never open above the content area
-    if (my + menu_h > (float)ui->win_height - ui->abs_offset_y)
-        my = (float)ui->win_height - ui->abs_offset_y - menu_h - 4;
+    // Use absolute screen coordinates — reset NanoVG transform so popup
+    // renders at exact pixel positions regardless of panel translation.
+    nvgw_set_offset(wc, 0.0f, 0.0f);
+
+    float mx = ui->table_state.type_menu_x;
+    float my = ui->table_state.type_menu_y;
+    if (my < 0) my = 0;
+    if (my + menu_h > (float)ui->win_height)
+        my = (float)ui->win_height - menu_h - 4;
+
+    nvgSave(vg);
+    nvgResetTransform(vg);
 
     NVGcolor bg = dark ? nvgRGBA(38,40,46,255) : nvgRGBA(255,255,255,255);
     nvgw_panel(wc, mx, my, menu_w, menu_h, bg, 8.0f);
@@ -1246,7 +1253,7 @@ static void render_type_menu(UIHost *ui, AslanTable *table, Block *block) {
 
     for (int m = 0; m < item_cnt; m++) {
         float iy = my + 6 + m * item_h;
-        // Icon
+
         nvgFontSize(vg, 14.0f);
         nvgFontFace(vg, "Icons");
         nvgFillColor(vg, tbl_dim(dark));
@@ -1255,11 +1262,10 @@ static void render_type_menu(UIHost *ui, AslanTable *table, Block *block) {
                 table_col_type_icon(types[m]), NULL);
 
         uint32_t mid = nvgw_id(&m, sizeof(m)) ^ nvgw_id_str("type_menu");
-        // Use tbl_item_button but shift text right for icon space
-        float tx = mx + 28, tw = menu_w - 32;
-        float hmx = wc->mouse_x - wc->offset_x;
-        float hmy = wc->mouse_y - wc->offset_y;
-        bool hov = hmx >= mx + 4 && hmx < mx + menu_w - 4 && hmy >= iy && hmy < iy + item_h;
+        float tx = mx + 28;
+        // Hit test in absolute screen coords (offset = 0)
+        bool hov = wc->mouse_x >= mx + 4 && wc->mouse_x < mx + menu_w - 4
+                && wc->mouse_y >= iy      && wc->mouse_y < iy + item_h;
         if (hov) wc->hot_id = mid;
         bool clicked = (wc->active_id == mid && wc->mouse_released && hov);
         if (wc->hot_id == mid && wc->mouse_clicked) wc->active_id = mid;
@@ -1274,10 +1280,8 @@ static void render_type_menu(UIHost *ui, AslanTable *table, Block *block) {
         nvgTextAlign(vg, NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
         nvgFillColor(vg, tbl_text(dark));
         nvgText(vg, tx, iy + item_h * 0.5f, type_names[m], NULL);
-        (void)tw;
 
         if (clicked) {
-            // Generate unique column name (e.g. "Number 2", "Number 3")
             char col_name[64];
             strncpy(col_name, type_names[m], sizeof(col_name) - 1);
             col_name[sizeof(col_name) - 1] = '\0';
@@ -1301,11 +1305,13 @@ static void render_type_menu(UIHost *ui, AslanTable *table, Block *block) {
 
     // Close on outside click
     if (wc->mouse_clicked) {
-        float hmx = wc->mouse_x - wc->offset_x;
-        float hmy = wc->mouse_y - wc->offset_y;
-        bool in_menu = (hmx >= mx && hmx < mx + menu_w && hmy >= my && hmy < my + menu_h);
+        bool in_menu = (wc->mouse_x >= mx && wc->mouse_x < mx + menu_w
+                     && wc->mouse_y >= my && wc->mouse_y < my + menu_h);
         if (!in_menu) ui->table_state.show_type_menu = 0;
     }
+
+    nvgRestore(vg);
+    nvgw_set_offset(wc, ui->abs_offset_x, ui->abs_offset_y); // restore
 }
 
 static void render_select_popup(UIHost *ui, AslanTable *table, Block *block) {
