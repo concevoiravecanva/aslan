@@ -351,10 +351,16 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
     display_h = 100.0f;
 
   float sidebar_w = 260.0f;
+  int hide_workspace = 0;
   float ws_width = width - sidebar_w;
-  if (ws_width < 100.0f) ws_width = width; // fail-safe if panel too narrow
+  if (ws_width < 10.0f) {
+      hide_workspace = 1;
+      ws_width = 0.0f;
+  } else if (ws_width < 100.0f) {
+      ws_width = 100.0f; // Minimum workspace width before overlapping
+  }
 
-  if (1) {
+  if (!hide_workspace) {
     AslanRect ws_bounds = {0, 0, ws_width, row_h};
     float mx = ui->mouse_x - ui->abs_offset_x;
     float my = ui->mouse_y - ui->abs_offset_y;
