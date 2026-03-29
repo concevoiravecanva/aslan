@@ -2164,10 +2164,9 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
   float sidebar_w = 260.0f;
   
   float left_w, right_w;
-  if (ui->split_view.mode == 0) { // Table Only
-    right_w = sidebar_w;
-    left_w = (float)win_w - right_w;
-    if (left_w < 30.0f) left_w = 30.0f;
+  if (ui->split_view.mode == 0) { // Table Only — full width, no sidebar
+    right_w = 0.0f;
+    left_w = (float)win_w;
   } else if (ui->split_view.mode == 2) { // Design Only
     left_w = 0.0f;
     right_w = (float)win_w;
@@ -2241,9 +2240,9 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
 
   // Left Panel
   float view_x_left = 6.0f;
-  float view_y_left = top_y + 5.0f;
+  float view_y_left = top_y;
   float view_w_left = left_w - 12.0f;
-  float view_h_left = view_h - 10.0f;
+  float view_h_left = view_h;
   if (view_w_left > 0 && view_h_left > 0 && ui->split_view.mode != 2) {
     ui_render_panel_view(ui, engine, page, 0, view_x_left, view_y_left,
                          view_w_left, view_h_left);
@@ -2251,9 +2250,9 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
 
   // Right Panel
   float view_x_right = right_x + 6.0f;
-  float view_y_right = top_y + 5.0f;
+  float view_y_right = top_y;
   float view_w_right = right_w - 12.0f;
-  float view_h_right = view_h - 10.0f;
+  float view_h_right = view_h;
   if (view_w_right > 0 && view_h_right > 0 && ui->split_view.mode != 0) {
     // Mode != 0 means design canvas IS drawn. Wait, if Mode == 0, we DO draw right panel (for sidebar only)
   }
@@ -2359,69 +2358,75 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       ui->split_view.ratio = 0.5f;
     ui->split_view.active = 1;
 
-    // --- TOP BAR (View Switcher) ---
+    // --- TOP BAR (Figma-style dark bar) ---
     float top_bar_h = 44.0f;
-    
-    // Ensure widget offset is 0,0 for global top bar
     nvgw_set_offset(&ui->nvgw, 0.0f, 0.0f);
-    
-    NVGcolor top_bg = ui->dark_mode ? nvgRGBA(32, 33, 37, 255) : nvgRGBA(250, 250, 250, 255);
-    nvgBeginPath(ui->vg);
-    nvgRect(ui->vg, 0, 0, win_w, top_bar_h);
-    nvgFillColor(ui->vg, top_bg);
-    nvgFill(ui->vg);
 
-    // Border bottom
-    NVGcolor top_border = ui->dark_mode ? nvgRGBA(48, 50, 56, 255) : nvgRGBA(230, 230, 230, 255);
-    nvgBeginPath(ui->vg);
-    nvgMoveTo(ui->vg, 0, top_bar_h);
-    nvgLineTo(ui->vg, win_w, top_bar_h);
-    nvgStrokeColor(ui->vg, top_border);
-    nvgStrokeWidth(ui->vg, 1.0f);
-    nvgStroke(ui->vg);
+    // Bar background — same near-black as the tool's text color (#242427)
+    NVGcontext *vg = ui->vg;
+    nvgBeginPath(vg);
+    nvgRect(vg, 0, 0, (float)win_w, top_bar_h);
+    nvgFillColor(vg, nvgRGB(36, 36, 39));
+    nvgFill(vg);
 
-    // Render switcher buttons
-    float btn_x = 10.0f;
-    float btn_y = (top_bar_h - 28.0f) / 2.0f;
+    // Icon colors for dark bar
+    NVGcolor ic_active  = nvgRGBA(255, 255, 255, 230);
+    NVGcolor ic_idle    = nvgRGBA(255, 255, 255, 110);
+    NVGcolor pill_active = nvgRGBA(255, 255, 255, 38);
+    NVGcolor hover_bg   = nvgRGBA(255, 255, 255, 18);
+    NVGcolor press_bg   = nvgRGBA(255, 255, 255, 55);
+
+    int   mode     = ui->split_view.mode;
     float btn_size = 28.0f;
-    
-    int mode = ui->split_view.mode; // 0=Table, 1=Split, 2=Design
-    NVGcolor active_bg = ui->dark_mode ? nvgRGBA(60, 62, 68, 255) : nvgRGBA(220, 222, 226, 255);
-    
-    if (mode == 0) {
-        nvgBeginPath(ui->vg);
-        nvgRoundedRect(ui->vg, btn_x, btn_y, btn_size, btn_size, 6.0f);
-        nvgFillColor(ui->vg, active_bg);
-        nvgFill(ui->vg);
-    }
-    if (nvgw_button_icon(&ui->nvgw, nvgw_id_str("view_table"), btn_x, btn_y, btn_size, btn_size, ICON_TABLE)) {
-        ui->split_view.mode = 0;
-    }
-    btn_x += btn_size + 4.0f;
-    
-    if (mode == 1) {
-        nvgBeginPath(ui->vg);
-        nvgRoundedRect(ui->vg, btn_x, btn_y, btn_size, btn_size, 6.0f);
-        nvgFillColor(ui->vg, active_bg);
-        nvgFill(ui->vg);
-    }
-    if (nvgw_button_icon(&ui->nvgw, nvgw_id_str("view_split"), btn_x, btn_y, btn_size, btn_size, "\xEE\xBA\x8D")) {
-        ui->split_view.mode = 1;
-    }
-    btn_x += btn_size + 4.0f;
-    
-    if (mode == 2) {
-        nvgBeginPath(ui->vg);
-        nvgRoundedRect(ui->vg, btn_x, btn_y, btn_size, btn_size, 6.0f);
-        nvgFillColor(ui->vg, active_bg);
-        nvgFill(ui->vg);
-    }
-    if (nvgw_button_icon(&ui->nvgw, nvgw_id_str("view_design"), btn_x, btn_y, btn_size, btn_size, ICON_DESIGN)) {
-        ui->split_view.mode = 2;
+    float btn_gap  = 2.0f;
+    float pad      = 6.0f; // pill inner padding
+    float pill_r   = 8.0f;
+
+    // --- Left group: view switcher in a pill container ---
+    float grp_x = 10.0f;
+    float grp_y = (top_bar_h - btn_size - 2.0f * pad) / 2.0f;
+    float grp_w = 3.0f * btn_size + 2.0f * btn_gap + 2.0f * pad;
+    float grp_h = btn_size + 2.0f * pad;
+
+    // Pill container background
+    nvgBeginPath(vg);
+    nvgRoundedRect(vg, grp_x, grp_y, grp_w, grp_h, pill_r);
+    nvgFillColor(vg, nvgRGBA(255, 255, 255, 12));
+    nvgFill(vg);
+
+    float bx = grp_x + pad;
+    float by = grp_y + pad;
+
+    const char *view_icons[3] = { ICON_TABLE, "\xEE\xBA\x8D", ICON_DESIGN };
+    const char *view_ids[3]   = { "view_table", "view_split", "view_design" };
+
+    for (int i = 0; i < 3; i++) {
+      float ix = bx + i * (btn_size + btn_gap);
+
+      // Active pill highlight
+      if (mode == i) {
+        nvgBeginPath(vg);
+        nvgRoundedRect(vg, ix, by, btn_size, btn_size, 6.0f);
+        nvgFillColor(vg, pill_active);
+        nvgFill(vg);
+      }
+
+      NVGcolor col = (mode == i) ? ic_active : ic_idle;
+      if (nvgw_button_icon_ex(&ui->nvgw, nvgw_id_str(view_ids[i]),
+                              ix, by, btn_size, btn_size,
+                              view_icons[i], 15.0f, col, hover_bg, press_bg)) {
+        ui->split_view.mode = i;
+        ui_request_redraw(ui);
+      }
     }
 
+    // --- Right group: design tools (only when design visible) ---
     if (mode == 1 || mode == 2) {
-        ui_render_design_topbar_tools(ui, (float)win_w - 20.0f, 0.0f, top_bar_h);
+      ui_render_design_topbar_tools(ui, (float)win_w - 10.0f, 0.0f, top_bar_h);
+    }
+    // --- Right group: table actions (only in table-only mode) ---
+    if (mode == 0) {
+      ui_render_table_topbar_actions(ui, engine, (float)win_w, top_bar_h);
     }
 
     // Render split view

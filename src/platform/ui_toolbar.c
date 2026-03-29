@@ -303,35 +303,65 @@ int topbar_point_in_tools(UIHost *ui, float right_x, float top_y, float top_h, f
 }
 
 void ui_render_design_topbar_tools(UIHost *ui, float right_x, float top_y, float top_h) {
-  const float btn_size = 28.0f;
-  const float btn_spacing = 6.0f;
-  int tool_count = 5;
-  const float toolbar_w = tool_count * btn_size + (tool_count - 1) * btn_spacing;
-  
-  float btn_x_start = right_x - toolbar_w;
-  float btn_y = top_y + (top_h - btn_size) / 2.0f;
+  NVGcontext *vg = ui->vg;
+  const float btn_size   = 28.0f;
+  const float btn_gap    = 2.0f;
+  const float pad        = 6.0f;
+  const int   tool_count = 5;
+  const float grp_w = tool_count * btn_size + (tool_count - 1) * btn_gap + 2.0f * pad;
+  const float grp_h = btn_size + 2.0f * pad;
+  const float grp_y = top_y + (top_h - grp_h) / 2.0f;
+  const float grp_x = right_x - grp_w;
 
-  const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT, ICON_IMAGE, ICON_CHART, "\xEF\x87\x9E"};
-  const char *tool_ids[] = {"tool_shape", "tool_text", "tool_image", "tool_chart", "tool_table"};
+  // Icon colors (same dark-bar palette as view switcher)
+  NVGcolor ic_active   = nvgRGBA(255, 255, 255, 230);
+  NVGcolor ic_idle     = nvgRGBA(255, 255, 255, 110);
+  NVGcolor pill_active = nvgRGBA(255, 255, 255, 38);
+  NVGcolor hover_bg    = nvgRGBA(255, 255, 255, 18);
+  NVGcolor press_bg    = nvgRGBA(255, 255, 255, 55);
+
+  // Subtle vertical separator between view-switcher group and tool group
+  float sep_x = grp_x - 10.0f;
+  float sep_y1 = top_y + top_h * 0.25f;
+  float sep_y2 = top_y + top_h * 0.75f;
+  nvgBeginPath(vg);
+  nvgMoveTo(vg, sep_x, sep_y1);
+  nvgLineTo(vg, sep_x, sep_y2);
+  nvgStrokeColor(vg, nvgRGBA(255, 255, 255, 30));
+  nvgStrokeWidth(vg, 1.0f);
+  nvgStroke(vg);
+
+  // Pill container background
+  nvgBeginPath(vg);
+  nvgRoundedRect(vg, grp_x, grp_y, grp_w, grp_h, 8.0f);
+  nvgFillColor(vg, nvgRGBA(255, 255, 255, 12));
+  nvgFill(vg);
+
+  const char *tool_icons[] = { ICON_SHAPE, ICON_TEXT, ICON_IMAGE, ICON_CHART, "\xEF\x87\x9E" };
+  const char *tool_ids[]   = { "tool_shape", "tool_text", "tool_image", "tool_chart", "tool_table" };
+
+  float bx = grp_x + pad;
+  float by = grp_y + pad;
 
   for (int i = 0; i < tool_count; i++) {
-    float btn_ix = btn_x_start + i * (btn_size + btn_spacing);
-    float btn_iy = btn_y;
+    float ix = bx + i * (btn_size + btn_gap);
 
     int is_active = (ui->editor.active_category == (CanvasCategory)(i + 1));
     if (i == 3) is_active = (ui->input.pending_create == 11);
     if (i == 4) is_active = 0;
 
-    // Draw active background manually (nvgw_button_icon handles hover/click backgrounds itself)
+    // Active pill highlight
     if (is_active) {
-      NVGcolor bg_color = ui->dark_mode ? nvgRGBA(200, 200, 220, 60) : nvgRGBA(110, 110, 130, 40);
-      nvgBeginPath(ui->vg);
-      nvgRoundedRect(ui->vg, btn_ix, btn_iy, btn_size, btn_size, 6.0f);
-      nvgFillColor(ui->vg, bg_color);
-      nvgFill(ui->vg);
+      nvgBeginPath(vg);
+      nvgRoundedRect(vg, ix, by, btn_size, btn_size, 6.0f);
+      nvgFillColor(vg, pill_active);
+      nvgFill(vg);
     }
 
-    if (nvgw_button_icon(&ui->nvgw, nvgw_id_str(tool_ids[i]), btn_ix, btn_iy, btn_size, btn_size, tool_icons[i])) {
+    NVGcolor col = is_active ? ic_active : ic_idle;
+    if (nvgw_button_icon_ex(&ui->nvgw, nvgw_id_str(tool_ids[i]),
+                            ix, by, btn_size, btn_size,
+                            tool_icons[i], 15.0f, col, hover_bg, press_bg)) {
       CanvasCategory cat = (CanvasCategory)(i + 1);
       if (cat == CANVAS_CAT_SHAPES) {
         ui->input.pending_create = 10;
@@ -354,10 +384,11 @@ void ui_render_design_topbar_tools(UIHost *ui, float right_x, float top_y, float
         ui->editor.active_category = cat;
         ui->editor.show_sub_menu = 1;
       }
+      ui_request_redraw(ui);
     }
 
     if (is_active && ui->editor.show_sub_menu) {
-      canvas_render_sub_menu_dropdown(ui, btn_ix, btn_iy, (CanvasCategory)(i + 1));
+      canvas_render_sub_menu_dropdown(ui, ix, by, (CanvasCategory)(i + 1));
     }
   }
 }

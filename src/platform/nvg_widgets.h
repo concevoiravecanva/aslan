@@ -75,6 +75,11 @@ bool nvgw_button(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,
                  float h, const char *text);
 bool nvgw_button_icon(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,
                       float h, const char *icon_utf8);
+bool nvgw_button_icon_ex(NvgWidgetCtx *ctx, uint32_t id,
+                         float x, float y, float w, float h,
+                         const char *icon_utf8, float icon_size,
+                         NVGcolor icon_col,
+                         NVGcolor hover_bg, NVGcolor press_bg);
 
 // Panel / Background
 void nvgw_panel(NvgWidgetCtx *ctx, float x, float y, float w, float h,

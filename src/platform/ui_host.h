@@ -550,6 +550,8 @@ void ui_render_block_heading(UIHost *ui, Block *block,
                              float width, int level);
 void ui_render_block_table(UIHost *ui, Engine *engine, Block *block,
                            float width, float height);
+void ui_render_table_topbar_actions(UIHost *ui, Engine *engine,
+                                    float right_edge, float bar_h);
 // ui_render_block_design is in ui_design.c
 void ui_render_chart_node(UIHost *ui, Node *node,
                           AslanRect bounds, Page *page);

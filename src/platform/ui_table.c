@@ -531,110 +531,6 @@ static void render_header(UIHost *ui, Engine *engine, AslanTable *table,
         ui_request_redraw(ui);
     }
 
-    // "+" Add column button
-    float add_x = table_total_w(ui, table) - ui->table_state.row_scroll_x;
-    uint32_t add_id = nvgw_id(&block->id, sizeof(block->id)) ^ nvgw_id_str("add_col");
-    float add_w = 56.0f;
-
-    // Draw "+" button manually (dark-mode compatible)
-    float bx = add_x + 4, by = 4, bw = add_w, bh = header_h - 8;
-    float amx = wc->mouse_x - wc->offset_x;
-    float amy = wc->mouse_y - wc->offset_y;
-    bool ahov = (amx >= bx && amx < bx + bw && amy >= by && amy < by + bh);
-    if (ahov) wc->hot_id = add_id;
-    bool add_clicked = (wc->active_id == add_id && wc->mouse_released && ahov);
-    if (wc->hot_id == add_id && wc->mouse_clicked) wc->active_id = add_id;
-
-    nvgBeginPath(vg);
-    nvgRoundedRect(vg, bx, by, bw, bh, 4.0f);
-    nvgFillColor(vg, ahov
-        ? (dark ? nvgRGBA(255,255,255,14) : nvgRGBA(0,0,0,10))
-        : (dark ? nvgRGBA(255,255,255,6)  : nvgRGBA(0,0,0,4)));
-    nvgFill(vg);
-    nvgFontSize(vg, 13.0f);
-    nvgFontFace(vg, "Inter");
-    nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
-    nvgFillColor(vg, tbl_dim(dark));
-    nvgText(vg, bx + bw * 0.5f, by + bh * 0.5f, "+ Add", NULL);
-
-    if (add_clicked) {
-        bool was_open = (ui->table_state.show_type_menu != 0);
-        ui->table_state.show_type_menu = was_open ? 0 : 1;
-        if (ui->table_state.show_type_menu) {
-            ui->table_state.type_menu_x = ui->mouse_x;
-            ui->table_state.type_menu_y = ui->mouse_y;
-            ui->table_state.active_block_id = block->id;
-            wc->mouse_clicked = false; // consume — prevents same-frame close
-        }
-        ui_request_redraw(ui);
-    }
-
-    // ── Import / Export CSV buttons ───────────────────────────────────────
-    float csv_gap = 6.0f;
-    float csv_w = 72.0f;
-    float import_x = add_x + add_w + csv_gap;
-    float export_x = import_x + csv_w + csv_gap;
-
-    // Helper: draw one header action button and return true if clicked
-    // (inline lambda via macro)
-    #define DRAW_CSV_BTN(BX, LABEL, ID_STR)                                    \
-    do {                                                                         \
-        float _bx = (BX), _by = by, _bw = csv_w, _bh = bh;                    \
-        uint32_t _id = nvgw_id(&block->id, sizeof(block->id))                   \
-                     ^ nvgw_id_str(ID_STR);                                     \
-        float _mx = wc->mouse_x - wc->offset_x;                                \
-        float _my = wc->mouse_y - wc->offset_y;                                \
-        bool _hov = (_mx >= _bx && _mx < _bx + _bw &&                         \
-                     _my >= _by && _my < _by + _bh);                           \
-        if (_hov) wc->hot_id = _id;                                             \
-        if (wc->hot_id == _id && wc->mouse_clicked) wc->active_id = _id;       \
-        bool _clicked = (wc->active_id == _id && wc->mouse_released && _hov);  \
-        nvgBeginPath(vg);                                                        \
-        nvgRoundedRect(vg, _bx, _by, _bw, _bh, 4.0f);                         \
-        nvgFillColor(vg, _hov                                                   \
-            ? (dark ? nvgRGBA(255,255,255,14) : nvgRGBA(0,0,0,10))             \
-            : (dark ? nvgRGBA(255,255,255,6)  : nvgRGBA(0,0,0,4)));            \
-        nvgFill(vg);                                                             \
-        nvgFontSize(vg, 12.0f);                                                  \
-        nvgFontFace(vg, "Inter");                                                \
-        nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);                  \
-        nvgFillColor(vg, tbl_dim(dark));                                         \
-        nvgText(vg, _bx + _bw * 0.5f, _by + _bh * 0.5f, (LABEL), NULL);       \
-        if (_clicked)
-
-    DRAW_CSV_BTN(import_x, "\u2191 Import", "csv_import") {
-        char csv_path[1024];
-        if (open_csv_file_dialog(csv_path, sizeof(csv_path))) {
-            // Replace table content with imported CSV
-            aslan_table_import_csv(table, csv_path);
-            aslan_table_eval_formulas(table);
-            ui_request_redraw(ui);
-        }
-    } } while(0);
-
-    DRAW_CSV_BTN(export_x, "\u2193 Export", "csv_export") {
-        char filename[1024];
-        char clean[64];
-        if (table->name[0]) {
-            strncpy(clean, table->name, sizeof(clean) - 1);
-            clean[sizeof(clean)-1] = '\0';
-        } else {
-            strcpy(clean, "Table");
-        }
-        for (char *p = clean; *p; p++)
-            if (*p == ' ' || *p == '/' || *p == '\\') *p = '_';
-        time_t now = time(NULL); struct tm *t = localtime(&now);
-        char def[256];
-        snprintf(def, sizeof(def), "%s_%04d%02d%02d.csv",
-                 clean, t->tm_year+1900, t->tm_mon+1, t->tm_mday);
-        if (save_csv_file_dialog(filename, sizeof(filename), def)) {
-            aslan_table_export_csv(table, filename);
-            ui_request_redraw(ui);
-        }
-    } } while(0);
-
-    #undef DRAW_CSV_BTN
-
     nvgRestore(vg);
 
     // Bottom border
@@ -1336,6 +1232,7 @@ static void render_type_menu(UIHost *ui, AslanTable *table, Block *block) {
 
     float mx = ui->table_state.type_menu_x - ui->abs_offset_x;
     float my = ui->table_state.type_menu_y - ui->abs_offset_y;
+    if (my < 0) my = 0; // clamp: never open above the content area
     if (my + menu_h > (float)ui->win_height - ui->abs_offset_y)
         my = (float)ui->win_height - ui->abs_offset_y - menu_h - 4;
 
@@ -2055,6 +1952,114 @@ static void render_footer_popup(UIHost *ui, AslanTable *table) {
     if (wc->mouse_clicked && !in_popup) {
         ui->table_state.show_footer_popup = -1;
         ui_request_redraw(ui);
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Topbar Actions (+ Add, Import, Export) — rendered in the global top bar
+// -----------------------------------------------------------------------------
+
+// Draw one topbar action button, returns true if clicked
+static bool topbar_action_btn(NVGcontext *vg, NvgWidgetCtx *wc,
+                               Block *block, const char *label,
+                               const char *id_str,
+                               float bx, float by, float bw, float bh) {
+    uint32_t id = nvgw_id(&block->id, sizeof(block->id)) ^ nvgw_id_str(id_str);
+    float mx = wc->mouse_x, my = wc->mouse_y;
+    bool hov = (mx >= bx && mx < bx + bw && my >= by && my < by + bh);
+    if (hov) wc->hot_id = id;
+    if (wc->hot_id == id && wc->mouse_clicked) wc->active_id = id;
+    bool pressed  = (wc->active_id == id);
+    bool clicked  = (pressed && wc->mouse_released && hov);
+
+    nvgBeginPath(vg);
+    nvgRoundedRect(vg, bx, by, bw, bh, 5.0f);
+    nvgFillColor(vg, pressed ? nvgRGBA(255,255,255,55)
+                   : hov    ? nvgRGBA(255,255,255,30)
+                            : nvgRGBA(255,255,255,15));
+    nvgFill(vg);
+    nvgFontSize(vg, 12.0f);
+    nvgFontFace(vg, "Inter");
+    nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+    nvgFillColor(vg, nvgRGBA(255,255,255,200));
+    nvgText(vg, bx + bw * 0.5f, by + bh * 0.5f, label, NULL);
+    return clicked;
+}
+
+void ui_render_table_topbar_actions(UIHost *ui, Engine *engine,
+                                    float right_edge, float bar_h) {
+    Page *page = doc_page_get_active(engine->doc);
+    if (!page) return;
+    // Find first table block on this page
+    Block *block = NULL;
+    for (Block *b = page->first_block; b; b = b->next) {
+        if (b->type == BLOCK_TABLE) { block = b; break; }
+    }
+    if (!block) return;
+    AslanTable *table = block->data.table.columnar;
+    if (!table) return;
+
+    NVGcontext *vg = ui->vg;
+    NvgWidgetCtx *wc = &ui->nvgw;
+    nvgw_set_offset(wc, 0.0f, 0.0f);
+
+    float btn_h  = 26.0f;
+    float btn_y  = (bar_h - btn_h) * 0.5f;
+    float add_w  = 62.0f;
+    float csv_w  = 74.0f;
+    float gap    = 6.0f;
+    float margin = 10.0f;
+
+    // Right to left: Export | Import | + Add
+    float export_x = right_edge - margin - csv_w;
+    float import_x = export_x - gap - csv_w;
+    float add_x    = import_x - gap - add_w;
+
+    if (topbar_action_btn(vg, wc, block, "+ Add", "topbar_add_col",
+                          add_x, btn_y, add_w, btn_h)) {
+        bool was_open = (ui->table_state.show_type_menu != 0);
+        ui->table_state.show_type_menu = was_open ? 0 : 1;
+        if (ui->table_state.show_type_menu) {
+            // Open popup centered under the button, just below the topbar
+            float menu_w = 170.0f;
+            ui->table_state.type_menu_x = add_x + add_w * 0.5f - menu_w * 0.5f;
+            ui->table_state.type_menu_y = bar_h;
+            ui->table_state.active_block_id = block->id;
+            wc->mouse_clicked = false;
+        }
+        ui_request_redraw(ui);
+    }
+
+    if (topbar_action_btn(vg, wc, block, "\u2191 Import", "topbar_csv_import",
+                          import_x, btn_y, csv_w, btn_h)) {
+        char csv_path[1024];
+        if (open_csv_file_dialog(csv_path, sizeof(csv_path))) {
+            aslan_table_import_csv(table, csv_path);
+            aslan_table_eval_formulas(table);
+            ui_request_redraw(ui);
+        }
+    }
+
+    if (topbar_action_btn(vg, wc, block, "\u2193 Export", "topbar_csv_export",
+                          export_x, btn_y, csv_w, btn_h)) {
+        char filename[1024];
+        char clean[64];
+        if (table->name[0]) {
+            strncpy(clean, table->name, sizeof(clean) - 1);
+            clean[sizeof(clean)-1] = '\0';
+        } else {
+            strcpy(clean, "Table");
+        }
+        for (char *p = clean; *p; p++)
+            if (*p == ' ' || *p == '/' || *p == '\\') *p = '_';
+        time_t now = time(NULL); struct tm *t = localtime(&now);
+        char def[256];
+        snprintf(def, sizeof(def), "%s_%04d%02d%02d.csv",
+                 clean, t->tm_year+1900, t->tm_mon+1, t->tm_mday);
+        if (save_csv_file_dialog(filename, sizeof(filename), def)) {
+            aslan_table_export_csv(table, filename);
+            ui_request_redraw(ui);
+        }
     }
 }
 

@@ -227,6 +227,47 @@ bool nvgw_button_icon(NvgWidgetCtx *ctx, uint32_t id, float x, float y, float w,
   return clicked;
 }
 
+// Extended icon button: caller controls icon color, hover/press backgrounds.
+// Pass nvgRGBA(0,0,0,0) for hover_bg / press_bg to skip those backgrounds.
+bool nvgw_button_icon_ex(NvgWidgetCtx *ctx, uint32_t id,
+                         float x, float y, float w, float h,
+                         const char *icon_utf8, float icon_size,
+                         NVGcolor icon_col,
+                         NVGcolor hover_bg, NVGcolor press_bg) {
+  NVGcontext *vg = ctx->vg;
+  bool hovered = point_in_rect(ctx->mouse_x, ctx->mouse_y, x, y, w, h,
+                               ctx->offset_x, ctx->offset_y);
+  if (hovered) ctx->hot_id = id;
+
+  bool clicked = false;
+  if (ctx->active_id == id && ctx->mouse_released && hovered) clicked = true;
+  if (ctx->hot_id == id && ctx->mouse_clicked) ctx->active_id = id;
+
+  NVGcolor text_col = icon_col;
+  if (ctx->active_id == id && press_bg.a > 0.0f) {
+    nvgBeginPath(vg);
+    nvgRoundedRect(vg, x, y, w, h, w * 0.35f);
+    nvgFillColor(vg, press_bg);
+    nvgFill(vg);
+    text_col.a = 1.0f;
+  } else if (ctx->hot_id == id && hover_bg.a > 0.0f) {
+    nvgBeginPath(vg);
+    nvgRoundedRect(vg, x, y, w, h, w * 0.35f);
+    nvgFillColor(vg, hover_bg);
+    nvgFill(vg);
+  }
+
+  nvgSave(vg);
+  nvgFontSize(vg, icon_size);
+  nvgFontFaceId(vg, ctx->font_icons);
+  nvgFillColor(vg, text_col);
+  nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+  nvgText(vg, x + w * 0.5f, y + h * 0.5f, icon_utf8, NULL);
+  nvgRestore(vg);
+
+  return clicked;
+}
+
 void nvgw_panel(NvgWidgetCtx *ctx, float x, float y, float w, float h,
                 NVGcolor bg_color, float corner_radius) {
   NVGcontext *vg = ctx->vg;
