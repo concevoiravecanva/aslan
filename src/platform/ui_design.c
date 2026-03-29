@@ -5,6 +5,7 @@
 #include "ui_shared.h"
 #include "ui_properties.h"
 #include "node_render.h"
+#include "ui_toolbar.h"
 #include <SDL.h>
 #include <math.h>
 #include <stdio.h>
@@ -365,15 +366,8 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
     float mx = ui->mouse_x - ui->abs_offset_x;
     float my = ui->mouse_y - ui->abs_offset_y;
 
-    // Pre-calculate toolbar flags for interaction logic (8 buttons in
-    // design)
-    float toolbar_w = 8 * 36.0f + 7 * 8.0f + 24.0f;
-    float toolbar_x = ws_bounds.x + (ws_bounds.w - toolbar_w) / 2.0f;
-    float toolbar_y = ws_bounds.y + ws_bounds.h - 52.0f - 20.0f; // toolbar_h=52
-
-    int in_toolbar =
-        (mx >= toolbar_x && mx < toolbar_x + toolbar_w &&
-         my >= toolbar_y && my < toolbar_y + 52.0f);
+    // Check if mouse is interacting with the global topbar dropdowns
+    int in_toolbar = topbar_point_in_tools(ui, ui->abs_offset_x + width - 20.0f, 0.0f, 44.0f, ui->mouse_x, ui->mouse_y);
     int in_forms_menu = 0;
 
     // Early check for active state
@@ -1671,21 +1665,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       nvgStroke(ui->vg);
     }
 
-    // --- Toolbar (same as Canvas) ---
-    // Rendered in workspace coordinate space, not artboard space
-
-    // Render Toolbar (now shared state automatically)
-    {
-      // Position toolbar at bottom of workspace
-      nvgResetScissor(ui->vg);
-      canvas_render_toolbar(ui, ws_bounds.x, ws_bounds.y, ws_bounds.w,
-                            ws_bounds.h, block);
-    }
-
-    if (ui->input.mouse_just_pressed &&
-        !(mx >= ws_bounds.x && mx < ws_bounds.x + ws_bounds.w &&
-          my >= ws_bounds.y + ws_bounds.h - toolbar_h && my < ws_bounds.y + ws_bounds.h)) {
-    }
+    // Topbar tools are now rendered globally by ui_host.c
 
     // --- Zoom controls for no_limits mode ---
     if (dd->no_limits) {

@@ -9,6 +9,7 @@
 #include "ui_shared.h"
 #include "ui_canvas.h"
 #include "ui_core.h"
+#include "ui_toolbar.h"
 #include "ui_design.h"
 #include <SDL.h>
 
@@ -2414,6 +2415,10 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     }
     if (nvgw_button_icon(&ui->nvgw, nvgw_id_str("view_design"), btn_x, btn_y, btn_size, btn_size, ICON_DESIGN)) {
         ui->split_view.mode = 2;
+    }
+
+    if (mode == 1 || mode == 2) {
+        ui_render_design_topbar_tools(ui, (float)win_w - 20.0f, 0.0f, top_bar_h);
     }
 
     // Render split view
