@@ -1069,8 +1069,11 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       ui->editor.cam_y = ui->input.start_cam_y - dy / zm;
     }
 
-    // Handle node dragging
-    if ((ui->input.mode == INTERACTION_DRAG_NODE) && ui->selected_node) {
+    // Handle node dragging — ONLY for canvas blocks.
+    // Design blocks handle their own drag logic in ui_design.c
+    // (with grid snapping, element snapping, threshold, etc.)
+    if ((ui->input.mode == INTERACTION_DRAG_NODE) && ui->selected_node &&
+        ui->split_view.mode == 0) {
       float world_x = ui->editor.cam_x + (ui->mouse_x - ui->input.bounds_x) / ui->editor.zoom;
       float world_y = ui->editor.cam_y + (ui->mouse_y - ui->input.bounds_y) / ui->editor.zoom;
       ui->selected_node->x = world_x - ui->input.drag_offset_x;

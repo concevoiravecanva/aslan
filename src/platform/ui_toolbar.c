@@ -312,6 +312,7 @@ void ui_render_design_topbar_tools(UIHost *ui, float right_x, float top_y, float
   float btn_y = top_y + (top_h - btn_size) / 2.0f;
 
   const char *tool_icons[] = {ICON_SHAPE, ICON_TEXT, ICON_IMAGE, ICON_CHART, "\xEF\x87\x9E"};
+  const char *tool_ids[] = {"tool_shape", "tool_text", "tool_image", "tool_chart", "tool_table"};
 
   for (int i = 0; i < tool_count; i++) {
     float btn_ix = btn_x_start + i * (btn_size + btn_spacing);
@@ -321,29 +322,16 @@ void ui_render_design_topbar_tools(UIHost *ui, float right_x, float top_y, float
     if (i == 3) is_active = (ui->input.pending_create == 11);
     if (i == 4) is_active = 0;
 
-    float rel_mx = ui->mouse_x - btn_ix;
-    float rel_my = ui->mouse_y - btn_iy;
-    int hovered = (rel_mx >= 0 && rel_mx < btn_size && rel_my >= 0 && rel_my < btn_size);
-
-    if (is_active || hovered) {
-      NVGcolor bg_color = is_active ? (ui->dark_mode ? nvgRGBA(200, 200, 220, 40) : nvgRGBA(110, 110, 130, 25))
-                                    : (ui->dark_mode ? nvgRGBA(255, 255, 255, 10) : nvgRGBA(0, 0, 0, 10));
+    // Draw active background manually (nvgw_button_icon handles hover/click backgrounds itself)
+    if (is_active) {
+      NVGcolor bg_color = ui->dark_mode ? nvgRGBA(200, 200, 220, 60) : nvgRGBA(110, 110, 130, 40);
       nvgBeginPath(ui->vg);
       nvgRoundedRect(ui->vg, btn_ix, btn_iy, btn_size, btn_size, 6.0f);
       nvgFillColor(ui->vg, bg_color);
       nvgFill(ui->vg);
     }
 
-    NVGcolor icon_color = is_active ? (ui->dark_mode ? nvgRGBA(220, 220, 255, 255) : nvgRGBA(110, 110, 130, 255))
-                                    : (ui->dark_mode ? nvgRGB(200, 200, 200) : nvgRGB(60, 60, 60));
-
-    nvgFontSize(ui->vg, btn_size - 10);
-    nvgFontFaceId(ui->vg, ui->nvgw.font_icons);
-    nvgFillColor(ui->vg, icon_color);
-    nvgTextAlign(ui->vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
-    nvgText(ui->vg, btn_ix + btn_size / 2, btn_iy + btn_size / 2, tool_icons[i], NULL);
-
-    if (hovered && ui->input.mouse_just_pressed) {
+    if (nvgw_button_icon(&ui->nvgw, nvgw_id_str(tool_ids[i]), btn_ix, btn_iy, btn_size, btn_size, tool_icons[i])) {
       CanvasCategory cat = (CanvasCategory)(i + 1);
       if (cat == CANVAS_CAT_SHAPES) {
         ui->input.pending_create = 10;
