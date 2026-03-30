@@ -902,7 +902,8 @@ void design_render_sidebar(UIHost *ui, Engine *engine,
       }
 
       // Fill [swatch][Grad]  |  Radius [input]  — single row
-      {
+      // (hidden for image nodes — they have no fill/gradient)
+      if (node->type != NODE_TYPE_IMAGE) {
         const float fl = 36.0f;  // "Fill" label width
         const float gr = 38.0f;  // "Grad" button width
         const float rl = 36.0f;  // "Rad" label width
@@ -947,11 +948,10 @@ void design_render_sidebar(UIHost *ui, Engine *engine,
                               ui->prop_input_bufs[7], 64, 12, true))
             node->corner_radius = (float)atof(ui->prop_input_bufs[7]);
         }
-      }
-      y_off += row_h + row_gap;
+        y_off += row_h + row_gap;
 
-      // Gradient row: Color 2 | Angle (only when gradient active)
-      if (node->fill_type == 1) {
+        // Gradient row: Color 2 | Angle (only when gradient active)
+        if (node->fill_type == 1) {
         const float c2l = 42.0f;
         float sw2 = half_w - c2l - 3;
         nvgw_label(&ui->nvgw, x_ptr, y_off, c2l, row_h, "Color 2", NVG_ALIGN_LEFT, col_label, 12);
@@ -966,9 +966,11 @@ void design_render_sidebar(UIHost *ui, Engine *engine,
         if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 15), ax + albl, y_off,
                             half_w - albl - 6, row_h, ui->prop_input_bufs[15], 64, 12, true))
           node->gradient_angle = (float)atof(ui->prop_input_bufs[15]);
-        y_off += row_h + row_gap;
-      }
-      y_off += 2;
+          y_off += row_h + row_gap;
+        }
+        y_off += 2;
+
+      } // end if (node->type != NODE_TYPE_IMAGE)
 
       } // end if not chart
 
@@ -1122,6 +1124,43 @@ void design_render_sidebar(UIHost *ui, Engine *engine,
               char *ls = strrchr(doc_dir, '/'); if (ls) *ls = '\0';
             }
             copy_image_to_assets(new_path, doc_dir, node->image_path, sizeof(node->image_path));
+          }
+        }
+        y_off += row_h + row_gap;
+
+        // Radius
+        {
+          const float rl = 52.0f;
+          nvgw_label(&ui->nvgw, x_ptr, y_off, rl, row_h, "Radius", NVG_ALIGN_LEFT, col_label, 13);
+          PROP_SYNC(7, "%.1f", node->corner_radius);
+          if (nvgw_text_input(&ui->nvgw, nvgw_id(node, 7), x_ptr + rl, y_off,
+                              w_ptr - rl, row_h, ui->prop_input_bufs[7], 64, 12, true))
+            node->corner_radius = (float)atof(ui->prop_input_bufs[7]);
+        }
+        y_off += row_h + row_gap;
+
+        // Lock ratio
+        {
+          nvgw_label(&ui->nvgw, x_ptr, y_off, lbl_w, row_h, "Ratio", NVG_ALIGN_LEFT, col_label, 13);
+          bool locked = (node->lock_ratio == 1);
+          const float tog_w = 52.0f;
+          float tog_x = x_ptr + lbl_w;
+          float _mx = ui->nvgw.mouse_x - ui->nvgw.offset_x;
+          float _my = ui->nvgw.mouse_y - ui->nvgw.offset_y;
+          NVGcolor tog_bg = locked ? nvgRGBA(60,120,220,255)
+                                   : (dark ? nvgRGBA(50,52,62,255) : nvgRGBA(222,224,232,255));
+          NVGcolor tog_fg = locked ? nvgRGBA(255,255,255,255)
+                                   : (dark ? nvgRGBA(150,152,168,255) : nvgRGBA(90,92,110,255));
+          nvgBeginPath(vg); nvgRoundedRect(vg, tog_x, y_off, tog_w, row_h, 4.0f);
+          nvgFillColor(vg, tog_bg); nvgFill(vg);
+          nvgFontSize(vg, 11.0f); nvgFontFaceId(vg, ui->nvgw.font_main);
+          nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+          nvgFillColor(vg, tog_fg);
+          nvgText(vg, tog_x + tog_w * 0.5f, y_off + row_h * 0.5f, locked ? "Locked" : "Free", NULL);
+          bool hov_tog = _mx >= tog_x && _mx < tog_x + tog_w && _my >= y_off && _my < y_off + row_h;
+          if (hov_tog && ui->nvgw.mouse_clicked) {
+            node->lock_ratio = locked ? 0 : 1;
+            ui_request_redraw(ui);
           }
         }
         y_off += row_h + row_gap;

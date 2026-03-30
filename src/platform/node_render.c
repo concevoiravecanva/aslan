@@ -655,7 +655,11 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
                                             img_w, img_h, 0, img, 1.0f);
         nvgBeginPath(ui->vg);
         // Draw clipped to node bounds (half-extents in local space)
-        nvgRect(ui->vg, -nr.w * 0.5f, -nr.h * 0.5f, nr.w, nr.h);
+        float corner_r = node->corner_radius * scale;
+        if (corner_r > 0.0f)
+          nvgRoundedRect(ui->vg, -nr.w * 0.5f, -nr.h * 0.5f, nr.w, nr.h, corner_r);
+        else
+          nvgRect(ui->vg, -nr.w * 0.5f, -nr.h * 0.5f, nr.w, nr.h);
         nvgFillPaint(ui->vg, imgPaint);
         nvgFill(ui->vg);
 
