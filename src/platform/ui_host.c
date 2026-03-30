@@ -2242,9 +2242,9 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
   }
 
   // Left Panel
-  float view_x_left = 6.0f;
+  float view_x_left = 0.0f;
   float view_y_left = top_y;
-  float view_w_left = left_w - 12.0f;
+  float view_w_left = left_w;
   float view_h_left = view_h;
   if (view_w_left > 0 && view_h_left > 0 && ui->split_view.mode != 2) {
     ui_render_panel_view(ui, engine, page, 0, view_x_left, view_y_left,
@@ -2252,9 +2252,9 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
   }
 
   // Right Panel
-  float view_x_right = right_x + 6.0f;
+  float view_x_right = right_x;
   float view_y_right = top_y;
-  float view_w_right = right_w - 12.0f;
+  float view_w_right = right_w;
   float view_h_right = view_h;
   if (view_w_right > 0 && view_h_right > 0 && ui->split_view.mode != 0) {
     // Mode != 0 means design canvas IS drawn. Wait, if Mode == 0, we DO draw right panel (for sidebar only)
