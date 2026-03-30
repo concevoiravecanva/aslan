@@ -866,6 +866,9 @@ UIHost *ui_init(SDL_Window *win) {
   ui->table_state.drop_target_col  = -1;
   ui->table_state.show_footer_popup = -1;
 
+  ui->input.snap_guide_x = -1.0f;
+  ui->input.snap_guide_y = -1.0f;
+
   ui->editor.selected_color = 0x000000FF; // Default black
   ui->editor.pen_thickness = 2.0f;
   ui->editor.pen_is_marker = 0;
