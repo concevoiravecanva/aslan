@@ -2197,7 +2197,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
     } else {
       left_bg  = nvgRGBA(249, 249, 251, 255);
       right_bg = nvgRGBA(249, 249, 251, 255);
-      spl_bg   = spl_active ? nvgRGBA(218, 218, 225, 255) : nvgRGBA(235, 235, 238, 255);
+      spl_bg   = spl_active ? nvgRGBA(50, 50, 54, 255) : nvgRGBA(36, 36, 39, 255);
     }
 
     // Left panel
@@ -2218,7 +2218,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
       // Splitter dots
       NVGcolor dot_col = is_dark
         ? (spl_active ? nvgRGBA(120, 122, 135, 255) : nvgRGBA(80, 82, 92, 255))
-        : (spl_active ? nvgRGBA(140, 140, 150, 255) : nvgRGBA(180, 180, 188, 255));
+        : (spl_active ? nvgRGBA(90, 90, 96, 255)   : nvgRGBA(65, 65, 70, 255));
       float dot_x = left_w + spl_w * 0.5f - 1.5f;
       float dot_y = top_y + view_h * 0.5f - 10.0f;
       for (int d = 0; d < 3; d++) {
