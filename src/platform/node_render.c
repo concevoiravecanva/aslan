@@ -630,28 +630,36 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
     if (img_path_to_use && img_path_to_use[0]) {
       int img = get_image_texture(ui, img_path_to_use);
       if (img != 0) {
-        // Image Cropping implementation
+        // Clip to artboard
+        nvgScissor(ui->vg, ui->artboard_clip.x, ui->artboard_clip.y,
+                   ui->artboard_clip.w, ui->artboard_clip.h);
 
-        // Clip image to node bounds intersected with artboard
-        AslanRect sc = rect_intersect(nr, ui->artboard_clip);
-        nvgScissor(ui->vg, sc.x, sc.y, sc.w, sc.h);
-
-        // Calculate transformed image rect
         float img_w = nr.w * node->image_scale;
         float img_h = nr.h * node->image_scale;
-        float img_x = nr.x + node->image_crop_x * scale;
-        float img_y = nr.y + node->image_crop_y * scale;
 
-        NVGpaint imgPaint = nvgImagePattern(ui->vg, img_x, img_y, img_w, img_h,
-                                            0, img, 1.0f);
+        // Apply rotation around the node center
+        float cx = nr.x + nr.w * 0.5f;
+        float cy = nr.y + nr.h * 0.5f;
+        float rad = node->rotation * NVG_PI / 180.0f;
+
+        nvgSave(ui->vg);
+        nvgTranslate(ui->vg, cx, cy);
+        if (rad != 0.0f)
+          nvgRotate(ui->vg, rad);
+
+        // Coordinates relative to rotated center
+        float img_x = node->image_crop_x * scale - nr.w * 0.5f;
+        float img_y = node->image_crop_y * scale - nr.h * 0.5f;
+
+        NVGpaint imgPaint = nvgImagePattern(ui->vg, img_x, img_y,
+                                            img_w, img_h, 0, img, 1.0f);
         nvgBeginPath(ui->vg);
-        nvgRect(ui->vg, img_x, img_y, img_w, img_h);
+        // Draw clipped to node bounds (half-extents in local space)
+        nvgRect(ui->vg, -nr.w * 0.5f, -nr.h * 0.5f, nr.w, nr.h);
         nvgFillPaint(ui->vg, imgPaint);
         nvgFill(ui->vg);
 
-        // Restore scissor back to artboard clip
-        nvgScissor(ui->vg, ui->artboard_clip.x, ui->artboard_clip.y,
-                   ui->artboard_clip.w, ui->artboard_clip.h);
+        nvgRestore(ui->vg);
 
         drawn = 1;
       }
