@@ -357,7 +357,7 @@ static void ui_render_layer_item(UIHost *ui, Block *block, Node *node,
     const char *display =
         node->name[0] ? node->name : node_type_display_name(node->type);
     nvgw_label(nvgw, cur_x, current_y, name_w, row_h, display,
-               NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE,
+               0, /* left-aligned */
                is_selected ? nvgRGB(60, 60, 75) : nvgRGB(80, 80, 95), 14);
   }
   cur_x += name_w;
