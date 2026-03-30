@@ -824,8 +824,8 @@ int copy_image_to_assets(const char *src_path, const char *doc_dir,
 // Colors (exported for use by other UI modules)
 // -----------------------------------------------------------------------------
 
-AslanColor COLOR_BG = {255, 255, 255, 255}; // Pure white
-AslanColor COLOR_PANEL = {255, 255, 255, 255};
+AslanColor COLOR_BG = {249, 249, 251, 255}; // Soft warm gray
+AslanColor COLOR_PANEL = {255, 255, 255, 255}; // Cards/tables stay pure white
 AslanColor COLOR_BORDER = {228, 228, 231, 255}; // Subtle border
 AslanColor COLOR_TEXT = {220, 220, 220, 255};
 AslanColor COLOR_TEXT_DARK = {36, 36, 39, 255}; // Near-black
@@ -2195,8 +2195,8 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
       right_bg = nvgRGBA(24, 26, 32, 255);
       spl_bg   = spl_active ? nvgRGBA(55, 57, 68, 255) : nvgRGBA(42, 44, 52, 255);
     } else {
-      left_bg  = nvgRGBA(252, 252, 253, 255);
-      right_bg = nvgRGBA(255, 255, 255, 255);
+      left_bg  = nvgRGBA(249, 249, 251, 255);
+      right_bg = nvgRGBA(249, 249, 251, 255);
       spl_bg   = spl_active ? nvgRGBA(218, 218, 225, 255) : nvgRGBA(235, 235, 238, 255);
     }
 
@@ -2266,7 +2266,7 @@ static void ui_render_split_view(UIHost *ui, Engine *engine,
   NVGcontext *vg = ui->vg;
   NVGcolor bg = ui->dark_mode
     ? nvgRGBA(28, 28, 30, 255)
-    : nvgRGBA(255, 255, 255, 255);
+    : nvgRGBA(249, 249, 251, 255);
 
   if (ui->split_view.mode == 1) {
     // Left panel fade

@@ -114,7 +114,7 @@ void renderer_begin(Renderer *r, int dark_mode) {
   if (dark_mode)
     glClearColor(30.0f/255.0f, 30.0f/255.0f, 35.0f/255.0f, 1.0f);
   else
-    glClearColor(252.0f/255.0f, 252.0f/255.0f, 253.0f/255.0f, 1.0f);
+    glClearColor(249.0f/255.0f, 249.0f/255.0f, 251.0f/255.0f, 1.0f);
   glClear(GL_COLOR_BUFFER_BIT);
 }
 
