@@ -697,6 +697,11 @@ static void render_rows(UIHost *ui, Engine *engine __attribute__((unused)),
                 }
                 uint64_t new_id = aslan_table_add_row(table);
                 aslan_table_eval_formulas(table);
+                // Guard: prevent the new row's delete button from being
+                // auto-activated while the mouse button is still held.
+                // nvgw_input_end promotes hot_id→active_id when active_id==0;
+                // setting a non-zero sentinel here blocks that promotion.
+                wc->active_id = 0xFFFFFFFFu;
                 // Start editing first text column of new row
                 for (size_t cc = 0; cc < table->column_count; cc++) {
                     AslanColumnType ct = table->columns[cc].type;
