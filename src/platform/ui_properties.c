@@ -9,6 +9,210 @@
 #include <string.h>
 
 // -----------------------------------------------------------------------------
+// Layer thumbnail — renders a miniature of the actual node appearance
+static void draw_layer_thumbnail(UIHost *ui, Node *node,
+                                  float tx, float ty, float ts) {
+  if (!node) return;
+  NVGcontext *vg = ui->vg;
+
+  nvgSave(vg);
+  nvgScissor(vg, tx, ty, ts, ts);
+
+  // Background
+  nvgBeginPath(vg);
+  nvgRoundedRect(vg, tx, ty, ts, ts, 3.0f);
+  nvgFillColor(vg, nvgRGBA(235, 235, 238, 255));
+  nvgFill(vg);
+
+  // Scale node to fit inner area with 2px padding
+  float pad = 2.0f;
+  float inner = ts - 2.0f * pad;
+  float nw = node->width  > 0.5f ? node->width  : 1.0f;
+  float nh = node->height > 0.5f ? node->height : 1.0f;
+  float scale = (nw >= nh) ? inner / nw : inner / nh;
+  float sw = nw * scale;
+  float sh = nh * scale;
+  float ox = tx + pad + (inner - sw) * 0.5f;
+  float oy = ty + pad + (inner - sh) * 0.5f;
+
+  // Fill color
+  uint32_t f32 = node->fill_color;
+  uint8_t fr = (f32 >> 24) & 0xFF;
+  uint8_t fg = (f32 >> 16) & 0xFF;
+  uint8_t fb = (f32 >>  8) & 0xFF;
+  uint8_t fa =  f32        & 0xFF;
+  NVGcolor fill = nvgRGBA(fr, fg, fb, fa);
+  int has_fill = (fa > 10);
+
+  // Stroke color
+  uint32_t s32 = node->stroke_color;
+  NVGcolor stroke_col = nvgRGBA((s32 >> 24) & 0xFF, (s32 >> 16) & 0xFF,
+                                 (s32 >>  8) & 0xFF,  s32        & 0xFF);
+  float stroke_w = node->stroke_width * scale;
+  if (stroke_w < 0.5f && node->stroke_width > 0) stroke_w = 0.5f;
+
+  // Gradient paint (fill_type == 1)
+  NVGpaint grad_paint;
+  NVGpaint *gp = NULL;
+  if (node->fill_type == 1 && has_fill) {
+    uint32_t f2 = node->fill_color_2;
+    NVGcolor c2 = nvgRGBA((f2 >> 24) & 0xFF, (f2 >> 16) & 0xFF,
+                           (f2 >>  8) & 0xFF,  f2        & 0xFF);
+    float grad_rad = node->gradient_angle * 3.14159265f / 180.0f;
+    float gdx = cosf(grad_rad) * sw * 0.5f;
+    float gdy = sinf(grad_rad) * sh * 0.5f;
+    float gcx = ox + sw * 0.5f, gcy = oy + sh * 0.5f;
+    grad_paint = nvgLinearGradient(vg, gcx - gdx, gcy - gdy,
+                                   gcx + gdx, gcy + gdy, fill, c2);
+    gp = &grad_paint;
+  }
+
+  switch (node->type) {
+
+    case NODE_TYPE_RECT:
+    case NODE_TYPE_FRAME: {
+      float rad = node->corner_radius * scale;
+      nvgBeginPath(vg);
+      nvgRoundedRect(vg, ox, oy, sw, sh, rad);
+      if (gp) { nvgFillPaint(vg, *gp); } else { nvgFillColor(vg, fill); }
+      if (has_fill) nvgFill(vg);
+      if (node->stroke_width > 0) {
+        nvgBeginPath(vg);
+        nvgRoundedRect(vg, ox, oy, sw, sh, rad);
+        nvgStrokeColor(vg, stroke_col);
+        nvgStrokeWidth(vg, stroke_w);
+        nvgStroke(vg);
+      }
+      break;
+    }
+
+    case NODE_TYPE_ELLIPSE: {
+      nvgBeginPath(vg);
+      nvgEllipse(vg, ox + sw * 0.5f, oy + sh * 0.5f, sw * 0.5f, sh * 0.5f);
+      if (gp) { nvgFillPaint(vg, *gp); } else { nvgFillColor(vg, fill); }
+      if (has_fill) nvgFill(vg);
+      if (node->stroke_width > 0) {
+        nvgBeginPath(vg);
+        nvgEllipse(vg, ox + sw * 0.5f, oy + sh * 0.5f, sw * 0.5f, sh * 0.5f);
+        nvgStrokeColor(vg, stroke_col);
+        nvgStrokeWidth(vg, stroke_w);
+        nvgStroke(vg);
+      }
+      break;
+    }
+
+    case NODE_TYPE_TRIANGLE: {
+      nvgBeginPath(vg);
+      nvgMoveTo(vg, ox + sw * 0.5f, oy);
+      nvgLineTo(vg, ox + sw, oy + sh);
+      nvgLineTo(vg, ox, oy + sh);
+      nvgClosePath(vg);
+      if (gp) { nvgFillPaint(vg, *gp); } else { nvgFillColor(vg, fill); }
+      if (has_fill) nvgFill(vg);
+      break;
+    }
+
+    case NODE_TYPE_PENTAGON:
+    case NODE_TYPE_HEXAGON:
+    case NODE_TYPE_OCTAGON: {
+      int sides = (node->type == NODE_TYPE_HEXAGON) ? 6
+                : (node->type == NODE_TYPE_OCTAGON)  ? 8 : 5;
+      float cx = ox + sw * 0.5f, cy = oy + sh * 0.5f;
+      float r  = sw < sh ? sw * 0.5f : sh * 0.5f;
+      nvgBeginPath(vg);
+      for (int i = 0; i < sides; i++) {
+        float a = (float)i / (float)sides * 2.0f * 3.14159265f - 3.14159265f * 0.5f;
+        float px = cx + cosf(a) * r, py = cy + sinf(a) * r;
+        if (i == 0) nvgMoveTo(vg, px, py); else nvgLineTo(vg, px, py);
+      }
+      nvgClosePath(vg);
+      if (gp) { nvgFillPaint(vg, *gp); } else { nvgFillColor(vg, fill); }
+      if (has_fill) nvgFill(vg);
+      break;
+    }
+
+    case NODE_TYPE_IMAGE: {
+      if (node->image_path[0]) {
+        int img = get_image_texture(ui, node->image_path);
+        if (img) {
+          NVGpaint ip = nvgImagePattern(vg, ox, oy, sw, sh, 0.0f, img, 1.0f);
+          nvgBeginPath(vg);
+          nvgRect(vg, ox, oy, sw, sh);
+          nvgFillPaint(vg, ip);
+          nvgFill(vg);
+        } else {
+          // Placeholder: grey rect + diagonal cross
+          nvgBeginPath(vg);
+          nvgRect(vg, ox, oy, sw, sh);
+          nvgFillColor(vg, nvgRGBA(200, 200, 210, 255));
+          nvgFill(vg);
+          nvgBeginPath(vg);
+          nvgMoveTo(vg, ox, oy); nvgLineTo(vg, ox+sw, oy+sh);
+          nvgMoveTo(vg, ox+sw, oy); nvgLineTo(vg, ox, oy+sh);
+          nvgStrokeColor(vg, nvgRGBA(160, 160, 175, 200));
+          nvgStrokeWidth(vg, 1.0f);
+          nvgStroke(vg);
+        }
+      }
+      break;
+    }
+
+    case NODE_TYPE_TEXT: {
+      nvgFontSize(vg, ts * 0.55f);
+      nvgFontFace(vg, "sans");
+      nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+      NVGcolor tc = has_fill ? fill : nvgRGBA(80, 80, 95, 220);
+      nvgFillColor(vg, tc);
+      nvgText(vg, tx + ts * 0.5f, ty + ts * 0.5f, "T", NULL);
+      break;
+    }
+
+    case NODE_TYPE_LINE:
+    case NODE_TYPE_STROKE: {
+      NVGcolor lc = has_fill ? fill : nvgRGBA(80, 80, 95, 220);
+      nvgBeginPath(vg);
+      nvgMoveTo(vg, ox, oy + sh * 0.5f);
+      nvgLineTo(vg, ox + sw, oy + sh * 0.5f);
+      nvgStrokeColor(vg, lc);
+      nvgStrokeWidth(vg, 1.5f);
+      nvgStroke(vg);
+      break;
+    }
+
+    case NODE_TYPE_GROUP: {
+      // Two nested translucent rects to suggest layering
+      nvgBeginPath(vg);
+      nvgRoundedRect(vg, ox, oy, sw, sh, 2.0f);
+      nvgFillColor(vg, nvgRGBA(180, 180, 200, 160));
+      nvgFill(vg);
+      nvgBeginPath(vg);
+      nvgRoundedRect(vg, ox + 2, oy + 2, sw - 4, sh - 4, 1.5f);
+      nvgFillColor(vg, nvgRGBA(150, 150, 175, 160));
+      nvgFill(vg);
+      break;
+    }
+
+    default: {
+      // Fallback: filled rect with the node's fill color
+      nvgBeginPath(vg);
+      nvgRect(vg, ox, oy, sw, sh);
+      if (gp) { nvgFillPaint(vg, *gp); } else { nvgFillColor(vg, fill); }
+      if (has_fill) nvgFill(vg);
+      break;
+    }
+  }
+
+  // Thumbnail border
+  nvgBeginPath(vg);
+  nvgRoundedRect(vg, tx, ty, ts, ts, 3.0f);
+  nvgStrokeColor(vg, nvgRGBA(210, 210, 215, 255));
+  nvgStrokeWidth(vg, 1.0f);
+  nvgStroke(vg);
+
+  nvgRestore(vg);
+}
+
+// -----------------------------------------------------------------------------
 static const char *node_type_display_name(NodeType type) {
   switch (type) {
   case NODE_TYPE_RECT:
@@ -123,6 +327,11 @@ static void ui_render_layer_item(UIHost *ui, Block *block, Node *node,
 
 
   float cur_x = x + indent_w;
+
+  // Thumbnail — actual miniature of the node's appearance
+  float thumb_size = 20.0f;
+  draw_layer_thumbnail(ui, node, cur_x + 2.0f, current_y + 5.0f, thumb_size);
+  cur_x += thumb_size + 6.0f;
 
   // Fold toggle
   if (node->is_container && node->first_child) {
