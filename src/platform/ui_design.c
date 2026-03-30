@@ -1667,41 +1667,159 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
 
     // Topbar tools are now rendered globally by ui_host.c
 
-    // --- Zoom controls for no_limits mode ---
+    // --- Zoom / Pan controls for no_limits mode ---
     if (dd->no_limits) {
-      // Zoom with scroll wheel
-      if (mx >= ws_bounds.x &&
-          mx < ws_bounds.x + ws_bounds.w &&
-          my >= ws_bounds.y &&
-          my < ws_bounds.y + ws_bounds.h) {
-        float scroll = 0;
-        if (scroll != 0.0f) {
-          float old_zoom = ui->editor.zoom;
-          if (scroll > 0)
-            ui->editor.zoom *= 1.15f;
-          else
-            ui->editor.zoom *= 0.87f;
-          if (ui->editor.zoom < 0.1f)
-            ui->editor.zoom = 0.1f;
-          if (ui->editor.zoom > 5.0f)
-            ui->editor.zoom = 5.0f;
-          float cx = ws_bounds.w / 2.0f, cy = ws_bounds.h / 2.0f;
-          ui->editor.cam_x += cx / old_zoom - cx / ui->editor.zoom;
-          ui->editor.cam_y += cy / old_zoom - cy / ui->editor.zoom;
+
+      int in_ws = (mx >= ws_bounds.x && mx < ws_bounds.x + ws_bounds.w &&
+                   my >= ws_bounds.y && my < ws_bounds.y + ws_bounds.h);
+      // Middle-mouse pan
+      if (in_ws && is_active_design) {
+        if ((ui->mouse_buttons & 4) && ui->input.mode != INTERACTION_PAN) {
+          // Start middle-mouse pan
+          ui->input.mode = INTERACTION_PAN;
+          ui->input.start_x = mx;
+          ui->input.start_y = my;
+          ui->input.start_cam_x = ui->editor.cam_x;
+          ui->input.start_cam_y = ui->editor.cam_y;
         }
       }
 
-      // Zoom percentage display
-      char zoom_str[16];
-      snprintf(zoom_str, sizeof(zoom_str), "%d%%", (int)(ui->editor.zoom * 100));
-      float zx = ws_bounds.x + ws_bounds.w - 60.0f;
-      float zy = ws_bounds.y + ws_bounds.h - 30.0f;
-      if (ui->font_inter) {
-        nvgFontSize(ui->vg, ui->font_size_px);
-        nvgFontFace(ui->vg, "Inter");
-        nvgFillColor(ui->vg, nvgRGBA(120, 120, 120, 255));
-        nvgTextAlign(ui->vg, NVG_ALIGN_LEFT | NVG_ALIGN_TOP);
-        nvgText(ui->vg, zx, zy, zoom_str, NULL);
+      // Scroll wheel: zoom centered on cursor, pan with shift
+      if (in_ws) {
+        float scroll_y = ui->nvgw.scroll_y;
+        float scroll_x = ui->nvgw.scroll_x;
+        if (scroll_y != 0.0f || scroll_x != 0.0f) {
+          SDL_Keymod mods = SDL_GetModState();
+          int shift_held = (mods & KMOD_SHIFT) != 0;
+
+          if (shift_held) {
+            // Shift+scroll = pan horizontal
+            float zm = ui->editor.zoom > 0.01f ? ui->editor.zoom : 1.0f;
+            ui->editor.cam_x -= scroll_y * 30.0f / zm;
+          } else if (scroll_x != 0.0f && scroll_y == 0.0f) {
+            // Pure horizontal scroll = pan horizontal
+            float zm = ui->editor.zoom > 0.01f ? ui->editor.zoom : 1.0f;
+            ui->editor.cam_x -= scroll_x * 30.0f / zm;
+          } else {
+            // Vertical scroll = zoom around cursor
+            float old_zoom = ui->editor.zoom;
+            float factor = (scroll_y > 0) ? 1.12f : (1.0f / 1.12f);
+            // Clamp accumulated scroll for large deltas
+            float steps = fabsf(scroll_y);
+            if (steps > 3.0f) steps = 3.0f;
+            for (int _s = 0; _s < (int)steps; _s++)
+              ui->editor.zoom *= factor;
+            if (ui->editor.zoom < 0.05f) ui->editor.zoom = 0.05f;
+            if (ui->editor.zoom > 10.0f) ui->editor.zoom = 10.0f;
+            // Zoom around cursor
+            float cur_x = mx - ws_bounds.x;
+            float cur_y = my - ws_bounds.y;
+            ui->editor.cam_x += cur_x / old_zoom - cur_x / ui->editor.zoom;
+            ui->editor.cam_y += cur_y / old_zoom - cur_y / ui->editor.zoom;
+          }
+          // Consume scroll so table/other panels don't also react
+          ui->nvgw.scroll_y = 0;
+          ui->nvgw.scroll_x = 0;
+          ui_request_redraw(ui);
+        }
+      }
+
+      // --- Zoom control widget (bottom-right corner) ---
+      {
+        NVGcontext *vg = ui->vg;
+        NvgWidgetCtx *wc = &ui->nvgw;
+        float btn_w = 28.0f, btn_h = 28.0f;
+        float lbl_w = 52.0f;
+        float bar_w = btn_w * 2 + lbl_w + 2.0f;
+        float bar_h = btn_h;
+        float bx = ws_bounds.x + ws_bounds.w - bar_w - 12.0f;
+        float by = ws_bounds.y + ws_bounds.h - bar_h - 12.0f;
+
+        // Background pill
+        nvgBeginPath(vg);
+        nvgRoundedRect(vg, bx, by, bar_w, bar_h, 6.0f);
+        nvgFillColor(vg, nvgRGBA(36, 36, 39, 220));
+        nvgFill(vg);
+
+        // Separator lines between sections
+        nvgBeginPath(vg);
+        nvgMoveTo(vg, bx + btn_w, by + 6);
+        nvgLineTo(vg, bx + btn_w, by + bar_h - 6);
+        nvgMoveTo(vg, bx + btn_w + lbl_w, by + 6);
+        nvgLineTo(vg, bx + btn_w + lbl_w, by + bar_h - 6);
+        nvgStrokeColor(vg, nvgRGBA(255, 255, 255, 25));
+        nvgStrokeWidth(vg, 1.0f);
+        nvgStroke(vg);
+
+        // Hit test helpers (panel-local coords = mx, my)
+        float lmx = mx, lmy = my;
+        int clicked = wc->mouse_clicked;
+
+        // Minus button hover/click
+        int hov_minus = (lmx >= bx && lmx < bx + btn_w &&
+                         lmy >= by && lmy < by + bar_h);
+        if (hov_minus) {
+          nvgBeginPath(vg);
+          nvgRoundedRect(vg, bx, by, btn_w, bar_h, 6.0f);
+          nvgFillColor(vg, nvgRGBA(255, 255, 255, clicked ? 40 : 18));
+          nvgFill(vg);
+          if (clicked) {
+            ui->editor.zoom /= 1.2f;
+            if (ui->editor.zoom < 0.05f) ui->editor.zoom = 0.05f;
+            ui_request_redraw(ui);
+          }
+        }
+
+        // Plus button hover/click
+        float px_x = bx + btn_w + lbl_w;
+        int hov_plus = (lmx >= px_x && lmx < px_x + btn_w &&
+                        lmy >= by && lmy < by + bar_h);
+        if (hov_plus) {
+          nvgBeginPath(vg);
+          nvgRoundedRect(vg, px_x, by, btn_w, bar_h, 6.0f);
+          nvgFillColor(vg, nvgRGBA(255, 255, 255, clicked ? 40 : 18));
+          nvgFill(vg);
+          if (clicked) {
+            ui->editor.zoom *= 1.2f;
+            if (ui->editor.zoom > 10.0f) ui->editor.zoom = 10.0f;
+            ui_request_redraw(ui);
+          }
+        }
+
+        // Label center: click to reset to 100%
+        float lx = bx + btn_w;
+        int hov_lbl = (lmx >= lx && lmx < lx + lbl_w &&
+                       lmy >= by && lmy < by + bar_h);
+        if (hov_lbl) {
+          nvgBeginPath(vg);
+          nvgRect(vg, lx, by, lbl_w, bar_h);
+          nvgFillColor(vg, nvgRGBA(255, 255, 255, clicked ? 40 : 14));
+          nvgFill(vg);
+          if (clicked) {
+            ui->editor.zoom = 1.0f;
+            ui_request_redraw(ui);
+          }
+        }
+
+        // Draw icons and label
+        nvgFontFace(vg, "Inter");
+        nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+        nvgFillColor(vg, nvgRGBA(255, 255, 255, 200));
+
+        // Minus symbol
+        nvgFontSize(vg, 16.0f);
+        nvgText(vg, bx + btn_w * 0.5f, by + bar_h * 0.5f, "\xe2\x88\x92", NULL); // − (minus sign)
+
+        // Plus symbol
+        nvgFontSize(vg, 16.0f);
+        nvgText(vg, px_x + btn_w * 0.5f, by + bar_h * 0.5f, "+", NULL);
+
+        // Zoom percentage
+        char zoom_str[16];
+        snprintf(zoom_str, sizeof(zoom_str), "%d%%", (int)(ui->editor.zoom * 100));
+        nvgFontSize(vg, 11.0f);
+        nvgFillColor(vg, nvgRGBA(255, 255, 255, hov_lbl ? 230 : 180));
+        nvgText(vg, lx + lbl_w * 0.5f, by + bar_h * 0.5f, zoom_str, NULL);
       }
 
       // Save camera state back to DesignData
