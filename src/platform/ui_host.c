@@ -2447,9 +2447,17 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     if (mode == 1 || mode == 2) {
       ui_render_design_topbar_tools(ui, (float)win_w - 10.0f, 0.0f, top_bar_h);
     }
-    // --- Right group: table actions (only in table-only mode) ---
-    if (mode == 0) {
-      ui_render_table_topbar_actions(ui, engine, (float)win_w, top_bar_h);
+    // --- Right group: table actions (table-only and split view) ---
+    if (mode == 0 || mode == 1) {
+      // In split mode, constrain buttons to the left panel width
+      float right_edge = (float)win_w;
+      if (mode == 1) {
+        float r = ui->split_view.ratio;
+        if (r < 0.03f) r = 0.03f;
+        if (r > 0.97f) r = 0.97f;
+        right_edge = (float)win_w * r;
+      }
+      ui_render_table_topbar_actions(ui, engine, right_edge, top_bar_h);
     }
 
     // Render split view
