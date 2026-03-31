@@ -695,10 +695,28 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       drawn_image = 1;
     }
     if (!drawn_image && ip) {
+      float cx = nr.x + nr.w * 0.5f;
+      float cy = nr.y + nr.h * 0.5f;
+      float rad = node->rotation * NVG_PI / 180.0f;
+      nvgSave(ui->vg);
+      nvgTranslate(ui->vg, cx, cy);
+      if (rad != 0.0f) nvgRotate(ui->vg, rad);
+      // Rebuild image paint in local space so it rotates with the shape
+      int _cimg2 = get_image_texture(ui, node->image_path);
+      float _iw2 = nr.w * (node->image_scale > 0.01f ? node->image_scale : 1.0f);
+      float _ih2 = nr.h * (node->image_scale > 0.01f ? node->image_scale : 1.0f);
+      float _ix2 = node->image_crop_x * scale - nr.w * 0.5f;
+      float _iy2 = node->image_crop_y * scale - nr.h * 0.5f;
+      NVGpaint local_img = nvgImagePattern(ui->vg, _ix2, _iy2, _iw2, _ih2, 0.0f, _cimg2, 1.0f);
+      float corner_r = node->corner_radius * scale;
       nvgBeginPath(ui->vg);
-      nvgRoundedRect(ui->vg, nr.x, nr.y, nr.w, nr.h, node->corner_radius * scale);
-      nvgFillPaint(ui->vg, *ip);
+      if (corner_r > 0.0f)
+        nvgRoundedRect(ui->vg, -nr.w * 0.5f, -nr.h * 0.5f, nr.w, nr.h, corner_r);
+      else
+        nvgRect(ui->vg, -nr.w * 0.5f, -nr.h * 0.5f, nr.w, nr.h);
+      nvgFillPaint(ui->vg, local_img);
       nvgFill(ui->vg);
+      nvgRestore(ui->vg);
       drawn_image = 1;
     }
     if (!drawn_image && has_fill) {
@@ -1030,10 +1048,23 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
       drawn_image = 1;
     }
     if (!drawn_image && ip) {
+      float cx = nr.x + nr.w * 0.5f;
+      float cy = nr.y + nr.h * 0.5f;
+      float rad = node->rotation * NVG_PI / 180.0f;
+      nvgSave(ui->vg);
+      nvgTranslate(ui->vg, cx, cy);
+      if (rad != 0.0f) nvgRotate(ui->vg, rad);
+      int _cimg2 = get_image_texture(ui, node->image_path);
+      float _iw2 = nr.w * (node->image_scale > 0.01f ? node->image_scale : 1.0f);
+      float _ih2 = nr.h * (node->image_scale > 0.01f ? node->image_scale : 1.0f);
+      float _ix2 = node->image_crop_x * scale - nr.w * 0.5f;
+      float _iy2 = node->image_crop_y * scale - nr.h * 0.5f;
+      NVGpaint local_img = nvgImagePattern(ui->vg, _ix2, _iy2, _iw2, _ih2, 0.0f, _cimg2, 1.0f);
       nvgBeginPath(ui->vg);
-      nvgEllipse(ui->vg, nr.x + nr.w / 2, nr.y + nr.h / 2, nr.w / 2, nr.h / 2);
-      nvgFillPaint(ui->vg, *ip);
+      nvgEllipse(ui->vg, 0, 0, nr.w * 0.5f, nr.h * 0.5f);
+      nvgFillPaint(ui->vg, local_img);
       nvgFill(ui->vg);
+      nvgRestore(ui->vg);
       drawn_image = 1;
     }
     if (!drawn_image && has_fill) {
