@@ -1393,14 +1393,19 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
     // Determine active block (canvas or design)
     Block *active_block = NULL;
     int is_canvas = 0, is_design = 0;
-    if (ui->input.active_block &&
-        ui->input.active_block_id != 0) {
+    if (ui->input.active_block && ui->input.active_block_id != 0) {
       active_block = ui->input.active_block;
-      is_canvas = 1;
-    } else if (ui->input.active_block &&
-               ui->input.active_block_id != 0) {
-      active_block = ui->input.active_block;
+      if (active_block->type == BLOCK_DESIGN)
+        is_design = 1;
+      else
+        is_canvas = 1;
+    }
+    // Fallback: if a node is selected we're implicitly in design mode
+    if (!is_design && ui->selected_node) {
       is_design = 1;
+      // Find the block that owns this node so delete/duplicate work
+      if (!active_block && ui->input.active_block)
+        active_block = ui->input.active_block;
     }
 
     // --- Escape: close table popups / cancel inline edit first ---
@@ -1454,41 +1459,56 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       return;
     }
 
+    // --- Cmd+Z: Undo | Cmd+Shift+Z: Redo ---
+    if (cmd_held && key == SDLK_z) {
+      if (shift_held)
+        engine_execute_command(ui->engine, "redo");
+      else
+        engine_execute_command(ui->engine, "undo");
+      ui->selected_node = NULL;
+      ui->selected_count = 0;
+      ui_request_redraw(ui);
+      return;
+    }
+
     // --- Delete / Backspace: delete selected node(s) ---
-    if ((key == SDLK_DELETE || key == SDLK_BACKSPACE) && active_block &&
-        is_design) {
-      // Delete all multi-selected nodes first
+    if ((key == SDLK_DELETE || key == SDLK_BACKSPACE) && is_design) {
       for (int _di = 0; _di < ui->selected_count; _di++) {
         Node *n = ui->selected_nodes[_di];
-        if (n && n != ui->selected_node)
-          block_design_delete_node(active_block, n->id);
+        if (n && n != ui->selected_node) {
+          node_remove_from_parent(n);
+          node_destroy_tree(n);
+        }
       }
       ui->selected_count = 0;
-      // Delete primary selected node
       if (ui->selected_node) {
-        block_design_delete_node(active_block, ui->selected_node->id);
+        node_remove_from_parent(ui->selected_node);
+        node_destroy_tree(ui->selected_node);
         ui->selected_node = NULL;
       }
+      ui_request_redraw(ui);
       return;
     }
 
     // --- Cmd+D: Duplicate selected node(s) ---
-    if (cmd_held && key == SDLK_d && active_block && is_design) {
-      if (ui->selected_count > 0) {
-        Node *last_dup = NULL;
-        for (int _di = 0; _di < ui->selected_count; _di++) {
-          Node *n = ui->selected_nodes[_di];
-          if (n)
-            last_dup = block_design_duplicate_node(active_block, n->id);
+    if (cmd_held && key == SDLK_d && is_design && ui->selected_node) {
+      // Find design block from active page
+      Block *design_block = active_block;
+      if (!design_block || design_block->type != BLOCK_DESIGN) {
+        Page *pg = doc_page_get_active(ui->engine->doc);
+        if (pg) {
+          for (Block *b = pg->first_block; b; b = b->next) {
+            if (b->type == BLOCK_DESIGN) { design_block = b; break; }
+          }
         }
-        if (last_dup)
-          ui->selected_node = last_dup;
-        ui->selected_count = 0;
-      } else if (ui->selected_node) {
-        Node *dup =
-            block_design_duplicate_node(active_block, ui->selected_node->id);
-        if (dup)
+      }
+      if (design_block) {
+        Node *dup = block_design_duplicate_node(design_block, ui->selected_node->id);
+        if (dup) {
           ui->selected_node = dup;
+          ui->selected_count = 0;
+          ui_request_redraw(ui);
+        }
       }
       return;
     }
