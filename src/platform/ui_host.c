@@ -13,14 +13,23 @@
 #include "ui_design.h"
 #include <SDL.h>
 
-// NanoVG OpenGL3 backend
-#ifdef __APPLE__
+// NanoVG OpenGL backend (GL3 on desktop, GLES3/WebGL2 on web)
+#ifdef __EMSCRIPTEN__
+#include <GLES3/gl3.h>
+#define NANOVG_GLES3
+#elif defined(__APPLE__)
 #define GL_SILENCE_DEPRECATION
 #include <OpenGL/gl3.h>
-#endif
 #define NANOVG_GL3
+#else
+#define NANOVG_GL3
+#endif
 #include "../vendor/nanovg/nanovg_gl.h"
 #include "../vendor/nanovg/nanovg_gl_utils.h"
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 #define MAX_VERTEX_BUFFER (512 * 1024)
 #define MAX_ELEMENT_BUFFER (128 * 1024)
@@ -34,8 +43,29 @@
 // -----------------------------------------------------------------------------
 // File Dialog Helpers (cross-platform via tinyfiledialogs)
 // -----------------------------------------------------------------------------
+#ifndef __EMSCRIPTEN__
 #include "../vendor/tinyfiledialogs.h"
+#else
+// Forward declarations for functions implemented in web_compat.c
+int  open_image_file_dialog(char *out_path, size_t path_size);
+int  open_csv_file_dialog(char *out_path, size_t path_size);
+int  save_csv_file_dialog(char *out_path, size_t path_size, const char *default_name);
+void web_trigger_download(const char *vfs_path);
+static int open_font_file_dialog(char *out_path, size_t path_size) {
+  extern int web_pick_file_font(char *out, size_t sz);
+  (void)out_path; (void)path_size; return 0; // font import not yet wired on web
+}
+static int save_native_file_dialog(char *out_path, size_t path_size,
+                                   const char *default_name,
+                                   const char *prompt) {
+  (void)prompt;
+  const char *base = default_name ? default_name : "Export.file";
+  snprintf(out_path, path_size, "/tmp/%s", base);
+  return 1;
+}
+#endif
 
+#ifndef __EMSCRIPTEN__
 static int _tfd_to_buf(const char *result, char *out_path, size_t path_size) {
   if (!result || !result[0]) return 0;
   strncpy(out_path, result, path_size - 1);
@@ -60,6 +90,7 @@ static int open_font_file_dialog(char *out_path, size_t path_size) {
       "Select a font file (.ttf or .otf)", "", 2, filters, "Font files", 0);
   return _tfd_to_buf(result, out_path, path_size);
 }
+#endif // !__EMSCRIPTEN__
 
 // Import a font file, load it into NanoVG, register in UIHost.
 // Returns the NanoVG font name on success (points into ui->custom_fonts), or NULL.
@@ -100,6 +131,7 @@ const char *ui_host_open_and_import_font(UIHost *ui) {
   return ui_host_import_font(ui, path);
 }
 
+#ifndef __EMSCRIPTEN__
 // Opens a native file dialog to select a CSV file for import
 int open_csv_file_dialog(char *out_path, size_t path_size) {
   const char *filters[] = { "*.csv", "*.txt" };
@@ -130,6 +162,7 @@ static int save_native_file_dialog(char *out_path, size_t path_size,
       0, NULL, NULL);
   return _tfd_to_buf(result, out_path, path_size);
 }
+#endif // !__EMSCRIPTEN__
 
 // Export active design block as SVG
 // Copy selected node or active block into clipboard
@@ -303,14 +336,21 @@ void ui_host_export_svg(UIHost *ui, Engine *engine) {
   char filename[512];
   char default_name[128];
   snprintf(default_name, sizeof(default_name), "%s.svg", page->name);
-  if (save_native_file_dialog(filename, sizeof(filename), default_name,
-                              "Export Design as SVG")) {
-
-    // Pre-render chart/table nodes to PNG snapshots so SVG can embed them
+#ifdef __EMSCRIPTEN__
+  snprintf(filename, sizeof(filename), "/tmp/%s", default_name);
+  int _svg_ok = 1;
+#else
+  int _svg_ok = save_native_file_dialog(filename, sizeof(filename), default_name,
+                                        "Export Design as SVG");
+#endif
+  if (_svg_ok) {
     prerender_node_snapshots(ui, engine, design_block);
-
-    if (block_design_export_svg(design_block, filename, NULL, 0))
+    if (block_design_export_svg(design_block, filename, NULL, 0)) {
       ASLAN_DEBUG("Exported SVG to: %s", filename);
+#ifdef __EMSCRIPTEN__
+      web_trigger_download(filename);
+#endif
+    }
   }
 }
 
@@ -624,10 +664,14 @@ void ui_host_export_png_jpeg(UIHost *ui, Engine *engine, int is_jpeg) {
   snprintf(default_name, sizeof(default_name), "%s.%s", page->name,
            is_jpeg ? "jpg" : "png");
 
+#ifdef __EMSCRIPTEN__
+  snprintf(filename, sizeof(filename), "/tmp/%s", default_name);
+#else
   if (!save_native_file_dialog(filename, sizeof(filename), default_name,
                                is_jpeg ? "Export Design as JPEG"
                                        : "Export Design as PNG"))
     return;
+#endif
 
   int w = 0, h = 0;
   // scale=0 → auto from live design_state.scale → correct proportions
@@ -667,13 +711,22 @@ void ui_host_export_png_jpeg(UIHost *ui, Engine *engine, int is_jpeg) {
 
   free(pixels);
 
-  if (ok)
+  if (ok) {
     ASLAN_DEBUG("Exported %s to: %s", is_jpeg ? "JPEG" : "PNG", filename);
-  else
+#ifdef __EMSCRIPTEN__
+    web_trigger_download(filename);
+#endif
+  } else {
     ASLAN_WARN("Raster export: stb_image_write failed for %s", filename);
+  }
 }
 
 void ui_host_export_pdf(UIHost *ui, Engine *engine) {
+#ifdef __EMSCRIPTEN__
+  (void)ui; (void)engine;
+  EM_ASM(window.print());
+  return;
+#endif
   Page *page = doc_page_get_active(engine->doc);
   if (!page)
     return;
@@ -876,8 +929,12 @@ UIHost *ui_init(SDL_Window *win) {
   ui->editor.pen_thickness = 2.0f;
   ui->editor.pen_is_marker = 0;
 
-  // Initialize NanoVG
+  // Initialize NanoVG (GL3 on desktop, GLES3/WebGL2 on web)
+#ifdef __EMSCRIPTEN__
+  ui->vg = nvgCreateGLES3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
+#else
   ui->vg = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
+#endif
   if (!ui->vg) {
     ASLAN_ERROR("Failed to initialize NanoVG!");
   }

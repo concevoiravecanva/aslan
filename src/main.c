@@ -8,8 +8,12 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#else
 #include <libgen.h>
 #include <limits.h>
+#endif
 
 // =============================================================================
 // ASLAN - Main Entry Point
@@ -42,35 +46,33 @@ void run_interactive_mode(Engine *engine) {
 }
 
 // -----------------------------------------------------------------------------
-// Visual Mode (Main Application Loop)
+// Per-frame event + render logic (shared by native and Emscripten)
 // -----------------------------------------------------------------------------
 
-void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
+static void process_events_and_render(Engine *engine, Renderer *renderer,
+                                      UIHost *ui,
+                                      uint32_t *last_click_ms,
+                                      float *last_click_world_x,
+                                      float *last_click_world_y) {
+  const uint32_t dbl_click_ms  = 350;
+  const float    dbl_click_dist = 6.0f;
+
   SDL_Event e;
 
-  // Double-click detection
-  static uint32_t last_click_ms = 0;
-  static float last_click_world_x = 0.0f;
-  static float last_click_world_y = 0.0f;
-  const uint32_t dbl_click_ms = 350;
-  const float dbl_click_dist = 6.0f;
+#ifdef __EMSCRIPTEN__
+  // Non-blocking poll in Emscripten (requestAnimationFrame drives timing)
+  int has_event = SDL_PollEvent(&e);
+  if (has_event) ui->needs_redraw = 1;
+#else
+  int timeout_ms = ui->has_active_animation ? 16 : 100;
+  int has_event  = SDL_WaitEventTimeout(&e, timeout_ms);
+  if (has_event) ui->needs_redraw = 1;
+#endif
 
-  // Initial render needed
-  ui->needs_redraw = 1;
+  ui_begin_frame(ui);
 
-  while (engine->is_running) {
-    // Event-driven: wait for events instead of polling
-    // Use 16ms timeout when animation active, 100ms for cursor blink, etc.
-    int timeout_ms = ui->has_active_animation ? 16 : 100;
-    int has_event = SDL_WaitEventTimeout(&e, timeout_ms);
-
-    // 1. Input handling
-    ui_begin_frame(ui);
-
-    // Process events (either the one we got or check for more)
-    if (has_event) {
-      ui->needs_redraw = 1; // Any event triggers redraw
-      do {
+  if (has_event) {
+    do {
         if (e.type == SDL_DROPFILE) {
           ASLAN_DEBUG("SDL_DROPFILE event detected in event loop");
         }
@@ -181,18 +183,18 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
             if (e.button.button == SDL_BUTTON_LEFT && ui && ui->selected_node &&
                 ui->selected_node->type == NODE_TYPE_TEXT) {
               uint32_t now = SDL_GetTicks();
-              float dx = world_x - last_click_world_x;
-              float dy = world_y - last_click_world_y;
+              float dx = world_x - *last_click_world_x;
+              float dy = world_y - *last_click_world_y;
               float d2 = dx * dx + dy * dy;
 
-              if (last_click_ms && (now - last_click_ms) <= dbl_click_ms &&
+              if (*last_click_ms && (now - *last_click_ms) <= dbl_click_ms &&
                   d2 <= (dbl_click_dist * dbl_click_dist)) {
                 ui->editing_block_id = ui->selected_node->id;
-                last_click_ms = 0;
+                *last_click_ms = 0;
               } else {
-                last_click_ms = now;
-                last_click_world_x = world_x;
-                last_click_world_y = world_y;
+                *last_click_ms = now;
+                *last_click_world_x = world_x;
+                *last_click_world_y = world_y;
               }
             }
           }
@@ -210,46 +212,69 @@ void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
       } while (SDL_PollEvent(&e)); // Drain remaining events
     }
 
-    // Finalize NanoVG Widgets input per frame
-    int gmx, gmy;
-    uint32_t gmstate = SDL_GetMouseState(&gmx, &gmy);
-    nvgw_input_mouse(&ui->nvgw, (float)gmx, (float)gmy,
-                     (gmstate & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0,
-                     ui->nvgw.scroll_x, ui->nvgw.scroll_y);
-    // NOTE: nvgw_input_end is called AFTER rendering so widgets can
-    // read mouse_clicked / mouse_released / active_id during the render pass.
+  // Finalize NanoVG Widgets input per frame
+  int gmx, gmy;
+  uint32_t gmstate = SDL_GetMouseState(&gmx, &gmy);
+  nvgw_input_mouse(&ui->nvgw, (float)gmx, (float)gmy,
+                   (gmstate & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0,
+                   ui->nvgw.scroll_x, ui->nvgw.scroll_y);
 
-    // Only render if needed (event occurred or timeout for animations)
-    if (ui->needs_redraw) {
-      // Clear BEFORE render so mid-render ui_request_redraw() survives
-      ui->needs_redraw = 0;
+  // Always redraw on Emscripten (requestAnimationFrame drives timing)
+#ifdef __EMSCRIPTEN__
+  ui->needs_redraw = 1;
+#endif
 
-      // 2. Render background
-      renderer_begin(renderer, ui->dark_mode);
+  if (ui->needs_redraw) {
+    ui->needs_redraw = 0;
+    renderer_begin(renderer, ui->dark_mode);
+    renderer_draw_document(renderer, engine->doc);
+    if (ui->selected_node)
+      renderer_draw_selection(renderer, engine->doc, ui->selected_node);
+    int ww, wh;
+    SDL_GetWindowSize(renderer->window, &ww, &wh);
+    ui_render(ui, engine, ww, wh);
+    renderer_end(renderer);
+  }
 
-      // 3. Render document
-      renderer_draw_document(renderer, engine->doc);
+  nvgw_input_end(&ui->nvgw);
+}
 
-      // 4. Render selection handles
-      if (ui->selected_node) {
-        renderer_draw_selection(renderer, engine->doc, ui->selected_node);
-      }
+// -----------------------------------------------------------------------------
+// Visual Mode (native desktop: blocking while loop)
+// -----------------------------------------------------------------------------
 
-      // 5. Render UI overlay
-      int ww, wh;
-      SDL_GetWindowSize(renderer->window, &ww, &wh);
-      ui_render(ui, engine, ww, wh);
+void run_visual_mode(Engine *engine, Renderer *renderer, UIHost *ui) {
+  uint32_t last_click_ms    = 0;
+  float    last_click_world_x = 0.0f;
+  float    last_click_world_y = 0.0f;
+  ui->needs_redraw = 1;
 
-      // 6. Present frame
-      renderer_end(renderer);
-    }
-
-    // Finalize widget state AFTER rendering
-    nvgw_input_end(&ui->nvgw);
-
-    // No SDL_Delay needed - WaitEventTimeout handles timing
+  while (engine->is_running) {
+    process_events_and_render(engine, renderer, ui,
+                              &last_click_ms,
+                              &last_click_world_x,
+                              &last_click_world_y);
   }
 }
+
+// -----------------------------------------------------------------------------
+// Emscripten main loop globals + callback
+// -----------------------------------------------------------------------------
+#ifdef __EMSCRIPTEN__
+static Engine   *g_em_engine   = NULL;
+static Renderer *g_em_renderer = NULL;
+static UIHost   *g_em_ui       = NULL;
+static uint32_t  g_em_last_click_ms      = 0;
+static float     g_em_last_click_world_x = 0.0f;
+static float     g_em_last_click_world_y = 0.0f;
+
+static void em_main_loop_cb(void) {
+  process_events_and_render(g_em_engine, g_em_renderer, g_em_ui,
+                            &g_em_last_click_ms,
+                            &g_em_last_click_world_x,
+                            &g_em_last_click_world_y);
+}
+#endif
 
 // -----------------------------------------------------------------------------
 // Main Entry Point
@@ -298,6 +323,16 @@ int main(int argc, char **argv) {
     }
   }
 
+#ifdef __EMSCRIPTEN__
+  // Emscripten: hand control to requestAnimationFrame loop
+  g_em_engine   = engine;
+  g_em_renderer = renderer;
+  g_em_ui       = ui;
+  ui->needs_redraw = 1;
+  emscripten_set_main_loop(em_main_loop_cb, 0, 1); // 0fps = rAF, 1 = no return
+  // (never reached)
+  return 0;
+#else
   // 6. Run visual mode
   run_visual_mode(engine, renderer, ui);
 
@@ -306,6 +341,6 @@ int main(int argc, char **argv) {
   renderer_destroy(renderer);
   engine_destroy(engine);
 
-
   return 0;
+#endif
 }

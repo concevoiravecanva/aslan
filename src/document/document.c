@@ -1,6 +1,8 @@
 #include "document.h"
 #include "aslan_table.h"
+#ifndef __EMSCRIPTEN__
 #include <hpdf.h>
+#endif
 #include <math.h>
 #include <setjmp.h>
 #include <stdio.h>
@@ -2343,8 +2345,9 @@ bool block_design_export_svg(const Block *block, const char *filepath,
 }
 
 // =============================================================================
-// PDF EXPORT (libharu)
+// PDF EXPORT (libharu — desktop only)
 // =============================================================================
+#ifndef __EMSCRIPTEN__
 
 // HPDF error handler — uses setjmp so HPDF errors don't crash the app
 static jmp_buf pdf_err_env;
@@ -2684,3 +2687,20 @@ bool block_design_export_pdf_from_png(const char *filepath,
   return (st == HPDF_OK);
 }
 
+#else // __EMSCRIPTEN__ — stubs so callers link without libharu
+
+bool block_design_export_pdf(const Block *block, const char *filepath,
+                             struct AslanTable *linked_tbl,
+                             uint64_t linked_row_id) {
+  (void)block; (void)filepath; (void)linked_tbl; (void)linked_row_id;
+  return false;
+}
+
+bool block_design_export_pdf_from_png(const char *filepath,
+                                      const char *png_path,
+                                      int page_w, int page_h) {
+  (void)filepath; (void)png_path; (void)page_w; (void)page_h;
+  return false;
+}
+
+#endif // __EMSCRIPTEN__

@@ -5,7 +5,7 @@
 #include "image_loader.h"
 #include <stdlib.h>
 
-#ifdef __APPLE__
+#if defined(__APPLE__) && !defined(__EMSCRIPTEN__)
 // macOS: Use CoreGraphics via mac_image.m (linked separately)
 extern void *mac_load_image_rgba(const char *path, int *w, int *h);
 extern int mac_get_image_size(const char *path, int *w, int *h);
@@ -21,12 +21,7 @@ int image_get_size(const char *path, int *w, int *h) {
 void image_free_data(void *data) { free(data); }
 
 #else
-// Linux/Windows: Use stb_image (header-only library)
-#define STB_IMAGE_IMPLEMENTATION
-#define STBI_ONLY_PNG
-#define STBI_ONLY_JPEG
-#define STBI_ONLY_GIF
-#define STBI_ONLY_BMP
+// Linux/Windows/Web: Use stb_image (implementation already provided by nanovg.c)
 #include "../../include/stb_image.h"
 
 void *image_load_rgba(const char *path, int *w, int *h) {

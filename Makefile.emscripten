@@ -1,0 +1,168 @@
+# =============================================================================
+# ASLAN — Emscripten / WebAssembly Build
+# =============================================================================
+# Prerequisites:
+#   brew install emscripten   (or use emsdk)
+#   emcc --version            (should be 3.x+)
+#
+# Usage:
+#   make -f Makefile.web          # build to web/aslan.html
+#   make -f Makefile.web serve    # build + local server at http://localhost:8080
+#   make -f Makefile.web clean
+# =============================================================================
+
+CC = emcc
+
+CFLAGS = -Wall -Wextra -std=gnu99 \
+         -I./src -I./include \
+         -DSTBTT_STATIC \
+         -O2
+
+# Emscripten-specific: point to its bundled SDL2 port
+SDL_FLAGS = -sUSE_SDL=2
+
+# Output directory
+OUTDIR = web
+TARGET = $(OUTDIR)/aslan.html
+
+# Link flags
+LDFLAGS = \
+  -sUSE_SDL=2 \
+  -sFULL_ES3=1 \
+  -sALLOW_MEMORY_GROWTH=1 \
+  -sINITIAL_MEMORY=67108864 \
+  -sASYNCIFY \
+  -sASYNCIFY_STACK_SIZE=65536 \
+  -sEXPORTED_RUNTIME_METHODS='["ccall","FS","UTF8ToString"]' \
+  -sEXPORTED_FUNCTIONS='["_main","_web_on_file_ready","_web_on_file_cancelled"]' \
+  -sALLOW_TABLE_GROWTH=1 \
+  --preload-file assets/fonts \
+  --preload-file assets/remixicon.ttf \
+  --shell-file web/shell.html \
+  -lm
+
+# Sources — same as native EXCEPT:
+#   - no mac_image.m        (replaced by web_compat.c stb_image stubs)
+#   - no tinyfiledialogs.c  (replaced by web_compat.c browser File API)
+#   - add web_compat.c
+
+BUILDDIR = build_web
+
+CORE_OBJS = $(BUILDDIR)/engine.o
+DOC_OBJS  = $(BUILDDIR)/document.o \
+            $(BUILDDIR)/aslan_table.o
+PLATFORM_OBJS = \
+            $(BUILDDIR)/renderer.o \
+            $(BUILDDIR)/ui_table.o \
+            $(BUILDDIR)/ui_canvas.o \
+            $(BUILDDIR)/ui_toolbar.o \
+            $(BUILDDIR)/ui_properties.o \
+            $(BUILDDIR)/ui_design.o \
+            $(BUILDDIR)/node_render.o \
+            $(BUILDDIR)/ui_chart.o \
+            $(BUILDDIR)/ui_core.o \
+            $(BUILDDIR)/ui_host.o \
+            $(BUILDDIR)/nvg_widgets.o \
+            $(BUILDDIR)/recents.o \
+            $(BUILDDIR)/image_loader.o \
+            $(BUILDDIR)/web_compat.o
+VENDOR_OBJS = \
+            $(BUILDDIR)/tinyexpr.o \
+            $(BUILDDIR)/stb_image_write.o \
+            $(BUILDDIR)/nanovg.o \
+            $(BUILDDIR)/nanovg_gl_impl.o
+
+OBJS = $(BUILDDIR)/main.o $(VENDOR_OBJS) $(CORE_OBJS) $(DOC_OBJS) $(PLATFORM_OBJS)
+
+# Build rules
+all: $(OUTDIR) $(BUILDDIR) $(TARGET)
+
+$(OUTDIR):
+	mkdir -p $(OUTDIR)
+
+$(BUILDDIR):
+	mkdir -p $(BUILDDIR)
+
+$(TARGET): $(OBJS)
+	$(CC) $(OBJS) -o $(TARGET) $(LDFLAGS)
+	@echo "✓ Web build complete → $(TARGET)"
+	@echo "  Open with: python3 -m http.server 8080 (then visit http://localhost:8080/web/aslan.html)"
+
+# Explicit rules for each source → build_web/name.o
+$(BUILDDIR)/main.o: src/main.c
+	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/engine.o: src/core/engine.c
+	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/document.o: src/document/document.c
+	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/aslan_table.o: src/document/aslan_table.c
+	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/renderer.o: src/platform/renderer.c
+	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/ui_table.o: src/platform/ui_table.c
+	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/ui_canvas.o: src/platform/ui_canvas.c
+	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/ui_toolbar.o: src/platform/ui_toolbar.c
+	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/ui_properties.o: src/platform/ui_properties.c
+	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/ui_design.o: src/platform/ui_design.c
+	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/node_render.o: src/platform/node_render.c
+	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/ui_chart.o: src/platform/ui_chart.c
+	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/ui_core.o: src/platform/ui_core.c
+	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/ui_host.o: src/platform/ui_host.c
+	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/nvg_widgets.o: src/platform/nvg_widgets.c
+	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/recents.o: src/platform/recents.c
+	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/image_loader.o: src/platform/image_loader.c
+	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/web_compat.o: src/platform/web_compat.c
+	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/tinyexpr.o: src/vendor/tinyexpr.c
+	$(CC) -w -I./src -I./include -O2 $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/stb_image_write.o: src/vendor/stb_image_write.c
+	$(CC) -w -I./src -I./include -O2 $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/nanovg.o: src/vendor/nanovg/nanovg.c
+	$(CC) -w -I./src -I./include -O2 $(SDL_FLAGS) -c $< -o $@
+
+$(BUILDDIR)/nanovg_gl_impl.o: src/vendor/nanovg/nanovg_gl_impl.c
+	$(CC) -w -I./src -I./include -O2 $(SDL_FLAGS) -c $< -o $@
+
+# Local dev server
+serve: all
+	@echo "Starting server at http://localhost:8080"
+	cd $(OUTDIR) && python3 -m http.server 8080
+
+clean:
+	rm -rf $(BUILDDIR)
+	rm -f $(TARGET) \
+	      $(OUTDIR)/aslan.js \
+	      $(OUTDIR)/aslan.wasm \
+	      $(OUTDIR)/aslan.data

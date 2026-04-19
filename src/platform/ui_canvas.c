@@ -5,11 +5,16 @@
 #include "ui_canvas.h"
 #include "../document/aslan_table.h"
 #include "image_loader.h"
-#ifdef __APPLE__
+#ifdef __EMSCRIPTEN__
+#include <GLES3/gl3.h>
+#define NANOVG_GLES3
+#elif defined(__APPLE__)
 #define GL_SILENCE_DEPRECATION
 #include <OpenGL/gl3.h>
-#endif
 #define NANOVG_GL3
+#else
+#define NANOVG_GL3
+#endif
 #include "../vendor/nanovg/nanovg_gl.h"
 
 #include "ui_shared.h"

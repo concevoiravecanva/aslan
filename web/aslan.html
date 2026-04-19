@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aslan — Design & Data Editor</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: #000;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    #canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      outline: none;
+    }
+
+    /* Loading overlay */
+    #loading {
+      position: fixed;
+      inset: 0;
+      background: #1a1a1e;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      z-index: 100;
+      transition: opacity 0.4s ease;
+    }
+    #loading.hidden { opacity: 0; pointer-events: none; }
+
+    #loading .logo {
+      font-size: 28px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.5px;
+    }
+    #loading .logo span { color: #6c8ef5; }
+
+    #progress-wrap {
+      width: 240px;
+      height: 4px;
+      background: #2a2a30;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    #progress-bar {
+      height: 100%;
+      background: #6c8ef5;
+      border-radius: 2px;
+      width: 0%;
+      transition: width 0.1s ease;
+    }
+    #loading .status {
+      font-size: 13px;
+      color: #666;
+    }
+
+    /* Error overlay */
+    #error-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: #1a1a1e;
+      color: #ff5c5c;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      z-index: 200;
+    }
+    #error-overlay.visible { display: flex; }
+  </style>
+</head>
+<body>
+
+  <!-- Loading screen -->
+  <div id="loading">
+    <div class="logo">asl<span>an</span></div>
+    <div id="progress-wrap"><div id="progress-bar"></div></div>
+    <div class="status" id="status-text">Loading…</div>
+  </div>
+
+  <!-- Error screen -->
+  <div id="error-overlay">
+    <div>
+      <strong>Failed to load Aslan.</strong><br>
+      <small id="error-msg">Check the browser console for details.</small>
+    </div>
+  </div>
+
+  <!-- SDL2/Emscripten canvas -->
+  <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+
+  <script>
+    // Emscripten Module config — must be set BEFORE the emscripten JS is loaded
+    var Module = {
+      canvas: (function() {
+        var c = document.getElementById('canvas');
+        // Resize canvas to fill window
+        function resize() {
+          c.width  = window.innerWidth;
+          c.height = window.innerHeight;
+        }
+        resize();
+        window.addEventListener('resize', resize);
+        return c;
+      })(),
+
+      // Progress reporting
+      setStatus: function(text) {
+        var el = document.getElementById('status-text');
+        if (el) el.textContent = text || 'Ready';
+      },
+
+      monitorRunDependencies: function(left) {
+        var total = Module.totalDependencies || left;
+        Module.totalDependencies = Math.max(Module.totalDependencies || 0, left);
+        var pct = total > 0 ? Math.round((1 - left / total) * 100) : 100;
+        var bar = document.getElementById('progress-bar');
+        if (bar) bar.style.width = pct + '%';
+      },
+
+      onRuntimeInitialized: function() {
+        // Hide loading screen once WASM is ready
+        var loading = document.getElementById('loading');
+        if (loading) {
+          setTimeout(function() { loading.classList.add('hidden'); }, 300);
+          setTimeout(function() { loading.style.display = 'none'; }, 800);
+        }
+        // Focus canvas so keyboard events work immediately
+        document.getElementById('canvas').focus();
+      },
+
+      print: function(text) { console.log('[aslan]', text); },
+      printErr: function(text) { console.error('[aslan]', text); },
+
+      onAbort: function(what) {
+        var ov = document.getElementById('error-overlay');
+        var msg = document.getElementById('error-msg');
+        if (ov) ov.classList.add('visible');
+        if (msg) msg.textContent = what || 'WASM aborted.';
+      }
+    };
+
+    // Re-focus canvas on click (needed after file dialogs return focus)
+    document.getElementById('canvas').addEventListener('click', function() {
+      this.focus();
+    });
+  </script>
+
+  <!-- Emscripten-generated JS (injected at build time by --shell-file) -->
+  <script async type="text/javascript" src="aslan.js"></script>
+
+</body>
+</html>
