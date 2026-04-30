@@ -16,7 +16,7 @@ CC = emcc
 CFLAGS = -Wall -Wextra -std=gnu99 \
          -I./src -I./include \
          -DSTBTT_STATIC \
-         -O2
+         -Oz
 
 # Emscripten-specific: point to its bundled SDL2 port
 SDL_FLAGS = -sUSE_SDL=2
@@ -39,6 +39,7 @@ LDFLAGS = \
   --preload-file assets/fonts \
   --preload-file assets/remixicon.ttf \
   --shell-file web/shell.html \
+  --closure 1 \
   -lm
 
 # Sources — same as native EXCEPT:
@@ -144,16 +145,16 @@ $(BUILDDIR)/web_compat.o: src/platform/web_compat.c
 	$(CC) $(CFLAGS) $(SDL_FLAGS) -c $< -o $@
 
 $(BUILDDIR)/tinyexpr.o: src/vendor/tinyexpr.c
-	$(CC) -w -I./src -I./include -O2 $(SDL_FLAGS) -c $< -o $@
+	$(CC) -w -I./src -I./include -Oz $(SDL_FLAGS) -c $< -o $@
 
 $(BUILDDIR)/stb_image_write.o: src/vendor/stb_image_write.c
-	$(CC) -w -I./src -I./include -O2 $(SDL_FLAGS) -c $< -o $@
+	$(CC) -w -I./src -I./include -Oz $(SDL_FLAGS) -c $< -o $@
 
 $(BUILDDIR)/nanovg.o: src/vendor/nanovg/nanovg.c
-	$(CC) -w -I./src -I./include -O2 $(SDL_FLAGS) -c $< -o $@
+	$(CC) -w -I./src -I./include -Oz $(SDL_FLAGS) -c $< -o $@
 
 $(BUILDDIR)/nanovg_gl_impl.o: src/vendor/nanovg/nanovg_gl_impl.c
-	$(CC) -w -I./src -I./include -O2 $(SDL_FLAGS) -c $< -o $@
+	$(CC) -w -I./src -I./include -Oz $(SDL_FLAGS) -c $< -o $@
 
 # Local dev server
 serve: all
