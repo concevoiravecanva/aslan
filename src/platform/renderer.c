@@ -4,8 +4,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-// OpenGL (macOS Core Profile 3.2)
-#ifdef __APPLE__
+// OpenGL headers
+#ifdef __EMSCRIPTEN__
+#  include <GLES3/gl3.h>
+#elif defined(__APPLE__)
 #  define GL_SILENCE_DEPRECATION
 #  include <OpenGL/gl3.h>
 #else
