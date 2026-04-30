@@ -312,9 +312,9 @@ int main(int argc, char **argv) {
 
   // 5. Create default content only on first launch
   if (engine->doc->page_count == 0) {
-    engine_execute_command(engine, "page_create 1 \"New Note\"");
-    engine_execute_command(engine, "block_create 1 1 h1");
-    engine_execute_command(engine, "block_text 1 1 \"New Note\"");
+    engine_execute_command(engine, "page_create 1 \"New Page\"");
+    engine_execute_command(engine, "block_create 1 1 table");
+    engine_execute_command(engine, "block_create 1 2 design");
     engine_execute_command(engine, "page_activate 1");
   } else {
     // Ensure a page is active if history was loaded

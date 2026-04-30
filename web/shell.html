@@ -103,8 +103,10 @@
     var Module = {
       canvas: (function() {
         var c = document.getElementById('canvas');
-        // Do NOT set c.width/c.height here — that destroys the WebGL context.
-        // SDL sets the canvas pixel dimensions; CSS handles display scaling.
+        // Set pixel dimensions ONCE before SDL creates the WebGL context.
+        // Never change c.width/c.height after this — it destroys the GL context.
+        c.width  = window.innerWidth;
+        c.height = window.innerHeight;
         return c;
       })(),
 

@@ -898,7 +898,7 @@ UIHost *ui_init(SDL_Window *win) {
   ui->screen = 1; // Start in Editor (Skip Dashboard)
   ui->font_size_px = 16.0f;
   ui->sidebar_mode = 0; // Standard sidebar (Properties/Layers)
-  ui->dark_mode = 1;
+  ui->dark_mode = 0;
 
   // Load recents
   recents_load(&ui->recents, "recents.log");
