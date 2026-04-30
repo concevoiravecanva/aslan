@@ -7,6 +7,7 @@
 // OpenGL headers
 #ifdef __EMSCRIPTEN__
 #  include <GLES3/gl3.h>
+#  include <emscripten.h>
 #elif defined(__APPLE__)
 #  define GL_SILENCE_DEPRECATION
 #  include <OpenGL/gl3.h>
@@ -54,10 +55,21 @@ Renderer *renderer_create(const char *title, int width, int height) {
 
   r->sdl_renderer = NULL; // Not used in GL mode
 
+#ifdef __EMSCRIPTEN__
+  // On web: use the actual canvas dimensions — no fullscreen request
+  // (fullscreen requires user gesture in browsers and would fail silently)
+  int canvas_w = EM_ASM_INT({ return window.innerWidth; });
+  int canvas_h = EM_ASM_INT({ return window.innerHeight; });
+  r->window = SDL_CreateWindow(
+      title, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+      canvas_w, canvas_h,
+      SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
+#else
   r->window = SDL_CreateWindow(
       title, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height,
       SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_ALLOW_HIGHDPI |
           SDL_WINDOW_RESIZABLE | SDL_WINDOW_FULLSCREEN_DESKTOP);
+#endif
 
   if (!r->window) {
     printf("Window could not be created! SDL_Error: %s\n", SDL_GetError());

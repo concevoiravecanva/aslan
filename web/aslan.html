@@ -103,13 +103,8 @@
     var Module = {
       canvas: (function() {
         var c = document.getElementById('canvas');
-        // Resize canvas to fill window
-        function resize() {
-          c.width  = window.innerWidth;
-          c.height = window.innerHeight;
-        }
-        resize();
-        window.addEventListener('resize', resize);
+        // Do NOT set c.width/c.height here — that destroys the WebGL context.
+        // SDL sets the canvas pixel dimensions; CSS handles display scaling.
         return c;
       })(),
 
