@@ -85,7 +85,9 @@ Renderer *renderer_create(const char *title, int width, int height) {
     return NULL;
   }
   SDL_GL_MakeCurrent(r->window, r->gl_ctx);
-  SDL_GL_SetSwapInterval(1); // vsync
+#ifndef __EMSCRIPTEN__
+  SDL_GL_SetSwapInterval(1); // vsync — rAF handles this on web
+#endif
 
   // Sync dimensions from the drawable (HiDPI-aware)
   renderer_update_size(r);

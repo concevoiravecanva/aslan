@@ -551,6 +551,15 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         is_active_design = 1;
       }
 
+      // Auto-activate when a toolbar tool set pending_create (toolbar is outside
+      // ws_bounds so the click-inside check above never fires for it)
+      if (!is_active_design && ui->input.pending_create > 0) {
+        ui->input.active_block_id = block->id;
+        ui->input.active_block    = block;
+        ui->editing_block_id      = block->id;
+        is_active_design = 1;
+      }
+
       // --- Handle pending element creation ---
       if (is_active_design && ui->input.pending_create > 0) {
         float nx, ny;
