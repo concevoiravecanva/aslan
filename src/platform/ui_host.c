@@ -2433,92 +2433,21 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
       }
     }
   } else {
-    // Split view mode (Data-Driven) — default and only editor mode
-    // Auto-activate split view with default ratio if needed
-    if (ui->split_view.ratio < 0.01f)
-      ui->split_view.ratio = 0.5f;
-    ui->split_view.active = 1;
-
-    // --- TOP BAR (Figma-style dark bar) ---
+    // --- TOP BAR (single design interface) ---
     float top_bar_h = 44.0f;
     nvgw_set_offset(&ui->nvgw, 0.0f, 0.0f);
 
-    // Bar background — same near-black as the tool's text color (#242427)
     NVGcontext *vg = ui->vg;
     nvgBeginPath(vg);
     nvgRect(vg, 0, 0, (float)win_w, top_bar_h);
     nvgFillColor(vg, nvgRGB(36, 36, 39));
     nvgFill(vg);
 
-    // Icon colors for dark bar
-    NVGcolor ic_active  = nvgRGBA(255, 255, 255, 230);
-    NVGcolor ic_idle    = nvgRGBA(255, 255, 255, 110);
-    NVGcolor pill_active = nvgRGBA(255, 255, 255, 38);
-    NVGcolor hover_bg   = nvgRGBA(255, 255, 255, 18);
-    NVGcolor press_bg   = nvgRGBA(255, 255, 255, 55);
+    // Design tools always visible on the right
+    ui_render_design_topbar_tools(ui, (float)win_w - 10.0f, 0.0f, top_bar_h);
 
-    int   mode     = ui->split_view.mode;
-    float btn_size = 28.0f;
-    float btn_gap  = 2.0f;
-    float pad      = 6.0f; // pill inner padding
-    float pill_r   = 8.0f;
-
-    // --- Left group: view switcher in a pill container ---
-    float grp_x = 10.0f;
-    float grp_y = (top_bar_h - btn_size - 2.0f * pad) / 2.0f;
-    float grp_w = 3.0f * btn_size + 2.0f * btn_gap + 2.0f * pad;
-    float grp_h = btn_size + 2.0f * pad;
-
-    // Pill container background
-    nvgBeginPath(vg);
-    nvgRoundedRect(vg, grp_x, grp_y, grp_w, grp_h, pill_r);
-    nvgFillColor(vg, nvgRGBA(255, 255, 255, 12));
-    nvgFill(vg);
-
-    float bx = grp_x + pad;
-    float by = grp_y + pad;
-
-    const char *view_icons[3] = { ICON_TABLE, "\xEE\xBA\x8D", ICON_DESIGN };
-    const char *view_ids[3]   = { "view_table", "view_split", "view_design" };
-
-    for (int i = 0; i < 3; i++) {
-      float ix = bx + i * (btn_size + btn_gap);
-
-      // Active pill highlight
-      if (mode == i) {
-        nvgBeginPath(vg);
-        nvgRoundedRect(vg, ix, by, btn_size, btn_size, 6.0f);
-        nvgFillColor(vg, pill_active);
-        nvgFill(vg);
-      }
-
-      NVGcolor col = (mode == i) ? ic_active : ic_idle;
-      if (nvgw_button_icon_ex(&ui->nvgw, nvgw_id_str(view_ids[i]),
-                              ix, by, btn_size, btn_size,
-                              view_icons[i], 15.0f, col, hover_bg, press_bg)) {
-        ui->split_view.mode = i;
-        ui_request_redraw(ui);
-      }
-    }
-
-    // --- Right group: design tools (only when design visible) ---
-    if (mode == 1 || mode == 2) {
-      ui_render_design_topbar_tools(ui, (float)win_w - 10.0f, 0.0f, top_bar_h);
-    }
-    // --- Right group: table actions (table-only and split view) ---
-    if (mode == 0 || mode == 1) {
-      // In split mode, constrain buttons to the left panel width
-      float right_edge = (float)win_w;
-      if (mode == 1) {
-        float r = ui->split_view.ratio;
-        if (r < 0.03f) r = 0.03f;
-        if (r > 0.97f) r = 0.97f;
-        right_edge = (float)win_w * r;
-      }
-      ui_render_table_topbar_actions(ui, engine, right_edge, top_bar_h);
-    }
-
-    // Render split view
+    // Always render design canvas (full window below top bar)
+    ui->split_view.mode = 2;
     ui_render_split_view(ui, engine, win_w, top_bar_h, (float)win_h - top_bar_h);
 
     // --- Floating HSV color picker ---
