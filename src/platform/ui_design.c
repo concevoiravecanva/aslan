@@ -676,8 +676,26 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
               }
             }
           }
-        } else if (ui->input.pending_create == 20) { // Table layout (from toolbar)
-          design_insert_tableau_layout(dd);
+        } else if (ui->input.pending_create == 30) { // Table node (from toolbar)
+          Page *page = doc_page_get_active(engine->doc);
+          if (page && dd->root) {
+            uint32_t tbl_id = page->next_block_id;
+            char cmd_buf[128];
+            snprintf(cmd_buf, sizeof(cmd_buf), "block_create %u %u table",
+                     page->id, tbl_id);
+            engine_execute_command(engine, cmd_buf);
+            new_node = node_create(dd->next_node_id++, NODE_TYPE_TABLE_VIEW, NULL);
+            if (new_node) {
+              new_node->x = nx;
+              new_node->y = ny;
+              new_node->width  = 400.0f;
+              new_node->height = 260.0f;
+              new_node->visible = 1;
+              new_node->linked_block_id = tbl_id;
+              new_node->parent = dd->root;
+              node_add_child(dd->root, new_node);
+            }
+          }
           ui->input.pending_create = 0;
         } else if (ui->input.pending_create == 12) { // Icon
           new_node = design_create_styled_node(

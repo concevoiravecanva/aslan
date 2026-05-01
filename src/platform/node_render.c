@@ -345,14 +345,21 @@ void ui_render_node_tree(UIHost *ui, Engine *engine, Block *block,
   } else if (node->type == NODE_TYPE_TABLE_VIEW) {
     // ── Embedded live-table — mirrors ui_render_chart_impl pattern ──────
     NVGcontext *vg = ui->vg;
-    // Find first TABLE block on active page
+    // Find the linked TABLE block (fall back to first table if unlinked)
     AslanTable *tv_tbl = NULL;
     Page *_active = doc_page_get_active(engine->doc);
     if (_active) {
-      for (Block *_b = _active->first_block; _b; _b = _b->next) {
-        if (_b->type == BLOCK_TABLE && _b->data.table.columnar) {
-          tv_tbl = _b->data.table.columnar;
-          break;
+      Block *_found = node->linked_block_id
+          ? page_find_block_by_id(_active, node->linked_block_id)
+          : NULL;
+      if (_found && _found->type == BLOCK_TABLE && _found->data.table.columnar) {
+        tv_tbl = _found->data.table.columnar;
+      } else {
+        for (Block *_b = _active->first_block; _b; _b = _b->next) {
+          if (_b->type == BLOCK_TABLE && _b->data.table.columnar) {
+            tv_tbl = _b->data.table.columnar;
+            break;
+          }
         }
       }
     }

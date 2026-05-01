@@ -376,7 +376,7 @@ void ui_render_design_topbar_tools(UIHost *ui, float right_x, float top_y, float
         ui->input.pending_create = 11;
         ui->editor.show_sub_menu = 0;
       } else if (i == 4) {
-        ui->input.pending_create = 20;
+        ui->input.pending_create = 30;
         ui->editor.show_sub_menu = 0;
       } else if (ui->editor.active_category == cat) {
         ui->editor.show_sub_menu = !ui->editor.show_sub_menu;
