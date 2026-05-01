@@ -547,7 +547,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
           my < ws_bounds.y + ws_bounds.h) {
         ui->input.active_block_id = block->id;
         ui->input.active_block = block;
-        ui->editing_block_id = block->id;
         is_active_design = 1;
       }
 
@@ -556,7 +555,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       if (!is_active_design && ui->input.pending_create > 0) {
         ui->input.active_block_id = block->id;
         ui->input.active_block    = block;
-        ui->editing_block_id      = block->id;
         is_active_design = 1;
       }
 
