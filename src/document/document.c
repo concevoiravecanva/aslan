@@ -1604,6 +1604,19 @@ static void save_node_recursive(FILE *fp, uint32_t page_id, uint32_t block_id,
     fprintf(fp, "\n");
   }
 
+  // Linked table block (TABLE_VIEW nodes)
+  if (node->linked_block_id != 0) {
+    fprintf(fp, "%s_node %u %u linked_block %u %u\n", prefix, page_id,
+            block_id, node->id, node->linked_block_id);
+  }
+
+  // Source table (chart nodes)
+  if (node->type == NODE_TYPE_CHART && node->chart_data &&
+      node->chart_data->source_table_id != 0) {
+    fprintf(fp, "%s_node %u %u source_table %u %u\n", prefix, page_id,
+            block_id, node->id, node->chart_data->source_table_id);
+  }
+
   // Recurse to children and siblings
   for (Node *child = node->first_child; child; child = child->next_sibling) {
     save_node_recursive(fp, page_id, block_id, prefix, child);

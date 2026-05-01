@@ -973,6 +973,14 @@ static bool handle_block_design_node(Engine *engine, const AofCommand *cmd,
         node->linked_image_col_name[sizeof(node->linked_image_col_name) - 1] =
             '\0';
       }
+    } else if (strcmp(action, "linked_block") == 0 && cmd->argc >= 6) {
+      Node *node = block_design_find_node(block, (uint32_t)atoi(cmd->argv[4]));
+      if (node)
+        node->linked_block_id = (uint32_t)atoi(cmd->argv[5]);
+    } else if (strcmp(action, "source_table") == 0 && cmd->argc >= 6) {
+      Node *node = block_design_find_node(block, (uint32_t)atoi(cmd->argv[4]));
+      if (node && node->chart_data)
+        node->chart_data->source_table_id = (uint32_t)atoi(cmd->argv[5]);
     } else {
       return false;
     }
