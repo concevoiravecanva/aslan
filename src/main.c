@@ -212,6 +212,33 @@ static void process_events_and_render(Engine *engine, Renderer *renderer,
                   *last_click_world_x = world_x;
                   *last_click_world_y = world_y;
                 }
+              } else if (ui->selected_node->type == NODE_TYPE_CHART) {
+                if (is_dbl) {
+                  Node *cn = ui->selected_node;
+                  uint32_t tbl_id = cn->chart_data ? cn->chart_data->source_table_id : 0;
+                  if (tbl_id == 0) {
+                    // No linked table yet — create one and link it
+                    Page *page = doc_page_get_active(engine->doc);
+                    if (page) {
+                      tbl_id = page->next_block_id;
+                      char cmd_buf[128];
+                      snprintf(cmd_buf, sizeof(cmd_buf), "block_create %u %u table",
+                               page->id, tbl_id);
+                      engine_execute_command(engine, cmd_buf);
+                      if (cn->chart_data)
+                        cn->chart_data->source_table_id = tbl_id;
+                    }
+                  }
+                  if (tbl_id != 0) {
+                    ui->expanded_block_id = tbl_id;
+                    ui->needs_redraw = 1;
+                  }
+                  *last_click_ms = 0;
+                } else {
+                  *last_click_ms = now;
+                  *last_click_world_x = world_x;
+                  *last_click_world_y = world_y;
+                }
               }
             }
           }
