@@ -3546,9 +3546,9 @@ h.FS_createLazyFile = (...a) => jc(...a);
   Ga(a);
 });
 "run out err callMain abort wasmExports writeStackCookie checkStackCookie writeI53ToI64 readI53FromI64 readI53FromU64 INT53_MAX INT53_MIN bigintToI53Checked HEAP8 HEAPU8 HEAP16 HEAPU16 HEAP32 HEAPU32 HEAPF32 HEAPF64 HEAP64 HEAPU64 stackSave stackRestore stackAlloc createNamedFunction ptrToString exitJS getHeapMax growMemory ENV ERRNO_CODES strError DNS Protocols Sockets timers warnOnce readEmAsmArgsArray readEmAsmArgs runEmAsmFunction runMainThreadEmAsm jstoi_q getExecutableName autoResumeAudioContext dynCallLegacy dynCall handleException keepRuntimeAlive runtimeKeepalivePush runtimeKeepalivePop callUserCallback maybeExit asyncLoad alignMemory mmapAlloc wasmTable wasmMemory getUniqueRunDependency noExitRuntime addOnPreRun addOnExit addOnPostRun freeTableIndexes functionsInTableMap setValue getValue PATH PATH_FS UTF8Decoder UTF8ArrayToString stringToUTF8Array stringToUTF8 lengthBytesUTF8 intArrayFromString UTF16Decoder stringToNewUTF8 stringToUTF8OnStack writeArrayToMemory JSEvents registerKeyEventCallback specialHTMLTargets maybeCStringToJsString findEventTarget findCanvasEventTarget getBoundingClientRect fillMouseEventData registerMouseEventCallback registerWheelEventCallback registerUiEventCallback registerFocusEventCallback fillFullscreenChangeEventData registerFullscreenChangeEventCallback JSEvents_requestFullscreen JSEvents_resizeCanvasForFullscreen registerRestoreOldStyle setLetterbox currentFullscreenStrategy restoreOldWindowedStyle doRequestFullscreen fillPointerlockChangeEventData registerPointerlockChangeEventCallback requestPointerLock fillVisibilityChangeEventData registerVisibilityChangeEventCallback registerTouchEventCallback fillGamepadEventData registerGamepadEventCallback registerBeforeUnloadEventCallback setCanvasElementSize getCanvasElementSize UNWIND_CACHE ExitStatus getEnvStrings checkWasiClock doReadv doWritev initRandomFill randomFill safeSetTimeout emSetImmediate emClearImmediate_deps emClearImmediate registerPreMainLoop promiseMap uncaughtExceptionCount exceptionCaught Browser requestFullscreen requestFullScreen setCanvasSize getUserMedia getPreloadedImageData__data wget MONTH_DAYS_REGULAR MONTH_DAYS_LEAP MONTH_DAYS_REGULAR_CUMULATIVE MONTH_DAYS_LEAP_CUMULATIVE isLeapYear ydayFromDate SYSCALLS preloadPlugins FS_createPreloadedFile FS_modeStringToFlags FS_getMode FS_fileDataToTypedArray FS_stdin_getChar_buffer FS_stdin_getChar FS_readFile FS_root FS_mounts FS_devices FS_streams FS_nextInode FS_nameTable FS_currentPath FS_initialized FS_ignorePermissions FS_filesystems FS_syncFSRequests FS_lookupPath FS_getPath FS_hashName FS_hashAddNode FS_hashRemoveNode FS_lookupNode FS_createNode FS_destroyNode FS_isRoot FS_isMountpoint FS_isFile FS_isDir FS_isLink FS_isChrdev FS_isBlkdev FS_isFIFO FS_isSocket FS_flagsToPermissionString FS_nodePermissions FS_mayLookup FS_mayCreate FS_mayDelete FS_mayOpen FS_checkOpExists FS_nextfd FS_getStreamChecked FS_getStream FS_createStream FS_closeStream FS_dupStream FS_doSetAttr FS_chrdev_stream_ops FS_major FS_minor FS_makedev FS_registerDevice FS_getDevice FS_getMounts FS_syncfs FS_mount FS_unmount FS_lookup FS_mknod FS_statfs FS_statfsStream FS_statfsNode FS_create FS_mkdir FS_mkdev FS_symlink FS_rename FS_rmdir FS_readdir FS_readlink FS_stat FS_fstat FS_lstat FS_doChmod FS_chmod FS_lchmod FS_fchmod FS_doChown FS_chown FS_lchown FS_fchown FS_doTruncate FS_truncate FS_ftruncate FS_utime FS_open FS_close FS_isClosed FS_llseek FS_read FS_write FS_mmap FS_msync FS_ioctl FS_writeFile FS_cwd FS_chdir FS_createDefaultDirectories FS_createDefaultDevices FS_createSpecialDirectories FS_createStandardStreams FS_staticInit FS_init FS_quit FS_findObject FS_analyzePath FS_createFile FS_forceLoadFile MEMFS TTY PIPEFS SOCKFS tempFixedLengthArray miniTempWebGLFloatBuffers miniTempWebGLIntBuffers heapObjectForWebGLType toTypedArrayIndex webgl_enable_ANGLE_instanced_arrays webgl_enable_OES_vertex_array_object webgl_enable_WEBGL_draw_buffers webgl_enable_WEBGL_multi_draw webgl_enable_EXT_polygon_offset_clamp webgl_enable_EXT_clip_control webgl_enable_WEBGL_polygon_mode GL emscriptenWebGLGet computeUnpackAlignedImageSize colorChannelsInGlTextureFormat emscriptenWebGLGetTexPixelData emscriptenWebGLGetUniform webglGetUniformLocation webglPrepareUniformLocationsBeforeFirstUse webglGetLeftBracePos emscriptenWebGLGetVertexAttrib __glGetActiveAttribOrUniform emscriptenWebGLGetBufferBinding emscriptenWebGLValidateMapBufferTarget AL GLUT EGL GLEW IDBStore runAndAbortIfError Asyncify Fibers emscriptenWebGLGetIndexed webgl_enable_WEBGL_draw_instanced_base_vertex_base_instance webgl_enable_WEBGL_multi_draw_instanced_base_vertex_base_instance print printErr jstoi_s".split(" ").forEach(Ga);
-var Od = {155356:() => h.canvas.width, 155388:() => h.canvas.height, 155421:() => {
+var Od = {155500:() => h.canvas.width, 155532:() => h.canvas.height, 155565:() => {
   window.print();
-}, 155436:a => {
+}, 155580:a => {
   a = D(a);
   var b = a.split("/").pop();
   try {
@@ -3564,7 +3564,7 @@ var Od = {155356:() => h.canvas.width, 155388:() => h.canvas.height, 155421:() =
   } catch (g) {
     console.error("[Aslan] Download failed for", a, ":", g);
   }
-}, 156161:a => {
+}, 156305:a => {
   function b() {
     c.parentNode && c.parentNode.removeChild(c);
   }
@@ -3596,13 +3596,13 @@ var Od = {155356:() => h.canvas.width, 155388:() => h.canvas.height, 155421:() =
     h.Ia("web_on_file_cancelled", null, [], []);
   });
   c.click();
-}, 157094:() => "undefined" !== typeof AudioContext || "undefined" !== typeof webkitAudioContext ? !0 : !1, 157241:() => "undefined" !== typeof navigator.mediaDevices && "undefined" !== typeof navigator.mediaDevices.getUserMedia || "undefined" !== typeof navigator.webkitGetUserMedia ? !0 : !1, 157475:a => {
+}, 157238:() => "undefined" !== typeof AudioContext || "undefined" !== typeof webkitAudioContext ? !0 : !1, 157385:() => "undefined" !== typeof navigator.mediaDevices && "undefined" !== typeof navigator.mediaDevices.getUserMedia || "undefined" !== typeof navigator.webkitGetUserMedia ? !0 : !1, 157619:a => {
   "undefined" === typeof h.SDL2 && (h.SDL2 = {});
   var b = h.SDL2;
   a ? b.capture = {} : b.audio = {};
   b.m || ("undefined" !== typeof AudioContext ? b.m = new AudioContext() : "undefined" !== typeof webkitAudioContext && (b.m = new webkitAudioContext()), b.m && "undefined" === typeof navigator.userActivation && pg(b.m));
   return void 0 === b.m ? -1 : 0;
-}, 158027:() => h.SDL2.m.sampleRate, 158095:(a, b, c, d) => {
+}, 158171:() => h.SDL2.m.sampleRate, 158239:(a, b, c, d) => {
   function e() {
   }
   function f(m) {
@@ -3624,7 +3624,7 @@ var Od = {155356:() => h.canvas.width, 155388:() => h.canvas.height, 155421:() =
     db(c, [d]);
   }, b / g.m.sampleRate * 1000);
   void 0 !== navigator.mediaDevices && void 0 !== navigator.mediaDevices.getUserMedia ? navigator.mediaDevices.getUserMedia({audio:!0, video:!1}).then(f).catch(e) : void 0 !== navigator.webkitGetUserMedia && navigator.webkitGetUserMedia({audio:!0, video:!1}, f, e);
-}, 159788:(a, b, c, d) => {
+}, 159932:(a, b, c, d) => {
   var e = h.SDL2;
   e.audio.O = e.m.createScriptProcessor(b, 0, a);
   e.audio.O.onaudioprocess = function(f) {
@@ -3637,7 +3637,7 @@ var Od = {155356:() => h.canvas.width, 155388:() => h.canvas.height, 155421:() =
     db(c, [d]);
     e.audio.za = void 0;
   }, b / e.m.sampleRate * 1000));
-}, 160963:(a, b) => {
+}, 161107:(a, b) => {
   for (var c = h.SDL2, d = c.capture.Ja.numberOfChannels, e = 0; e < d; ++e) {
     var f = c.capture.Ja.getChannelData(e);
     if (f.length != b) {
@@ -3653,7 +3653,7 @@ var Od = {155356:() => h.canvas.width, 155388:() => h.canvas.height, 155421:() =
       }
     }
   }
-}, 161568:(a, b) => {
+}, 161712:(a, b) => {
   var c = h.SDL2;
   a >>>= 2;
   for (var d = c.audio.za.numberOfChannels, e = 0; e < d; ++e) {
@@ -3665,7 +3665,7 @@ var Od = {155356:() => h.canvas.width, 155388:() => h.canvas.height, 155421:() =
       f[g] = A[a + (g * d + e)];
     }
   }
-}, 162057:a => {
+}, 162201:a => {
   var b = h.SDL2;
   if (a) {
     void 0 !== b.capture.R && clearInterval(b.capture.R);
@@ -3683,7 +3683,7 @@ var Od = {155356:() => h.canvas.width, 155388:() => h.canvas.height, 155421:() =
     void 0 != b.audio.O && b.audio.O.disconnect(), void 0 !== b.audio.R && clearInterval(b.audio.R), b.audio = void 0;
   }
   void 0 !== b.m && void 0 === b.audio && void 0 === b.capture && (b.m.close(), b.m = void 0);
-}, 163063:(a, b, c) => {
+}, 163207:(a, b, c) => {
   h.SDL2 || (h.SDL2 = {});
   var d = h.SDL2;
   d.Lb !== h.canvas && (d.ya = Fc(h.canvas, !1, !0), d.Lb = h.canvas);
@@ -3715,7 +3715,7 @@ var Od = {155356:() => h.canvas.width, 155388:() => h.canvas.height, 155421:() =
     }
   }
   d.ya.putImageData(d.image, 0, 0);
-}, 164529:(a, b, c, d, e) => {
+}, 164673:(a, b, c, d, e) => {
   var f = document.createElement("canvas");
   f.width = a;
   f.height = b;
@@ -3742,11 +3742,11 @@ var Od = {155356:() => h.canvas.width, 155388:() => h.canvas.height, 155421:() =
   d = W(c.length + 1);
   J(c, d, c.length + 1);
   return d;
-}, 165517:a => {
+}, 165661:a => {
   h.canvas && (h.canvas.style.cursor = D(a));
-}, 165600:() => {
+}, 165744:() => {
   h.canvas && (h.canvas.style.cursor = "none");
-}, 165669:() => window.innerWidth, 165699:() => window.innerHeight}, Ug = h._main = u("_main"), Og = u("_free"), W = u("_malloc"), lc = u("_fflush");
+}, 165813:() => window.innerWidth, 165843:() => window.innerHeight}, Ug = h._main = u("_main"), Og = u("_free"), W = u("_malloc"), lc = u("_fflush");
 h._web_on_file_ready = u("_web_on_file_ready");
 h._web_on_file_cancelled = u("_web_on_file_cancelled");
 var kc = u("_strerror"), va = u("_emscripten_stack_get_end"), Vg = u("_emscripten_stack_init"), $d = u("__emscripten_stack_restore"), Yd = u("__emscripten_stack_alloc"), rc = u("_emscripten_stack_get_current"), dynCall_v = u("dynCall_v"), ee = u("dynCall_iiii"), dynCall_vii = u("dynCall_vii"), dynCall_vi = u("dynCall_vi"), dynCall_iii = u("dynCall_iii"), Mg = u("_asyncify_start_unwind"), zg = u("_asyncify_stop_unwind"), Lg = u("_asyncify_start_rewind"), Ng = u("_asyncify_stop_rewind"), Ja = u("wasmMemory"), 

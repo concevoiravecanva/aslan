@@ -140,6 +140,11 @@ static void process_events_and_render(Engine *engine, Renderer *renderer,
               engine_execute_command(engine, cmd_buf);
             }
           }
+          // Escape — exit table full-screen edit mode back to canvas
+          if (e.key.keysym.sym == SDLK_ESCAPE && ui->expanded_block_id != 0) {
+            ui->expanded_block_id = 0;
+            ui->needs_redraw = 1;
+          }
           // Delete / Backspace — Delete active block (only if no node selected)
           if ((e.key.keysym.sym == SDLK_DELETE ||
                e.key.keysym.sym == SDLK_BACKSPACE) &&
@@ -179,22 +184,34 @@ static void process_events_and_render(Engine *engine, Renderer *renderer,
           float world_y = my;
 
           if (e.type == SDL_MOUSEBUTTONDOWN) {
-            // Double-click detection for TEXT node editing
-            if (e.button.button == SDL_BUTTON_LEFT && ui && ui->selected_node &&
-                ui->selected_node->type == NODE_TYPE_TEXT) {
+            if (e.button.button == SDL_BUTTON_LEFT && ui && ui->selected_node) {
               uint32_t now = SDL_GetTicks();
               float dx = world_x - *last_click_world_x;
               float dy = world_y - *last_click_world_y;
               float d2 = dx * dx + dy * dy;
+              bool is_dbl = (*last_click_ms &&
+                             (now - *last_click_ms) <= dbl_click_ms &&
+                             d2 <= (dbl_click_dist * dbl_click_dist));
 
-              if (*last_click_ms && (now - *last_click_ms) <= dbl_click_ms &&
-                  d2 <= (dbl_click_dist * dbl_click_dist)) {
-                ui->editing_block_id = ui->selected_node->id;
-                *last_click_ms = 0;
-              } else {
-                *last_click_ms = now;
-                *last_click_world_x = world_x;
-                *last_click_world_y = world_y;
+              if (ui->selected_node->type == NODE_TYPE_TEXT) {
+                if (is_dbl) {
+                  ui->editing_block_id = ui->selected_node->id;
+                  *last_click_ms = 0;
+                } else {
+                  *last_click_ms = now;
+                  *last_click_world_x = world_x;
+                  *last_click_world_y = world_y;
+                }
+              } else if (ui->selected_node->type == NODE_TYPE_TABLE_VIEW) {
+                if (is_dbl) {
+                  ui->expanded_block_id = ui->selected_node->linked_block_id;
+                  ui->needs_redraw = 1;
+                  *last_click_ms = 0;
+                } else {
+                  *last_click_ms = now;
+                  *last_click_world_x = world_x;
+                  *last_click_world_y = world_y;
+                }
               }
             }
           }

@@ -1998,15 +1998,10 @@ static bool topbar_action_btn(NVGcontext *vg, NvgWidgetCtx *wc,
 }
 
 void ui_render_table_topbar_actions(UIHost *ui, Engine *engine,
+                                    Block *block,
                                     float right_edge, float bar_h) {
-    Page *page = doc_page_get_active(engine->doc);
-    if (!page) return;
-    // Find first table block on this page
-    Block *block = NULL;
-    for (Block *b = page->first_block; b; b = b->next) {
-        if (b->type == BLOCK_TABLE) { block = b; break; }
-    }
-    if (!block) return;
+    (void)engine;
+    if (!block || block->type != BLOCK_TABLE) return;
     AslanTable *table = block->data.table.columnar;
     if (!table) return;
 

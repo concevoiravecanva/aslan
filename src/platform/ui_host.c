@@ -2421,11 +2421,74 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
   // Main content area - always Editor
   if (ui->expanded_block_id != 0) {
-    // Expanded block view
+    // Full-screen table edit mode (entered by double-clicking a table node)
     Page *page = doc_page_get_active(engine->doc);
     if (page) {
       Block *block = page_find_block_by_id(page, ui->expanded_block_id);
-      if (block) {
+      if (block && block->type == BLOCK_TABLE) {
+        const float top_bar_h = 44.0f;
+        NVGcontext *vg = ui->vg;
+
+        // Top bar background
+        nvgBeginPath(vg);
+        nvgRect(vg, 0, 0, (float)win_w, top_bar_h);
+        nvgFillColor(vg, nvgRGB(36, 36, 39));
+        nvgFill(vg);
+
+        // "← Canvas" back button (left side)
+        nvgw_set_offset(&ui->nvgw, 0.0f, 0.0f);
+        {
+          NvgWidgetCtx *wc = &ui->nvgw;
+          const float bw = 90.0f, bh = 26.0f;
+          const float bx = 10.0f, by = (top_bar_h - bh) * 0.5f;
+          uint32_t id = nvgw_id_str("back_to_canvas");
+          float mx = wc->mouse_x, my = wc->mouse_y;
+          bool hov = (mx >= bx && mx < bx + bw && my >= by && my < by + bh);
+          if (hov) wc->hot_id = id;
+          if (wc->hot_id == id && wc->mouse_clicked) wc->active_id = id;
+          bool pressed = (wc->active_id == id);
+          bool clicked = (pressed && wc->mouse_released && hov);
+          nvgBeginPath(vg);
+          nvgRoundedRect(vg, bx, by, bw, bh, 5.0f);
+          nvgFillColor(vg, pressed ? nvgRGBA(255,255,255,55)
+                         : hov    ? nvgRGBA(255,255,255,30)
+                                  : nvgRGBA(255,255,255,15));
+          nvgFill(vg);
+          nvgFontSize(vg, 12.0f);
+          nvgFontFace(vg, "Inter");
+          nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+          nvgFillColor(vg, nvgRGBA(255,255,255,200));
+          nvgText(vg, bx + bw * 0.5f, by + bh * 0.5f, "← Canvas", NULL);
+          if (clicked) {
+            ui->expanded_block_id = 0;
+            ui->needs_redraw = 1;
+          }
+        }
+
+        // Table name (center)
+        if (block->data.table.columnar && block->data.table.columnar->name[0]) {
+          nvgFontSize(vg, 13.0f);
+          nvgFontFace(vg, "Inter");
+          nvgTextAlign(vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+          nvgFillColor(vg, nvgRGBA(255, 255, 255, 180));
+          nvgText(vg, (float)win_w * 0.5f, top_bar_h * 0.5f,
+                  block->data.table.columnar->name, NULL);
+        }
+
+        // Table actions (add col, import, export) — right side
+        ui_render_table_topbar_actions(ui, engine, block,
+                                       (float)win_w - 8.0f, top_bar_h);
+
+        // Table content below top bar (full width, full remaining height)
+        ui->abs_offset_x = 0.0f;
+        ui->abs_offset_y = top_bar_h;
+        nvgSave(vg);
+        nvgTranslate(vg, 0.0f, top_bar_h);
+        ui_render_block_table(ui, engine, block,
+                              (float)win_w, (float)win_h - top_bar_h);
+        nvgRestore(vg);
+      } else if (block) {
+        // Fallback for non-table blocks
         ui_render_block(ui, engine, page, block, (float)win_w);
       }
       if (ui->show_doc_menu) {
