@@ -1130,16 +1130,6 @@ void ui_handle_event(UIHost *ui, SDL_Event *evt) {
       ui->editor.cam_y = ui->input.start_cam_y - dy / zm;
     }
 
-    // Handle node dragging — ONLY for canvas blocks.
-    // Design blocks handle their own drag logic in ui_design.c
-    // (with grid snapping, element snapping, threshold, etc.)
-    if ((ui->input.mode == INTERACTION_DRAG_NODE) && ui->selected_node &&
-        ui->split_view.mode == 0) {
-      float world_x = ui->editor.cam_x + (ui->mouse_x - ui->input.bounds_x) / ui->editor.zoom;
-      float world_y = ui->editor.cam_y + (ui->mouse_y - ui->input.bounds_y) / ui->editor.zoom;
-      ui->selected_node->x = world_x - ui->input.drag_offset_x;
-      ui->selected_node->y = world_y - ui->input.drag_offset_y;
-    }
 
     ui->input.end_y = ui->editor.cam_y + (ui->mouse_y - ui->input.bounds_y) / ui->editor.zoom;
   }
@@ -2161,226 +2151,29 @@ static Block *page_find_first_block_of_type(Page *page, BlockType type) {
 // Gantt View
 // =============================================================================
 
-/// Render a single panel view: 0=Table (left), 1=Design (right)
-static void ui_render_panel_view(UIHost *ui, Engine *engine,
-                                 Page *page, int view,
-                                 float x, float y,
-                                 float view_w, float view_h) {
-  if (!page) return;
-
-  ui->abs_offset_x = x;
-  ui->abs_offset_y = y;
-
-  nvgSave(ui->vg);
-  nvgTranslate(ui->vg, x, y);
-
-  if (view == 0) {
-    // Left panel: Table view
-    Block *table = page_find_first_block_of_type(page, BLOCK_TABLE);
-    if (table) {
-      ui_render_block_table(ui, engine, table, view_w, view_h);
-    }
-  } else if (view == 1) {
-    // Right panel: Design view
-    Block *design = page_find_first_block_of_type(page, BLOCK_DESIGN);
-    if (design) {
-      ui_render_block_design(ui, engine, design, view_w, view_h);
-    }
-  }
-
-  nvgRestore(ui->vg);
-}
-
-// =============================================================================
-// Split-view: Clay owns backgrounds, NanoVG owns content
-// =============================================================================
-
-// Process splitter mouse interaction handled by NanoVG/Clay now.
-static void handle_splitter_input(UIHost *ui, int win_w, float top_y,
-                                  float view_h, float left_w, float splitter_w) {
-  float mx = ui->mouse_x;
-  float my = ui->mouse_y;
-  int mdown = (ui->mouse_buttons & 1);
-
-  // Splitter rect
-  float sx = left_w;
-  float sy = top_y;
-  float sw = splitter_w;
-  float sh = view_h;
-
-  int hovered = (mx >= sx && mx < sx + sw && my >= sy && my < sy + sh);
-
-  if (hovered || ui->split_view.is_dragging_splitter) {
-    ui->cursor_type = UI_CURSOR_SIZEWE;
-  }
-
-  if (hovered && ui->nvgw.mouse_clicked) {
-    ui->split_view.is_dragging_splitter = 1;
-  }
-
-  if (ui->split_view.is_dragging_splitter) {
-    if (!mdown) {
-      ui->split_view.is_dragging_splitter = 0;
-    } else {
-      float new_ratio = mx / (float)win_w;
-      if (new_ratio < 0.05f) new_ratio = 0.05f;
-      if (new_ratio > 0.95f) new_ratio = 0.95f;
-      ui->split_view.ratio = new_ratio;
-      ui_request_redraw(ui);
-    }
-  }
-}
-
 static void ui_render_split_view(UIHost *ui, Engine *engine,
                                  int win_w, float top_y, float view_h) {
   Page *page = doc_page_get_active(engine->doc);
-  if (!page)
-    return;
+  if (!page) return;
 
-  float ratio = ui->split_view.ratio;
-  if (ratio < 0.03f) ratio = 0.03f;
-  if (ratio > 0.97f) ratio = 0.97f;
-
-  const float spl_w = 6.0f;
-  float sidebar_w = 260.0f;
-  
-  float left_w, right_w;
-  if (ui->split_view.mode == 0) { // Table Only — full width, no sidebar
-    right_w = 0.0f;
-    left_w = (float)win_w;
-  } else if (ui->split_view.mode == 2) { // Design Only
-    left_w = 0.0f;
-    right_w = (float)win_w;
-  } else { // Split View (1)
-    left_w = (float)win_w * ratio;
-    right_w = (float)win_w - left_w - spl_w;
-    if (left_w < 30.0f) left_w = 30.0f;
-    if (right_w < 30.0f) right_w = 30.0f;
-  }
-
-  float right_x = (ui->split_view.mode == 1) ? (left_w + spl_w) : left_w;
-
-  if (ui->split_view.mode == 1) {
-    handle_splitter_input(ui, win_w, top_y, view_h, left_w, spl_w);
-  }
-
-  // Draw split-view backgrounds (pure NanoVG, replaces Clay)
-  {
-    NVGcontext *vg = ui->vg;
-    NVGcolor left_bg, right_bg, spl_bg;
-    int is_dark = ui->dark_mode != 0;
-    int spl_active = ui->split_view.is_dragging_splitter != 0;
-
-    if (is_dark) {
-      left_bg  = nvgRGBA(28, 30, 36, 255);
-      right_bg = nvgRGBA(24, 26, 32, 255);
-      spl_bg   = spl_active ? nvgRGBA(55, 57, 68, 255) : nvgRGBA(42, 44, 52, 255);
-    } else {
-      left_bg  = nvgRGBA(249, 249, 251, 255);
-      right_bg = nvgRGBA(249, 249, 251, 255);
-      spl_bg   = spl_active ? nvgRGBA(50, 50, 54, 255) : nvgRGBA(36, 36, 39, 255);
-    }
-
-    // Left panel
-    if (left_w > 0) {
-      nvgBeginPath(vg);
-      nvgRect(vg, 0, top_y, left_w, view_h);
-      nvgFillColor(vg, left_bg);
-      nvgFill(vg);
-    }
-
-    // Splitter
-    if (ui->split_view.mode == 1) {
-      nvgBeginPath(vg);
-      nvgRect(vg, left_w, top_y, spl_w, view_h);
-      nvgFillColor(vg, spl_bg);
-      nvgFill(vg);
-
-      // Splitter dots
-      NVGcolor dot_col = is_dark
-        ? (spl_active ? nvgRGBA(120, 122, 135, 255) : nvgRGBA(80, 82, 92, 255))
-        : (spl_active ? nvgRGBA(90, 90, 96, 255)   : nvgRGBA(65, 65, 70, 255));
-      float dot_x = left_w + spl_w * 0.5f - 1.5f;
-      float dot_y = top_y + view_h * 0.5f - 10.0f;
-      for (int d = 0; d < 3; d++) {
-        nvgBeginPath(vg);
-        nvgRect(vg, dot_x, dot_y + (float)d * 7.0f, 3.0f, 3.0f);
-        nvgFillColor(vg, dot_col);
-        nvgFill(vg);
-      }
-    }
-
-    // Right panel
-    if (right_w > 0) {
-      nvgBeginPath(vg);
-      nvgRect(vg, right_x, top_y, right_w, view_h);
-      nvgFillColor(vg, right_bg);
-      nvgFill(vg);
-    }
-  }
-
-  // Left Panel
-  float view_x_left = 0.0f;
-  float view_y_left = top_y;
-  float view_w_left = left_w;
-  float view_h_left = view_h;
-  if (view_w_left > 0 && view_h_left > 0 && ui->split_view.mode != 2) {
-    ui_render_panel_view(ui, engine, page, 0, view_x_left, view_y_left,
-                         view_w_left, view_h_left);
-  }
-
-  // Right Panel
-  float view_x_right = right_x;
-  float view_y_right = top_y;
-  float view_w_right = right_w;
-  float view_h_right = view_h;
-  if (view_w_right > 0 && view_h_right > 0 && ui->split_view.mode != 0) {
-    // Mode != 0 means design canvas IS drawn. Wait, if Mode == 0, we DO draw right panel (for sidebar only)
-  }
-  
-  if (view_w_right > 0 && view_h_right > 0) {
-    ui_render_panel_view(ui, engine, page, 1, view_x_right, view_y_right,
-                         view_w_right, view_h_right);
-  }
-
-  // Fade overlay: panel fades to white when width < 15% of window
+  // Background
   NVGcontext *vg = ui->vg;
-  NVGcolor bg = ui->dark_mode
-    ? nvgRGBA(28, 28, 30, 255)
-    : nvgRGBA(249, 249, 251, 255);
+  nvgBeginPath(vg);
+  nvgRect(vg, 0, top_y, (float)win_w, view_h);
+  nvgFillColor(vg, ui->dark_mode
+    ? nvgRGBA(24, 26, 32, 255)
+    : nvgRGBA(249, 249, 251, 255));
+  nvgFill(vg);
 
-  if (ui->split_view.mode == 1) {
-    // Left panel fade
-    {
-      float frac = left_w / (float)win_w;
-      if (frac < 0.15f) {
-        float t = 1.0f - (frac - 0.10f) / 0.05f;
-        if (t < 0.0f) t = 0.0f;
-        if (t > 1.0f) t = 1.0f;
-        NVGcolor col = bg;
-        col.a = t;
-        nvgBeginPath(vg);
-        nvgRect(vg, 0, top_y, left_w, view_h);
-        nvgFillColor(vg, col);
-        nvgFill(vg);
-      }
-    }
-
-    // Right panel fade
-    {
-      float frac = right_w / (float)win_w;
-      if (frac < 0.15f) {
-        float t = 1.0f - (frac - 0.10f) / 0.05f;
-        if (t < 0.0f) t = 0.0f;
-        if (t > 1.0f) t = 1.0f;
-        NVGcolor col = bg;
-        col.a = t;
-        nvgBeginPath(vg);
-        nvgRect(vg, right_x, top_y, right_w, view_h);
-        nvgFillColor(vg, col);
-        nvgFill(vg);
-      }
-    }
+  // Design canvas — full width
+  Block *design = page_find_first_block_of_type(page, BLOCK_DESIGN);
+  if (design) {
+    ui->abs_offset_x = 0.0f;
+    ui->abs_offset_y = top_y;
+    nvgSave(vg);
+    nvgTranslate(vg, 0.0f, top_y);
+    ui_render_block_design(ui, engine, design, (float)win_w, view_h);
+    nvgRestore(vg);
   }
 }
 
@@ -2509,8 +2302,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     // Design tools always visible on the right
     ui_render_design_topbar_tools(ui, (float)win_w - 10.0f, 0.0f, top_bar_h);
 
-    // Always render design canvas (full window below top bar)
-    ui->split_view.mode = 2;
+    // Render design canvas (full window below top bar)
     ui_render_split_view(ui, engine, win_w, top_bar_h, (float)win_h - top_bar_h);
 
     // --- Floating HSV color picker ---

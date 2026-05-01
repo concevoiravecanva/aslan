@@ -244,16 +244,6 @@ typedef struct UIHost {
   int show_doc_menu;
   AslanRect doc_menu_rect;
 
-  // Split View (Data-Driven layout)
-  struct {
-    int active;               // 1 = split view mode is on
-    float ratio;              // 0.0-1.0 — left panel portion (0.5 = 50/50)
-    int is_dragging_splitter; // 1 = currently dragging the splitter
-    int mode;                 // 0=collab(50/50), 1=design(3/97), 2=data(97/3)
-    int selected_row;         // Selected row in table (-1=none)
-    int left_panel_tab;       // Reserved for future left-panel tabs
-  } split_view;
-
   // Block editing state
   uint32_t active_block_id;   // Block currently active/selected (showing icons)
   uint32_t editing_block_id;  // Block being edited (0=none)

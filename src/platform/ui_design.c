@@ -893,15 +893,6 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         mouse_in_design = 0;
       }
 
-      // While the split-view divider is being dragged the canvas bounds and
-      // scale change every frame. Block all design interactions to prevent
-      // nodes from jumping or being accidentally moved.
-      if (ui->split_view.is_dragging_splitter) {
-        mouse_in_design = 0;
-        ui->input.mode = INTERACTION_NONE;
-        ui->input.mode = INTERACTION_NONE;
-        ui->input.mode = INTERACTION_NONE;
-      }
 
       // --- Handle resize ---
       int on_resize_handle = 0;
