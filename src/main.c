@@ -236,6 +236,55 @@ static void process_events_and_render(Engine *engine, Renderer *renderer,
     renderer_end(renderer);
   }
 
+#ifdef __EMSCRIPTEN__
+  // Deferred image dialog: open AFTER renderer_end so the frame is visible
+  if (ui->deferred_image_dialog) {
+    ui->deferred_image_dialog = 0;
+    char path[512] = {0};
+    extern int open_image_file_dialog(char *, size_t);
+    extern int copy_image_to_assets(const char *, const char *, char *, size_t);
+    if (open_image_file_dialog(path, sizeof(path))) {
+      char rel[256] = {0};
+      if (copy_image_to_assets(path, ".", rel, sizeof(rel))) {
+        Page *page = doc_page_get_active(engine->doc);
+        if (page) {
+          Block *block = page_find_block_by_id(page, ui->deferred_image_block_id);
+          if (block && block->type == BLOCK_DESIGN) {
+            DesignData *dd = &block->data.design;
+            if (ui->deferred_image_node_id != 0) {
+              // Fill existing container node
+              Node *n = block_design_find_node(block, ui->deferred_image_node_id);
+              if (n) {
+                strncpy(n->image_path, rel, sizeof(n->image_path) - 1);
+                n->image_path[sizeof(n->image_path) - 1] = '\0';
+              }
+            } else {
+              // Create new image node
+              Node *n = node_create(dd->next_node_id++, NODE_TYPE_IMAGE, NULL);
+              if (n && dd->root) {
+                n->x = ui->deferred_image_nx;
+                n->y = ui->deferred_image_ny;
+                n->width = 200.0f; n->height = 150.0f;
+                n->visible = 1; n->lock_ratio = 1;
+                n->parent = dd->root;
+                strncpy(n->image_path, rel, sizeof(n->image_path) - 1);
+                if (!dd->root->first_child) dd->root->first_child = n;
+                else {
+                  Node *last = dd->root->first_child;
+                  while (last->next_sibling) last = last->next_sibling;
+                  last->next_sibling = n;
+                }
+                ui->selected_node = n;
+              }
+            }
+            ui->needs_redraw = 1;
+          }
+        }
+      }
+    }
+  }
+#endif
+
   nvgw_input_end(&ui->nvgw);
 }
 

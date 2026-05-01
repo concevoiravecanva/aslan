@@ -487,6 +487,13 @@ typedef struct UIHost {
   int needs_redraw;         // 1 = re-render needed, 0 = idle
   int has_active_animation; // 1 = cursor blink, transitions, etc.
 
+  // Deferred image dialog (Emscripten: must open AFTER frame completes)
+  int      deferred_image_dialog;   // 1 = open dialog after next renderer_end
+  float    deferred_image_nx;
+  float    deferred_image_ny;
+  uint32_t deferred_image_block_id;
+  uint32_t deferred_image_node_id;  // 0 = create new node, else fill existing
+
 } UIHost;
 
 // -----------------------------------------------------------------------------

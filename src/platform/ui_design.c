@@ -595,6 +595,18 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
             strncpy(new_node->text, "Note...", sizeof(new_node->text) - 1);
           }
         } else if (ui->input.pending_create == 3) { // Image
+#ifdef __EMSCRIPTEN__
+          // Defer: opening the dialog mid-render clears the canvas to white.
+          // Flag it; main.c will open the dialog after renderer_end.
+          ui->deferred_image_dialog   = 1;
+          ui->deferred_image_nx       = nx;
+          ui->deferred_image_ny       = ny;
+          ui->deferred_image_block_id = block->id;
+          ui->deferred_image_node_id  = 0;
+          ui->input.pending_create    = 0;
+          // Skip node creation for now — handled post-frame
+          goto skip_node_append;
+#endif
           char path[512] = {0};
           if (open_image_file_dialog(path, sizeof(path))) {
             char rel[256] = {0};
@@ -687,6 +699,9 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
         if (new_node)
           ui->selected_node = new_node;
         ui->input.pending_create = 0;
+#ifdef __EMSCRIPTEN__
+        skip_node_append:;
+#endif
       }
 
       // Handle Bezier point dragging
@@ -1207,6 +1222,12 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
             hit = NULL;
           } else if (hit->is_container && !hit->image_path[0]) {
             // Click on empty container "+" -> open image file dialog
+            ui->selected_node = hit;
+#ifdef __EMSCRIPTEN__
+            ui->deferred_image_dialog   = 1;
+            ui->deferred_image_block_id = block->id;
+            ui->deferred_image_node_id  = hit->id;
+#else
             char path[512] = {0};
             if (open_image_file_dialog(path, sizeof(path))) {
               char rel[256] = {0};
@@ -1215,7 +1236,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
                 hit->image_path[sizeof(hit->image_path) - 1] = '\0';
               }
             }
-            ui->selected_node = hit;
+#endif
           } else {
             // Double-click: edit text / crop image
             int is_double = 0;
