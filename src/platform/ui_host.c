@@ -824,6 +824,58 @@ void ui_host_import_csv(UIHost *ui, Engine *engine) {
               block->data.table.columnar->active_count);
 }
 
+static void import_csv_and_chart_from_path(UIHost *ui, Engine *engine, const char *csv_path) {
+  Page *page = doc_page_get_active(engine->doc);
+  if (!page) return;
+
+  uint32_t tbl_id = page->next_block_id;
+  char cmd_buf[128];
+  snprintf(cmd_buf, sizeof(cmd_buf), "block_create %u %u table", page->id, tbl_id);
+  engine_execute_command(engine, cmd_buf);
+
+  Block *block = page_find_block_by_id(page, tbl_id);
+  if (!block || block->type != BLOCK_TABLE || !block->data.table.columnar) return;
+
+  aslan_table_import_csv(block->data.table.columnar, csv_path);
+
+  const char *fname = strrchr(csv_path, '/');
+  fname = fname ? fname + 1 : csv_path;
+  char tname[64];
+  strncpy(tname, fname, sizeof(tname) - 1); tname[63] = '\0';
+  char *dot = strrchr(tname, '.'); if (dot) *dot = '\0';
+  snprintf(block->data.table.columnar->name, 64, "%s", tname);
+
+  Block *design_block = NULL;
+  for (Block *b = page->first_block; b; b = b->next) {
+    if (b->type == BLOCK_DESIGN) { design_block = b; break; }
+  }
+  if (design_block) {
+    DesignData *dd = &design_block->data.design;
+    if (dd->root) {
+      float cx = (dd->zoom > 0.0f) ? (-dd->view_x / dd->zoom + 80.0f) : 80.0f;
+      float cy = (dd->zoom > 0.0f) ? (-dd->view_y / dd->zoom + 60.0f) : 60.0f;
+      Node *chart = node_create(dd->next_node_id++, NODE_TYPE_CHART, tname);
+      if (chart) {
+        chart->x = cx; chart->y = cy;
+        chart->width = 420.0f; chart->height = 300.0f;
+        chart->parent = dd->root;
+        if (chart->chart_data) chart->chart_data->source_table_id = tbl_id;
+        node_add_child(dd->root, chart);
+        ui->selected_node = chart;
+      }
+    }
+  }
+
+  ui->expanded_block_id = tbl_id;
+  ui->needs_redraw = 1;
+}
+
+void ui_host_import_csv_and_chart(UIHost *ui, Engine *engine) {
+  char csv_path[512];
+  if (!open_csv_file_dialog(csv_path, sizeof(csv_path))) return;
+  import_csv_and_chart_from_path(ui, engine, csv_path);
+}
+
 int copy_image_to_assets(const char *src_path, const char *doc_dir,
                          char *out_rel_path, size_t rel_path_size) {
   // Create assets directory
@@ -1070,6 +1122,15 @@ void ui_host_handle_file_drop(UIHost *ui, const char *file_path, int mx,
     }
   } else {
     ASLAN_DEBUG("Mouse NOT in design bounds");
+  }
+
+  // CSV drop → import and auto-create chart
+  const char *ext = strrchr(file_path, '.');
+  if (ext && (strcmp(ext, ".csv") == 0 || strcmp(ext, ".CSV") == 0)) {
+    if (ui->engine) {
+      import_csv_and_chart_from_path(ui, ui->engine, file_path);
+      return;
+    }
   }
 
   ASLAN_DEBUG("File drop not handled");
@@ -2290,7 +2351,7 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
     }
   } else {
     // --- TOP BAR (single design interface) ---
-    float top_bar_h = 44.0f;
+    float top_bar_h = 52.0f;
     nvgw_set_offset(&ui->nvgw, 0.0f, 0.0f);
 
     NVGcontext *vg = ui->vg;
@@ -2301,6 +2362,12 @@ void ui_render(UIHost *ui, Engine *engine, int win_w, int win_h) {
 
     // Design tools always visible on the right
     ui_render_design_topbar_tools(ui, (float)win_w - 10.0f, 0.0f, top_bar_h);
+
+    // Handle CSV import triggered from toolbar
+    if (ui->editor.pending_import_csv) {
+      ui->editor.pending_import_csv = 0;
+      ui_host_import_csv_and_chart(ui, engine);
+    }
 
     // Render design canvas (full window below top bar)
     ui_render_split_view(ui, engine, win_w, top_bar_h, (float)win_h - top_bar_h);

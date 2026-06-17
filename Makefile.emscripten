@@ -33,7 +33,9 @@ LDFLAGS = \
   -sINITIAL_MEMORY=67108864 \
   -sASYNCIFY \
   -sASYNCIFY_STACK_SIZE=65536 \
-  -sEXPORTED_RUNTIME_METHODS='["ccall","FS","UTF8ToString"]' \
+  -sFORCE_FILESYSTEM=1 \
+  -lidbfs.js \
+  -sEXPORTED_RUNTIME_METHODS='["ccall","FS","UTF8ToString","addRunDependency","removeRunDependency"]' \
   -sEXPORTED_FUNCTIONS='["_main","_web_on_file_ready","_web_on_file_cancelled"]' \
   -sALLOW_TABLE_GROWTH=1 \
   --preload-file assets/fonts \

@@ -652,7 +652,7 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
               }
             }
           }
-        } else if (ui->input.pending_create == 11) {
+        } else if (ui->input.pending_create == 14) {
           // Chart
           new_node = node_create(dd->next_node_id++, NODE_TYPE_CHART, "Chart");
           if (new_node) {
@@ -745,18 +745,17 @@ void ui_render_block_design(UIHost *ui, Engine *engine, Block *block,
       }
 
       // Empty state hint
-      if (dd->root && !dd->root->first_child) {
-        const char *hint = "Click a tool to start";
-        if (ui->font_inter) {
-          nvgFontSize(ui->vg, ui->font_size_px);
-          nvgFontFace(ui->vg, "Inter");
-          nvgFillColor(ui->vg, nvgRGBA(200, 200, 200, 255));
-          nvgTextAlign(ui->vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
-          nvgText(ui->vg, bounds.x + bounds.w / 2.0f,
-                  bounds.y + bounds.h / 2.0f - 10.0f +
-                      ui->font_size_px / 2.0f,
-                  hint, NULL);
-        }
+      if (dd->root && !dd->root->first_child && ui->font_inter) {
+        float cx = bounds.x + bounds.w / 2.0f;
+        float cy = bounds.y + bounds.h / 2.0f;
+        nvgFontFace(ui->vg, "Inter");
+        nvgTextAlign(ui->vg, NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+        nvgFontSize(ui->vg, 22.0f);
+        nvgFillColor(ui->vg, nvgRGBA(180, 180, 180, 200));
+        nvgText(ui->vg, cx, cy - 14.0f, "Drop a CSV to start", NULL);
+        nvgFontSize(ui->vg, ui->font_size_px);
+        nvgFillColor(ui->vg, nvgRGBA(160, 160, 160, 140));
+        nvgText(ui->vg, cx, cy + 14.0f, "or use Import \xe2\x86\x91 in the toolbar", NULL);
       }
 
       // --- Apply artboard scissor ---

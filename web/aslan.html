@@ -110,6 +110,17 @@
         return c;
       })(),
 
+      // Mount IDBFS at /persistent before the app starts so history.log persists
+      preRun: [function() {
+        addRunDependency('idbfs-load');
+        FS.mkdir('/persistent');
+        FS.mount(IDBFS, {}, '/persistent');
+        FS.syncfs(true, function(err) {
+          if (err) console.warn('[aslan] IDBFS load:', err);
+          removeRunDependency('idbfs-load');
+        });
+      }],
+
       // Progress reporting
       setStatus: function(text) {
         var el = document.getElementById('status-text');
@@ -133,6 +144,13 @@
         }
         // Focus canvas so keyboard events work immediately
         document.getElementById('canvas').focus();
+
+        // Periodic IDBFS sync — writes in-memory FS changes to IndexedDB every 5s
+        setInterval(function() {
+          FS.syncfs(false, function(err) {
+            if (err) console.warn('[aslan] IDBFS sync:', err);
+          });
+        }, 5000);
       },
 
       print: function(text) { console.log('[aslan]', text); },

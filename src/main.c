@@ -388,6 +388,11 @@ int main(int argc, char **argv) {
   if (argc >= 2) {
     engine_set_document_path(engine, argv[1]);
   }
+#ifdef __EMSCRIPTEN__
+  else {
+    engine_set_document_path(engine, "/persistent");
+  }
+#endif
 
   // 2. Initialize Renderer (SDL2)
   Renderer *renderer = renderer_create("Aslan Editor v0.1", 1024, 768);
